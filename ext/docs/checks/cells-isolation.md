@@ -22,6 +22,13 @@ is no import. Every form counts: `import`, `import type`, `export ... from`, `im
   needs and that are platform pieces, not capabilities: `@modules/platform/composition` (the injector helper, BE-INJECTION-2),
   `@modules/platform/i18n` (message text) and `@starci/nest-kit` (the module definition). A `*.spec.ts` of cells also reaches the test
   kit `@starci/jest-preset`, `@tests/**` (doubles, builders, fixtures) and `@nivo-lite/agent-sdk/template` (the expression parity spec only).
+  Allowances ruled by the coordinator, each named and single-file: `typescript` (used as a PARSER) only in
+  `cell-source-scan.policy.ts` (CELLS-DECISIONS D3: the stored `.js` is scanned by AST); `ajv8` (the npm alias of ajv 8, JSON Schema 2020-12)
+  only in `cell-json-schema.policy.ts`; `@modules/platform/composition` as above. In `*.spec.ts` files of cells `node:fs`, `node:path` are also
+  allowed (specs load the fixture packages from disk); production files keep the strict list, and the spec of this check plants the same
+  imports in another production file to show they are refused.
+  A type-only import (`import type`) of a `node:` module is erased and allowed. The authoring `.ts` origins under `be/src/tests/fixtures/cells/` import types of
+  `@nivo-lite/cells-author` (they are package-author files beside the seed files, never engine code) and are outside the engine part of gate D.
 - **B, who imports cells.** No file of `be/**`, `fe/**` or `packages/**` outside `be/src/modules/domain/cells/`, `be/src/features/cli/cells-seed/`,
   `be/src/tests/fixtures/cells/`, the entity registry `be/src/modules/platform/database/entities.ts` and the kit doubles
   (`be/src/tests/fixtures/builders/cells*.builder.ts` and specs) imports `@modules/domain/cells`, by alias, subpath or relative path. The

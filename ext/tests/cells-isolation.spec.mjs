@@ -87,6 +87,29 @@ test("gate A: a spec reaches the test kit, the doubles and agent-sdk/template on
     assert.deepEqual(gatesOf(`${CELLS}/cell-expression.policy.spec.ts`, `import { x } from "@nivo-lite/agent-sdk"`), ["A:1"])
 })
 
+test("gate A: the ruled allowances are single-file: typescript, ajv8, and the spec-only node:fs, node:path", () => {
+    assert.deepEqual(gatesOf(`${CELLS}/cell-source-scan.policy.ts`, `import ts from "typescript"`), [])
+    assert.deepEqual(gatesOf(`${CELLS}/cell-json-schema.policy.ts`, `import Ajv from "ajv8/dist/2020"`), [])
+    // The same import in ANOTHER production file is still refused.
+    assert.deepEqual(gatesOf(`${CELLS}/cell-seed.service.ts`, `import ts from "typescript"`), ["A:1"])
+    assert.deepEqual(gatesOf(`${CELLS}/cell-seed.service.ts`, `import Ajv from "ajv8"`), ["A:1"])
+    assert.deepEqual(gatesOf(`${CELLS}/cell-source-scan.policy.ts`, `import Ajv from "ajv8"`), ["A:1"])
+    assert.deepEqual(gatesOf(`${CELLS}/cell-seed.service.ts`, `import { readFileSync } from "node:fs"
+import { join } from "node:path"`), ["A:1", "A:2"])
+    assert.deepEqual(gatesOf(`${CELLS}/cell-seed.service.spec.ts`, `import { readFileSync } from "node:fs"
+import { join } from "node:path"
+import { parse } from "yaml"`), [])
+    assert.deepEqual(gatesOf(`${CELLS}/cell-seed.service.spec.ts`, `import { tmpdir } from "node:os"`), ["A:1"])
+})
+
+test("gate A: a type-only import of a node module is erased and allowed; gate D: fixture authoring origins may import cells-author", () => {
+    assert.deepEqual(gatesOf(`${CELLS}/cell-runner.client.ts`, `import type { Readable } from "node:stream"
+import { Readable as R } from "node:stream"`), ["A:2"])
+    const origin = `import type { NodeContext } from "@nivo-lite/cells-author"`
+    assert.deepEqual(gatesOf("be/src/tests/fixtures/cells/demo-money/cells/node/x/v1/run.ts", origin), [])
+    assert.deepEqual(gatesOf("be/src/modules/domain/chat/run.ts", origin), ["D:1"])
+})
+
 // ---- gate B: who imports cells ----------------------------------------------------------------------------------------------
 
 test("gate B positive: the cells folders, the cli seed, the fixtures, the doubles and the registry file import cells", () => {

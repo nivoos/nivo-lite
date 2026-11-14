@@ -38,6 +38,19 @@ const NODE_MODULE_HOMES = {
     "node:child_process": `${CELLS_DIR}/cell-runner.client.ts`,
 }
 
+/**
+ * Gate A, the named single-file allowances the coordinator ruled (CELLS-NOTES): one production file each, with its reason. The same import in
+ * another production file is still a finding.
+ *  - cell-source-scan.policy.ts: `typescript`, used as a PARSER only (CELLS-DECISIONS D3: the stored .js is scanned by AST);
+ *  - cell-json-schema.policy.ts: `ajv8` (the npm alias of ajv 8, JSON Schema 2020-12; the root `ajv` stays 6 for eslint).
+ */
+const FILE_ALLOWANCES = {
+    [`${CELLS_DIR}/cell-source-scan.policy.ts`]: ["typescript"],
+    [`${CELLS_DIR}/cell-json-schema.policy.ts`]: ["ajv8"],
+}
+/** Gate A, what a SPEC file of cells may also import: the node modules that load the fixture packages from disk (the `yaml` package is allowed to every file). */
+const SPEC_NODE_MODULES = ["node:fs", "node:path"]
+
 /** Gate B, who may import `@modules/domain/cells`: the folders and the one registry file (CELLS-PLAN 7.2 B), and the doubles of the kit (BE-TEST-4, a builder named `cells*.builder.ts`). */
 const IMPORTER_FOLDERS = [`${CELLS_DIR}/`, "be/src/features/cli/cells-seed/", "be/src/tests/fixtures/cells/"]
 const IMPORTER_FILES = ["be/src/modules/platform/database/entities.ts"]
@@ -169,8 +182,11 @@ const finding = (gate, file, line, what) => ({ gate, file, line, what })
 const gateA = (file, refs) => {
     const findings = []
     const isSpec = SPEC_FILE.test(file)
-    for (const { specifier, line } of refs) {
+    for (const { specifier, line, typeOnly } of refs) {
         if (isBuiltin(specifier)) {
+            // A type-only import of a node module is erased: it adds no runtime dependency (e.g. the Socket and Readable types of the runner client).
+            if (typeOnly) continue
+            if (isSpec && SPEC_NODE_MODULES.includes(specifier.startsWith("node:") ? specifier : `node:${specifier}`)) continue
             const home = NODE_MODULE_HOMES[specifier.startsWith("node:") ? specifier : `node:${specifier}`]
             if (home !== file) findings.push(finding("A", file, line, `${specifier}: a node module only where the plan names its home`))
             continue
@@ -190,6 +206,8 @@ const gateA = (file, refs) => {
             if (!(isSpec && SPEC_ALLOWED.some((entry) => specifier === entry))) findings.push(finding("A", file, line, `${specifier}: V2 stands alone, no agent-sdk (a spec may reach agent-sdk/template only)`))
             continue
         }
+        const allowed = FILE_ALLOWANCES[file] ?? []
+        if (allowed.some((entry) => specifier === entry || specifier.startsWith(`${entry}/`))) continue
         const packageOk = PACKAGES_ALLOWED.some((entry) => (entry.endsWith("/") ? specifier.startsWith(entry) : specifier === entry || specifier.startsWith(`${entry}/`)))
         const specOk = isSpec && SPEC_ALLOWED.some((entry) => (entry.endsWith("/") ? specifier.startsWith(entry) : specifier === entry))
         if (!packageOk && !specOk) findings.push(finding("A", file, line, `${specifier}: not on the list of what cells imports`))
@@ -243,7 +261,8 @@ const gateD = (file, refs, callList) => {
             if (intoBe) findings.push(finding("D", file, line, `${specifier}: the authoring package imports no be path`))
         }
     }
-    if (isIn(file, "be") || isIn(file, "fe")) {
+    // The fixture packages keep their authoring `.ts` origins (CELLS-DECISIONS D3) beside their seed files: they are package-author files, not engine code.
+    if ((isIn(file, "be") || isIn(file, "fe")) && !file.startsWith("be/src/tests/fixtures/cells/")) {
         for (const { specifier, line } of refs) {
             const reached = resolveRelative(file, specifier)
             const author = specifier === "@nivo-lite/cells-author" || specifier.startsWith("@nivo-lite/cells-author/") || (reached !== null && isIn(reached, AUTHOR_DIR))
