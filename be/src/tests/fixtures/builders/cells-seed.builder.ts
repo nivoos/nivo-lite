@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs"
 import { join, relative, sep } from "node:path"
 import { Test } from "@nestjs/testing"
+import { parse, stringify } from "yaml"
 import { mock } from "@starci/jest-preset"
 import type { EntityManager } from "typeorm"
 import {
@@ -54,6 +55,19 @@ export const packageFiles = (name: string): Map<string, string> => {
 export const edited = (files: CellPackageFiles, path: string, change: (text: string) => string): Map<string, string> => {
     const copy = new Map(files)
     copy.set(path, change(copy.get(path) ?? ""))
+    return copy
+}
+
+/** A parsed yaml document a spec changes in place (the shape of a fixture file is the author's, so a spec never edits its text). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type YamlDocument = any
+
+/** A copy of the files with one yaml file parsed, changed by `mutate` and written back, whatever layout the file had. */
+export const editedYaml = (files: CellPackageFiles, path: string, mutate: (document: YamlDocument) => void): Map<string, string> => {
+    const document: YamlDocument = parse(files.get(path) ?? "")
+    mutate(document)
+    const copy = new Map(files)
+    copy.set(path, stringify(document))
     return copy
 }
 

@@ -1,5 +1,5 @@
 import { CellsErrorCode } from "@modules/domain/cells"
-import { FIXTURE_PACKAGES, ORIGIN, buildSeed, edited, packageFiles, withoutFolder } from "@tests/fixtures/builders/cells-seed.builder"
+import { FIXTURE_PACKAGES, ORIGIN, buildSeed, edited, editedYaml, packageFiles, withoutFolder } from "@tests/fixtures/builders/cells-seed.builder"
 
 const NEXT_COMMIT = "b".repeat(40)
 
@@ -102,9 +102,9 @@ describe("CellSeedService", () => {
 
     it("demo-crm-lead: finalRefusals outside refusals is refused with its code, the node that names the tool too, and the rest seeds", async () => {
         const { seed } = await buildSeed()
-        const files = edited(packageFiles("demo-crm-lead"), "cells/tool/nivo.tool.crm.lead.create/v1/cell.yaml", (text) =>
-            text.replace("finalRefusals: [invalid_lead]", "finalRefusals: [nope]"),
-        )
+        const files = editedYaml(packageFiles("demo-crm-lead"), "cells/tool/nivo.tool.crm.lead.create/v1/cell.yaml", (cell) => {
+            cell.semantics.finalRefusals = ["nope"]
+        })
 
         const view = await seed.apply(request(files))
 
@@ -119,7 +119,9 @@ describe("CellSeedService", () => {
     it("a published version seeded again with other content is refused CELLS_VERSION_IMMUTABLE while the rest stays unchanged", async () => {
         const { seed } = await buildSeed()
         await seed.apply(request(packageFiles("demo-money")))
-        const changed = edited(packageFiles("demo-money"), "cells/tool/nivo.tool.customer.message.send/v1/cell.yaml", (text) => text.replace("Gửi tin cho khách", "Gửi tin nhắn"))
+        const changed = editedYaml(packageFiles("demo-money"), "cells/tool/nivo.tool.customer.message.send/v1/cell.yaml", (cell) => {
+            cell.title.vi = "Gửi tin nhắn"
+        })
 
         const view = await seed.apply(request(changed, { commit: NEXT_COMMIT }))
 
@@ -130,7 +132,9 @@ describe("CellSeedService", () => {
 
     it("a version whose file says retired is retired through the writer", async () => {
         const { seed, writer } = await buildSeed()
-        const files = edited(packageFiles("demo-money"), "cells/tool/nivo.tool.payment.request.read/v1/cell.yaml", (text) => `${text}reviewState: retired\n`)
+        const files = editedYaml(packageFiles("demo-money"), "cells/tool/nivo.tool.payment.request.read/v1/cell.yaml", (cell) => {
+            cell.reviewState = "retired"
+        })
 
         await seed.apply(request(files))
 
