@@ -9,7 +9,6 @@ import { CELL_PROOF_WORLDS } from "./cell-proof.decorators"
 import { CellProofService } from "./cell-proof.service"
 import { CELL_READER } from "./cells.decorators"
 import type { CellDefinitionView, CellRef } from "./cells.contracts"
-import { CellsErrorCode } from "./errors/cells.error"
 
 const FIXTURES = resolve(__dirname, "../../../tests/fixtures/cells")
 const runner = realRunnerOf()
