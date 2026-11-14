@@ -27,6 +27,7 @@ import type {
     RunnerRunResult,
     SeedReceiptInput,
     ToolAnswer,
+    ToolCallKey,
     UsageFigures,
     ValidatedCell,
     ValidatedGraph,
@@ -273,6 +274,8 @@ export interface DoorCall {
     readonly scope: ExecuteScope
     readonly tool: string
     readonly args: JsonValue
+    /** The intent key of the call, as the executor gave it. */
+    readonly callKey: string
 }
 
 /** An answer, or a function of the args that answers. */
@@ -284,8 +287,8 @@ export class ScriptedCellToolDoor implements CellToolDoor {
 
     constructor(private readonly answers: Readonly<Record<string, ScriptedToolAnswer>> = {}) {}
 
-    call(scope: ExecuteScope, tool: string, args: JsonValue): Promise<ToolAnswer> {
-        this.calls.push({ scope, tool, args })
+    call(scope: ExecuteScope, tool: string, args: JsonValue, call: ToolCallKey): Promise<ToolAnswer> {
+        this.calls.push({ scope, tool, args, callKey: call.key })
         const scripted = this.answers[tool]
         if (scripted === undefined) return Promise.resolve({ ok: false, refusal: "tool_unscripted" })
         return Promise.resolve(typeof scripted === "function" ? scripted(args) : scripted)

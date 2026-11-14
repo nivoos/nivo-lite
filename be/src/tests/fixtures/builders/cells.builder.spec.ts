@@ -140,7 +140,7 @@ describe("ScriptedCellRunner", () => {
             limits: { memoryBytes: 1, stackBytes: 1, cpuMs: 1, wallMs: 1, outputBytes: 1, maxCalls: 1 },
         } as const
 
-        await expect(port.run(request, { call: (_call, tool, args) => door.call(SCOPE, tool, args), say: () => Promise.resolve(null) })).resolves.toEqual({ type: "done", id: "r1", output: null })
+        await expect(port.run(request, { call: (_call, tool, args) => door.call(SCOPE, tool, args, { key: `k:${String(_call)}` }), say: () => Promise.resolve(null) })).resolves.toEqual({ type: "done", id: "r1", output: null })
         await expect(port.check("bad")).resolves.toEqual(["line 1: unexpected token"])
         expect(runner.runs).toEqual([request])
         expect(runner.checked).toEqual(["bad"])
@@ -198,10 +198,11 @@ describe("ScriptedCellToolDoor", () => {
         })
         const port: CellToolDoor = door
 
-        await expect(port.call(SCOPE, "nivo.tool.a", {})).resolves.toEqual({ ok: true, value: { done: true } })
-        await expect(port.call(SCOPE, "nivo.tool.b", { n: 1 })).resolves.toEqual({ ok: true, value: { n: 1 } })
-        await expect(port.call(SCOPE, "nivo.tool.c", {})).resolves.toEqual({ ok: false, refusal: "tool_unscripted" })
+        await expect(port.call(SCOPE, "nivo.tool.a", {}, { key: "k1" })).resolves.toEqual({ ok: true, value: { done: true } })
+        await expect(port.call(SCOPE, "nivo.tool.b", { n: 1 }, { key: "k2" })).resolves.toEqual({ ok: true, value: { n: 1 } })
+        await expect(port.call(SCOPE, "nivo.tool.c", {}, { key: "k3" })).resolves.toEqual({ ok: false, refusal: "tool_unscripted" })
         expect(door.calls.map((call) => call.tool)).toEqual(["nivo.tool.a", "nivo.tool.b", "nivo.tool.c"])
+        expect(door.calls.map((call) => call.callKey)).toEqual(["k1", "k2", "k3"])
     })
 })
 

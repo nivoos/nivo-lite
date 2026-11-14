@@ -109,10 +109,24 @@ export interface UsageFigures {
     readonly model?: string
 }
 
-/** What a tool answered to a call: a value, or a refusal code with facts. */
+/** What a tool answered to a call: a value, or a refusal code with facts. The envelope may report the usage the call consumed (metered cells). */
 export type ToolAnswer =
-    | { readonly ok: true; readonly value: JsonValue }
-    | { readonly ok: false; readonly refusal: string; readonly facts?: JsonObject }
+    | { readonly ok: true; readonly value: JsonValue; readonly usage?: ToolUsage }
+    | { readonly ok: false; readonly refusal: string; readonly facts?: JsonObject; readonly usage?: ToolUsage }
+
+/** The usage a tool call reports in its answer envelope, never in the business output: how many of which unit (`token`, `message`, ...). */
+export type ToolUsage = { readonly units: number; readonly unit: string }
+
+/** The intent key of ONE tool call (the ledger key of the call's position in the step): the door passes it on where a vendor replay key is needed. */
+export interface ToolCallKey {
+    readonly key: string
+}
+
+/** The recorded clock and random of a run: what a replay of the same intent uses instead of reading them again. */
+export interface RunFacts {
+    readonly now: string
+    readonly randomSeed: string
+}
 
 /** The facts a run is given in place of a clock and a random source (the prelude fixes `Date.now` and `Math.random` on them). */
 export interface RunnerFacts {
@@ -315,6 +329,8 @@ export interface ExecuteRequest {
     readonly cell: CellRef
     readonly input: JsonValue
     readonly config?: JsonValue
+    /** The recorded clock and random; absent: the executor takes them from the clock port and the run scope and records them with the intent. */
+    readonly facts?: RunFacts
 }
 
 /** A tool call a source made, kept by content so a re-run replays it. */
