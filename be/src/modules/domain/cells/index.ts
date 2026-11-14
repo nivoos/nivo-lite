@@ -82,6 +82,18 @@ export { CELLS_ERROR_KINDS, CellsError, CellsErrorCode } from "./errors/cells.er
 export { CELLS_MESSAGES } from "./messages/cells.messages"
 // Each slice adds ONLY its own block below, under its own heading, and nothing else in this file.
 // S1 (storage and reader):
+export { CellDefinitionsService } from "./cell-definitions.service"
+export { canonicalJsonOf, definitionHashOf, documentHashOf, graphRefTextOf, refTextOf, sha256Of } from "./cell-hash.policy"
+export type { DefinitionContent } from "./cell-hash.policy"
+export { CELL_CACHE_LIMITS, CellReaderService } from "./cell-reader.service"
+export {
+    CellDefinitionEntity,
+    CellGraphEntity,
+    CellPackageEntity,
+    CellSeedReceiptEntity,
+    CellSourceEntity,
+    cellsEntities,
+} from "./persistence/entities"
 // S2 (seed):
 // S3 (runner):
 // S4 (executor, adapters, module wiring):

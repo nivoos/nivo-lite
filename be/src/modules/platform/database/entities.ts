@@ -14,6 +14,7 @@ import { appCommandsEntities } from "@modules/domain/app-commands"
 import { connectionPollEntities } from "@modules/domain/connection-poll"
 import { billingEntities } from "@modules/domain/billing"
 import { brainEntities } from "@modules/domain/brain"
+import { cellsEntities } from "@modules/domain/cells"
 import { brainCommandsEntities } from "@modules/domain/brain-commands"
 import { brainEvalCasesEntities } from "@modules/domain/brain-eval-cases"
 import { brainExtractionsEntities } from "@modules/domain/brain-extractions"
@@ -102,6 +103,7 @@ export const PRIMARY_ENTITIES: DatabaseOptions["entities"] = [
     ...connectionPollEntities,
     ...billingEntities,
     ...brainEntities,
+    ...cellsEntities,
     ...brainCommandsEntities,
     ...dossierReviewEntities,
     ...brainEvalCasesEntities,
