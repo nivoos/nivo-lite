@@ -50,7 +50,10 @@ export type {
     SeedReport,
     StoredExpr,
     StoredRef,
+    RunFacts,
     ToolAnswer,
+    ToolCallKey,
+    ToolUsage,
     UsageFigures,
     ValidatedCell,
     ValidatedGraph,
@@ -97,4 +100,14 @@ export {
 // S2 (seed):
 // S3 (runner):
 // S4 (executor, adapters, module wiring):
+export { CELLS_RUNNER_LIMITS, CELL_CAUSE, CellExecutorService, InjectCellsRunnerLimits, REFUSAL_CLASS_FACT } from "./cell-executor.service"
+export { CellExpressionPolicy, EXPRESSION_MAX_DEPTH, isStoredExpr, isStoredRef } from "./cell-expression.policy"
+export type { BoundLimits, ExpressionScope, IfConfig, IfDecision } from "./cell-expression.policy"
+export { CellJsonSchemaPolicy } from "./cell-json-schema.policy"
+export { CREDITS_EXHAUSTED_CODE, isDeclaredRefusal, isFinalRefusal, verdictOf, writesOutside } from "./cell-verdict.policy"
+export { CellsLogEvent } from "./cells.log-events"
+export type { CellsPortOverrides } from "./cells.module"
+export { MemoryCellLedgerClient } from "./memory-cell-ledger.client"
+export { MemoryCellMeterClient } from "./memory-cell-meter.client"
+export type { MeterBookingView } from "./memory-cell-meter.client"
 // S5 (test kit):
