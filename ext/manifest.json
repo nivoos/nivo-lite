@@ -173,6 +173,11 @@
       "id": "template-tools",
       "run": "ext/checks/template-tools.mjs",
       "why": "A template lists only tools that act outside or on other people: the default record, file, timer and read-context tools are never listed, except an AI read a node's own code calls or requires (.starciwork/concepts/nivo-toolset.md: two default sets, one declaration each)."
+    },
+    {
+      "id": "cells-isolation",
+      "run": "ext/checks/cells-isolation.mjs",
+      "why": "The cells capability imports only its own folder and the allowed platform pieces, nothing running imports it, no code is evaluated in the repository, and QuickJS evaluation lives only in packages/cell-runner (CELLS-PLAN 7.2, gates A to D; .starciwork/concepts/layers.md: the engine holds no business)."
     }
   ],
   "packages": {
