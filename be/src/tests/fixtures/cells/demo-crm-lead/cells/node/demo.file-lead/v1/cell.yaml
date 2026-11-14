@@ -1,0 +1,26 @@
+kind: node
+key: demo.file-lead
+version: 1
+title: { vi: "Ghi một lead", en: "File one lead" }
+input: { type: object, required: [recordId, name, email], properties: { recordId: { type: string }, name: { type: string }, email: { type: string } } }
+output: { type: object, required: [leadId], properties: { leadId: { type: string } } }
+semantics:
+  mutates: false
+  tools: [demo.model.complete, nivo.tool.crm.lead.create, nivo.tool.record.update]
+body: { mode: auto, accounts: [demo-crm] }
+source: run.js
+origin: run.ts
+examples:
+  - name: files Lan and updates the record
+    input: { recordId: R1, name: Lan, email: lan@example.test }
+    tools:
+      - { id: demo.model.complete, answer: { ok: true, value: { text: "Lan wants a quote" } } }
+      - { id: nivo.tool.crm.lead.create, answer: { ok: true, value: { leadId: L1 } } }
+      - { id: nivo.tool.record.update, answer: { ok: true, value: { updated: true } } }
+    expect: { ok: { leadId: L1 } }
+  - name: cannot when the CRM refuses the lead
+    input: { recordId: R2, name: "", email: bad }
+    tools:
+      - { id: demo.model.complete, answer: { ok: true, value: { text: "" } } }
+      - { id: nivo.tool.crm.lead.create, answer: { ok: false, refusal: invalid_lead } }
+    expect: { ending: cannot }

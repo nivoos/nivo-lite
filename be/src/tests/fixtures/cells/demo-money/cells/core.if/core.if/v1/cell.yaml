@@ -1,0 +1,8 @@
+kind: core.if
+key: core.if
+version: 1
+title: { vi: "Rẽ nhánh theo điều kiện", en: "Branch on a condition" }
+input: { type: object }
+output: { type: object }
+config: { type: object, required: [when, yes], properties: { when: { type: object }, yes: { type: string }, no: { type: string } } }
+semantics: { mutates: false }

@@ -1,0 +1,8 @@
+kind: core.loop
+key: core.loop
+version: 1
+title: { vi: "Lặp qua danh sách", en: "Loop over a list" }
+input: { type: object }
+output: { type: object }
+config: { type: object, properties: { over: { type: object }, key: { type: string }, max: { type: integer, minimum: 1, maximum: 50 } } }
+semantics: { mutates: false }

@@ -1,0 +1,24 @@
+kind: node
+key: demo.ask-to-pay
+version: 1
+title: { vi: "Mời khách thanh toán", en: "Ask the customer to pay" }
+input: { type: object, required: [orderId, total], properties: { orderId: { type: string }, total: { type: number } } }
+output: { type: object, required: [payKey], properties: { payKey: { type: string } } }
+semantics:
+  mutates: false
+  tools: [nivo.tool.payment.request.create, nivo.tool.customer.message.send]
+body: { mode: auto, accounts: [sepay, payos] }
+source: run.js
+origin: run.ts
+examples:
+  - name: asks 350,000 for DH1001
+    input: { orderId: DH1001, total: 350000 }
+    tools:
+      - { id: nivo.tool.payment.request.create, answer: { ok: true, value: { payKey: DH1001 } } }
+      - { id: nivo.tool.customer.message.send, answer: { ok: true, value: { delivered: true } } }
+    expect: { ok: { payKey: DH1001 } }
+  - name: cannot when the request is refused
+    input: { orderId: DH1002, total: 0 }
+    tools:
+      - { id: nivo.tool.payment.request.create, answer: { ok: false, refusal: amount_invalid } }
+    expect: { ending: cannot }

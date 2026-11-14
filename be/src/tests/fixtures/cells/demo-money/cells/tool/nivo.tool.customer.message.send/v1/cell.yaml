@@ -1,0 +1,8 @@
+kind: tool
+key: nivo.tool.customer.message.send
+version: 1
+title: { vi: "Gửi tin cho khách", en: "Send the customer a message" }
+input: { type: object, required: [text], properties: { text: { type: string } } }
+output: { type: object, required: [delivered], properties: { delivered: { type: boolean } } }
+semantics: { mutates: true, outside: true, repeatable: false, refusals: [customer_blocked], finalRefusals: [customer_blocked] }
+body: { account: any, servedBy: "primitive:customer.message.send" }

@@ -1,0 +1,8 @@
+kind: core.outcome
+key: core.outcome
+version: 1
+title: { vi: "Kết quả của quy trình", en: "The workflow outcome" }
+input: { type: object }
+output: { type: object }
+config: { type: object, required: [name], properties: { name: { type: string } } }
+semantics: { mutates: false }

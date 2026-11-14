@@ -1,0 +1,14 @@
+kind: tool
+key: nivo.tool.crm.lead.create
+version: 1
+title: { vi: "Tạo lead", en: "Create a lead" }
+input: { type: object, required: [name, email], properties: { name: { type: string }, email: { type: string } } }
+output: { type: object, required: [leadId], properties: { leadId: { type: string } } }
+semantics:
+  mutates: true
+  outside: true
+  repeatable: true
+  onceBy: [email]
+  refusals: [invalid_lead]
+  finalRefusals: [invalid_lead]
+body: { account: owner, servedBy: { demo.crm: nivo.api.crm.demo.post.leads } }

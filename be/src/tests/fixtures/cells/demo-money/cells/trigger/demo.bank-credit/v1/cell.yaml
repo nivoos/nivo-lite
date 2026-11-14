@@ -1,0 +1,14 @@
+kind: trigger
+key: demo.bank-credit
+version: 1
+title: { vi: "Tiền về tài khoản", en: "A bank credit arrived" }
+input: { type: object, required: [id, amount, content], properties: { id: { type: string }, amount: { type: number }, content: { type: string } } }
+output: { type: object, required: [creditId, amountVnd, content], properties: { creditId: { type: string }, amountVnd: { type: number }, content: { type: string } } }
+semantics: { mutates: false }
+body: { via: webhook, dataType: bank-credit, factKey: creditId }
+source: translate.js
+origin: translate.ts
+examples:
+  - name: turns a raw credit into a fact
+    input: { id: C1, amount: 350000, content: "DH1001 thanh toan" }
+    expect: { ok: { creditId: C1, amountVnd: 350000, content: "DH1001 thanh toan" } }

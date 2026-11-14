@@ -98,6 +98,12 @@ export {
     cellsEntities,
 } from "./persistence/entities"
 // S2 (seed):
+export { CellSeedService } from "./cell-seed.service"
+export type { CellSeedRequest, CellSeedView } from "./cell-seed.service"
+export { CellValidationService } from "./cell-validation.service"
+export type { AcceptedCells } from "./cell-validation.service"
+export { cellRefText, graphRefText, readCellPackage, readPackageManifest } from "./cell-package-files.mapper"
+export type { CellPackageContent, CellPackageFiles, PackageCell, PackageFault, PackageGraph } from "./cell-package-files.mapper"
 // S3 (runner):
 // S4 (executor, adapters, module wiring):
 export { CELLS_RUNNER_LIMITS, CELL_CAUSE, CellExecutorService, InjectCellsRunnerLimits, REFUSAL_CLASS_FACT } from "./cell-executor.service"

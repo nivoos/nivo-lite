@@ -1,0 +1,8 @@
+kind: tool
+key: nivo.tool.payment.request.read
+version: 1
+title: { vi: "Đọc yêu cầu thanh toán", en: "Read a payment request" }
+input: { type: object, required: [payKey], properties: { payKey: { type: string } } }
+output: { type: object, required: [found], properties: { found: { type: boolean }, status: { type: string } } }
+semantics: { mutates: false, refusals: [not_found] }
+body: { account: owner, servedBy: { sepay: nivo.api.sepay.payment.get } }
