@@ -1,7 +1,6 @@
-import { createHash } from "node:crypto"
 import type { RawBodyRequest } from "@nestjs/common"
 import type { Request } from "express"
-import { fakeTransaction, mock, mockEntityManager, recordingQueueOutbox } from "@starci/jest-preset"
+import { fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
 import { BankFeedReceiptService } from "@modules/domain/bank-feed-inbox"
 import { BankFeedReceiptsService, type PaymentProofService } from "@modules/domain/billing"
 import { CASSO_SANDBOX_CATALOGUE } from "@modules/domain/casso-provider"
@@ -43,16 +42,15 @@ const world = () => {
     const { sandbox, store } = sandboxServiceOf(SANDBOX, LIVE)
     const guard = new SandboxWebhookKeyService(store, { enabled: true }, connections)
     const proofs = mock<WebhookProofRegistry>()
-    proofs.verify.mockResolvedValue(undefined)
+    proofs.verify.mockResolvedValue("proven")
     const claims = mock<BankFeedReceiptService>()
-    claims.claim.mockResolvedValue(true)
+    claims.keep.mockResolvedValue(1)
     const tx = fakeTransaction(mockEntityManager())
     const receipts = new BankFeedReceiptsService(
         tx.em,
         mock<PaymentProofService>(),
         claims,
         mock<FeedWebhookRegistryService>(),
-        recordingQueueOutbox(),
     )
     const door = new CassoWebhook(new ScopedWebhookVerifier(proofs, guard), receipts)
     /** What the HTTP route does with one call: the raw bytes, the id the path names, the sandbox header. Casso's ack is HTTP 200, empty. */
@@ -76,9 +74,9 @@ const world = () => {
     const catalogues = new SandboxCatalogueRegistryService()
     catalogues.register(CASSO_SANDBOX_CATALOGUE)
     const doors = new ProviderSandboxAccountsService(connections, sandbox, catalogues, poster, { now: () => NOW })
-    /** The credits the feed claimed, as the real Casso reading made them, with the delivery key each came under. */
+    /** The movements the feed kept, as the real Casso reading made them, with the account and the way they came. */
     const claimed = () =>
-        claims.claim.mock.calls.map(([, provider, deliveryId, payload]) => ({ provider, deliveryId, ...payload }))
+        claims.keep.mock.calls.map(([, provider, connection, credits, source]) => ({ provider, connection, credits, source }))
     return { doors, proofs, claimed, route, poster }
 }
 
@@ -112,8 +110,8 @@ describe("Casso sandbox cases on the real Casso webhook controller (R62)", () =>
                 }),
             ])
         }
-        // The same transaction twice is the same bytes, so the same delivery key: the inbox keeps it once.
-        expect(new Set(reads.map((one) => one.deliveryId)).size).toBe(1)
+        // The same transaction twice is the same transaction id, so the same row key: the inbox keeps it once.
+        expect(new Set(reads.map((one) => one.credits.map((credit) => credit.eventId).join())).size).toBe(1)
     })
 
     it("CASSO-5 (money out) is delivered and proven, but Casso's negative amount is no credit: the feed claims nothing", async () => {
@@ -127,13 +125,13 @@ describe("Casso sandbox cases on the real Casso webhook controller (R62)", () =>
         expect(claimed()).toEqual([])
     })
 
-    it("keys the delivery by the connection and the sha256 of the delivered bytes, as the live intake does", async () => {
-        const { doors, poster, claimed } = world()
+    it("keys the movement by Casso's own transaction id (not by the delivered bytes), as a webhook row", async () => {
+        const { doors, claimed } = world()
 
         await doors.send(ACTOR, SANDBOX.id, "CASSO-1", ASKED)
 
-        const bytes = Buffer.from(JSON.stringify(poster.posts[0]?.body))
-        expect(claimed()[0]?.deliveryId).toBe(`${SANDBOX.id}:${createHash("sha256").update(bytes).digest("hex")}`)
+        expect(claimed()[0]).toMatchObject({ source: "webhook" })
+        expect(claimed()[0]?.credits.map((credit) => credit.eventId)).toEqual(["casso:7100001"])
     })
 
     it("refuses a call for the sandbox account without its key or with a wrong one, and a LIVE account still runs Casso's own signature proof", async () => {

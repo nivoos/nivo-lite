@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common"
 import { KnowledgeJobsService } from "@modules/domain/knowledge"
-import { AdvancingJobStepPolicy, InjectJobClaims, type JobClaims, type JobStep } from "@modules/platform/jobs"
+import { AdvancingJobStepPolicy, InjectJobClaims, type ClaimedJob, type JobClaims, type JobStep } from "@modules/platform/jobs"
 
 @Injectable()
 /** The one effect of the job: the source of the claimed job is read, cut into passages, embedded and stored. */
@@ -13,7 +13,7 @@ export class IndexSourceStep extends AdvancingJobStepPolicy implements JobStep {
     }
 
     /** Indexes the source after the worker's claim has been checked. */
-    protected perform(payload: object): Promise<unknown> {
-        return this.knowledge.index(payload)
+    protected perform(_payload: object, job: ClaimedJob): Promise<unknown> {
+        return this.knowledge.index(job)
     }
 }

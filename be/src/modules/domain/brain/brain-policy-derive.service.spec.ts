@@ -12,6 +12,8 @@ import { ADDRESS, DERIVE_NOW, FEE, HOURS, deriveFactOf, derivedOf } from "@tests
 import { DIA_CHI_VI, GIAO_HANG_VI, GIO_LAM_VIEC_VI, GIO_MO_CUA_VI, GROUPS_IN_USE_GIAO_HANG_GIO_LAM_VIEC_VI, MUC_PHI_CHU_TIEM_CHINH_DUOC_VI, PHI_GIAO_HANG_NOI_THANH_VI, PHI_GIAO_HANG_VI, PHI_SHIP_NOI_THANH_VI, PHI_SHIP_VI, SO_THICH_VI, V_35_000_D_MOT_DON_VI, V_45_000_D_VI, WAS_POLICY_PHI_GIAO_HANG_IN_GROUP_GIAO_HANG_VI } from "@tests/fixtures/i18n/brain-b-spec.messages"
 import { MemoryCandidates, MemoryStore, SCRIPT, answer, answerOf } from "@tests/fixtures/builders/brain-b.builder"
 import type { ScriptOf } from "@tests/fixtures/builders/brain-b.builder"
+import { chainProviders, claimedJob } from "@tests/fixtures/builders/knowledge-chain.builder"
+import { classifyFailure } from "@modules/platform/queue"
 import { BrainPolicyCandidatesService } from "./brain-policy-candidates.service"
 import { BrainPolicyDerivationsService } from "./brain-policy-derivations.service"
 import { BrainPolicyDeriveService } from "./brain-policy-derive.service"
@@ -23,16 +25,17 @@ import type { DerivedPolicy } from "./policy-derive.policy"
 
 const WS = "11111111-1111-4111-8111-111111111111"
 const STARTED = new Date(DERIVE_NOW)
+const JOB = claimedJob({ workspaceId: WS })
 
-/** What one case sets up: the facts in force and, when it needs them, the judgements kept, the failed tries and the scripted model. */
+/** What one case sets up: the facts in force and, when it needs them, the judgements kept and the scripted model. */
 interface DeriveOptions {
     readonly facts: ReadonlyArray<FactRecord>
     readonly stored?: ReadonlyArray<DerivedPolicy>
-    readonly attempts?: number
     readonly script?: ScriptOf
 }
 
 const build = async (options: DeriveOptions) => {
+    const chain = chainProviders()
     const ai = mock<AiService>()
     ai.available.mockReturnValue(true)
     ai.chat.mockImplementation((request) => Promise.resolve(answer(answerOf(request, options.script ?? SCRIPT))))
@@ -59,7 +62,7 @@ const build = async (options: DeriveOptions) => {
     const candidatesDouble = mock<BrainPolicyCandidatesService>()
     candidatesDouble.page.mockImplementation((ws, after, limit) => candidates.page(ws, after, limit))
     const derivations = mock<BrainPolicyDerivationsService>()
-    derivations.started.mockResolvedValue({ startedAt: STARTED, attempts: options.attempts ?? 0 })
+    derivations.started.mockResolvedValue({ startedAt: STARTED })
     derivations.finished.mockResolvedValue("idle")
     const usage = mock<UsageMeterService>()
     usage.blockedBy.mockResolvedValue(false)
@@ -70,6 +73,7 @@ const build = async (options: DeriveOptions) => {
     })
     const moduleRef = await Test.createTestingModule({
         providers: [
+            ...chain.providers,
             BrainPolicyDeriveService,
             ModelJsonService,
             { provide: AI, useValue: ai },
@@ -82,7 +86,7 @@ const build = async (options: DeriveOptions) => {
             { provide: UsageMeterService, useValue: usage },
         ],
     }).compile()
-    return { service: moduleRef.get(BrainPolicyDeriveService), ai, reads, store: memory, derivations, usage, booked, logger, candidates, facts }
+    return { service: moduleRef.get(BrainPolicyDeriveService), chain, ai, reads, store: memory, derivations, usage, booked, logger, candidates, facts }
 }
 
 /** Two hundred facts: more than one pass judges, so a pass says "more". */
@@ -94,7 +98,7 @@ describe("BrainPolicyDeriveService: first derive", () => {
     it("judges every truth in force in one call: rules become policies with a title and a group, identity data does not", async () => {
         const { service, ai, store, derivations, reads } = await build({ facts: [FEE, HOURS, ADDRESS] })
 
-        const pass = await service.pass(WS)
+        const pass = await service.pass(WS, JOB)
 
         expect(pass).toEqual({ outcome: "done", judged: 3, rebound: 0, retired: 0, calls: 1 })
         expect(ai.chat).toHaveBeenCalledTimes(1)
@@ -119,7 +123,7 @@ describe("BrainPolicyDeriveService: first derive", () => {
     it("caps the answer, turns reasoning off and books the call as brain under the work kind policy_derive, step derive", async () => {
         const { service, ai, usage, booked } = await build({ facts: [FEE] })
 
-        await service.pass(WS)
+        await service.pass(WS, JOB)
 
         const [request] = ai.chat.mock.calls[0] ?? []
         expect(request?.budget).toEqual({ effort: "off", maxTokens: 4000 })
@@ -134,7 +138,7 @@ describe("BrainPolicyDeriveService: first derive", () => {
         const customer = deriveFactOf({ id: "c", subjectType: "customer", subjectKey: "chi-lan", attributeLabel: SO_THICH_VI, attribute: "so-thich" })
         const { service, ai } = await build({ facts: [customer] })
 
-        const pass = await service.pass(WS)
+        const pass = await service.pass(WS, JOB)
 
         expect(pass.outcome).toBe("done")
         expect(ai.chat).not.toHaveBeenCalled()
@@ -148,7 +152,7 @@ describe("BrainPolicyDeriveService: re-derive", () => {
         const express = deriveFactOf({ id: "express", attribute: "phi-ship", attributeLabel: PHI_SHIP_VI, value: V_45_000_D_VI })
         const { service, ai, store, booked } = await build({ facts: [FEE, HOURS, ADDRESS, express], stored })
 
-        const pass = await service.pass(WS)
+        const pass = await service.pass(WS, JOB)
 
         expect(pass).toMatchObject({ outcome: "done", judged: 1, calls: 1 })
         const prompt = ai.chat.mock.calls[0]?.[0].messages[1]?.content ?? ""
@@ -164,7 +168,7 @@ describe("BrainPolicyDeriveService: re-derive", () => {
         const next = deriveFactOf({ id: "fee-v2", value: V_35_000_D_MOT_DON_VI, version: 2, supersedesId: "fee" })
         const { service, ai, store } = await build({ facts: [next, HOURS, ADDRESS], stored })
 
-        const pass = await service.pass(WS)
+        const pass = await service.pass(WS, JOB)
 
         expect(pass).toEqual({ outcome: "done", judged: 0, rebound: 1, retired: 0, calls: 0 })
         expect(ai.chat).not.toHaveBeenCalled()
@@ -180,7 +184,7 @@ describe("BrainPolicyDeriveService: re-derive", () => {
         const relabelled = deriveFactOf({ id: "fee-v2", attributeLabel: PHI_SHIP_VI, version: 2 })
         const { service, ai, store } = await build({ facts: [relabelled, HOURS, ADDRESS], stored })
 
-        const pass = await service.pass(WS)
+        const pass = await service.pass(WS, JOB)
 
         expect(pass).toMatchObject({ outcome: "done", judged: 1, calls: 1 })
         expect(ai.chat.mock.calls[0]?.[0].messages[1]?.content).toContain(WAS_POLICY_PHI_GIAO_HANG_IN_GROUP_GIAO_HANG_VI)
@@ -191,7 +195,7 @@ describe("BrainPolicyDeriveService: re-derive", () => {
     it("retire: the policy of a truth nothing holds any more is retired with no model call", async () => {
         const { service, ai, store } = await build({ facts: [HOURS, ADDRESS], stored })
 
-        const pass = await service.pass(WS)
+        const pass = await service.pass(WS, JOB)
 
         expect(pass).toEqual({ outcome: "done", judged: 0, rebound: 0, retired: 1, calls: 0 })
         expect(ai.chat).not.toHaveBeenCalled()
@@ -200,11 +204,11 @@ describe("BrainPolicyDeriveService: re-derive", () => {
 
     it("idempotent: a second pass over the result of the first calls no model and writes nothing", async () => {
         const { service, ai, store } = await build({ facts: [FEE, HOURS, ADDRESS] })
-        await service.pass(WS)
+        await service.pass(WS, JOB)
         const writes = store.writes
         const rows = [...store.rows]
 
-        const again = await service.pass(WS)
+        const again = await service.pass(WS, JOB)
 
         expect(again).toEqual({ outcome: "done", judged: 0, rebound: 0, retired: 0, calls: 0 })
         expect(ai.chat).toHaveBeenCalledTimes(1)
@@ -217,7 +221,7 @@ describe("BrainPolicyDeriveService: bounds and failures, a large workspace and a
     it("a large workspace is judged ten calls of twelve a pass; the rest continues in a follow-up job", async () => {
         const { service, ai, derivations } = await build({ facts: many })
 
-        const pass = await service.pass(WS)
+        const pass = await service.pass(WS, JOB)
 
         expect(pass).toMatchObject({ outcome: "more", judged: 120, calls: 10 })
         expect(ai.chat).toHaveBeenCalledTimes(10)
@@ -228,45 +232,53 @@ describe("BrainPolicyDeriveService: bounds and failures, a large workspace and a
     it("a truth the model skipped stays to be judged: the pass says more, never done", async () => {
         const { service, store, derivations } = await build({ facts: [FEE, HOURS], script: { [PHI_GIAO_HANG_VI]: SCRIPT[PHI_GIAO_HANG_VI] ?? { policy: true }, [GIO_MO_CUA_VI]: undefined } })
 
-        const pass = await service.pass(WS)
+        const pass = await service.pass(WS, JOB)
 
         expect(pass).toMatchObject({ outcome: "more", judged: 1 })
         expect(store.of("hours")).toBeUndefined()
         expect(derivations.more).toHaveBeenCalledWith(WS)
     })
 
-    it("no answer from the model: the try is counted and the job throws for the queue to retry; nothing is stored", async () => {
+    it("no answer from the model: the pass THROWS the transient the runner retries on its ladder; nothing is counted, nothing stored", async () => {
         const { service, ai, store, derivations } = await build({ facts: [FEE] })
         ai.chat.mockResolvedValue(null)
 
-        await expect(service.pass(WS)).rejects.toMatchObject({ code: BrainErrorCode.ModelUnavailable })
+        const thrown = await service.pass(WS, JOB).catch((cause: unknown) => cause)
 
-        expect(derivations.retrying).toHaveBeenCalledWith(WS, 1)
-        expect(derivations.failed).not.toHaveBeenCalled()
+        expect(thrown).toMatchObject({ code: BrainErrorCode.ModelUnavailable })
+        expect(classifyFailure(thrown)).toBe("transient")
+        expect(derivations.stopped).not.toHaveBeenCalled()
         expect(store.rows).toEqual([])
     })
 
-    it("an unreadable answer on the third try gives the pass up: recorded as failed and logged, not thrown", async () => {
-        const { service, ai, derivations, logger } = await build({ facts: [FEE], attempts: 2 })
-        ai.chat.mockResolvedValue(answer("I cannot help with that."))
+    it("a model that writes NOTHING is a refusal no retry can fix: thrown as input, a dead letter with one item", async () => {
+        const { service, ai, derivations } = await build({ facts: [FEE] })
+        ai.attempt.mockResolvedValue({ ok: false, failure: "empty" })
 
-        const pass = await service.pass(WS)
+        const thrown = await service.pass(WS, JOB).catch((cause: unknown) => cause)
 
-        expect(pass.outcome).toBe("failed")
-        expect(derivations.failed).toHaveBeenCalledWith(WS, "model", 3)
-        expect(logger.error).toHaveBeenCalledWith("brain.policies.gave_up", expect.any(Error), { workspaceId: WS })
+        expect(thrown).toMatchObject({ code: BrainErrorCode.ModelRefused })
+        expect(classifyFailure(thrown)).toBe("input")
+        expect(derivations.stopped).not.toHaveBeenCalled()
     })
 
-    it("stops calling the model after a batch that got no answer, keeping what the earlier batches stored", async () => {
+    it("keys every batch's model call by the job and the fact it starts at", async () => {
+        const { service, chain } = await build({ facts: [FEE, HOURS, ADDRESS] })
+
+        await service.pass(WS, JOB)
+
+        expect(chain.ledger.keys()).toEqual(["job-1:model:derive:fee:3"])
+    })
+
+    it("throws at the first batch that got no answer, keeping what the earlier batches stored: the retry judges only what is left", async () => {
         const { service, ai, store, derivations } = await build({ facts: many })
         ai.chat.mockImplementationOnce((request) => Promise.resolve(answer(answerOf(request, SCRIPT)))).mockResolvedValue(null)
 
-        const pass = await service.pass(WS)
+        await expect(service.pass(WS, JOB)).rejects.toMatchObject({ code: BrainErrorCode.ModelUnavailable })
 
         expect(ai.chat).toHaveBeenCalledTimes(2)
-        expect(pass).toMatchObject({ outcome: "more", judged: 12 })
         expect(store.rows).toHaveLength(12)
-        expect(derivations.more).toHaveBeenCalledWith(WS)
+        expect(derivations.more).not.toHaveBeenCalled()
     })
 })
 
@@ -284,7 +296,7 @@ describe("BrainPolicyDeriveService: bounds and failures, a cut batch and a missi
         // The whole batch of 12 is cut; its halves of 6 answer.
         ai.attempt.mockResolvedValueOnce(cut)
 
-        const pass = await service.pass(WS)
+        const pass = await service.pass(WS, JOB)
 
         expect(pass).toMatchObject({ outcome: "done", judged: 12, calls: 3 })
         expect(store.rows).toHaveLength(12)
@@ -303,13 +315,12 @@ describe("BrainPolicyDeriveService: bounds and failures, a cut batch and a missi
         expect(sizes).toEqual([12, 6, 6])
     })
 
-    it("D-BR-2: a later batch that fails keeps what the earlier batches of the pass judged", async () => {
+    it("D-BR-2: a later batch that fails throws and keeps what the earlier batches of the pass judged", async () => {
         const { service, ai, store } = await build({ facts: many.slice(0, 24) })
         ai.chat.mockImplementationOnce((request) => Promise.resolve(answer(answerOf(request, SCRIPT)))).mockResolvedValue(null)
 
-        const pass = await service.pass(WS)
+        await expect(service.pass(WS, JOB)).rejects.toMatchObject({ code: BrainErrorCode.ModelUnavailable })
 
-        expect(pass).toMatchObject({ outcome: "more", judged: 12 })
         expect(store.rows).toHaveLength(12)
     })
 
@@ -317,51 +328,52 @@ describe("BrainPolicyDeriveService: bounds and failures, a cut batch and a missi
         const { service, ai, usage, derivations } = await build({ facts: [FEE] })
         usage.blockedBy.mockResolvedValue(true)
 
-        const pass = await service.pass(WS)
+        const pass = await service.pass(WS, JOB)
 
         expect(pass.outcome).toBe("blocked")
         expect(ai.chat).not.toHaveBeenCalled()
-        expect(derivations.failed).toHaveBeenCalledWith(WS, "credits")
+        expect(derivations.waitingForCredits).toHaveBeenCalledWith(WS)
     })
 
-    it("no AI endpoint: the state says failed, and the re-binds were still done", async () => {
+    it("no AI endpoint: THROWN as a setting (class config), and the re-binds were still done", async () => {
         const next = deriveFactOf({ id: "fee-v2", value: V_35_000_D_MOT_DON_VI, version: 2 })
         const { service, ai, store, derivations } = await build({ facts: [next, HOURS], stored: [derivedOf(FEE)] })
         ai.available.mockReturnValue(false)
 
-        const pass = await service.pass(WS)
+        const thrown = await service.pass(WS, JOB).catch((cause: unknown) => cause)
 
-        expect(pass).toMatchObject({ outcome: "failed", rebound: 1 })
+        expect(thrown).toMatchObject({ code: BrainErrorCode.ModelUnconfigured })
+        expect(classifyFailure(thrown)).toBe("config")
         expect(store.rows.find((row) => row.id === "p-fee")?.factId).toBe("fee-v2")
-        expect(derivations.failed).toHaveBeenCalledWith(WS, "model")
+        expect(derivations.stopped).not.toHaveBeenCalled()
     })
 })
 
 describe("BrainPolicyDeriveService: the job", () => {
-    it("runs the pass of the workspace the payload names", async () => {
+    it("runs the pass of the workspace the claimed job names", async () => {
         const { service, derivations } = await build({ facts: [] })
 
-        await expect(service.run({ workspaceId: WS })).resolves.toBe("done")
+        await expect(service.run(JOB)).resolves.toBe("done")
         expect(derivations.started).toHaveBeenCalledWith(WS)
     })
 
-    it("drops a payload of another shape", async () => {
-        const { service, derivations, logger } = await build({ facts: [] })
+    it("refuses a payload of another shape with a typed error", async () => {
+        const { service, derivations } = await build({ facts: [] })
 
-        await expect(service.run({ sourceId: "x" })).resolves.toBe("skipped")
+        await expect(service.run(claimedJob({ sourceId: "x" }))).rejects.toMatchObject({ code: BrainErrorCode.PayloadInvalid })
         expect(derivations.started).not.toHaveBeenCalled()
-        expect(logger.warn).toHaveBeenCalledWith("brain.policies.payload_refused", { job: "policies" })
     })
 
-    it("a dead-lettered job is recorded on the state and logged", async () => {
-        const { service, derivations, logger } = await build({ facts: [] })
+    it("a dead-lettered job is recorded on the state for the tab, without a notice: the one item is the runner's", async () => {
+        const { service, derivations } = await build({ facts: [] })
 
-        await service.giveUp({ workspaceId: WS })
+        await service.failed({ workspaceId: WS })
 
-        expect(derivations.failed).toHaveBeenCalledWith(WS, "gave_up")
-        expect(logger.error).toHaveBeenCalledWith("brain.policies.gave_up", expect.any(Error), { workspaceId: WS })
+        expect(derivations.stopped).toHaveBeenCalledWith(WS)
+        expect(derivations.waitingForCredits).not.toHaveBeenCalled()
     })
 })
+
 
 describe("BrainPolicyDeriveService at 5,000 truths in force (BRAIN-LIMITS item 3)", () => {
     const N = 5000
@@ -374,7 +386,7 @@ describe("BrainPolicyDeriveService at 5,000 truths in force (BRAIN-LIMITS item 3
         service: BrainPolicyDeriveService,
         passes: Array<Awaited<ReturnType<BrainPolicyDeriveService["pass"]>>> = [],
     ): Promise<ReadonlyArray<Awaited<ReturnType<BrainPolicyDeriveService["pass"]>>>> => {
-        const pass = await service.pass(WS)
+        const pass = await service.pass(WS, JOB)
         const all = [...passes, pass]
         return pass.outcome !== "more" || all.length >= 200 ? all : untilDone(service, all)
     }
@@ -421,7 +433,7 @@ describe("BrainPolicyDeriveService at 5,000 truths in force (BRAIN-LIMITS item 3
 
         const writes = store.writes
         const pagesAtRest = candidates.pages
-        await expect(service.pass(WS)).resolves.toEqual({ outcome: "done", judged: 0, rebound: 0, retired: 0, calls: 0 })
+        await expect(service.pass(WS, JOB)).resolves.toEqual({ outcome: "done", judged: 0, rebound: 0, retired: 0, calls: 0 })
         expect(candidates.pages - pagesAtRest).toBe(1)
         expect(store.writes).toBe(writes)
     })

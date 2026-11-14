@@ -1,3 +1,4 @@
+import type { JobStateView } from "@/modules/jobProgress"
 import type { KnowledgeRowView, RowActionView } from "@/modules/types"
 
 /** A small label beside a document row. */
@@ -11,4 +12,6 @@ export interface DocumentRowView extends KnowledgeRowView {
     readonly actions: ReadonlyArray<RowActionView>
     /** The live stage with its count and bar while a worker is on the document; undefined otherwise. */
     readonly progress: KnowledgeRowView["progress"] | undefined
+    /** Where the chain of jobs on the document stands, while it runs, waits to retry or needs a person; undefined when the stored status says it all. */
+    readonly job: JobStateView | undefined
 }

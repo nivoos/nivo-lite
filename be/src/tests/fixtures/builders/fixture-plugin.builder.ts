@@ -1,9 +1,23 @@
 import { definePlugin, type Plugin } from "@nivo-lite/agent-sdk/installation"
-import type { GraphSpec } from "@nivo-lite/agent-sdk/graph"
 import { defineModule, type ModuleDeclaration, type ModuleServer } from "@nivo-lite/agent-sdk/module"
 import { defineEffect, defineNode, type EffectDefinition, type NodeDefinition } from "@nivo-lite/agent-sdk/node"
-import { parseWorkflowTemplate, type WorkflowTemplate } from "@nivo-lite/agent-sdk/template"
-import { TOOL } from "@nivo-lite/agent-sdk/names"
+import {
+    defineTemplateAgent,
+    defineTemplateGraph,
+    defineTemplateNode,
+    node,
+    outcome,
+    ref,
+    toolOk,
+    trigger,
+    type TemplateAgent,
+    type TemplateGraph,
+    type WorkflowTemplate,
+} from "@nivo-lite/agent-sdk/template"
+import { PROVIDER, TOOL, TRIGGER } from "@nivo-lite/agent-sdk/names"
+import { defineInstallation } from "@nivo-lite/agent-sdk/installation"
+import { BASE_PLUGIN } from "./base-plugin.builder"
+import { installedPluginsOf } from "@modules/domain/installed-plugins/installed-plugins.policy"
 import { z } from "zod"
 
 /** The key of the fixture plugin's one module. */
@@ -40,17 +54,29 @@ const intake: NodeDefinition = defineNode({
     examples: [{ name: "one", params: {}, input: { subject: "s" }, output: { opened: "s" }, effects: [] }],
 })
 
-/** A step that reaches a core tool OUTSIDE the fixture agent's set: a workflow that uses it is refused. */
-const overreach: NodeDefinition = defineNode({
-    id: "fixdesk.overreach",
-    role: "execute",
-    title: { key: "fixdeskOverreach" },
-    params: z.object({}),
-    input: z.object({}),
-    output: z.object({}),
-    effects: [TOOL.agentTag],
-    run: () => Promise.resolve({}),
-    examples: [{ name: "one", params: {}, input: {}, output: {}, effects: [] }],
+/** The step of the fixture's template workflows (a TEMPLATE node, the road production runs): it reads the contact (a default read every agent holds) and answers the subject it was given. */
+const open = defineTemplateNode({
+    id: "fixdesk.open",
+    title: { vi: "Mở phiếu", en: "Open a ticket" },
+    description: { vi: "Nút thử nghiệm của bộ kiểm tra.", en: "A test node of the checks." },
+    tools: [TOOL.contactGet],
+    mode: "auto",
+    accounts: [],
+    input: z.object({ subject: z.string().max(200) }),
+    output: z.object({ opened: z.string().max(200) }),
+    run: async (input, ctx) => {
+        await ctx.tools.call(TOOL.contactGet, {})
+        return { opened: input.subject }
+    },
+    examples: [
+        {
+            name: "opens the ticket",
+            params: {},
+            input: { subject: "s" },
+            tools: [{ id: TOOL.contactGet, answer: toolOk({}) }],
+            output: { opened: "s" },
+        },
+    ],
 })
 
 const declaration: ModuleDeclaration = defineModule({
@@ -112,44 +138,33 @@ const server = (): ModuleServer => ({
     },
 })
 
-/** The graph of a fixture workflow: one step of the given node. */
-const graphOf = (step: string): GraphSpec => ({
-    schema: "nivo/agent-graph@1",
-    moduleKey: FIXTURE_MODULE,
-    trigger: { kind: "tag", sources: ["agent"] },
-    grant: { tools: [], effects: [FIXTURE_TOOL, TOOL.teamMessagePost] },
-    nodes: [{ key: "step", kind: "execute", step, params: {} }],
-})
-
-const templateOf = (slug: string, primary: boolean, step: string): WorkflowTemplate =>
-    parseWorkflowTemplate({
-        id: `${FIXTURE_MODULE}.${slug}`,
-        moduleKey: FIXTURE_MODULE,
-        primary,
-        name: { vi: `Quy trinh ${slug}`, en: `Workflow ${slug}` },
-        summary: { vi: "Mau thu", en: "A fixture" },
-        requires: [],
-        shops: 0,
-        versions: [
-            {
-                version: 1,
-                publishedAt: "2026-11-11T00:00:00.000Z",
-                changes: [{ vi: "Ban dau", en: "First version" }],
-                graph: graphOf(step),
-            },
-        ],
+/** A fixture workflow: one step of the fixture's template node, then its outcome. */
+const graphOf = (slug: string): TemplateGraph =>
+    defineTemplateGraph({
+        key: `${FIXTURE_MODULE}.${slug}`,
+        title: { vi: `Quy trinh ${slug}`, en: `Workflow ${slug}` },
+        input: z.object({ subject: z.string().max(200) }),
+        triggers: [trigger(TRIGGER.workflowCalled)],
+        openTo: "any",
+        start: "open",
+        nodes: {
+            open: node(open, { input: { subject: ref("trigger.subject") }, next: "opened" }),
+            opened: outcome({ name: "opened" }),
+        },
     })
 
-/** The primary workflow of the fixture module, and its secondary one. */
-export const FIXTURE_PRIMARY: WorkflowTemplate = templateOf("ticket", true, "fixdesk.intake")
-export const FIXTURE_SECONDARY: WorkflowTemplate = templateOf("followup", false, "fixdesk.intake")
-
-/** A workflow of the fixture module whose step reaches a tool outside its agent's set. */
-export const FIXTURE_OVERREACH_GRAPH: GraphSpec = graphOf("fixdesk.overreach")
+/** The fixture's template agent: the primary workflow and a secondary one (the module's workflow templates are their graphs). */
+export const FIXTURE_AGENT_TEMPLATE: TemplateAgent = defineTemplateAgent({
+    key: FIXTURE_MODULE,
+    label: { vi: "Ho tro", en: "Desk" },
+    accounts: [PROVIDER.zaloOa],
+    graphs: [graphOf("ticket"), graphOf("followup")],
+    primary: `${FIXTURE_MODULE}.ticket`,
+})
 
 /**
  * A tiny PRIVATE plugin, made the way a plugin package is (`definePlugin`): one module with an agent (two tools: a core tool it reuses
- * and one of its own), two nodes, a primary and a secondary workflow template, the words of its tool, a declared tool mode and a node
+ * and one of its own), a legacy node and a template agent whose two graphs are its primary and its secondary workflow template, the words of its tool, a declared tool mode and a node
  * model. It belongs to the enterprise `fixture-co`. Tests put it in the installation's array beside the core plugin.
  */
 export const FIXTURE_PLUGIN: Plugin = definePlugin({
@@ -159,7 +174,8 @@ export const FIXTURE_PLUGIN: Plugin = definePlugin({
     enterprises: [FIXTURE_ENTERPRISE],
     modules: [declaration],
     servers: [server()],
-    nodes: [intake, overreach],
+    nodes: [intake],
+    templateAgents: [FIXTURE_AGENT_TEMPLATE],
     effects: [ticketOpen],
     toolLabels: {
         [FIXTURE_TOOL]: {
@@ -168,8 +184,14 @@ export const FIXTURE_PLUGIN: Plugin = definePlugin({
             summary: { vi: "Mo mot phieu ho tro.", en: "Opens a support ticket." },
         },
     },
-    templates: [FIXTURE_PRIMARY, FIXTURE_SECONDARY],
     nodeModels: { "fixdesk.intake": { model: "auto", weight: "light" } },
     guidance: (moduleKey, locale) => (moduleKey === FIXTURE_MODULE ? `POLICY: ${FIXTURE_GUIDANCE[locale]}` : ""),
     words: (key) => (key === "fixdeskTicketOpen" ? FIXTURE_TOOL_WORDS : undefined),
 })
+
+/** The workflow templates of the fixture module as an installation derives them from its graphs (primary first), and how the engine reads them. */
+const FIXTURE_TEMPLATES: ReadonlyArray<WorkflowTemplate> = installedPluginsOf(defineInstallation([BASE_PLUGIN, FIXTURE_PLUGIN], "fixture")).templatesOf(FIXTURE_MODULE)
+
+/** The primary workflow template of the fixture module, and its secondary one. */
+export const FIXTURE_PRIMARY: WorkflowTemplate = FIXTURE_TEMPLATES.find((template) => template.primary)!
+export const FIXTURE_SECONDARY: WorkflowTemplate = FIXTURE_TEMPLATES.find((template) => !template.primary)!

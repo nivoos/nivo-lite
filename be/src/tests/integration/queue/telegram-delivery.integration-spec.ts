@@ -1,7 +1,7 @@
 import {
     TELEGRAM_DELIVERY_QUEUE as DOMAIN_QUEUE,
     TELEGRAM_DELIVERY_QUEUE,
-    isTelegramDeliveryRecorded,
+    DELIVER_TELEGRAM_JOB,
 } from "@modules/queues/telegram-delivery"
 import { telegramDeliveryBuilder as build, telegramDeliveryState } from "../../world/telegram-delivery-proof.service"
 import { useTestWorld } from "../../world/use-test-world"
@@ -25,11 +25,11 @@ describe("Telegram delivery publication (persisted integration)", () => {
         { deliveryId: "" },
         { deliveryId: "   " },
     ])("refuses malformed receipt references: %p", (value) => {
-        expect(isTelegramDeliveryRecorded(value)).toBe(false)
+        expect(DELIVER_TELEGRAM_JOB.payload(value)).toBe(false)
     })
 
     it("accepts a durable receipt identity and agrees with the intake queue", () => {
-        expect(isTelegramDeliveryRecorded({ deliveryId: "delivery-1" })).toBe(true)
+        expect(DELIVER_TELEGRAM_JOB.payload({ deliveryId: "delivery-1" })).toBe(true)
         expect(TELEGRAM_DELIVERY_QUEUE).toBe(DOMAIN_QUEUE)
     })
 

@@ -172,6 +172,8 @@ export interface ToolNames {
     "nivo.tool.brain.fact.list": ToolSignature
     /** The truths in force the truth graph links to one truth, with the relation. */
     "nivo.tool.brain.fact.related": ToolSignature
+    /** The workspace's policies in force that the caller may read. */
+    "nivo.tool.brain.policy.list": ToolSignature
     /** Finds passages of the business documents the caller may read, by words or meaning; snippets only. */
     "nivo.tool.brain.passage.search": ToolSignature
     /** Reads a passage of a business document with its neighbours, or a stretch of a document from a position. */
@@ -197,8 +199,6 @@ export interface ToolNames {
     "nivo.tool.mail.message.list": ToolSignature
     /** One mail of an attached mailbox with its plain text, bounded; lines that address an AI come marked as quotes. */
     "nivo.tool.mail.message.get": ToolSignature
-    /** Sends a mail through provider `smtp`: it SENDS; whether a person is asked first is the calling node's mode (`auto` sends, `ask` interrupts before). */
-    "nivo.tool.mail.message.send": Asking
     /** Posts a report card to the team chat. */
     "nivo.tool.team-chat.report.post": Asking
     /** Whether a domain name can be registered now, with its prices per period when the registrar states them. A read. */

@@ -1,17 +1,17 @@
 import { Test } from "@nestjs/testing"
 import type { GraphSpec, GraphSpecNode } from "@nivo-lite/agent-sdk/graph"
-import { defineNode, nodeIndexOf } from "@nivo-lite/agent-sdk/node"
-import { z } from "zod"
-import { TOOL } from "@nivo-lite/agent-sdk/names"
-import { nodeOf } from "@tests/fixtures/builders/agent-graph.builder"
-import { AgentGraphsError, AgentGraphsErrorCode } from "../errors/agent-graphs.error"
-import { flowChanged, isFlowOnly, requireSoundFlow, requireSoundRefs, sameFlow } from "./flow.policy"
 import { INSTALLED } from "@modules/domain/installed-plugins"
+import { coreTemplates } from "@modules/domain/installed-plugins/installed-plugins.testing"
+import { AgentGraphsError, AgentGraphsErrorCode } from "../errors/agent-graphs.error"
+import { GRAPH_TEMPLATE_EDITED, flowChanged, requireSoundFlow, sameFlow } from "./flow.policy"
+import { registerAppTriggerDeclarations } from "@tests/fixtures/builders/app-trigger-declarations"
+
+// The installed graphs register on provider triggers: the booted api has every provider's declarations registered; so does this spec.
+registerAppTriggerDeclarations()
 
 /** The members of the subject under test. */
 interface Subject {
     readonly sameFlow: typeof sameFlow
-    readonly isFlowOnly: typeof isFlowOnly
 }
 
 const SUBJECT = Symbol("flow.policy")
@@ -19,7 +19,7 @@ const SUBJECT = Symbol("flow.policy")
 /** The policy functions, read through the Nest testing module. */
 const build = async (): Promise<Subject> => {
     const moduleRef = await Test.createTestingModule({
-        providers: [{ provide: SUBJECT, useValue: { sameFlow, isFlowOnly } }],
+        providers: [{ provide: SUBJECT, useValue: { sameFlow } }],
     }).compile()
     return moduleRef.get<Subject>(SUBJECT)
 }
@@ -89,143 +89,61 @@ describe("sameFlow", () => {
 })
 
 describe("flowChanged and requireSoundFlow", () => {
-    const index = nodeIndexOf({ nodes: [], effects: [], tools: [], dataKinds: [] })
-
     it("tells a flow added, dropped or changed from one kept or never there", () => {
         expect(flowChanged(undefined, undefined)).toBe(false)
         expect(flowChanged(FLOW, undefined)).toBe(true)
         expect(flowChanged(undefined, FLOW)).toBe(true)
         expect(flowChanged(FLOW, { ...FLOW })).toBe(false)
     })
+})
 
-    it("passes a flow the installed nodes take and refuses one they do not, naming each problem", () => {
-        expect(() =>
-            requireSoundFlow(
-                {
-                    ...FLOW,
-                    nodes: [{ key: "end", kind: "output", step: "stop" }],
-                    grant: { tools: [], effects: [] },
-                },
-                index,
-            ),
-        ).not.toThrow()
-        const refusal = (): unknown => {
-            try {
-                requireSoundFlow(FLOW, index)
-                return null
-            } catch (cause) {
-                return cause
-            }
-        }
-        const refused = refusal()
-        expect(refused instanceof AgentGraphsError ? refused.code : refused).toBe(AgentGraphsErrorCode.PublishRefused)
-    })
+/** The refusal `requireSoundFlow` throws for a flow, or null when it passes. */
+const refusalOf = (flow: GraphSpec): unknown => {
+    try {
+        requireSoundFlow(flow)
+        return null
+    } catch (cause) {
+        return cause
+    }
+}
 
-    it("refuses a flow of a module whose step reaches a tool outside the tool set of the module's agent, naming the step and the tool", () => {
-        // Since the flip `accounting.post-payment` is a template node (judged by the @2 checks): the `@1` road this case proves is run
-        // on the spec's own `defineNode` step that appends to the ledger, as the shipped one did.
-        const post = defineNode({
-            id: "spec.post-payment",
-            role: "output",
-            title: { vi: "Ghi s\u1ed5", en: "Post the payment" },
-            params: z.object({}),
-            input: z.object({}),
-            output: z.object({}),
-            effects: [],
-            tools: [TOOL.ledgerEntryAppend],
-            run: () => Promise.resolve({}),
-            examples: [{ name: "one", params: {}, input: {}, output: {}, effects: [] }],
-        })
-        const installed = nodeIndexOf({ ...INSTALLED.nodeInstall(), nodes: [...INSTALLED.nodeInstall().nodes, post] })
-        const ledger = { key: "ledger", kind: "output" as const, step: post.id, next: "end" }
-        const flow = {
-            ...FLOW,
-            moduleKey: "chatbot",
-            grant: {
-                tools: [TOOL.ledgerEntryAppend],
-                effects: [],
-            },
-            nodes: [ledger, { key: "end", kind: "output" as const, step: "stop" }],
-        }
-        const refusal = (): unknown => {
-            try {
-                requireSoundFlow(flow, installed)
-                return null
-            } catch (cause) {
-                return cause
-            }
-        }
-        const refused = refusal()
-        expect(refused).toBeInstanceOf(AgentGraphsError)
-        expect(refused instanceof AgentGraphsError ? refused.params.problems : "").toContain(
-            `GRAPH_TOOL_OUTSIDE_AGENT ledger:${TOOL.ledgerEntryAppend}`,
+/** The problem codes of a refusal, as `requireSoundFlow` lists them. */
+const problemsOf = (refused: unknown): string => (refused instanceof AgentGraphsError ? String(refused.params.problems) : "")
+
+describe("requireSoundFlow: ONE graph format, an installed template version (GRAPH-CLEAN, owner ruling R89)", () => {
+    const [template] = coreTemplates()
+    if (template === undefined) throw new Error("the core package ships no template")
+    const [version] = template.versions
+    if (version === undefined) throw new Error("a template with no version")
+
+    it("passes every version of every installed template as it is (every plugin of the installation)", () => {
+        expect(INSTALLED.templates().length).toBeGreaterThan(coreTemplates().length - 1)
+        const refused = INSTALLED.templates().flatMap((each) =>
+            each.versions.flatMap((at) => (refusalOf(at.graph) === null ? [] : [`${each.id}@${String(at.version)}`])),
         )
-    })
-})
-
-describe("isFlowOnly", () => {
-    it("is true for a graph with a flow and no old node, and false for one with old nodes or with no flow", async () => {
-        const subject = await build()
-        const old = { nodes: [nodeOf({ key: "n" })] }
-
-        expect(subject.isFlowOnly({ nodes: [], flow: FLOW })).toBe(true)
-        expect(subject.isFlowOnly({ ...old, flow: FLOW })).toBe(false)
-        expect(subject.isFlowOnly({ nodes: [] })).toBe(false)
-    })
-})
-
-describe("requireSoundRefs", () => {
-    const reply = defineNode({
-        id: "core.reply",
-        role: "output",
-        title: { key: "t" },
-        params: z.object({ text: z.string() }),
-        input: z.object({}),
-        output: z.object({}),
-        effects: [],
-        run: () => Promise.resolve({}),
-        examples: [{ name: "e", params: { text: "x" }, input: {}, output: {}, effects: [] }],
-    })
-    const index = nodeIndexOf({ nodes: [reply], effects: [], tools: [], dataKinds: [] })
-    const flowWith = (text: unknown): GraphSpec => ({
-        schema: "nivo/agent-graph@1",
-        moduleKey: "sales",
-        trigger: { kind: "tag", sources: ["channel"] },
-        grant: { tools: [], effects: [] },
-        nodes: [
-            { key: "a", kind: "output", step: "core.reply", params: { text: "hi" }, next: "b" },
-            { key: "b", kind: "output", step: "core.reply", params: { text: text as string } },
-        ],
+        expect(refused).toEqual([])
     })
 
-    it("passes sound refs and refuses a broken one with its words in Vietnamese and every problem for the editor", () => {
-        expect(() => requireSoundRefs(flowWith({ $ref: "lead.address" }), index)).not.toThrow()
-        const refusal = (): unknown => {
-            try {
-                requireSoundRefs(flowWith({ $ref: "steps.ghost.output.x" }), index)
-                return null
-            } catch (cause) {
-                return cause
-            }
-        }
-        const error = refusal()
-        expect(error).toBeInstanceOf(AgentGraphsError)
-        expect(error).toMatchObject({ code: AgentGraphsErrorCode.RefsRefused, params: { count: "1" } })
-        const params = (error as AgentGraphsError).params
-        expect(params["first"]).toContain("quy tr\u00ecnh kh\u00f4ng c\u00f3 b\u01b0\u1edbc n\u00e0y")
-        expect(JSON.parse(String(params["problems"]))).toEqual([
-            expect.objectContaining({
-                code: "REF_NODE_UNKNOWN",
-                nodeKey: "b",
-                field: "text",
-                messageKey: "workflowRef.refNodeUnknown",
-            }),
-        ])
+    it("refuses an edited copy (a step's params changed) as GRAPH_TEMPLATE_EDITED, writing nothing", () => {
+        const [first, ...rest] = version.graph.nodes
+        if (first === undefined) throw new Error("a template graph with no step")
+        const edited: GraphSpec = { ...version.graph, nodes: [{ ...first, params: { edited: true } }, ...rest] }
+
+        const refused = refusalOf(edited)
+
+        expect(refused).toBeInstanceOf(AgentGraphsError)
+        expect(refused).toMatchObject({ code: AgentGraphsErrorCode.PublishRefused })
+        expect(problemsOf(refused)).toContain(`${GRAPH_TEMPLATE_EDITED} ${version.graph.moduleKey}`)
+    })
+
+    it("refuses a hand-made flow of node definitions as GRAPH_TEMPLATE_EDITED: no second set of checks judges it", () => {
+        const refused = refusalOf({ ...FLOW, nodes: [{ key: "end", kind: "output", step: "stop" }] })
+
+        expect(problemsOf(refused)).toBe(`${GRAPH_TEMPLATE_EDITED} sales`)
     })
 })
 
 describe("requireSoundFlow: an unstated mode is IMPOSSIBLE at save (nivo-frame `rights`: no engine default)", () => {
-    const installed = nodeIndexOf(INSTALLED.nodeInstall())
     // A raw stored document: its `mode` is any word as written (the SDK's type would refuse a bad one before the gate could).
     const sendOf = (extra: { readonly accounts: ReadonlyArray<never>; readonly mode?: string }): GraphSpecNode => {
         const node: GraphSpecNode = { key: "send", kind: "output", step: "stop", next: "b", accounts: extra.accounts }
@@ -236,27 +154,15 @@ describe("requireSoundFlow: an unstated mode is IMPOSSIBLE at save (nivo-frame `
         ...FLOW,
         nodes: [sendOf(extra), NODE_B],
     })
-    const refusalOf = (flow: GraphSpec): unknown => {
-        try {
-            requireSoundFlow(flow, installed)
-            return null
-        } catch (cause) {
-            return cause
-        }
-    }
 
     it("refuses a node that carries the node contract (`accounts`) and states no mode, naming it", () => {
         const refused = refusalOf(flowOf({ accounts: [] }))
         expect(refused).toBeInstanceOf(AgentGraphsError)
-        expect(refused instanceof AgentGraphsError ? refused.params.problems : "").toContain(
-            "NODE_MODE_UNSTATED send.mode",
-        )
+        expect(problemsOf(refused)).toContain("NODE_MODE_UNSTATED send.mode")
     })
 
     it("refuses a mode that is neither `auto` nor `ask`", () => {
         const refused = refusalOf(flowOf({ accounts: [], mode: "never" }))
-        expect(refused instanceof AgentGraphsError ? refused.params.problems : "").toContain(
-            "NODE_MODE_UNSTATED send.mode",
-        )
+        expect(problemsOf(refused)).toContain("NODE_MODE_UNSTATED send.mode")
     })
 })

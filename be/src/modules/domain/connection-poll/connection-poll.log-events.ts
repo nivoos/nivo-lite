@@ -6,8 +6,6 @@ export enum ConnectionPollLogEvent {
     Skipped = "connection_poll.skipped",
     /** The poll of one connection failed; the run goes on with the next. */
     Failed = "connection_poll.failed",
-    /** One poll run finished. */
-    Done = "connection_poll.done",
     /** The scheduler tick finished for one provider: calls, 429s, auth failures, items found, items the webhook missed and lag ride in the fields. */
     Metrics = "connection_poll.metrics",
     /** A poll waited for the provider's rate limit and was planned again. */
@@ -18,4 +16,6 @@ export enum ConnectionPollLogEvent {
     Unavailable = "connection_poll.unavailable",
     /** The provider refused the credential: polling stopped and the owner was asked to connect again. */
     NeedsReauth = "connection_poll.needs_reauth",
+    /** The pass at process start could not mark the scheduled accounts due; the ordinary cadence reads them later. */
+    BootPassFailed = "connection_poll.boot_pass_failed",
 }

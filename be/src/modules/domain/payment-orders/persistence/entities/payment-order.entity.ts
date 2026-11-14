@@ -54,4 +54,8 @@ export class PaymentOrderEntity extends UuidAbstractEntity {
     /** What was sold. */
     @Column({ name: "detail", type: "jsonb", default: () => "'{}'::jsonb" })
     detail!: OrderDetail
+
+    /** The payment-order request this order answers (unique: a request makes one order), or null for an order made outside a request. */
+    @Column({ name: "request_id", type: "uuid", nullable: true, update: false })
+    requestId!: string | null
 }

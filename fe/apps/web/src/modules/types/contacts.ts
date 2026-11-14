@@ -28,6 +28,14 @@ export interface ContactWords {
     readonly noteRound: (round: number) => string
     /** "Held by An": the staff hold the conversation; the name is null when the seat is gone. */
     readonly hold: (name: string | null) => string
+    /** "May be messaged first": the person has not asked to be left alone. */
+    readonly consentAllowed: string
+    /** "This person asked not to be messaged first". */
+    readonly consentRefused: string
+    /** "since 2 days ago". */
+    readonly consentSince: (when: string) => string
+    /** "noted by Lan": who set the mark, a member of the shop or an agent; the name is null when the seat or the agent is gone. */
+    readonly consentBy: (by: "member" | "agent", name: string | null) => string
 }
 
 /** One channel a person is reached on: its name and its mark. */
@@ -93,6 +101,18 @@ export interface ContactSuggestionView {
     readonly why: string
 }
 
+/** Whether the agents may message a person first, in words: the state, since when and by whom, and the reason when one was given. */
+export interface ContactConsentView {
+    /** The person asked not to be messaged first. */
+    readonly isRefused: boolean
+    /** The state as a sentence ("May be messaged first"). */
+    readonly state: string
+    /** "since 2 days ago · noted by Lan"; null when nothing was set. */
+    readonly line: string | null
+    /** The reason given; null when none. */
+    readonly reason: string | null
+}
+
 /** The person that is open, worded. */
 export interface ContactDetailView {
     readonly id: string
@@ -107,6 +127,8 @@ export interface ContactDetailView {
     readonly facts: ReadonlyArray<ContactFactView>
     readonly notes: ReadonlyArray<ContactNoteView>
     readonly suggestions: ReadonlyArray<ContactSuggestionView>
+    /** May the agents message the person first. */
+    readonly consent: ContactConsentView
     /** The viewer is the owner: only an owner deletes a person. */
     readonly canDelete: boolean
 }
@@ -162,6 +184,19 @@ export interface ContactHistoryOrderView {
     readonly body: ReactNode
 }
 
+/** A file of a line the shop could not keep: no address to open, only its name and the reason in words. */
+export interface ContactHistoryUnreadFileView {
+    readonly id: string
+    readonly name: string
+    readonly contentType: string
+    readonly url: null
+    /** Why it could not be fetched, in words. */
+    readonly note: string
+}
+
+/** One file of a line: a kept file (opens) or one the shop could not keep. */
+export type ContactHistoryFileView = ChatMessageFile | ContactHistoryUnreadFileView
+
 /** One line of the conversation: who said it, when, the words and the files. */
 export interface ContactHistoryLineView {
     readonly id: string
@@ -171,7 +206,7 @@ export interface ContactHistoryLineView {
     /** The time of day. */
     readonly time: string
     readonly text: string
-    readonly files: ReadonlyArray<ChatMessageFile>
+    readonly files: ReadonlyArray<ContactHistoryFileView>
     /** The order card the line carries; null when it told none or its snapshot does not read. */
     readonly order: ContactHistoryOrderView | null
     /** The day separator drawn before the line ("Today · Zalo"); null when the line shares the one before. */
@@ -209,6 +244,8 @@ export interface ContactHistoryWords {
     readonly time: (iso: string) => string
     /** The order card of a line's `orderJson` text; null when the text is no order (the line then shows its words alone). */
     readonly order: (orderJson: string | null) => ContactHistoryOrderView | null
+    /** The reason a file could not be fetched, in words (the server's typed reason; null when it names none). */
+    readonly notKept: (reason: string | null) => string
 }
 
 /** The words of the edit drawer. */
@@ -274,6 +311,11 @@ export interface ContactsPanesCopy {
     readonly linkIdentityLabel: string
     readonly mergeLabel: string
     readonly deleteLabel: string
+    readonly consentTitle: string
+    /** The button that marks a person "do not message first". */
+    readonly consentSetLabel: string
+    /** The button that lets the agents message a person first again. */
+    readonly consentClearLabel: string
     readonly memoryTitle: string
     readonly memoryEmpty: string
     readonly forgetLabel: string
@@ -390,6 +432,8 @@ export interface ContactsPanesBaseProps {
         readonly submitMerge: () => void
         readonly askUnlink: (identityId: string) => void
         readonly askDelete: () => void
+        /** Asks before the mark "do not message first" is set (true) or cleared (false). */
+        readonly askConsent: (doNotContact: boolean) => void
         readonly askMergeSuggestion: (contactId: string) => void
         readonly dismissSuggestion: (contactId: string) => void
         readonly forget: (name: string) => void

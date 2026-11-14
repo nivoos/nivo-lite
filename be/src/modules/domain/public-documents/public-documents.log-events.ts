@@ -4,8 +4,6 @@ export enum PublicDocumentsLogEvent {
     DraftRefused = "public_documents.draft.refused",
     /** A customer question has an answer in the public-area documents found and a proposal was made for the owner. */
     ProposalMade = "public_documents.proposal.made",
-    /** A customer question has no answer in the public-area documents found, or no agent may search; nothing was proposed. */
-    ProposalSkipped = "public_documents.proposal.skipped",
     /** The model answered but the answer did not fit the shape asked for. */
     AnswerUnreadable = "public_documents.answer.unreadable",
     /** The model's answer to a draft call fit its shape: whether it answers, the length of its body, the prompt version; never text. */

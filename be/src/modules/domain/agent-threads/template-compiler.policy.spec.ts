@@ -200,6 +200,38 @@ describe("compileTemplate refusals", () => {
             pin,
             problems: [{ code: "TEMPLATE_STEP_UNKNOWN", at: "answer" }],
         })
+        // The default refuses, and so does `notInstalled: "refuse"`, said aloud.
+        expect(subject.compileTemplate({ pin, spec }, installed, { notInstalled: "refuse" })).toMatchObject({ kind: "refused" })
+    })
+
+    it.each(FRONT_DESK)(
+        "rule Q-5 (RUN compile): compiles a step whose node is not installed, marked as an engine refusal; every other step runs",
+        async ({ spec, pin }) => {
+            const subject = await build()
+            const installed = new Set([...INSTALLED].filter((id) => id !== "chatbot.answer"))
+
+            const result = subject.compileTemplate({ pin, spec }, installed, { loops: true, notInstalled: "stop" })
+
+            if (result.kind !== "compiled") throw new Error("expected a compiled graph")
+            const marked = result.graph.nodes.filter((step) => step.refusal !== undefined)
+            expect(marked.map((step) => [step.key, step.refusal])).toEqual([["answer", "graph_node_missing"]])
+            // The same graph with the node installed differs only by that mark.
+            const whole = subject.compileTemplate({ pin, spec }, INSTALLED, { loops: true, notInstalled: "stop" })
+            if (whole.kind !== "compiled") throw new Error("expected a compiled graph")
+            expect(result.graph.nodes.map(({ refusal: _refusal, ...step }) => step)).toEqual(whole.graph.nodes)
+        },
+    )
+
+    it.each(FRONT_DESK)("rule Q-5: a shape problem still refuses the whole version on the RUN compile", async ({ spec, pin }) => {
+        const subject = await build()
+        const [first, ...rest] = spec.nodes
+        if (first === undefined) throw new Error("empty sample")
+        const broken = { ...spec, nodes: [{ ...first, next: "nowhere" }, ...rest] }
+
+        expect(subject.compileTemplate({ pin, spec: broken }, INSTALLED, { notInstalled: "stop" })).toMatchObject({
+            kind: "refused",
+            problems: [{ code: "TEMPLATE_TARGET_UNKNOWN" }],
+        })
     })
 
     it.each(FRONT_DESK)("refuses a for-each as phase 2 instead of dropping it", async ({ spec, pin }) => {

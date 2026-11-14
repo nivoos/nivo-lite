@@ -5,7 +5,7 @@ import { z } from "zod"
 import { MAX_BODY, MAX_ID } from "../../../shared/bounds"
 import { bilingualOf } from "../../../shared/messages/catalog"
 import type { NodeSchema } from "../../../shared/nodes/node-schema.types"
-import { answered, refused } from "../../../shared/nodes/tool-answers"
+import { answered, refused, sentAnswer } from "../../../shared/nodes/tool-answers"
 import { INVITE_GOAL } from "./hiring.policy"
 import { readCandidate, readJob, CANDIDATE_TYPE, JOB_TYPE } from "./hiring.reads"
 import {
@@ -32,7 +32,7 @@ export interface InviteInput {
 export interface InviteOutput {
     /** True once the invitation was mailed (a person approved it on its card): `hiring.invite-move` moves the candidate next. */
     readonly mailed: boolean
-    /** The mail's id, when the send answered one. */
+    /** The send's once-key (the delivery ledger's row of the mail), when it went out. */
     readonly messageRef: string | null
     /** Why nothing went: the send's refusal, or `no_mail_address`; null when mailed or declined. */
     readonly refusal: string | null
@@ -88,12 +88,18 @@ const MAIL: InviteMail = {
     body: HIRING_SAMPLE.inviteBody,
 }
 
-/** The args of the send: the mail and the candidate it is about. */
-const mailArgs = (mail: InviteMail, candidateId: string): JsonObject => ({
-    to: mail.to,
+/** The channel of the one customer send that carries a mail (the workspace's mail account, provider `smtp`). */
+const MAIL_CHANNEL = "email"
+
+/**
+ * The args of the ONE customer send (rule SO-1: mail is a channel of it): the candidate by their own mail address on the mail channel
+ * (the engine meets the person by it), the subject line the mail channel requires, and the words.
+ */
+const mailArgs = (mail: InviteMail): JsonObject => ({
+    channel: MAIL_CHANNEL,
+    address: mail.to,
     subject: mail.subject,
-    body: mail.body,
-    ref: { kind: "candidate", code: candidateId },
+    text: mail.body,
 })
 
 /** The candidate read of the examples. */
@@ -112,8 +118,8 @@ const JOB_READ = {
 
 /**
  * `hiring.invite` (invite to an interview): the agent writes the interview invitation to the candidate's own e-mail address; the step
- * mails it with `TOOL.mailMessageSend` (provider `smtp`, mode `ask`: a person approves, edits and sends it), its ONE write (rights rule
- * 11e); moving the candidate to `interview` is the next step (`hiring.invite-move`). A candidate with no e-mail address gets no mail
+ * mails it with the ONE customer send on the mail channel (`TOOL.customerMessageSend` with `channel: "email"`, the address and the
+ * subject; provider `smtp`, mode `ask`: a person approves the whole mail on its card first), its ONE write (rights rule 11e); moving the candidate to `interview` is the next step (`hiring.invite-move`). A candidate with no e-mail address gets no mail
  * (`no_mail_address`): the team reaches them another way. A person who declines the invitation on its card made a decision
  * (`declined`, never a failure). A side step (`blocking: false`): without a sending mailbox the screening still stands; any other
  * refusal of the send is said in the output (`refusal`) and nobody is moved.
@@ -126,7 +132,7 @@ export const hiringInviteNode: TemplateNode<
     id: "hiring.invite",
     title: bilingualOf("nodeHiringInviteTitle"),
     description: { vi: "So\u1ea1n th\u01b0 m\u1eddi ph\u1ecfng v\u1ea5n g\u1eedi t\u1edbi email c\u1ee7a \u1ee9ng vi\u00ean; sau khi b\u1ea1n duy\u1ec7t v\u00e0 g\u1eedi th\u00ec chuy\u1ec3n \u1ee9ng vi\u00ean sang b\u01b0\u1edbc ph\u1ecfng v\u1ea5n.", en: "Writes the interview invitation to the candidate's email; once you approve and send it, moves the candidate to the interview stage." },
-    tools: [TOOL.mailMessageSend],
+    tools: [TOOL.customerMessageSend],
     mode: "ask",
     accounts: [PROVIDER.smtp],
     params,
@@ -149,11 +155,11 @@ export const hiringInviteNode: TemplateNode<
             maxTurns: 1,
         })
         if (written.mail === null) return { mailed: false, messageRef: null, refusal: "no_mail_address", declined: false }
-        const sent = await context.tools.call(TOOL.mailMessageSend, mailArgs(written.mail, candidate.id))
+        const sent = await context.tools.call(TOOL.customerMessageSend, mailArgs(written.mail))
         if (!sent.ok && sent.declined === true) return { mailed: false, messageRef: null, refusal: null, declined: true }
         if (!sent.ok) return { mailed: false, messageRef: null, refusal: sent.refusal, declined: false }
-        const emailMessageId = sent.value["emailMessageId"]
-        return { mailed: true, messageRef: typeof emailMessageId === "string" ? emailMessageId : null, refusal: null, declined: false }
+        const sendKey = sent.value["sendKey"]
+        return { mailed: true, messageRef: typeof sendKey === "string" ? sendKey : null, refusal: null, declined: false }
     },
     examples: [
         {
@@ -163,14 +169,10 @@ export const hiringInviteNode: TemplateNode<
             tools: [
                 candidateRead(SAMPLE_CANDIDATE),
                 JOB_READ,
-                {
-                    id: TOOL.mailMessageSend,
-                    args: mailArgs(MAIL, SAMPLE_CANDIDATE_ID),
-                    answer: answered({ emailMessageId: "wi-7", status: "sent" }),
-                },
+                { id: TOOL.customerMessageSend, args: mailArgs(MAIL), answer: sentAnswer("wi-7", "route-mail-1", MAIL_CHANNEL) },
             ],
             agent: [{ answer: { mail: MAIL } }],
-            output: { mailed: true, messageRef: "wi-7", refusal: null, declined: false },
+            output: { mailed: true, messageRef: "send:wi-7", refusal: null, declined: false },
         },
         {
             name: "a person declined the invitation on its card: a decision, nothing mailed",
@@ -179,22 +181,22 @@ export const hiringInviteNode: TemplateNode<
             tools: [
                 candidateRead(SAMPLE_CANDIDATE),
                 JOB_READ,
-                { id: TOOL.mailMessageSend, args: mailArgs(MAIL, SAMPLE_CANDIDATE_ID), answer: refused("declined") },
+                { id: TOOL.customerMessageSend, args: mailArgs(MAIL), answer: refused("declined") },
             ],
             agent: [{ answer: { mail: MAIL } }],
             output: { mailed: false, messageRef: null, refusal: null, declined: true },
         },
         {
-            name: "the mailbox refused the send: the refusal is said, nothing mailed, nobody moved",
+            name: "the send refused the mail (the agent is attached to no mail account): the refusal is said, nothing mailed, nobody moved",
             params: {},
             input: { candidateId: SAMPLE_CANDIDATE_ID, summary: SAMPLE_SUMMARY },
             tools: [
                 candidateRead(SAMPLE_CANDIDATE),
                 JOB_READ,
-                { id: TOOL.mailMessageSend, args: mailArgs(MAIL, SAMPLE_CANDIDATE_ID), answer: refused("mailbox_unavailable") },
+                { id: TOOL.customerMessageSend, args: mailArgs(MAIL), answer: refused("no_channel_identity") },
             ],
             agent: [{ answer: { mail: MAIL } }],
-            output: { mailed: false, messageRef: null, refusal: "mailbox_unavailable", declined: false },
+            output: { mailed: false, messageRef: null, refusal: "no_channel_identity", declined: false },
         },
         {
             name: "a candidate reached by phone only gets no mail",

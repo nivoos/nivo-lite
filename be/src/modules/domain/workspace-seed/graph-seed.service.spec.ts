@@ -194,7 +194,6 @@ describe("GraphSeedService > run", () => {
         expect(flows.publish).toHaveBeenCalledWith(
             expect.objectContaining({ workspaceId: "ws-1", agentId: "agent-1", installationId: "inst-1", flow: SPEC }),
         )
-        expect(flows.publish.mock.calls[0]?.[0].installed.nodes).toBeInstanceOf(Map)
         expect(agents.ensureByHandle).not.toHaveBeenCalled()
         expect(installations.insert).not.toHaveBeenCalled()
         expect(print.mock.calls).toEqual([["sales agent agent-1 live, graph created, 1 connections assigned"]])

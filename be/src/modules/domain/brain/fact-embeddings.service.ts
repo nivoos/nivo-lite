@@ -1,4 +1,5 @@
 import { Injectable, type OnModuleInit } from "@nestjs/common"
+import type { EntityManager } from "typeorm"
 import {
   BrainFactEmbeddingsService,
   BrainFactsReadService,
@@ -22,7 +23,6 @@ import { concurrencyGateOf, eachInOrder } from "@modules/platform/primitives"
 import { BrainLogEvent } from "./brain.log-events"
 import type {
   Candidates,
-  EmbeddingsRefreshed,
   JudgedFact,
   LineBatchEntry,
   LinesEmbedded,
@@ -30,14 +30,12 @@ import type {
   SameMeaningChecked,
 } from "./fact-embeddings.contracts"
 import {
-  ANNOUNCE_INLINE_MAX,
   EMBED_TIMEOUT_MS,
   JUDGE_BUDGET,
   JUDGE_PARALLEL,
   JUDGE_RETRY_BUDGET,
   JUDGE_TIMEOUT_MS,
   JUDGE_TRIES,
-  NOTHING_REFRESHED,
   batchesOf,
   fitsAsCandidate,
   sameKeyRepeatToRead,
@@ -59,10 +57,7 @@ import {
   type SameTruthVerdict,
 } from "./same-fact.policy"
 
-/**
- * The truths a document's new truth is compared with: in force, SCHEDULED for a later start (a dated window that waits is a decided
- * truth: Round W, D-W-2, the same window in a second document was never compared with it) and waiting.
- */
+/** The truths a document's new truth is compared with: in force, SCHEDULED for a later start (a dated window that waits is a decided truth, D-W-2) and waiting. */
 const DOCUMENT_CANDIDATES: ReadonlyArray<EmbeddedStatus> = ["active", "scheduled", "proposed"]
 
 /** The other truth a verdict names for a fact, with what is done about the pair. */
@@ -74,9 +69,8 @@ interface Named {
 }
 
 /**
- * The truth a verdict names among the candidates and what is done (`sameTruthActOf`), or null when nothing is: the judge read them as
- * different truths, or the pair never holds at the same time. An UNKNOWN verdict stands in the nearest candidate that holds at the
- * same time as the fact (never one of another period: that pair is not a question whatever the judge would have said).
+ * The truth a verdict names among the candidates and what is done (`sameTruthActOf`), or null when nothing is: the judge read them as different
+ * truths, or the pair never holds at the same time. An UNKNOWN verdict stands in the nearest candidate that holds at the same time as the fact.
  */
 const namedBy = (fact: FactRecord, verdict: SameTruthVerdict, candidates: ReadonlyArray<FactRecord>): Named | null => {
     if (verdict.kind === "different") return null
@@ -97,6 +91,7 @@ const namedBy = (fact: FactRecord, verdict: SameTruthVerdict, candidates: Readon
  * replaces the inside of that door, not this call). A fact whose line has the same hash under the same identity is never embedded
  * again; a fact of another identity is embedded again (the re-index), never compared. Proposals are embedded when a document files them
  * (one batched call per window), so the same fact in other words is found before anything is in force, and approving one sends nothing.
+ * The announcement of a write embeds nothing here: it queues the fact's `vector.sync` job, whose run makes the points.
  */
 export class FactEmbeddingsService implements OnModuleInit, FactsChangedHook {
     constructor(
@@ -121,46 +116,17 @@ export class FactEmbeddingsService implements OnModuleInit, FactsChangedHook {
     }
 
     /**
-     * The facts store's announcement (after the write committed): ONLY the facts it names are looked at (never the whole workspace), and
-     * at most `ANNOUNCE_INLINE_MAX` of them are embedded inline (one call, under the embedding timeout), so a fact write never waits on
-     * a long batch; every changed fact also gets its `vector.sync` job, which embeds the rest. Never throws and never fails the write.
+     * The facts store's announcement (after the write committed): EVERY changed fact gets its `vector.sync` job (an outbox row), so a
+     * superseded or retired fact loses its point and the points of the facts in force are made by the job: nothing here reaches the
+     * index or the embeddings endpoint, so a fact write never fails or slows on them. After a plain write a failure is logged, never thrown
+     * (the write already stands); inside a job's finishing transaction (`tx`) the rows are written in it and a failure throws.
      */
-    async factsChanged(workspaceId: string, changedIds: ReadonlyArray<string>): Promise<void> {
-        await this.embedChanged(workspaceId, changedIds)
-        await this.follow(workspaceId, changedIds)
-    }
-
-    /**
-     * EVERY changed fact gets its `vector.sync` job, not only those in force, so the point of a fact that was superseded, retired,
-     * expired or rejected is removed and the point of one whose standing changed is rewritten. Logged, never thrown: the reconcile
-     * finds what a lost job left.
-     */
-    private async follow(workspaceId: string, changedIds: ReadonlyArray<string>): Promise<void> {
+    async factsChanged(workspaceId: string, changedIds: ReadonlyArray<string>, tx?: EntityManager): Promise<void> {
         try {
-            await this.sync.changed("truth", workspaceId, changedIds)
+            await this.sync.changed("truth", workspaceId, changedIds, tx)
         } catch (cause) {
+            if (tx !== undefined) throw cause
             this.logger.error(BrainLogEvent.EmbeddingsFailed, cause, { workspaceId })
-        }
-    }
-
-    /**
-     * Gives the named facts that are in force and lack a current point one (the vector of another point of the same line first, then
-     * one embedding call), the first `ANNOUNCE_INLINE_MAX` of them, read by id in one statement. A failure is logged and the facts stay
-     * searchable by words until their sync job or the reconcile embeds them; it never throws.
-     */
-    async embedChanged(workspaceId: string, changedIds: ReadonlyArray<string>): Promise<EmbeddingsRefreshed> {
-        try {
-            const inline = [...new Set(changedIds)].slice(0, ANNOUNCE_INLINE_MAX)
-            if (inline.length === 0 || !this.ai.available()) return NOTHING_REFRESHED
-            const states = await this.vectors.statesOf(workspaceId, inline)
-            const done = await this.embedLines(
-                workspaceId,
-                states.filter((state) => state.fact.status === "active"),
-            )
-            return { embedded: done.embedded, adopted: done.adopted, unchanged: done.unchanged }
-        } catch (cause) {
-            this.logger.error(BrainLogEvent.EmbeddingsFailed, cause, { workspaceId })
-            return NOTHING_REFRESHED
         }
     }
 

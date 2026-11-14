@@ -57,6 +57,13 @@ export interface WorkflowCallView {
     readonly params: ReadonlyArray<WorkflowCallParamView>
 }
 
+/** Where a workflow's graph came from: the template, its package and version, and the one sentence that says the graph is the package's. */
+export interface WorkflowOriginView {
+    readonly title: string
+    readonly rows: ReadonlyArray<{ readonly id: string; readonly label: string; readonly value: string }>
+    readonly note: string
+}
+
 /** The cards of the overview of a workflow. */
 export interface WorkflowOverviewView {
     readonly triggers: ReadonlyArray<WorkflowOverviewRowView>
@@ -64,6 +71,8 @@ export interface WorkflowOverviewView {
     readonly entry: string
     readonly outcomes: ReadonlyArray<WorkflowOverviewRowView>
     readonly calls: ReadonlyArray<WorkflowCallView>
+    /** Where the graph came from (the origin section); null for a workflow with no template. */
+    readonly origin: WorkflowOriginView | null
 }
 
 /** One reason the back end names for a hidden workflow (`not_connected`, `trigger_off`, `needs_pick`, `tool_unavailable`), or `needs_reconnect` for an attached account whose provider refused the credential (it hides nothing). */

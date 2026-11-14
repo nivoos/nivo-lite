@@ -12,6 +12,9 @@ export type { ContactLinesPage, ContactLinesPageAsk, ContactRouteSummary } from 
 export { CONTACT_CONVERSATION_STORE } from "./contact-conversation-store.port"
 export type { ContactConversationStore, ContactLinesAsk, RouteActivity } from "./contact-conversation-store.port"
 export { CUSTOMER_LINE_STORE } from "./customer-line-store.port"
+export { StreamCursorService } from "./stream-cursor.service"
+export { STREAM_CURSOR_STORE, type StreamCursorStore } from "./stream-cursor-store.port"
+export { isStepCall, newestHeardSeqOf, seqAfter, stepCallPrefixOf } from "./stream-cursor.policy"
 export type { CustomerLine, CustomerLineDirection, CustomerLineRows, CustomerLineStore, HeardLineRow, LineCursor, LineWindowAsk } from "./customer-line-store.port"
 export type { CustomerRouteStore, NewCustomerRoute, StoredCustomerRoute } from "./customer-route-store.port"
 export type {

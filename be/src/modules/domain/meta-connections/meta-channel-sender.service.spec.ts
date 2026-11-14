@@ -65,6 +65,15 @@ describe("MetaChannelSender", () => {
         expect(Reflect.get(service, "onModuleInit")).toBeUndefined()
     })
 
+    it("answers Meta's typed answer from `deliver`, and null when the Page cannot be reached", async () => {
+        const { service, connections, meta } = await build()
+        meta.deliverMessage.mockResolvedValueOnce({ ok: false, reason: "rate_limited" })
+
+        await expect(service.deliver(target(), "Hello")).resolves.toEqual({ ok: false, reason: "rate_limited" })
+        connections.find.mockResolvedValueOnce(null)
+        await expect(service.deliver(target(), "Hello")).resolves.toBeNull()
+    })
+
     it("sends a Facebook reply to the person before the first archive colon", async () => {
         const { service, connections, meta } = await build()
 

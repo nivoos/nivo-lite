@@ -4,7 +4,7 @@ import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { isRecord } from "@modules/platform/primitives"
 import type { DoorName, DoorPress, DoorPressWrite, OptionalDoorPress } from "./agent-doors.contracts"
 
-/** The longest subject a press keeps (an item key, a lead id, a conversation id). */
+/** The longest subject a press keeps (an item key, a conversation id). */
 export const PRESS_SUBJECT_MAX = 300
 
 /** The most presses one read lists. */
@@ -24,7 +24,7 @@ const RECENT_SQL =
     "SELECT door, subject, member_id, outcome, detail, pressed_at FROM public.agent_door_presses " +
     "WHERE workspace_id = $1 AND door = $2 ORDER BY pressed_at DESC LIMIT $3"
 
-const DOORS: ReadonlyArray<DoorName> = ["schedule.run_now", "care.opt_out", "conversation.release"]
+const DOORS: ReadonlyArray<DoorName> = ["schedule.run_now", "conversation.release"]
 
 const textOf = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null)
 

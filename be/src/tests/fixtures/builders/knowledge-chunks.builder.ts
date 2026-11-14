@@ -14,7 +14,6 @@ export const knowledgeChunkOf: (overrides?: Partial<KnowledgeChunkEntity>) => Kn
     module: "chatbot",
     ord: 0,
     content: "a",
-    embedding: null,
     fts: null,
     createdAt: new Date("2026-04-01T00:00:00.000Z"),
     visibility: "internal",

@@ -12,6 +12,9 @@ import { LOGGER } from "@modules/platform/logging"
 import { KnowledgeQueue } from "@modules/queues/knowledge"
 import type { Logger } from "@modules/platform/logging"
 import { NATURE_PROMPT, NATURE_SCHEMA, NATURE_VERSION, tableKeyOf } from "./document-nature.policy"
+import { chainProviders, claimedJob } from "@tests/fixtures/builders/knowledge-chain.builder"
+import { classifyFailure } from "@modules/platform/queue"
+import { BrainErrorCode } from "./errors/brain.error"
 import { DocumentNatureService } from "./document-nature.service"
 import { DocumentPartsService } from "./document-parts.service"
 import { INGESTION_TARGET } from "./ingestion-model.policy"
@@ -36,6 +39,7 @@ const passageOf = (order: number, text: string): TruthPassage => ({
 const reply = (text: string) => ({ text, model: "sonnet", usage: USAGE, parsed: null, retrieved: 0 })
 
 const build = async () => {
+    const chain = chainProviders()
     const ai = mock<AiService>()
     ai.attempt.mockImplementation(async (request) => {
         const answer = await ai.chat(request)
@@ -53,6 +57,7 @@ const build = async () => {
     parts.wholeOf.mockResolvedValue([DOC_SOURCE])
     const moduleRef = await Test.createTestingModule({
         providers: [
+            ...chain.providers,
             DocumentNatureService,
             ModelJsonService,
             { provide: AI, useValue: ai },
@@ -64,9 +69,10 @@ const build = async () => {
             { provide: PRIMARY_ENTITY_MANAGER, useValue: tx.em },
         ],
     }).compile()
-    return { service: moduleRef.get(DocumentNatureService), ai, extractions, usage, parts, queue, tx }
+    return { service: moduleRef.get(DocumentNatureService), chain, ai, extractions, usage, parts, queue, tx }
 }
 
+const JOB = claimedJob({ sourceId: DOC_SOURCE })
 const source = docSourceOf({ title: "Laundry price list", storagePath: "ws/laundry/prices.md" })
 const passages = [passageOf(0, PRICES), passageOf(1, ORDERS)]
 const ANSWER = JSON.stringify({ nature: "rules", reason: "The shop's own prices", sections: {}, tables: { records: [1] } })
@@ -76,7 +82,7 @@ describe("DocumentNatureService: what a document is, judged once per text", () =
         const t = await build()
         t.ai.chat.mockResolvedValue(reply(ANSWER))
 
-        const outcome = await t.service.natureFor(source, passages, "c1")
+        const outcome = await t.service.natureFor(source, passages, "c1", JOB)
 
         expect(outcome).toEqual({
             kind: "ready",
@@ -98,7 +104,7 @@ describe("DocumentNatureService: what a document is, judged once per text", () =
         const stored = { version: NATURE_VERSION, contentHash: "c1", nature: "reference", reason: "r", sections: [], tables: {}, by: "model" }
         t.extractions.natureOf.mockResolvedValue({ reading: stored, override: { nature: "rules", by: "Owner", at: "t" } })
 
-        await expect(t.service.natureFor(source, passages, "c1")).resolves.toEqual({
+        await expect(t.service.natureFor(source, passages, "c1", JOB)).resolves.toEqual({
             kind: "ready",
             calls: 0,
             nature: { nature: "rules", sections: [], tables: {}, by: "founder" },
@@ -109,12 +115,12 @@ describe("DocumentNatureService: what a document is, judged once per text", () =
     it("asks once more with its own answer when the answer cannot be read; still unreadable, every passage is triaged one by one", async () => {
         const t = await build()
         t.ai.chat.mockResolvedValueOnce(reply("It is a price list.")).mockResolvedValueOnce(reply(ANSWER))
-        await expect(t.service.natureFor(source, passages, "c1")).resolves.toMatchObject({ kind: "ready", calls: 2, nature: { nature: "rules" } })
+        await expect(t.service.natureFor(source, passages, "c1", JOB)).resolves.toMatchObject({ kind: "ready", calls: 2, nature: { nature: "rules" } })
         expect(t.ai.chat.mock.calls[1]?.[0].messages.map((message) => message.role)).toEqual(["system", "user", "assistant", "user"])
 
         const u = await build()
         u.ai.chat.mockResolvedValue(reply('{"nature":"brochure"}'))
-        await expect(u.service.natureFor(source, passages, "c1")).resolves.toMatchObject({
+        await expect(u.service.natureFor(source, passages, "c1", JOB)).resolves.toMatchObject({
             kind: "ready",
             calls: 2,
             nature: { nature: "mixed", sections: [], by: "fallback" },
@@ -122,15 +128,22 @@ describe("DocumentNatureService: what a document is, judged once per text", () =
         expect(u.extractions.saveNature).toHaveBeenCalledWith(DOC_WS, DOC_SOURCE, expect.objectContaining({ by: "fallback" }))
     })
 
-    it("is retried by the queue when the model did not answer at all, and waits with no call when the credit pool is empty", async () => {
+    it("throws a model that did not answer at all (transient: the runner retries it), and waits with no call when the credit pool is empty", async () => {
         const t = await build()
         t.ai.chat.mockResolvedValue(null)
-        await expect(t.service.natureFor(source, passages, "c1")).resolves.toEqual({ kind: "retry" })
+        const thrown = await t.service.natureFor(source, passages, "c1", JOB).catch((cause: unknown) => cause)
+        expect(thrown).toMatchObject({ code: BrainErrorCode.ModelUnavailable })
+        expect(classifyFailure(thrown)).toBe("transient")
         expect(t.extractions.saveNature).not.toHaveBeenCalled()
+
+        const refused = await build()
+        refused.ai.attempt.mockResolvedValue({ ok: false, failure: "empty" })
+        const gone = await refused.service.natureFor(source, passages, "c1", JOB).catch((cause: unknown) => cause)
+        expect(classifyFailure(gone)).toBe("input")
 
         const u = await build()
         u.usage.blockedBy.mockResolvedValue(true)
-        await expect(u.service.natureFor(source, passages, "c1")).resolves.toEqual({ kind: "blocked" })
+        await expect(u.service.natureFor(source, passages, "c1", JOB)).resolves.toEqual({ kind: "blocked" })
         expect(u.ai.chat).not.toHaveBeenCalled()
     })
 
@@ -140,7 +153,7 @@ describe("DocumentNatureService: what a document is, judged once per text", () =
         t.parts.wholeOf.mockResolvedValue(["p1", DOC_SOURCE])
         t.extractions.natureOf.mockImplementation((_workspace, id) => Promise.resolve(id === "p1" ? { reading: first, override: null } : { reading: null, override: null }))
 
-        const outcome = await t.service.natureFor(source, [passageOf(0, ORDERS), passageOf(1, ORDERS.replace("LD-7-11", "LD-7-13"))], "c2")
+        const outcome = await t.service.natureFor(source, [passageOf(0, ORDERS), passageOf(1, ORDERS.replace("LD-7-11", "LD-7-13"))], "c2", JOB)
 
         expect(outcome).toMatchObject({ kind: "ready", calls: 0, nature: { nature: "records" } })
         expect(t.ai.chat).not.toHaveBeenCalled()
@@ -166,7 +179,7 @@ describe("DocumentNatureService: parts of one file, like documents and self-cont
         t.extractions.natureOf.mockImplementation((_workspace, id) => Promise.resolve({ reading: readings[id] ?? null, override: null }))
         t.ai.chat.mockResolvedValue(reply(answerOf("rules", "terms", ["Washing and ironing a shirt costs 20,000 VND"])))
 
-        const outcome = await t.service.natureFor(source, passages, "c1")
+        const outcome = await t.service.natureFor(source, passages, "c1", JOB)
 
         const prompt = t.ai.chat.mock.calls[0]?.[0].messages[1]?.content ?? ""
         expect(prompt).toContain("This text is part 2 of 3 of one file.")
@@ -191,7 +204,7 @@ describe("DocumentNatureService: parts of one file, like documents and self-cont
         ])
         t.ai.chat.mockResolvedValue(reply(answerOf("reference", "items")))
 
-        const outcome = await t.service.natureFor(source, goods, "c1")
+        const outcome = await t.service.natureFor(source, goods, "c1", JOB)
 
         const prompt = t.ai.chat.mock.calls[0]?.[0].messages[1]?.content ?? ""
         expect(prompt).toContain('EARLIER JUDGEMENTS\n"Uniform terms": rules (entries: terms) - aprons | quotes: "Aprons are hemmed for free"')
@@ -204,7 +217,7 @@ describe("DocumentNatureService: parts of one file, like documents and self-cont
         const t = await build()
         t.ai.chat.mockResolvedValueOnce(reply(answerOf("rules", "items"))).mockResolvedValueOnce(reply(answerOf("reference", "items")))
 
-        await expect(t.service.natureFor(source, goods, "c1")).resolves.toMatchObject({ kind: "ready", calls: 2, nature: { nature: "reference", by: "model" } })
+        await expect(t.service.natureFor(source, goods, "c1", JOB)).resolves.toMatchObject({ kind: "ready", calls: 2, nature: { nature: "reference", by: "model" } })
 
         const second = t.ai.chat.mock.calls[1]?.[0].messages ?? []
         expect(second.map((message) => message.role)).toEqual(["system", "user", "assistant", "user"])
@@ -217,7 +230,7 @@ describe("DocumentNatureService: parts of one file, like documents and self-cont
         t.extractions.formMates.mockResolvedValue([{ sourceId: "o2", title: "Uniform terms", reading: storedOf({ nature: "rules", entries: "terms" }) }])
         t.ai.chat.mockResolvedValue(reply(answerOf("rules", "items")))
 
-        await expect(t.service.natureFor(source, goods, "c1")).resolves.toMatchObject({ kind: "ready", calls: 2, nature: { nature: "mixed", sections: [], by: "fallback" } })
+        await expect(t.service.natureFor(source, goods, "c1", JOB)).resolves.toMatchObject({ kind: "ready", calls: 2, nature: { nature: "mixed", sections: [], by: "fallback" } })
 
         expect(t.extractions.saveNature).toHaveBeenCalledTimes(1)
         expect(t.extractions.saveNature).toHaveBeenCalledWith(DOC_WS, DOC_SOURCE, expect.objectContaining({ nature: "mixed", by: "fallback", entries: "items", disagreesWith: [] }))

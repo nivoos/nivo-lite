@@ -303,6 +303,9 @@ export interface CriticTarget {
     readonly attributeLabel: string
 }
 
+/** The instant a run began, or null when no instant narrows what is handed back. */
+export type OptionalSince = Date | null
+
 /** The state of the critique of one document. */
 export const CRITIQUE_STATES = ["waiting", "running", "done", "not_done"] as const
 /** One critique state. */
@@ -318,15 +321,6 @@ export type PointState = "open" | "answered" | "skipped" | "gone"
 
 /** The bounds of the critic, named once. */
 export const CRITIC_CAPS = {
-    /** Tries of the model per critique, in total (owner rule: 3). */
-    tries: 3,
-    /**
-     * RUNS of one critique in a row that ended not done WITHOUT progress (D-V-1): stored in `brain_source_critiques.attempts`, which
-     * survives a resume, a claim, a restart and the upkeep tick. At this count the critique is GIVEN UP: nothing asks for it again by
-     * itself (only a new request: a reading ended, a founder's answer, a person's "read again"); its passages not reviewed stay
-     * withheld from customers (no truth waits for it), and the team is told. A bound of runs, never a quota of calls. The table checks `attempts BETWEEN 0 AND 3`.
-     */
-    runs: 3,
     /**
      * Passages one model CALL reads. A document with more (or with more than `changedChars` of changed text) is reviewed in successive
      * calls of the same critique until every changed passage has been reviewed: never a partly reviewed document that looks reviewed.
@@ -363,7 +357,7 @@ export const CRITIC_CAPS = {
     quoteMax: 300,
 } as const
 
-/** How one run of a critique ended, as its count of runs reads it (`runsAfter`). */
+/** How one run of a critique ended, as `takesAnotherTurn` reads it. */
 export interface CritiqueRunEnd {
     /** Where the run left the critique. */
     readonly state: "done" | "not_done"
@@ -371,34 +365,7 @@ export interface CritiqueRunEnd {
     readonly reason: NotDoneReason | null
     /** True when the run moved the critique on: a passage newly reviewed. */
     readonly progressed: boolean
-    /** True when no later run could do more: every passage reviewed. */
-    readonly exhausted: boolean
-}
-
-/**
- * The count of runs in a row without progress (`brain_source_critiques.attempts`) after a run that ended this way, from the count
- * before it: done is 0; a model failure with nothing left to read is `CRITIC_CAPS.runs` at once; progress is 0; a run the model or the
- * bound of calls stopped without progress counts one more (at most `CRITIC_CAPS.runs`); a run the empty credit pool stopped (no call
- * made) or whose truths were not read leaves the count as it was. Counts only, never what a text means.
- */
-export const runsAfter = (before: number, end: CritiqueRunEnd): number => {
-    const kept = Math.min(Math.max(before, 0), CRITIC_CAPS.runs)
-    if (end.state === "done") return 0
-    if (end.reason === "model" && end.exhausted) return CRITIC_CAPS.runs
-    if (end.progressed) return 0
-    return end.reason === "model" || end.reason === "budget" ? Math.min(kept + 1, CRITIC_CAPS.runs) : kept
 }
 
 /** True when a run ended a slice of work with progress and more to do: the critique waits again at once, behind the others. */
 export const takesAnotherTurn = (end: CritiqueRunEnd): boolean => end.state === "not_done" && end.reason === "budget" && end.progressed
-
-/** Where a critique stands, as `isGivenUp` reads it. */
-export interface CritiqueRunCount {
-    /** Its state. */
-    readonly state: CritiqueState
-    /** Its runs in a row without progress. */
-    readonly attempts: number
-}
-
-/** True when a critique is GIVEN UP: not done after `CRITIC_CAPS.runs` runs in a row without progress; nothing asks for it by itself. */
-export const isGivenUp = (row: CritiqueRunCount): boolean => row.state === "not_done" && row.attempts >= CRITIC_CAPS.runs

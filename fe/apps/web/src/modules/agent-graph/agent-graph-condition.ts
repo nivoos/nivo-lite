@@ -21,75 +21,14 @@ const termOf = (comparison: z.infer<typeof comparisonSchema>): AgentGraphTermFor
 }
 
 /**
- * The terms a condition is made of when the form can draw it: one comparison, or an `all` of comparisons. Null for what it cannot
- * draw (an `any`, a group inside a group), which the form keeps as it is and never rewrites.
+ * The terms a condition is made of when the page can say it: one comparison, or an `all` of comparisons. Null for what it cannot
+ * draw (an `any`, a group inside a group), which the page leaves out.
  */
 export const termsOfWhen = (when: unknown): ReadonlyArray<AgentGraphTermForm> | null => {
     const single = comparisonSchema.safeParse(when)
     if (single.success) return [termOf(single.data)]
     const flat = flatSchema.safeParse(when)
     return flat.success ? flat.data.all.map((entry) => termOf(entry)) : null
-}
-
-/** What a term of the form writes into the draft: the value its fact's type asks for. */
-const comparisonOf = (term: AgentGraphTermForm, fact: AgentGraphFactData | undefined): unknown => {
-    if (term.op === "known") return { fact: term.fact, op: term.op }
-    if (term.op === "in")
-        return {
-            fact: term.fact,
-            op: term.op,
-            value: term.text
-                .split(",")
-                .map((item) => item.trim())
-                .filter((item) => item !== ""),
-        }
-    if (fact?.type === "number") return { fact: term.fact, op: term.op, value: term.amount }
-    if (fact?.type === "boolean") return { fact: term.fact, op: term.op, value: term.text === "true" }
-    return { fact: term.fact, op: term.op, value: term.text }
-}
-
-/** The condition the terms write: one comparison, or an `all` of them. */
-export const conditionOfTerms = (
-    terms: ReadonlyArray<AgentGraphTermForm>,
-    facts: ReadonlyArray<AgentGraphFactData>,
-): unknown => {
-    const comparisons = terms.map((term) =>
-        comparisonOf(
-            term,
-            facts.find((fact) => fact.key === term.fact),
-        ),
-    )
-    return comparisons.length === 1 ? comparisons[0] : { all: comparisons }
-}
-
-/** The operators a fact of that type may be compared with, in the order the owner reads them. */
-export const opsOfFact = (fact: AgentGraphFactData | undefined): ReadonlyArray<AgentGraphOp> => {
-    if (fact?.type === "number") return ["gte", "gt", "lte", "lt", "eq", "neq", "known"]
-    if (fact?.type === "boolean") return ["eq", "known"]
-    return ["eq", "neq", "in", "known"]
-}
-
-/** A term for a fact, with the comparison the owner most likely means first. */
-export const newTermOf = (fact: AgentGraphFactData | undefined): AgentGraphTermForm => {
-    const key = fact?.key ?? ""
-    if (fact?.type === "number") return { fact: key, op: "gte", amount: fact.unit === "vnd" ? 5_000_000 : 1, text: "" }
-    if (fact?.type === "boolean") return { fact: key, op: "eq", amount: 0, text: "true" }
-    return { fact: key, op: "eq", amount: 0, text: fact?.allowed[0] ?? "" }
-}
-
-/**
- * The term that continues one that came before: after a lower bound ("from 5 million") comes the upper bound of a stretch, four
- * times as far; after an upper bound ("under 20 million") comes the lower bound that starts where it ended, so branches added one by
- * one leave no gap. Anything else starts from the fact's own first term.
- */
-export const newTermAfter = (
-    fact: AgentGraphFactData | undefined,
-    previous: AgentGraphTermForm | undefined,
-): AgentGraphTermForm => {
-    const fresh = newTermOf(fact)
-    if (fact?.type !== "number" || previous?.fact !== fact.key) return fresh
-    if (previous.op === "gte" || previous.op === "gt") return { ...fresh, op: "lt", amount: previous.amount * 4 }
-    return previous.op === "lt" || previous.op === "lte" ? { ...fresh, op: "gte", amount: previous.amount } : fresh
 }
 
 /** What the words of a condition need: the facts, the translator, and how an amount is written. */

@@ -1,30 +1,16 @@
-import {
-    graphRefProblems,
-    graphSpecProblems,
-    isContractProblem,
-    refProblemText,
-    specRefContextOf,
-    triggerProblems,
-    type GraphNodeAccountMode,
-    type GraphSpec,
-    type GraphSpecV2,
-} from "@nivo-lite/agent-sdk/graph"
-import { CONTRACT_VIEWS } from "./contract-views.policy"
-import type { NodeIndex } from "@nivo-lite/agent-sdk/node"
+import { triggerProblems, type GraphSpec } from "@nivo-lite/agent-sdk/graph"
 import {
     type TemplateAgent,
     VERB_SHARED_REFUSED,
     sharedVerbProblems,
     templateGraphProblems,
 } from "@nivo-lite/agent-sdk/template"
-import { INSTALLED, TEMPLATE_IF_STEP, TEMPLATE_UNTIL_STEP, TEMPLATE_WAIT_STEP } from "@modules/domain/installed-plugins"
+import { INSTALLED } from "@modules/domain/installed-plugins"
 import { providerTriggerLookup } from "@modules/domain/provider-triggers"
 import { AgentGraphsError, AgentGraphsErrorCode } from "../errors/agent-graphs.error"
-import type { GraphDocument } from "../agent-graphs.contracts"
-import { AGENT_GRAPHS_MESSAGES } from "../messages/agent-graphs.messages"
-import { toolsOutsideAgent, withDefaultReads } from "./agent-tools.policy"
+import { GRAPH_TOOL_OUTSIDE_AGENT, withDefaultReads } from "./agent-tools.policy"
 import { graphLoopProblemsOf } from "./graph-loops.policy"
-import { nodeAccountLookup } from "./node-accounts.policy"
+import { withSettingsCleared, withSettingsLaid } from "./node-settings.policy"
 import { askCalledWritesProblems, templateToolLookupOf, templateTriggerLookup } from "./template-lookups.policy"
 
 /** The text of a value with the keys of every object in order: the database keeps a document with its keys in its own order, so equal content must compare equal. */
@@ -50,9 +36,9 @@ export const flowChanged = (held: GraphSpec | undefined, wanted: GraphSpec | und
 export const agentToolsOf = (moduleKey: string): ReadonlyArray<string> | null => INSTALLED.agentToolsOf(moduleKey)
 
 /**
- * The trigger problems of a flow read from a @2 graph that its DERIVED registrations raise: a condition (the graph's `where`, carried onto
- * every derived source, or the verb's own meaning on a source) naming a member that source does not supply (`TRIGGER_CONDITION_UNKNOWN`),
- * or one a provider does not let a registration filter on (`TRIGGER_FILTER_INVALID`). The @2 checks judge the rest of a trigger.
+ * The trigger problems of a flow that its DERIVED registrations raise: a condition (the graph's `where`, carried onto every derived
+ * source, or the verb's own meaning on a source) naming a member that source does not supply (`TRIGGER_CONDITION_UNKNOWN`), or one a
+ * provider does not let a registration filter on (`TRIGGER_FILTER_INVALID`). The template checks judge the rest of a trigger.
  */
 const DERIVED_CONDITION_CODES: ReadonlySet<string> = new Set(["TRIGGER_CONDITION_UNKNOWN", "TRIGGER_FILTER_INVALID"])
 
@@ -63,51 +49,24 @@ export interface FlowProblem {
 }
 
 /**
- * The problem of a stored flow read from a template graph that is no installed template graph's copy any longer: a template graph's steps
- * are edited in its package, never here (the shop's own settings on its copy aside, `isCopyOf`).
+ * The problem of a flow that is no installed template graph version's copy (the shop's node settings aside, `isCopyOf`): a graph is
+ * written in its package and only installed here (owner ruling R89). One graph format: a flow that is no template's copy (an edited
+ * copy, a hand-made graph, a flow of node definitions) is refused with this code, never judged by other checks.
  */
 export const GRAPH_TEMPLATE_EDITED = "GRAPH_TEMPLATE_EDITED"
 
-/** True for a word that is one node mode (`GraphSpecNode.mode`). */
-const isMode = (mode: unknown): mode is GraphNodeAccountMode => mode === "auto" || mode === "ask"
-
 /**
  * True when a stored flow is the copy of a template graph's flow (`template`, the graph as the install reads it): equal content for content
- * in everything but what the shop SETS on its own copy (nivo-frame `rights` rule 5): the ONE mode of a step whose template step states one
- * (a node step), set to `auto` or `ask`. A changed step, route, param, trigger or a mode on a step the template gives none is an edit.
+ * in everything but the NODE SETTINGS the shop sets on its own copy (`node-settings.policy`: a node step's mode and the accounts it uses,
+ * each where the template step takes it). Anything else changed (a step, route, param, trigger, a setting on a step that takes none) is an edit.
  */
-const isCopyOf = (template: GraphSpec, flow: GraphSpec): boolean => {
-    const settable = new Set(template.nodes.filter((node) => node.mode !== undefined).map((node) => node.key))
-    const settingsCleared = (graph: GraphSpec): GraphSpec => ({
-        ...graph,
-        nodes: graph.nodes.map((node) => (settable.has(node.key) && isMode(node.mode) ? { ...node, mode: undefined } : node)),
-    })
-    return sameFlow(settingsCleared(template), settingsCleared(flow))
-}
-
-/** The template graph with the shop's settings of its stored copy applied: each node step's mode as the copy states it. */
-const withSettingsOf = (spec: GraphSpecV2, flow: GraphSpec): GraphSpecV2 => {
-    const modes = new Map(flow.nodes.flatMap((node) => (isMode(node.mode) ? [[node.key, node.mode] as const] : [])))
-    const [first, ...rest] = spec.nodes.map((step) =>
-        step.kind === "node" ? { ...step, mode: modes.get(step.key) ?? step.mode } : step,
-    )
-    return first === undefined ? spec : { ...spec, nodes: [first, ...rest] }
-}
-
-/** True for a flow read from a @2 graph (`graphOfSpecV2`): one of its steps is a template node or the engine's `if`. */
-export const isTemplateFlow = (flow: GraphSpec): boolean =>
-    flow.nodes.some(
-        (node) =>
-            node.step === TEMPLATE_IF_STEP ||
-            node.step === TEMPLATE_UNTIL_STEP ||
-            node.step === TEMPLATE_WAIT_STEP ||
-            INSTALLED.templateNodeOf(node.step) !== null,
-    )
+const isCopyOf = (template: GraphSpec, flow: GraphSpec): boolean =>
+    sameFlow(withSettingsCleared(template, template), withSettingsCleared(template, flow))
 
 /**
- * The problems of a flow read from a @2 graph, or null for a flow of `defineNode` nodes (the `@1` checks judge it). The flow must be the
- * COPY of the one an installed template graph of its module reads as (`isCopyOf`: content for content, the shop's own node modes aside;
- * else `GRAPH_TEMPLATE_EDITED`); that graph, with the copy's modes (`withSettingsOf`), is then judged by the SDK's `templateGraphProblems`
+ * The problems of a flow (GRAPH-CLEAN rule: the store writes a workflow version only when it is an installed template version with the
+ * shop's node settings). The flow must be the COPY of the one an installed template graph of its module reads as (`isCopyOf`: content for content, the shop's node settings aside;
+ * else `GRAPH_TEMPLATE_EDITED`); that graph, with the copy's settings laid over it (`withSettingsLaid`), is then judged by the SDK's `templateGraphProblems`
  * with the engine's lookups (known tools, provider owners, money tools, what each verb supplies) and
  * its agent's providers, every tool of its nodes must be in what its module's agent may call (`GRAPH_TOOL_OUTSIDE_AGENT`) when the
  * module declares an agent, every condition its derived registrations carry must read a member its source supplies, and a trigger verb
@@ -115,8 +74,7 @@ export const isTemplateFlow = (flow: GraphSpec): boolean =>
  * installed template agent while `VERB_SHARED_REFUSED`: install, seed and every publish of a template flow pass here), and a step on
  * `ask` calls at most one write, the default tools its node's examples call counted (`askCalledWritesProblems`, `NODE_ASK_WRITES_MANY`).
  */
-export const templateFlowProblems = (flow: GraphSpec): ReadonlyArray<FlowProblem> | null => {
-    if (!isTemplateFlow(flow)) return null
+export const templateFlowProblems = (flow: GraphSpec): ReadonlyArray<FlowProblem> => {
     const held = INSTALLED.templatesOf(flow.moduleKey).find(
         (template) =>
             INSTALLED.templateGraphOf(template.id) !== null && template.versions.some((version) => isCopyOf(version.graph, flow)),
@@ -124,7 +82,7 @@ export const templateFlowProblems = (flow: GraphSpec): ReadonlyArray<FlowProblem
     const found = held === undefined ? null : INSTALLED.templateGraphOf(held.id)
     if (found === null) return [{ code: GRAPH_TEMPLATE_EDITED, at: flow.moduleKey }]
     const { agent } = found
-    const graph = { ...found.graph, spec: withSettingsOf(found.graph.spec, flow) }
+    const graph = { ...found.graph, spec: withSettingsLaid(found.graph.spec, flow) }
     const declared = agentToolsOf(flow.moduleKey)
     // What the agent may call is the set the run-time grant bounds every run by (`withDefaultReads`: the declared set and the default
     // reads every agent holds); a control step's own effect is the engine's and no template node's tool, so it is not judged here.
@@ -135,7 +93,7 @@ export const templateFlowProblems = (flow: GraphSpec): ReadonlyArray<FlowProblem
             : [...graph.nodes.values()].flatMap((node) =>
                   node.tools
                       .filter((tool) => !allowed.has(tool))
-                      .map((tool): FlowProblem => ({ code: "GRAPH_TOOL_OUTSIDE_AGENT", at: `${node.id}.tools.${tool}` })),
+                      .map((tool): FlowProblem => ({ code: GRAPH_TOOL_OUTSIDE_AGENT, at: `${node.id}.tools.${tool}` })),
               )
     const conditions = triggerProblems(flow.triggers, flow.contract, providerTriggerLookup).filter((problem) =>
         DERIVED_CONDITION_CODES.has(problem.code),
@@ -164,84 +122,35 @@ const sharedVerbsOf = (agent: Pick<TemplateAgent, "key" | "graphs">, graphKey: s
         : []
 
 /**
- * The mode problems of a stored flow (nivo-frame `rights`: every node declares ONE mode `auto | ask`; the engine has no default): a node
- * that carries the node contract (`accounts`) and states no mode (its `mode`, or on a stored legacy node its accounts' `operations`), or a word
- * that is neither, is `NODE_MODE_UNSTATED` at `<key>.mode`.
+ * The mode problems of a stored flow (rights rule 1: every node step states ONE mode `auto | ask`; the engine has no default): a step that
+ * carries the node contract (`accounts`) and states no mode, or a word that is neither, is `NODE_MODE_UNSTATED` at `<key>.mode`.
  */
 export const modeProblemsOf = (flow: GraphSpec): ReadonlyArray<FlowProblem> =>
     flow.nodes.flatMap((node): ReadonlyArray<FlowProblem> => {
         if (node.accounts === undefined) return []
         const own: unknown = node.mode
-        const carried: ReadonlyArray<unknown> = node.accounts.flatMap((account) => Object.values(account.operations ?? {}))
-        const stated =
-            own === undefined
-                ? carried.length > 0 && carried.every((mode) => mode === "auto" || mode === "ask")
-                : own === "auto" || own === "ask"
-        return stated ? [] : [{ code: NODE_MODE_UNSTATED, at: `${node.key}.mode` }]
+        return own === "auto" || own === "ask" ? [] : [{ code: NODE_MODE_UNSTATED, at: `${node.key}.mode` }]
     })
 
 /** The problem of a node that states no mode. */
 export const NODE_MODE_UNSTATED = "NODE_MODE_UNSTATED"
 
-/** The problems a flow is refused for at a seed's check: the @2 checks for a flow read from a template graph, else the `@1` ones. */
-export const flowProblemsOf = (flow: GraphSpec, installed: NodeIndex): ReadonlyArray<FlowProblem> => [
-    ...(templateFlowProblems(flow) ?? graphSpecProblems(flow, installed, undefined, nodeAccountLookup)),
+/** The problems a flow is refused for: the template copy checks, the modes, and the engine's own loop and cycle checks. */
+export const flowProblemsOf = (flow: GraphSpec): ReadonlyArray<FlowProblem> => [
+    ...templateFlowProblems(flow),
     ...modeProblemsOf(flow),
-    // The engine's own loop and cycle checks, on every form: a cycle only through a loop, an until loop's cap, branch and condition.
+    // The engine's own loop and cycle checks: a cycle only through a loop, an until loop's cap, branch and condition.
     ...graphLoopProblemsOf(flow),
 ]
 
 /**
- * Refuses a flow the installed nodes do not take, or whose steps reach a tool outside the tool set of its module's agent
- * (`GRAPH_TOOL_OUTSIDE_AGENT`), naming every problem, with nothing written: the one judgement every road that publishes a flow passes
- * (a member's publish and the seed alike).
+ * Refuses a flow that is no installed template version's copy, or whose copy the template checks, the mode check or the loop checks
+ * refuse, naming every problem, with nothing written: the one judgement every road that writes a flow passes (adopting or accepting a
+ * template version, a judged rollback, the node settings door, the seed).
  */
-export const requireSoundFlow = (flow: GraphSpec, installed: NodeIndex): void => {
-    // A flow read from a @2 graph is judged by the @2 checks alone: the `@1` ones know no template node.
-    const template = templateFlowProblems(flow)
-    // The engine's own loop and cycle checks judge every form, a raw document the SDK never saw included.
-    const loops = [...graphLoopProblemsOf(flow), ...modeProblemsOf(flow)]
-    if (template !== null || loops.length > 0) {
-        const found = [...(template ?? []), ...loops]
-        if (found.length === 0) return
-        const listed = found.map((problem) => `${problem.code} ${problem.at}`).join(", ")
-        throw new AgentGraphsError({ code: AgentGraphsErrorCode.PublishRefused, params: { problems: listed } })
-    }
-    const all = graphSpecProblems(flow, installed, providerTriggerLookup, nodeAccountLookup)
-    // The contract problems are the owner's to fix in the editor: refused with their own words, each one named.
-    const contract = all.filter(isContractProblem)
-    const [first] = contract
-    if (first !== undefined) {
-        throw new AgentGraphsError({
-            code: AgentGraphsErrorCode.ContractRefused,
-            params: {
-                count: String(contract.length),
-                first: CONTRACT_VIEWS.contractProblemText(first, "vi"),
-                problems: JSON.stringify(contract),
-            },
-        })
-    }
-    const problems = [...all, ...toolsOutsideAgent(flow, installed, agentToolsOf(flow.moduleKey))]
-    if (problems.length > 0) {
-        const listed = problems.map((problem) => `${problem.code} ${problem.at}`).join(", ")
-        throw new AgentGraphsError({ code: AgentGraphsErrorCode.PublishRefused, params: { problems: listed } })
-    }
-    requireSoundRefs(flow, installed)
+export const requireSoundFlow = (flow: GraphSpec): void => {
+    const found = flowProblemsOf(flow)
+    if (found.length === 0) return
+    const listed = found.map((problem) => `${problem.code} ${problem.at}`).join(", ")
+    throw new AgentGraphsError({ code: AgentGraphsErrorCode.PublishRefused, params: { problems: listed } })
 }
-
-/**
- * Refuses a version whose params or refs are broken, by `graphRefProblems`: every problem in `problems` as JSON (code, node, field, ref,
- * i18n key and its fill-ins) for the editor to word in place, the first one worded in Vietnamese in `first`.
- */
-export const requireSoundRefs = (flow: GraphSpec, installed: NodeIndex): void => {
-    const problems = graphRefProblems(flow, specRefContextOf(flow, installed))
-    const [first] = problems
-    if (first === undefined) return
-    throw new AgentGraphsError({
-        code: AgentGraphsErrorCode.RefsRefused,
-        params: { count: String(problems.length), first: refProblemText(first, AGENT_GRAPHS_MESSAGES.vi), problems: JSON.stringify(problems) },
-    })
-}
-/** True for a graph that holds a flow and none of the old nodes: the flow runs the agent, so the old walk has nothing to judge and must not answer for it. */
-export const isFlowOnly = (document: GraphDocument): boolean =>
-    document.flow !== undefined && document.nodes.length === 0

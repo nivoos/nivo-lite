@@ -1,11 +1,18 @@
 import { Injectable } from "@nestjs/common"
-import { AppCommandsService, type AppCommand, type AppCommandResult } from "@modules/domain/app-commands"
+import { AppCommandsService, COMMAND_STOPPED, type AppCommand, type AppCommandResult } from "@modules/domain/app-commands"
 import { PlatformAuditService } from "@modules/domain/platform-audit"
 import { isDomainError } from "@modules/platform/errors"
-import { QueueErrorCode } from "@modules/platform/queue"
+import { EffectsError } from "@modules/platform/effects"
+import type { ClaimedJob } from "@modules/platform/jobs"
+import { classifyFailure, QueueErrorCode } from "@modules/platform/queue"
 import { inviteCommandPayloadOf } from "@modules/queues/invite-command"
 import { InviteSupportService } from "./invite-support.service"
+import type { InviteIssuance } from "./workspace-invites.contracts"
 import { WorkspaceInvitesService } from "./workspace-invites.service"
+
+/** True for a refusal the input itself earned: a capability error of class `input` that is not the effects ledger's own. A missing setting, a failure a later try may mend and the ledger's unknown outcome are the runner's (ladder, dead letter). */
+const isRefusal = (cause: unknown): cause is { readonly code: string } =>
+    isDomainError(cause) && !(cause instanceof EffectsError) && classifyFailure(cause) === "input"
 
 /** The text a command input field holds, or empty when it holds no text. */
 const textOf = (value: unknown): string => (typeof value === "string" ? value : "")
@@ -24,52 +31,59 @@ export class InviteCommandsService {
     ) {}
 
     /**
-     * Serves the command a claimed job names. A refusal of the domain (a bad address, a taken staff row, a missing invitation) settles the
-     * command as failed with its code (a kind it does not know as unrecoverable); any other failure is thrown so the queue retries the delivery. A payload that names no command, or
-     * a command already settled, is left as it is.
+     * Serves the command a claimed job names. The invitation is made once per command: its token and its mail are effects keyed by the
+     * job (`<jobId>:...`), so a run again after a crash finds what was made and sends nothing twice, and a resume never rotates the token.
+     * A refusal the input earned (a bad address, a taken staff row, a missing invitation: a domain error of class input) settles
+     * the command as failed with its code and the job ends; anything else is thrown for the runner (ladder, then ONE dead letter). A
+     * payload that names no command, or a command already settled, is left as it is.
      */
-    async run(payload: object): Promise<void> {
+    async run(payload: object, job: ClaimedJob): Promise<void> {
         const named = inviteCommandPayloadOf(payload)
         if (named === null) return
-        const command = await this.commands.begin(named.commandId)
+        const command = await this.commands.begin(named.commandId, (job.resumeCount ?? 0) > 0)
         if (command === null) return
         try {
-            const result = await this.serve(command)
+            const result = await this.serve(command, { key: job.jobId })
             if (result === null) await this.commands.fail(command.id, QueueErrorCode.Unrecoverable)
             else await this.commands.succeed(command.id, result)
         } catch (cause) {
-            if (!isDomainError(cause)) throw cause
+            if (!isRefusal(cause)) throw cause
             await this.commands.fail(command.id, cause.code)
         }
     }
 
-    /** Settles the command of a job that ran out of attempts, so the asker stops waiting. */
-    async abandon(payload: object): Promise<void> {
+    /** The job was dead-lettered (the work stopped; nothing was refused): the command says so, so the asker stops waiting, and a resume of the job takes it back. */
+    async stopped(payload: object): Promise<void> {
         const named = inviteCommandPayloadOf(payload)
-        if (named !== null) await this.commands.fail(named.commandId, "unavailable")
+        if (named !== null) await this.commands.fail(named.commandId, COMMAND_STOPPED)
     }
 
     /** Does what the command asks, as the person who asked; answers what the web app shows, or null for a kind it does not know. */
-    private async serve(command: AppCommand): Promise<AppCommandResult | null> {
+    private async serve(command: AppCommand, issuance: InviteIssuance): Promise<AppCommandResult | null> {
         const workspaceId = command.workspaceId ?? ""
         const inviteId = textOf(command.input.inviteId)
         if (command.kind === "invite.create") {
             const staffId = textOf(command.input.staffId)
-            const created = await this.invites.create(command.requestedBy, workspaceId, {
-                email: textOf(command.input.email),
-                role: command.input.role === "manager" ? "manager" : "staff",
-                staffId: staffId === "" ? null : staffId,
-            })
+            const created = await this.invites.create(
+                command.requestedBy,
+                workspaceId,
+                {
+                    email: textOf(command.input.email),
+                    role: command.input.role === "manager" ? "manager" : "staff",
+                    staffId: staffId === "" ? null : staffId,
+                },
+                issuance,
+            )
             return { ...created }
         }
         if (command.kind === "invite.resend") {
-            return { ...(await this.invites.resend(command.requestedBy, workspaceId, inviteId)) }
+            return { ...(await this.invites.resend(command.requestedBy, workspaceId, inviteId, issuance)) }
         }
         if (command.kind === "invite.link") {
-            return { ...(await this.invites.copyLink(command.requestedBy, workspaceId, inviteId)) }
+            return { ...(await this.invites.copyLink(command.requestedBy, workspaceId, inviteId, issuance)) }
         }
         if (command.kind === "admin.invite.resend") {
-            const issued = await this.support.reissue(workspaceId, inviteId)
+            const issued = await this.support.reissue(workspaceId, inviteId, issuance)
             await this.audits.record({
                 actorId: command.requestedBy,
                 actorEmail: textOf(command.input.actorEmail),

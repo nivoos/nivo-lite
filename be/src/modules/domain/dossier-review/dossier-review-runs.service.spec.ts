@@ -72,7 +72,7 @@ describe("DossierReviewRunsService requestForSource", () => {
 
         await service.requestForSource(WS, "s1")
 
-        expect(documentCritic.request).toHaveBeenCalledWith(WS, "s1", {})
+        expect(documentCritic.request).toHaveBeenCalledWith(WS, "s1", {}, expect.anything())
         expect(inserts[0]?.callsOf("values")).toEqual([
             [
                 {
@@ -105,13 +105,13 @@ describe("DossierReviewRunsService requestForSource", () => {
         expect(queue.enqueueDossierReview).not.toHaveBeenCalled()
     })
 
-    it("D-V-1: a RESUME of the upkeep tick keeps the critique's count, and queues nothing when the critique does not wait again", async () => {
+    it("a RESUME of the upkeep tick queues nothing when the critique does not wait again", async () => {
         const { tx } = transactionOf(queuedOf(FIRST_ID))
         const { service, queue, critic, documentCritic } = await build(tx.em)
 
         documentCritic.request.mockResolvedValue(false)
         await service.requestForSource(WS, "s1", { resume: true })
-        expect(documentCritic.request).toHaveBeenCalledWith(WS, "s1", { resume: true })
+        expect(documentCritic.request).toHaveBeenCalledWith(WS, "s1", { resume: true }, expect.anything())
         expect(queue.enqueueDossierReview).not.toHaveBeenCalled()
         expect(critic.enter).not.toHaveBeenCalled()
 
@@ -122,12 +122,12 @@ describe("DossierReviewRunsService requestForSource", () => {
     })
 })
 
-describe("DossierReviewRunsService continueCritiques and requestForGoneSource", () => {
-    it("queues a follow-up workspace run with no document", async () => {
+describe("DossierReviewRunsService continueCritiquesIn and requestForGoneSource", () => {
+    it("queues a follow-up workspace run with no document, in the transaction of the caller", async () => {
         const { tx, inserts } = transactionOf(queuedOf(FIRST_ID))
         const { service, queue } = await build(tx.em)
 
-        await service.continueCritiques(WS)
+        await service.continueCritiquesIn(tx.em, WS)
 
         expect(inserts[0]?.callsOf("values")).toEqual([[expect.objectContaining({ triggerRef: null, scope: "workspace" })]])
         expect(queue.enqueueDossierReview).toHaveBeenCalledTimes(1)

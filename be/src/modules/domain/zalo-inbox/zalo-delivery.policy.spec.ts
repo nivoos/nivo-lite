@@ -39,14 +39,14 @@ describe("ZaloDeliveryPolicy", () => {
             expectedFencingToken: 3,
             step: "zalo-delivery",
         })
-        expect(inbox.processRecordedDelivery).toHaveBeenCalledWith(job.payload)
+        expect(inbox.processRecordedDelivery).toHaveBeenCalledWith(job.payload, job)
     })
 
     it.each([{}, { deliveryId: "" }, { deliveryId: "   " }, { deliveryId: 1 }])(
-        "discards invalid references before any claim or effect: %p",
+        "refuses an invalid reference as an input failure before any claim or effect: %p",
         async (payload) => {
             const { processor, inbox, claims } = await build()
-            await processor.run({ ...job, payload }, claims, inbox)
+            await expect(processor.run({ ...job, payload }, claims, inbox)).rejects.toMatchObject({ params: { failureClass: "input" } })
             expect(claims.advance).not.toHaveBeenCalled()
             expect(inbox.processRecordedDelivery).not.toHaveBeenCalled()
         },

@@ -59,7 +59,30 @@ export const TEAM_CHAT_MESSAGE_TRIGGER: TriggerDeclaration<TeamChatTagRaw, TeamC
     provider: PROVIDER.nivo,
     name: TEAM_CHAT_MESSAGE,
     verb: TRIGGER.chatMessageReceived,
-    via: "internal",
+    via: ["internal"],
+    // The tag is a job written in the transaction that stores the message (team-chat-tag.route, then team-chat-tag.deliver, once key per
+    // message and agent): a crash is redelivered by the broker, a failure runs the `waited` ladder, then parks with one item.
+    withoutPoll: {
+        reason: {
+            vi: "Lời gắn thẻ agent trong /chat là một việc ghi cùng giao dịch với tin nhắn (team-chat-tag.route rồi team-chat-tag.deliver): lỗi thì thử lại theo bậc, rồi dừng kèm một mục cho người xử lý.",
+            en: "An @agent tag in /chat is a job written in the transaction that stores the message (team-chat-tag.route, then team-chat-tag.deliver): a failure is retried on the ladder, then parked with one item for a person.",
+        },
+        source: "nivo:team-chat-tag.route",
+    },
+    words: {
+        title: { vi: "Trò chuyện nhóm · được gắn thẻ", en: "Team chat · tagged" },
+        summary: {
+            vi: "Một thành viên gắn thẻ agent trong /chat và viết yêu cầu.",
+            en: "A member tags the agent in /chat and writes a request.",
+        },
+        members: {
+            threadId: { vi: "Phòng chat (luồng của sự kiện).", en: "The chat room (the event's thread)." },
+            roomId: { vi: "Phòng chat nơi thành viên viết.", en: "The room the member wrote in." },
+            messageId: { vi: "Tin nhắn có gắn thẻ.", en: "The message that carries the tag." },
+            text: { vi: "Điều thành viên viết.", en: "What the member wrote." },
+            actorMemberId: { vi: "Thành viên đã viết.", en: "The member who wrote it." },
+        },
+    },
     raw: z.object({
         roomId: z.string().max(200),
         messageId: z.string().max(200),

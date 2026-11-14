@@ -1,7 +1,6 @@
 import { Injectable } from "@nestjs/common"
-import { FencedProcessor, type ClaimedJob } from "@modules/platform/jobs"
-import type { QueueDelivery } from "@modules/platform/queue"
-import { AGENTS_QUEUE, AgentsJob } from "@modules/queues/agents"
+import { FencedProcessor, type ClaimedJob, type JobDefinition } from "@modules/platform/jobs"
+import { AGENTS_QUEUE, SETUP_TURN_JOB, type SetupTurnPayload } from "@modules/queues/agents"
 import { RunSetupTurnStep } from "../../steps/run-setup-turn.step"
 
 @Injectable()
@@ -9,7 +8,7 @@ import { RunSetupTurnStep } from "../../steps/run-setup-turn.step"
 export class RunSetupTurnProcessor extends FencedProcessor {
     readonly queue: "agents" = AGENTS_QUEUE
 
-    override readonly job: AgentsJob.SetupTurn = AgentsJob.SetupTurn
+    override readonly definition: JobDefinition<SetupTurnPayload> = SETUP_TURN_JOB
 
     constructor(private readonly step: RunSetupTurnStep) {
         super()
@@ -18,10 +17,5 @@ export class RunSetupTurnProcessor extends FencedProcessor {
     /** Runs the step; a stale token throws the fenced-out error from the guarded write before the effect and nothing else happens. */
     async process(job: ClaimedJob): Promise<void> {
         await this.step.run(job)
-    }
-
-    /** The attempts are used up: the owner gets the busy message once. */
-    override async onFailed(delivery: QueueDelivery): Promise<void> {
-        await this.step.abandon(delivery.payload)
     }
 }

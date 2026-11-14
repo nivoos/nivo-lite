@@ -23,7 +23,7 @@ export { EVENT_BUS_ERROR_KINDS } from "./errors/event-bus.error"
 export { EVENT_BUS_MESSAGES } from "./messages/event-bus.messages"
 export { BaseEvent } from "./event-bus.contracts"
 export type { EventDelivery, EventPayload, ParsedEvent } from "./event-bus.contracts"
-export { EVENT_BUS, InjectEventBus, InjectEventConsumerRegistry } from "./event-bus.decorators"
+export { EVENT_BUS, EVENT_CONSUMER_REGISTRY, InjectEventBus, InjectEventConsumerRegistry } from "./event-bus.decorators"
 export { EventBusModule } from "./event-bus.module"
 export { EventBusService } from "./event-bus.service"
 export { EventConsumerService } from "./event-consumer.service"
@@ -34,6 +34,5 @@ export {
     KNOWLEDGE_SOURCE_INDEXED_BRAIN_TOPIC_QUEUE,
     KNOWLEDGE_SOURCE_INDEXED_AGENT_WAKES_TOPIC_QUEUE,
     INSTALLATION_CHANGED_AGENT_WAKES_TOPIC_QUEUE,
-    CONNECTION_READY_BANK_FEED_POLL_TOPIC_QUEUE,
-    CONNECTION_READY_ZALO_INBOX_POLL_TOPIC_QUEUE,
+    CONNECTION_READY_CONNECTION_POLL_TOPIC_QUEUE,
 } from "./event-bus.queue"

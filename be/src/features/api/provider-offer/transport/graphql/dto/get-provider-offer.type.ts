@@ -1,4 +1,4 @@
-import { Field, ID, Int, ObjectType } from "@nestjs/graphql"
+import { Field, ID, ObjectType } from "@nestjs/graphql"
 
 @ObjectType()
 /** Words in the owner's two languages, exactly as a registry declares them. */
@@ -141,15 +141,15 @@ export class ProviderOfferToolType {
 }
 
 @ObjectType()
-/** How the events of one emission are grouped into runs. */
-export class ProviderOfferBatchingType {
-    /** `each` (one run per event) or `list` (one run per emission with the event ids). */
-    @Field(() => String)
-    mode!: string
+/** Why a trigger no poll receives loses no event: the reason in the owner's two languages and where the guarantee is stated. */
+export class ProviderOfferWithoutPollType {
+    /** The reason: the provider's re-delivery guarantee, or the sweep of NIVO that brings a missed one back. */
+    @Field(() => ProviderOfferWordsType)
+    reason!: ProviderOfferWordsType
 
-    /** The most events one `list` run takes; null for `each`. */
-    @Field(() => Int, { nullable: true })
-    maxEvents!: number | null
+    /** The provider's document URL, or `nivo:<sweep>`. */
+    @Field(() => String)
+    source!: string
 }
 
 @ObjectType()
@@ -159,25 +159,25 @@ export class ProviderOfferTriggerType {
     @Field(() => String)
     name!: string
 
-    /** `webhook` or `poll`. */
-    @Field(() => String)
-    kind!: string
+    /** EVERY way the trigger is received: `webhook`, `poll`, `clock`, `internal` (the page reads "received by: webhook, poll"). */
+    @Field(() => [String])
+    via!: ReadonlyArray<string>
+
+    /** For a trigger no poll receives: why a missed event loses nothing; null when a poll receives it. */
+    @Field(() => ProviderOfferWithoutPollType, { nullable: true })
+    withoutPoll!: ProviderOfferWithoutPollType | null
+
+    /** Its short title `<source> · <event>`, in the owner's two languages: what the drawer names the trigger by. */
+    @Field(() => ProviderOfferWordsType)
+    title!: ProviderOfferWordsType
 
     /** What it is, in the owner's two languages. */
     @Field(() => ProviderOfferWordsType)
     summary!: ProviderOfferWordsType
 
-    /** The members of one event's payload. */
+    /** The members of one event's data, derived from the declaration's data schema. */
     @Field(() => [ProviderOfferMemberType])
     payload!: ReadonlyArray<ProviderOfferMemberType>
-
-    /** How events are grouped into runs. */
-    @Field(() => ProviderOfferBatchingType)
-    batching!: ProviderOfferBatchingType
-
-    /** `cursor`, `reconcile` or `none`: how a missed event is recovered. */
-    @Field(() => String)
-    recovery!: string
 
     /** True when one agent decides on its events and every other registered one is only told. */
     @Field(() => Boolean)

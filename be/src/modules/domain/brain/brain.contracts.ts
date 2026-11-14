@@ -129,7 +129,7 @@ export interface LessonDecision {
 }
 
 /** What reading the facts of one document did. */
-export type FactsOutcome = "done" | "skipped" | "blocked" | "failed" | "continued" | "waiting"
+export type FactsOutcome = "done" | "skipped" | "blocked" | "continued" | "waiting"
 
 /** What running one command did. */
 export type CommandOutcome = "done" | "skipped" | "failed"

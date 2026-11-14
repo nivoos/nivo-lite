@@ -1,4 +1,3 @@
-export { PAYMENT_ORDER_REQUEST_QUEUE } from "./payment-order-requests.contracts"
 export type {
     PaymentOrderRequestParams,
     PaymentOrderRequestStatusLookup,

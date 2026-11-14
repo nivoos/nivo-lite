@@ -29,4 +29,32 @@ export class ContactEntity extends UuidAbstractEntity {
     /** When it was deleted (the soft-delete mark; always set with state `erased`), or null. */
     @Column({ name: "erased_at", type: "timestamptz", nullable: true })
     erasedAt!: Date | null
+
+    /** The consent fact: true when the shop may not write to this person on its own initiative. */
+    @Column({ name: "do_not_contact", type: "boolean", default: false })
+    doNotContact!: boolean
+
+    /** When the consent fact was last set or cleared, or null when never. */
+    @Column({ name: "do_not_contact_at", type: "timestamptz", nullable: true })
+    doNotContactAt!: Date | null
+
+    /** Who changed it last: `member` or `step`; null when never. */
+    @Column({ name: "do_not_contact_actor", type: "text", nullable: true })
+    doNotContactActor!: string | null
+
+    /** The member who changed it, or who approved the step's call; null when none did. */
+    @Column({ name: "do_not_contact_decided_by", type: "text", nullable: true })
+    doNotContactDecidedBy!: string | null
+
+    /** The agent whose step's call set it; null for a member. */
+    @Column({ name: "do_not_contact_agent_id", type: "uuid", nullable: true })
+    doNotContactAgentId!: string | null
+
+    /** The step whose call set it, when known; null for a member. */
+    @Column({ name: "do_not_contact_step_key", type: "text", nullable: true })
+    doNotContactStepKey!: string | null
+
+    /** Why, as whoever changed it wrote it; null when none was given. */
+    @Column({ name: "do_not_contact_reason", type: "text", nullable: true })
+    doNotContactReason!: string | null
 }

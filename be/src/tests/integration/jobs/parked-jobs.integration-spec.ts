@@ -53,7 +53,9 @@ describe("parked jobs (lite integration)", () => {
         await expect(resumer.sweep({ build: "build-2" })).resolves.toBe(1)
 
         const resumed = await manager.findOneByOrFail(JobEntity, { id: first.jobId })
-        expect(resumed).toMatchObject({ status: "failed", resumeCount: 1, parkedAt: null, alertedAt: null })
+        // The machine (a new build) hands the job back without opening a new episode: the alert already raised stays on the row.
+        expect(resumed).toMatchObject({ status: "failed", resumeCount: 1, parkedAt: null })
+        expect(resumed.alertedAt).not.toBeNull()
         const second = await claims.claim({
             kind: delivery.queue,
             jobKey: resumed.jobKey,
@@ -66,6 +68,7 @@ describe("parked jobs (lite integration)", () => {
             jobId: first.jobId,
             fencingToken: first.fencingToken + 1,
             currentStep: "prepared",
+            resumeCount: 1,
         })
         expect(claims.runKey(second, "archive")).toBe(`${first.jobId}:archive:${String(second.fencingToken)}`)
         await claims.complete({ jobId: second.jobId, expectedFencingToken: second.fencingToken })

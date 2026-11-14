@@ -1,6 +1,5 @@
 import { Test } from "@nestjs/testing"
-import { mock } from "@starci/jest-preset"
-import type { MockOf } from "@starci/jest-preset"
+import { mock, mockEntityManager } from "@starci/jest-preset"
 import { BrainFactEmbeddingsService, BrainFactsReadService, BrainFactsService, factEmbedHashOf } from "@modules/domain/brain-facts"
 import type { FactEmbeddingState, FactRecord } from "@modules/domain/brain-facts"
 import { UsageMeterService } from "@modules/domain/knowledge"
@@ -46,10 +45,6 @@ const build = async (states: ReadonlyArray<FactEmbeddingState>) => {
     }).compile()
     return { service: moduleRef.get(FactEmbeddingsService), ai, logger, usage, vectors, facts, json, reads, sync }
 }
-
-/** The ids whose fresh vectors each batch handed to the vector index, in order. */
-const handedIds = (sync: MockOf<VectorSyncService>): ReadonlyArray<string> =>
-    sync.accept.mock.calls.flatMap((call) => [...call[2].keys()])
 
 describe("FactEmbeddingsService.embedLines: the one embedding loop, never twice for the same line", () => {
     const current = factOf({ id: "same" })
@@ -130,89 +125,45 @@ describe("FactEmbeddingsService.embedLines: the one embedding loop, never twice 
     })
 })
 
-describe("FactEmbeddingsService: an announcement embeds the changed facts only, bounded (D-T2-1)", () => {
-    const [fee, none] = [
-        factOf({ id: "deb9154f", value: "32.000 d mot don", unit: null }),
-        { model: null, dimensions: null, hash: null },
-    ]
-
-    it("listens to the facts store when its module starts; an announcement reads ONLY the facts it names, never the workspace", async () => {
-        const { service, facts, ai, vectors, sync } = await build([{ fact: fee, stored: none }])
-        ai.embed.mockResolvedValue({ vectors: [vector(1)], usage: null })
+describe("FactEmbeddingsService: an announcement queues the sync job of the changed facts and embeds nothing", () => {
+    it("listens to the facts store when its module starts; an announcement writes the vector.sync job of EVERY changed fact and reads and embeds nothing", async () => {
+        const { service, facts, ai, vectors, sync } = await build([])
 
         service.onModuleInit()
         expect(facts.whenChanged).toHaveBeenCalledWith(service)
 
         await expect(service.factsChanged(WS, ["deb9154f", "deb9154f"])).resolves.toBeUndefined()
-        expect(vectors.statesOf.mock.calls).toEqual([[WS, ["deb9154f"]]])
-        expect(handedIds(sync)).toEqual(["deb9154f"])
-        // Every changed fact gets its sync job, so a superseded or retired truth loses its point.
-        expect(sync.changed).toHaveBeenCalledWith("truth", WS, ["deb9154f", "deb9154f"])
-    })
 
-    it("embeds nothing for a changed fact not in force (retired, scheduled), reads nothing for no id or with the AI off", async () => {
-        const { service, ai, vectors } = await build([
-            { fact: factOf({ id: "gone", status: "expired" }), stored: none },
-        ])
-
-        await expect(service.embedChanged(WS, ["gone"])).resolves.toEqual({ embedded: 0, adopted: 0, unchanged: 0 })
-        expect(ai.embed).not.toHaveBeenCalled()
-
-        vectors.statesOf.mockClear()
-        await expect(service.embedChanged(WS, [])).resolves.toEqual({ embedded: 0, adopted: 0, unchanged: 0 })
-        ai.available.mockReturnValue(false)
-        await expect(service.embedChanged(WS, ["gone"])).resolves.toEqual({ embedded: 0, adopted: 0, unchanged: 0 })
+        // Every changed fact gets its sync job, so a superseded or retired truth loses its point; the job makes the points.
+        expect(sync.changed).toHaveBeenCalledWith("truth", WS, ["deb9154f", "deb9154f"], undefined)
         expect(vectors.statesOf).not.toHaveBeenCalled()
-    })
-
-    it("embeds at most 32 changed facts inline (ONE call, under the timeout): the rest are embedded by their sync jobs", async () => {
-        const many = Array.from({ length: 2000 }, (_, index) =>
-            factOf({ id: `f${String(index)}`, value: `${String(index)}.000` }),
-        )
-        const { service, ai, vectors } = await build([])
-        vectors.statesOf.mockImplementation((_ws, ids) =>
-            Promise.resolve(many.filter((fact) => ids.includes(fact.id)).map((fact) => ({ fact, stored: none }))),
-        )
-        ai.embed.mockImplementation((request) =>
-            Promise.resolve({ vectors: request.input.map(() => vector(1)), usage: null }),
-        )
-
-        await expect(
-            service.embedChanged(
-                WS,
-                many.map((fact) => fact.id),
-            ),
-        ).resolves.toEqual({ embedded: 32, adopted: 0, unchanged: 0 })
-        expect(vectors.statesOf).toHaveBeenCalledTimes(1)
-        expect(vectors.statesOf.mock.calls[0]?.[1]).toHaveLength(32)
-        expect(ai.embed.mock.calls.map((call) => [call[0].input.length, call[0].timeoutMs])).toEqual([[32, 20_000]])
-    })
-
-    it("a version that kept its value adopts the vector of the same line's point: no embedding call", async () => {
-        const { service, ai, sync } = await build([{ fact: fee, stored: none }])
-        sync.adopt.mockResolvedValue(new Set(["deb9154f"]))
-
-        await expect(service.embedChanged(WS, ["deb9154f"])).resolves.toEqual({ embedded: 0, adopted: 1, unchanged: 0 })
-        expect(sync.adopt).toHaveBeenCalledWith("truth", WS, ["deb9154f"])
+        expect(sync.adopt).not.toHaveBeenCalled()
+        expect(sync.accept).not.toHaveBeenCalled()
         expect(ai.embed).not.toHaveBeenCalled()
+    })
+
+    it("never fails the write: a sync job that cannot be written is logged, never thrown (the vector reconcile finds what a lost job left)", async () => {
+        const { service, logger, sync } = await build([])
+        sync.changed.mockRejectedValue(new Error("db down"))
+
+        await expect(service.factsChanged(WS, ["f1"])).resolves.toBeUndefined()
+
+        expect(logger.error).toHaveBeenCalledWith(BrainLogEvent.EmbeddingsFailed, expect.any(Error), { workspaceId: WS })
     })
 })
 
-describe("FactEmbeddingsService: an announcement never fails the write", () => {
-    it("a read or a copy that fails is logged, never thrown (the fact write already stands)", async () => {
-        const fee = factOf({ id: "deb9154f", unit: null })
-        const { service, vectors, logger, ai, sync } = await build([
-            { fact: fee, stored: { model: null, dimensions: null, hash: null } },
-        ])
-        sync.adopt.mockRejectedValue(new Error("index down"))
-        await expect(service.factsChanged(WS, ["deb9154f"])).resolves.toBeUndefined()
-        expect(ai.embed).not.toHaveBeenCalled()
+describe("FactEmbeddingsService: told inside a job's finishing transaction", () => {
+    it("writes the vector.sync job of the changed facts in THAT transaction and lets a failure throw", async () => {
+        const { service, logger, sync } = await build([])
+        const tx = mockEntityManager({})
 
-        vectors.statesOf.mockRejectedValue(new Error("db down"))
-        await expect(service.factsChanged(WS, ["f1"])).resolves.toBeUndefined()
-        expect(logger.error).toHaveBeenCalledWith(BrainLogEvent.EmbeddingsFailed, expect.any(Error), {
-            workspaceId: WS,
-        })
+        await expect(service.factsChanged(WS, ["f1"], tx)).resolves.toBeUndefined()
+        expect(sync.changed).toHaveBeenCalledWith("truth", WS, ["f1"], tx)
+
+        const cause = new Error("db down")
+        sync.changed.mockRejectedValue(cause)
+        await expect(service.factsChanged(WS, ["f1"], tx)).rejects.toBe(cause)
+        expect(logger.error).not.toHaveBeenCalled()
     })
 })
 

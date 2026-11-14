@@ -13,7 +13,7 @@ import {
     type RoomRole,
     type RoomUnread,
 } from "./team-chat.contracts"
-import { isUniqueViolation, purposeColumnsOf, type ThreadPosition } from "./team-chat.policy"
+import { isUniqueViolation, purposeColumnsOf, textRowOf, type ThreadPosition } from "./team-chat.policy"
 import type {
     CardKind,
     NewCard,
@@ -24,6 +24,7 @@ import type {
     OptionalPosition,
     RoomFilter,
     UnreadRow,
+    WithinStoredText,
 } from "./team-chat-store.contracts"
 
 /** The database clock as an insert value: every instant of the chat is the database's, so read positions and messages compare on one clock. */
@@ -258,28 +259,41 @@ export class TeamChatStoreService {
     async insertText(text: NewText): Promise<ChatRoomMessageEntity> {
         try {
             const id = this.ids.next()
-            await this.entityManager.insert(ChatRoomMessageEntity, {
-                id,
-                roomId: text.roomId,
-                workspaceId: text.workspaceId,
-                authorKind: "user",
-                authorId: text.authorId,
-                body: text.body,
-                kind: "text",
-                ref: text.ref ?? null,
-                mentions: text.mentions,
-                attachments: text.attachments,
-                clientId: text.clientId,
-                replyTo: text.replyTo ?? null,
-            })
+            await this.entityManager.insert(ChatRoomMessageEntity, textRowOf(id, text))
             return await this.entityManager.findOneOrFail(ChatRoomMessageEntity, { where: { id } })
         } catch (cause) {
-            const again = isUniqueViolation(cause)
-                ? await this.sentBefore(text.workspaceId, text.roomId, text.authorId, text.clientId)
-                : null
+            const again = await this.sentAgain(text, cause)
             if (again === null) throw cause
             return again
         }
+    }
+
+    /**
+     * Stores a person's text message and, in the same transaction, what the message owes (`within`: the job that routes it), so the two
+     * commit together or not at all. A retry that lost the race on the client id answers the message the first write stored (whose
+     * transaction wrote that job); nothing is written again.
+     */
+    async insertTextWith(text: NewText, within: WithinStoredText): Promise<ChatRoomMessageEntity> {
+        try {
+            return await this.entityManager.transaction(async (tx) => {
+                const id = this.ids.next()
+                await tx.insert(ChatRoomMessageEntity, textRowOf(id, text))
+                const stored = await tx.findOneOrFail(ChatRoomMessageEntity, { where: { id } })
+                await within(tx, stored)
+                return stored
+            })
+        } catch (cause) {
+            const again = await this.sentAgain(text, cause)
+            if (again === null) throw cause
+            return again
+        }
+    }
+
+    /** The message a retried send already stored when the failure was the unique client id; none for any other failure. */
+    private sentAgain(text: NewText, cause: unknown): Promise<OptionalMessage> {
+        return isUniqueViolation(cause)
+            ? this.sentBefore(text.workspaceId, text.roomId, text.authorId, text.clientId)
+            : Promise.resolve(null)
     }
 
     /** The keys of one page of a thread, newest first, one more than `size` so the caller sees whether another page follows. */

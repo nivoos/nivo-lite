@@ -838,18 +838,18 @@ describe("ThreadRunsService", () => {
             expect(other.graphs.versionAt).toHaveBeenCalledWith("ws-1", "agent-1", V1)
         })
 
-        it("refuses by name a version whose step is not installed, and closes the run as failed", async () => {
-            const world = await build({ installed: ["chatbot.understand"] })
+        it("rule Q-5: runs a version whose LATER step is not installed; only that step reaches the step service marked, nothing is refused", async () => {
+            const world = await build()
+            world.script.outputs = { understand: { branch: "question" } }
+            const desk = frontDesk()
+            // A release removed the node the pinned version's `answer` step names.
+            const flow = { ...desk, nodes: desk.nodes.map((node) => (node.key === "answer" ? { ...node, step: "chatbot.gone" } : node)) }
 
-            await expect(world.service.started(world.opened(), world.live)).rejects.toMatchObject({
-                code: AgentThreadsErrorCode.TemplateRefused,
-                params: { version: V1, problem: "TEMPLATE_STEP_UNKNOWN" },
-            })
-            expect(world.port.calls).toEqual([])
-            expect(world.projection.runEnded).toHaveBeenCalledWith(
-                REF,
-                expect.objectContaining({ outcome: "failed", code: "TEMPLATE_STEP_UNKNOWN" }),
-            )
+            await world.service.started(world.opened({ flow }), world.live)
+
+            expect(path(world.ran)).toEqual(["hear", "understand", "answer"])
+            expect(world.ran.map((one) => one.at.step.refusal ?? null)).toEqual([null, null, "graph_node_missing"])
+            expect(world.projection.runEnded).not.toHaveBeenCalledWith(REF, expect.objectContaining({ outcome: "failed" }))
         })
     })
 

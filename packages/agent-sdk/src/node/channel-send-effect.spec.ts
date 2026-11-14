@@ -53,4 +53,17 @@ describe("channelSendEffect payload", () => {
         expect(parse({ text: "" })).toBe(false)
         expect(parse({ text: "Hello", images: pictures })).toBe(false)
     })
+
+    it("SEND-ONE: one call fits every channel: a subject line rides along (a channel that has none does not use it)", () => {
+        expect(parse({ subject: "Bao gia", text: "Hello" })).toBe(true)
+        expect(parse({ subject: "", text: "Hello" })).toBe(false)
+        expect(channelSendEffect.payload.safeParse({ subject: "Bao gia", text: "Hello" }).data).toEqual({ subject: "Bao gia", text: "Hello" })
+    })
+
+    it("SEND-ONE: a person's own address is named with its channel and no person; never with a route", () => {
+        expect(parse({ channel: "email", address: "lan@example.vn", subject: "Bao gia", text: "Hello" })).toBe(true)
+        expect(parse({ address: "lan@example.vn", text: "Hello" })).toBe(false)
+        expect(parse({ channel: "email", address: "lan@example.vn", contactId: "k1", text: "Hello" })).toBe(false)
+        expect(parse({ routeId: "r1", address: "lan@example.vn", text: "Hello" })).toBe(false)
+    })
 })

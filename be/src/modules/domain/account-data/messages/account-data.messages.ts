@@ -10,6 +10,8 @@ export const ACCOUNT_DATA_MESSAGES: MessageBundle = {
         "errors.ACCOUNT_DATA_VALUE_TOO_LARGE": "Dữ liệu quá lớn để lưu.",
         "errors.ACCOUNT_DATA_WRITE_MODE": "Loại dữ liệu này không được ghi theo cách này.",
         "errors.ACCOUNT_DATA_INDEX_UNDECLARED": "Trường này không có chỉ mục được khai báo.",
+        "errors.ACCOUNT_DATA_ADMISSION_TAKEN": "Loại dữ liệu này đã có một lối tiếp nhận.",
+        "errors.ACCOUNT_DATA_ADMISSION_MISSING": "Loại dữ liệu này chưa có lối tiếp nhận.",
     },
     en: {
         "errors.ACCOUNT_DATA_TYPE_UNDECLARED": "This data type is not declared for this account.",
@@ -19,5 +21,7 @@ export const ACCOUNT_DATA_MESSAGES: MessageBundle = {
         "errors.ACCOUNT_DATA_VALUE_TOO_LARGE": "The data is too large to store.",
         "errors.ACCOUNT_DATA_WRITE_MODE": "This data type is not written this way.",
         "errors.ACCOUNT_DATA_INDEX_UNDECLARED": "This member has no declared index.",
+        "errors.ACCOUNT_DATA_ADMISSION_TAKEN": "This data type already has an admission.",
+        "errors.ACCOUNT_DATA_ADMISSION_MISSING": "This data type has no admission.",
     },
 }

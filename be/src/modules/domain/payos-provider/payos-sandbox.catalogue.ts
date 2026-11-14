@@ -1,5 +1,6 @@
 import { PROVIDER } from "@nivo-lite/agent-sdk/names"
-import type { SandboxCatalogue, SandboxInboundCase, SandboxInput } from "@modules/domain/provider-sandbox"
+import type { PaymentLinkState } from "@modules/domain/provider-registry"
+import type { SandboxCatalogue, SandboxInboundCase, SandboxInput, SandboxPayLinkRead, SandboxPayLinks, SandboxStateReader } from "@modules/domain/provider-sandbox"
 
 /** The provider key the payOS sandbox answers for. */
 export const PAYOS_SANDBOX_PROVIDER: typeof PROVIDER.payos = PROVIDER.payos
@@ -32,11 +33,15 @@ export const PAYOS_SANDBOX_CANNOT_CANCEL_REASON = "link is not pending"
 /** The order code of the first link a sandbox account creates (the next ones count up from it): the paid webhook below names it. */
 export const PAYOS_SANDBOX_FIRST_ORDER_CODE = 1_780_000_000_001
 
-/** The id of the n-th link of an account (n counts from 1). */
-export const payosSandboxLinkId = (n: number): string => `sbx-payos-link-${String(n).padStart(6, "0")}`
+/**
+ * The id of the n-th link of an account (n counts from 1). It names its account (`sbx-payos-<connection id>-000001`), so a link id is
+ * unique across accounts and the pay page resolves an id alone to its account. The checkout address of a link is the sandbox frame's
+ * (`ProviderSandboxService.payPageUrl`): NIVO's own pretend payment page, never payOS's.
+ */
+export const payosSandboxLinkId = (connectionId: string, n: number): string => `sbx-payos-${connectionId}-${String(n).padStart(6, "0")}`
 
-/** The address of the hosted payment page of a link id. */
-export const payosSandboxCheckoutUrl = (linkId: string): string => `https://pay.payos.vn/web/${linkId}`
+/** The account a link id of this sandbox names, or null for an id the sandbox does not issue. */
+export const payosSandboxLinkAccountOf = (linkId: string): string | null => /^sbx-payos-(.+)-\d{6,}$/u.exec(linkId)?.[1] ?? null
 
 /** The raw QR payload every sandbox link carries (fixed). */
 export const PAYOS_SANDBOX_QR_PAYLOAD = "00020101021238570010A000000727sandbox"
@@ -47,11 +52,17 @@ export const PAYOS_SANDBOX_AT = "2026-11-14T10:00:00+07:00"
 /** The state name the links an account created are kept under, by link id (the payment-link sandbox writes it, the paid case reads it). */
 const LINK_STATE = "link"
 
+/** The words of payOS's status of a link that is still to be paid. */
+const PENDING = "PENDING"
+
 /** The state name the link id of an order code is kept under, by the code's text. */
 const ORDER_STATE = "order"
 
 /** The state name the description (the transfer content) a link was created with is kept under, by link id: what the paid webhook then carries. */
 export const PAYOS_SANDBOX_DESCRIPTION_STATE = "description"
+
+/** The state name the instant a link stops being valid (ISO 8601) is kept under, by link id, when the request asked for one. */
+export const PAYOS_SANDBOX_EXPIRY_STATE = "expiry"
 
 /** The transfer content the paid webhook names when the account holds no link of the order code. */
 const PAYOS_SANDBOX_DEFAULT_DESCRIPTION = "DH001"
@@ -61,6 +72,13 @@ export const payosTimeOf = (at: Date): string => new Date(at.getTime() + 7 * 3_6
 
 /** The amount the paid webhook names when the account holds no link of the order code. */
 const PAYOS_SANDBOX_DEFAULT_AMOUNT = 150000
+
+/** A kept link read as its state, or null when the value is none. */
+const linkOf = (kept: unknown): PaymentLinkState | null =>
+    typeof kept === "object" && kept !== null && typeof Reflect.get(kept, "linkId") === "string" ? (kept as PaymentLinkState) : null
+
+/** Whether a link that is still PENDING has run past the instant it was asked to stop at. */
+const lapsed = (expiry: unknown, now: Date): boolean => typeof expiry === "string" && Number.isFinite(Date.parse(expiry)) && Date.parse(expiry) <= now.getTime()
 
 /**
  * The body payOS posts to NIVO when a sandbox link is paid: its real shape (`code`, `desc`, `success`, `data` with the paid order,
@@ -113,10 +131,16 @@ const paidCase: SandboxInboundCase = {
     eventsOf: async (input: SandboxInput, context) => {
         const orderCode = typeof input.orderCode === "number" ? input.orderCode : PAYOS_SANDBOX_FIRST_ORDER_CODE
         const keptLinkId = await context.state.read(ORDER_STATE, String(orderCode))
-        const linkId = typeof keptLinkId === "string" ? keptLinkId : payosSandboxLinkId(orderCode - PAYOS_SANDBOX_FIRST_ORDER_CODE + 1)
-        const kept = await context.state.read(LINK_STATE, linkId)
-        const keptAmount: unknown = typeof kept === "object" && kept !== null ? Reflect.get(kept, "amountVnd") : undefined
+        const linkId = typeof keptLinkId === "string" ? keptLinkId : payosSandboxLinkId(context.connectionId, orderCode - PAYOS_SANDBOX_FIRST_ORDER_CODE + 1)
+        const link = linkOf(await context.state.read(LINK_STATE, linkId))
+        const keptAmount: unknown = link?.amountVnd
         const keptDescription = await context.state.read(PAYOS_SANDBOX_DESCRIPTION_STATE, linkId)
+        // The paid webhook is how a link gets PAID (as live): a link still open is marked paid in full (the amount received kept) before the
+        // webhook goes out; a cancelled, expired or already paid one is left as it is (a late or second payment changes no status).
+        if (link !== null && link.status === PENDING && !lapsed(await context.state.read(PAYOS_SANDBOX_EXPIRY_STATE, linkId), context.at)) {
+            const paid: PaymentLinkState = { ...link, status: "PAID", amountPaidVnd: link.amountVnd, amountRemainingVnd: 0 }
+            await context.state.write(LINK_STATE, linkId, paid)
+        }
         return [
             {
                 body: paidBodyOf({
@@ -132,6 +156,36 @@ const paidCase: SandboxInboundCase = {
     },
 }
 
+/** The ids of the cases that pay a link (payOS posts the paid webhook; a payOS link is paid in full or not at all). */
+const PAYOS_SANDBOX_PAYING_CASES = ["PAYOS-3"] as const
+
+/**
+ * How the Sandbox page resolves a payOS sandbox link by its id (SBX-6): the account is named by the id, the link read from the account's
+ * kept state (the link, its description, its expiry). payOS words become the page's words: PENDING is `open` (or `expired` once past the
+ * instant asked), PAID `paid`, CANCELLED `cancelled`, EXPIRED `expired`; what was received is the link's `amountPaidVnd` (a link left open
+ * keeps what it was paid so far).
+ */
+export const PAYOS_SANDBOX_PAY_LINKS: SandboxPayLinks = {
+    accountOf: payosSandboxLinkAccountOf,
+    caseIds: PAYOS_SANDBOX_PAYING_CASES,
+    read: async (linkId: string, state: SandboxStateReader, now: Date): Promise<SandboxPayLinkRead | null> => {
+        const link = linkOf(await state(LINK_STATE, linkId))
+        if (link === null) return null
+        const description = await state(PAYOS_SANDBOX_DESCRIPTION_STATE, linkId)
+        const lapsedNow = link.status === PENDING && lapsed(await state(PAYOS_SANDBOX_EXPIRY_STATE, linkId), now)
+        const status = lapsedNow || link.status === "EXPIRED" ? "expired" : link.status === "PAID" ? "paid" : link.status === "CANCELLED" ? "cancelled" : "open"
+        return {
+            linkId: link.linkId,
+            amountVnd: link.amountVnd,
+            content: typeof description === "string" ? description : "",
+            orderCode: String(link.orderCode),
+            status,
+            amountReceivedVnd: link.amountPaidVnd ?? 0,
+        }
+    },
+    inputsOf: (link: SandboxPayLinkRead): SandboxInput => ({ orderCode: Number(link.orderCode) }),
+}
+
 /**
  * The hardcoded cases of payOS's sandbox (R62), for the payment-link port. OUTBOUND: the account's sticky NEXT CASE picks one per
  * operation and the default (success) case answers while nothing is picked: `create` PAYOS-1 (default, a PENDING link) or PAYOS-2
@@ -142,6 +196,7 @@ const paidCase: SandboxInboundCase = {
  */
 export const PAYOS_SANDBOX_CATALOGUE: SandboxCatalogue = {
     provider: PAYOS_SANDBOX_PROVIDER,
+    payLinks: PAYOS_SANDBOX_PAY_LINKS,
     cases: [
         {
             id: PAYOS_SANDBOX_CASE.created,

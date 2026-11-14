@@ -51,9 +51,11 @@ describe("the Meta message triggers", () => {
         expect([facebook.provider, facebook.verb, facebook.via, facebook.key]).toEqual([
             PROVIDER.meta,
             TRIGGER.facebookMessageReceived,
-            "webhook",
+            ["webhook"],
             { by: "subject" },
         ])
+        expect([facebook.dataType, instagram.dataType]).toEqual(["meta.event", "meta.event"])
+        expect(facebook.withoutPoll?.source).toBe("https://developers.facebook.com/docs/graph-api/webhooks/getting-started")
         expect(instagram.verb).toBe(TRIGGER.instagramMessageReceived)
         expect([facebook.settle, instagram.settle]).toEqual([{ windowMs: 6000, maxWaitMs: 20_000 }, { windowMs: 6000, maxWaitMs: 20_000 }])
     })

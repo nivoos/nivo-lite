@@ -1,12 +1,25 @@
 import type { ConnectionRecord } from "@modules/domain/connections"
 import type { MailMessage, SentMail, SmtpConfig } from "@modules/integrations/mail"
 
+/**
+ * Where a mail sits in a thread (RFC 5322 3.6.4; MAIL-IN rule MI-5): the `Message-ID` it answers and the ids of the thread, oldest first, so
+ * the person's mail client shows it under the mails it answers.
+ */
+export interface MailThread {
+    /** The `Message-ID` the mail answers. */
+    readonly inReplyTo: string
+    /** The ids of the thread, oldest first (the answered one last). */
+    readonly references: ReadonlyArray<string>
+}
+
 /** One message and the mailbox it goes to, as a workspace SMTP account sends it. */
 export interface SmtpOutgoing {
     /** The recipient. */
     readonly to: string
     /** The subject, the bodies and the attachments. */
     readonly message: MailMessage
+    /** The thread the message answers, when it answers one. */
+    readonly thread?: MailThread | undefined
 }
 
 /** What the account's mail server answered for an accepted message: its message id and the recipients it accepted. */

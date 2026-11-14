@@ -73,7 +73,6 @@ const headOf = (workflow: WorkflowWire, context: WorkflowContext): WorkflowHeadV
         ].join(" · "),
         toggleLabel: status === "active" ? context.t("pause") : context.t("resume"),
         toggleTo: status === "active" ? "paused" : "active",
-        canEditGraph: workflow.latestNumber > 0,
     }
 }
 

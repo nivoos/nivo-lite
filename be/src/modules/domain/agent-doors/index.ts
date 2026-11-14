@@ -1,7 +1,6 @@
 export { AgentDoorsModule } from "./agent-doors.module"
-export { CareOptOutService } from "./care-opt-out.service"
 export { HoldReleaseDoorService } from "./hold-release-door.service"
 export type { ConversationRelease } from "./hold-release-door.service"
 export { ScheduledItemsService } from "./scheduled-items.service"
 export { ITEM_KEY_MAX } from "./scheduled-items.policy"
-export type { CareOptOutAnswer, CareOptOutView, DoorPress, RunNowAnswer, ScheduledItem } from "./agent-doors.contracts"
+export type { DoorPress, RunNowAnswer, ScheduledItem } from "./agent-doors.contracts"

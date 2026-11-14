@@ -30,10 +30,8 @@ const VIEW: AgentGraphView = {
     gaps: [{ code: "else_unset", nodeKey: "decide", branchKey: null }],
     problems: [],
     cards: [],
-    proposals: [],
     warnings: [],
     facts: [{ key: "order.amount_vnd", label: "the order amount", type: "number", unit: "vnd", allowed: [] }],
-    unheldRules: [{ amountVnd: 5_000_000, quote: "Over 5 trieu ask the owner" }],
 }
 
 describe("graph-wire.policy", () => {
@@ -61,8 +59,7 @@ describe("graph-wire.policy", () => {
         })
         expect(wire.draftJson).toBe(JSON.stringify(VIEW.draft))
         expect(wire.gapsJson).toBe('[{"code":"else_unset","nodeKey":"decide","branchKey":null}]')
-        expect([wire.problemsJson, wire.cardsJson, wire.proposalsJson]).toEqual(["[]", "[]", "[]"])
+        expect([wire.problemsJson, wire.cardsJson]).toEqual(["[]", "[]"])
         expect(wire.factsJson).toBe(JSON.stringify(VIEW.facts))
-        expect(wire.unheldRulesJson).toBe(JSON.stringify(VIEW.unheldRules))
     })
 })

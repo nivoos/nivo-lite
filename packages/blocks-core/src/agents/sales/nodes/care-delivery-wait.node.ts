@@ -3,7 +3,7 @@ import { defineTemplateNode, type TemplateNode } from "@nivo-lite/agent-sdk/temp
 import { z } from "zod"
 import { MAX_ID, MAX_LINE } from "../../../shared/bounds"
 import type { NodeSchema } from "../../../shared/nodes/node-schema.types"
-import { ARMED, CARE_OPEN, EXAMPLE_AT, ORDER_O1, personReadsOf } from "./care.examples"
+import { ARMED, EXAMPLE_AT, ORDER_O1, personReadsOf } from "./care.examples"
 import { SHIP_NEXT_LOOK_MINUTES, SHIP_WAITS_MAX, afterMinutes, dayAfter, isDue, paymentStateOf } from "./care.policy"
 import { careOrderOf, itemsLineOf, orderPersonOf } from "./care.reads"
 import { armCare, careTimerArgsOf } from "./care.steps"
@@ -38,7 +38,7 @@ export interface DeliveryDue {
 export interface CareDeliveryWaitOutput {
     /** The order, echoed. */
     readonly orderId: string
-    /** `due` ask now; `later` the timer was moved (once); `closed` nothing to ask (not paid, opted out, never shipped); `declined` a person declined moving the timer on its card. */
+    /** `due` ask now; `later` the timer was moved (once); `closed` nothing to ask (not paid, never shipped); `declined` a person declined moving the timer on its card. */
     readonly route: (typeof DELIVERY_WAIT_ROUTES)[number]
     /** What to ask about, on `due`; null otherwise. */
     readonly due: DeliveryDue | null
@@ -66,7 +66,7 @@ const output: NodeSchema<CareDeliveryWaitOutput> = z.object({
 
 /**
  * `sales.care-delivery-wait` (Cho den luc hoi tham): exact timing, so code, no AI. Woken by the delivery-check timer, it routes `due`,
- * `later` or `closed`. Nothing is asked about an order that is not paid or of a customer who asked to be left alone. A timer that woke
+ * `later` or `closed`. Nothing is asked about an order that is not paid (whether the customer may be written to unprompted is the send's: the engine refuses it). A timer that woke
  * early is armed again for its real moment. A check-in with no known delivery day looks for the shipment: once it shipped, it is due the
  * day after; while it has not, ONE re-arm a day on with `data.shipWaits + 1`, at most `SHIP_WAITS_MAX` looks, then it stops quietly. The
  * count rides on the timer (no loop in the node: each wake is one run, each run arms at most once).
@@ -74,8 +74,8 @@ const output: NodeSchema<CareDeliveryWaitOutput> = z.object({
 export const salesCareDeliveryWaitNode: TemplateNode<typeof input, typeof output> = defineTemplateNode({
     id: "sales.care-delivery-wait",
     title: { key: "nodeSalesCareDeliveryWaitTitle" },
-    description: { vi: "Ch\u1edd \u0111\u00fang l\u00fac \u0111\u1ec3 h\u1ecfi th\u0103m sau giao h\u00e0ng: ch\u01b0a t\u1edbi th\u00ec h\u1eb9n l\u1ea1i, kh\u00f4ng h\u1ecfi \u0111\u01a1n ch\u01b0a tr\u1ea3 ti\u1ec1n ho\u1eb7c kh\u00e1ch \u0111\u00e3 d\u1eb7n \u0111\u1eebng l\u00e0m phi\u1ec1n.", en: "Waits for the right moment to check in after delivery: books it again if it is early, and never asks about an unpaid order or a customer who asked to be left alone." },
-    tools: [TOOL.orderGet, TOOL.leadCareGet],
+    description: { vi: "Ch\u1edd \u0111\u00fang l\u00fac \u0111\u1ec3 h\u1ecfi th\u0103m sau giao h\u00e0ng: ch\u01b0a t\u1edbi th\u00ec h\u1eb9n l\u1ea1i, kh\u00f4ng h\u1ecfi \u0111\u01a1n ch\u01b0a tr\u1ea3 ti\u1ec1n.", en: "Waits for the right moment to check in after delivery: books it again if it is early, and never asks about an unpaid order." },
+    tools: [TOOL.orderGet],
     mode: "auto",
     accounts: [],
     input,
@@ -89,7 +89,7 @@ export const salesCareDeliveryWaitNode: TemplateNode<typeof input, typeof output
         const order = await careOrderOf(context, given.orderId)
         if (order === null || paymentStateOf(order.status) !== "paid") return closed
         const person = await orderPersonOf(context, order.id)
-        if (person === null || person.optedOut) return closed
+        if (person === null) return closed
         if (given.shipWaits !== null && order.shippedAt === null) {
             if (given.shipWaits + 1 >= SHIP_WAITS_MAX) return closed
             const look = await armCare(context, {
@@ -128,7 +128,7 @@ export const salesCareDeliveryWaitNode: TemplateNode<typeof input, typeof output
             input: { orderId: "o1", dueAt: "1970-01-01T00:00:00.000Z", shipWaits: null },
             tools: [
                 { id: TOOL.orderGet, args: { orderId: "o1" }, answer: answered({ order: ORDER_O1 }) },
-                ...personReadsOf(answered(CARE_OPEN)),
+                ...personReadsOf(),
             ],
             output: {
                 orderId: "o1",
@@ -143,7 +143,7 @@ export const salesCareDeliveryWaitNode: TemplateNode<typeof input, typeof output
             input: { orderId: "o1", dueAt: "1970-01-20T00:00:00.000Z", shipWaits: null },
             tools: [
                 { id: TOOL.orderGet, args: { orderId: "o1" }, answer: answered({ order: ORDER_O1 }) },
-                ...personReadsOf(answered(CARE_OPEN)),
+                ...personReadsOf(),
                 {
                     id: TOOL.timerArm,
                     args: careTimerArgsOf({ kind: "delivery-check", ref: "o1", dueAt: "1970-01-20T00:00:00.000Z" }),
@@ -159,7 +159,7 @@ export const salesCareDeliveryWaitNode: TemplateNode<typeof input, typeof output
             input: { orderId: "o1", dueAt: null, shipWaits: 0 },
             tools: [
                 { id: TOOL.orderGet, args: { orderId: "o1" }, answer: answered({ order: ORDER_O1 }) },
-                ...personReadsOf(answered(CARE_OPEN)),
+                ...personReadsOf(),
                 {
                     id: TOOL.timerArm,
                     args: careTimerArgsOf({
@@ -180,7 +180,7 @@ export const salesCareDeliveryWaitNode: TemplateNode<typeof input, typeof output
             input: { orderId: "o1", dueAt: null, shipWaits: 2 },
             tools: [
                 { id: TOOL.orderGet, args: { orderId: "o1" }, answer: answered({ order: ORDER_O1 }) },
-                ...personReadsOf(answered(CARE_OPEN)),
+                ...personReadsOf(),
             ],
             output: { orderId: "o1", route: "closed", due: null },
         },
@@ -195,24 +195,13 @@ export const salesCareDeliveryWaitNode: TemplateNode<typeof input, typeof output
                     args: { orderId: "o1" },
                     answer: answered({ order: { ...ORDER_O1, shippedAt: "1969-12-31T00:00:00.000Z" } }),
                 },
-                ...personReadsOf(answered(CARE_OPEN)),
+                ...personReadsOf(),
             ],
             output: {
                 orderId: "o1",
                 route: "due",
                 due: { contactId: "c1", orderNo: "DH-1", items: "2 x tea boxes", recipient: null },
             },
-        },
-        {
-            name: "a customer who asked to be left alone is not asked",
-            params: {},
-            at: EXAMPLE_AT,
-            input: { orderId: "o1", dueAt: "1970-01-01T00:00:00.000Z", shipWaits: null },
-            tools: [
-                { id: TOOL.orderGet, args: { orderId: "o1" }, answer: answered({ order: ORDER_O1 }) },
-                ...personReadsOf(answered({ ...CARE_OPEN, optedOut: true })),
-            ],
-            output: { orderId: "o1", route: "closed", due: null },
         },
         {
             name: "an order that is not paid is not asked about",
@@ -235,7 +224,7 @@ export const salesCareDeliveryWaitNode: TemplateNode<typeof input, typeof output
             input: { orderId: "o1", dueAt: "1970-01-20T00:00:00.000Z", shipWaits: null },
             tools: [
                 { id: TOOL.orderGet, args: { orderId: "o1" }, answer: answered({ order: ORDER_O1 }) },
-                ...personReadsOf(answered(CARE_OPEN)),
+                ...personReadsOf(),
                 {
                     id: TOOL.timerArm,
                     args: careTimerArgsOf({ kind: "delivery-check", ref: "o1", dueAt: "1970-01-20T00:00:00.000Z" }),
@@ -251,7 +240,7 @@ export const salesCareDeliveryWaitNode: TemplateNode<typeof input, typeof output
             input: { orderId: "o1", dueAt: "1970-01-20T00:00:00.000Z", shipWaits: null },
             tools: [
                 { id: TOOL.orderGet, args: { orderId: "o1" }, answer: answered({ order: ORDER_O1 }) },
-                ...personReadsOf(answered(CARE_OPEN)),
+                ...personReadsOf(),
                 {
                     id: TOOL.timerArm,
                     args: careTimerArgsOf({ kind: "delivery-check", ref: "o1", dueAt: "1970-01-20T00:00:00.000Z" }),

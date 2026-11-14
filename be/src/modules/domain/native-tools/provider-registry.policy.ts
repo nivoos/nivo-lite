@@ -1,7 +1,10 @@
 import {
-    type ProviderTriggerDeclaration,
-    type TriggerSwitchView,
+    canCatchUpOf,
     triggerDeciderOf,
+    sampleDataOf,
+    triggerMembersOf,
+    type SwitchedDeclaration,
+    type TriggerSwitchView,
 } from "@modules/domain/provider-triggers"
 
 /** One trigger of an account as the Config tab draws it: its switch, and who decides on its events. */
@@ -12,13 +15,13 @@ export interface TriggerConfig extends TriggerSwitchView {
     readonly coreDeciderAgentId: string | null
     /** The agent that decides now (the core agent, else the bound one), or null when nobody does. */
     readonly decidingAgentId: string | null
-    /** Whether a switch that is turned on again can catch up on what it missed (the provider recovers missed events). */
+    /** Whether a switch that is turned on again can catch up on what it missed (a poll also receives the trigger). */
     readonly canCatchUp: boolean
 }
 
 /** The Config rows of an account's triggers: each switch joined with its declaration and the core decider of the account. */
 export const triggerConfigsOf = (
-    declared: ReadonlyArray<ProviderTriggerDeclaration>,
+    declared: ReadonlyArray<SwitchedDeclaration>,
     switches: ReadonlyArray<TriggerSwitchView>,
     coreDeciders: Readonly<Record<string, string | null>>,
 ): ReadonlyArray<TriggerConfig> =>
@@ -29,10 +32,10 @@ export const triggerConfigsOf = (
         return [
             {
                 ...held,
-                decided: declaration.decided,
+                decided: declaration.switch.decided,
                 coreDeciderAgentId: core,
                 decidingAgentId: triggerDeciderOf(declaration, core, held.deciderAgentId),
-                canCatchUp: declaration.recovery !== "none",
+                canCatchUp: canCatchUpOf(declaration),
             },
         ]
     })
@@ -96,20 +99,18 @@ export const rightsOf = (facts: RightsFacts): ReadonlyArray<AgentRights> => {
 }
 
 /**
- * The wakes that stand for "any event of this trigger" when asking whether an agent is registered on it: one per combination of its
- * filterable choices (a bank movement in, and one out), with placeholder ids, as the event's `data` (the generic scope of the one
- * pipeline that a registration's `where` reads by path, R44); a `list` trigger has one.
+ * The wakes that stand for "any event of this trigger" when asking whether an agent is registered on it: one per combination of the
+ * closed choices of its data (a bank movement in, and one out), with placeholder values for every other member, as the event's `data`
+ * (the generic scope of the one pipeline that a registration's `where` reads by path, R44). The members come from the declaration's
+ * `data` schema.
  */
-export const sampleParamsOf = (declaration: ProviderTriggerDeclaration): ReadonlyArray<Readonly<Record<string, unknown>>> => {
-    if (declaration.batching.mode === "list") return [{ eventIds: ["sample"], count: 1 }]
-    const base: Readonly<Record<string, unknown>> = Object.fromEntries(
-        declaration.payload.map((field) => [field.name, field.type === "integer" ? 1 : (field.of?.[0] ?? "sample")]),
-    )
-    const choices = declaration.payload.filter((field) => field.type === "choice" && field.filterable)
-    return choices
+export const sampleParamsOf = (declaration: SwitchedDeclaration): ReadonlyArray<Readonly<Record<string, unknown>>> => {
+    const members = triggerMembersOf(declaration.data)
+    return members
+        .filter((member) => member.choices.length > 0)
         .reduce<ReadonlyArray<Readonly<Record<string, unknown>>>>(
-            (combined, field) => combined.flatMap((params) => (field.of ?? []).map((value) => ({ ...params, [field.name]: value }))),
-            [base],
+            (combined, member) => combined.flatMap((params) => member.choices.map((value) => ({ ...params, [member.name]: value }))),
+            [sampleDataOf(declaration)],
         )
         .map((data) => ({ data }))
 }

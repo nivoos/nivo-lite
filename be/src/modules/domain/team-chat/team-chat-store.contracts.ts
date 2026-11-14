@@ -1,3 +1,4 @@
+import type { EntityManager } from "typeorm"
 import type {
     AgentPosted,
     Attachment,
@@ -10,6 +11,7 @@ import type {
     RoomKind,
     StoredMention,
 } from "./team-chat.contracts"
+import type { ChatRoomMessageEntity } from "./persistence/entities"
 import type { ThreadPosition } from "./team-chat.policy"
 
 /** A count, or none. */
@@ -82,6 +84,15 @@ export interface NewText {
     /** What the row keeps in `ref`: whose words a forwarded message carries; omitted for none. */
     readonly ref?: MessageRef | null
 }
+
+/** What a stored person's message owes in its own transaction (the job that routes it). */
+export type WithinStoredText = (tx: EntityManager, message: ChatRoomMessageEntity) => Promise<void>
+
+/** The row a person's text message is stored as: the columns of the message row a person's text writes. */
+export type TextRow = Pick<
+    ChatRoomMessageEntity,
+    "id" | "roomId" | "workspaceId" | "authorKind" | "authorId" | "body" | "kind" | "ref" | "mentions" | "attachments" | "clientId" | "replyTo"
+>
 
 /** What kind of engine card a message is. */
 export type CardKind = "report" | "approval"

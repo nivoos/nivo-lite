@@ -1,6 +1,7 @@
 import { PROVIDER, TOOL, type ToolId } from "@nivo-lite/agent-sdk/names"
 import type { AnyTemplateNode } from "@nivo-lite/agent-sdk/template"
 import { chatbotComplaintNotifyNode } from "../../agents/chatbot/nodes/complaint-notify.node"
+import { chatbotStopKeepNode } from "../../agents/chatbot/nodes/stop-keep.node"
 import { salesCareDeliveryWaitNode } from "../../agents/sales/nodes/care-delivery-wait.node"
 import { salesCareOccasionRearmNode } from "../../agents/sales/nodes/care-occasion-rearm.node"
 import { salesCareOccasionWaitNode } from "../../agents/sales/nodes/care-occasion-wait.node"
@@ -24,6 +25,7 @@ import { teamTruthProposeNode } from "../team-chat/team/truth-propose.node"
 
 const STATED: ReadonlyArray<readonly [AnyTemplateNode, ToolId | null, "auto" | "ask"]> = [
     [chatbotComplaintNotifyNode, TOOL.teamMessagePost, "auto"],
+    [chatbotStopKeepNode, TOOL.contactUpdate, "auto"],
     [teamAnswerPostNode, TOOL.teamMessagePost, "auto"],
     [salesWebOrderNoticeNode, TOOL.teamMessagePost, "auto"],
     [teamDeclinedNoticeNode, TOOL.teamMessagePost, "auto"],

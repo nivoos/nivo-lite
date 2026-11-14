@@ -57,6 +57,7 @@ import type {
     AgentLineReplied,
     AgentLineReply,
     AgentLineReplyListener,
+    PersonLineHeard,
     PersonLineListener,
 } from "./team-chat-lines.contracts"
 
@@ -103,40 +104,12 @@ export class TeamChatRoomsService {
         return replies.map((reply) => ({ text: reply.body, at: reply.createdAt.toISOString() }))
     }
 
-    /** Hands a person's new message to the line listener; answers the agents whose turn it took. Never fails the send. */
-    private async turnsTaken(
-        workspaceId: string,
-        viewerId: string,
-        room: ChatRoomEntity,
-        message: ChatRoomMessageEntity,
-        mentions: ReadonlyArray<ChatMemberRef>,
-        repliedTo: ChatRoomMessageEntity | null,
-    ): Promise<ReadonlyArray<string>> {
-        if (this.lineListener === null) return []
-        try {
-            return await this.lineListener({
-                workspaceId,
-                userId: viewerId,
-                room: { id: room.id, kind: room.kind, directKey: room.directKey },
-                message: { id: message.id, body: message.body, createdAt: message.createdAt.toISOString() },
-                agentMentions: mentions.filter((m) => m.memberKind === "agent").map((m) => m.memberId),
-                repliedTo:
-                    repliedTo === null
-                        ? null
-                        : {
-                              id: repliedTo.id,
-                              authorKind: repliedTo.authorKind,
-                              authorId: repliedTo.authorId,
-                              kind: repliedTo.kind,
-                              agentMessage: repliedTo.ref?.agent_message ?? null,
-                              body: repliedTo.body,
-                              createdAt: repliedTo.createdAt.toISOString(),
-                          },
-            })
-        } catch (error: unknown) {
-            this.logger?.error(TeamChatLogEvent.LineListenerFailed, error, { roomId: room.id })
-            return []
-        }
+    /**
+     * Hands a person's stored message to the line listener (the turn router) and answers the agents whose turn it took; none when no
+     * listener is registered. Run by the route job: a failure of the listener is the job's failure (the runner retries, then parks it).
+     */
+    routeLine(line: PersonLineHeard): Promise<ReadonlyArray<string>> {
+        return this.lineListener === null ? Promise.resolve([]) : this.lineListener(line)
     }
 
     /** Tells the listener a person replied to an agent's line; what the listener does never fails the person's message. */
@@ -291,15 +264,6 @@ export class TeamChatRoomsService {
                 ? await this.storeText(workspaceId, found.id, viewerId, input, mentions)
                 : chatDone(retried)
         if (!stored.ok) return chatRefusal(stored.refusal)
-        if (retried === null) {
-            const taken = await this.turnsTaken(workspaceId, viewerId, found, stored.value, mentions, repliedTo)
-            await this.tagAgents(
-                workspaceId,
-                viewerId,
-                stored.value,
-                mentions.filter((mention) => !(mention.memberKind === "agent" && taken.includes(mention.memberId))),
-            )
-        }
         if (retried === null && repliedTo?.authorKind === "agent" && repliedTo.clientId !== null) {
             await this.heard({
                 workspaceId,
@@ -478,41 +442,24 @@ export class TeamChatRoomsService {
     ): Promise<TeamChatResult<ChatRoomMessageEntity>> {
         const attached = await this.files.verify(workspaceId, roomId, input.fileKeys)
         if (!attached.ok) return chatRefusal(attached.refusal)
-        return chatDone(
-            await this.store.insertText({
-                workspaceId,
-                roomId,
-                authorId: viewerId,
-                body: input.body,
-                clientId: input.clientId,
-                mentions: storedMentionsOf(mentions),
-                attachments: attached.value,
-                replyTo: input.replyTo ?? null,
-            }),
-        )
-    }
-
-    /** A person who mentions an agent starts its graph: the work core writes the tag wake, once per message and agent. */
-    private async tagAgents(
-        workspaceId: string,
-        viewerId: string,
-        message: ChatRoomMessageEntity,
-        mentions: ReadonlyArray<ChatMemberRef>,
-    ): Promise<void> {
+        const text = {
+            workspaceId,
+            roomId,
+            authorId: viewerId,
+            body: input.body,
+            clientId: input.clientId,
+            mentions: storedMentionsOf(mentions),
+            attachments: attached.value,
+            replyTo: input.replyTo ?? null,
+        }
         const tags = this.tags
-        if (tags === null) return
-        await Promise.all(
-            mentions
-                .filter((mention) => mention.memberKind === "agent")
-                .map((mention) =>
-                    tags.handOff(workspaceId, {
-                        userId: viewerId,
-                        agentId: mention.memberId,
-                        roomId: message.roomId,
-                        messageId: message.id,
-                        text: message.body,
-                    }),
-                ),
+        // The message and the job that routes it (the turn router, then the tag of each other agent it names) commit together.
+        return chatDone(
+            tags === null
+                ? await this.store.insertText(text)
+                : await this.store.insertTextWith(text, (tx, message) =>
+                      tags.queueRoute(tx, { workspaceId, userId: viewerId, roomId, messageId: message.id }),
+                  ),
         )
     }
 }

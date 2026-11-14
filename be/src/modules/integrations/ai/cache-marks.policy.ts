@@ -7,8 +7,8 @@ import type { AiMessage, RoutedKind } from "./ai.contracts"
  * protocol takes markers: the common path never asks.
  *
  * The four layers of a node's call on `anthropic` (agent-sdk `host.ts`, "The layout of a model call"):
- *   L1 craft + tools, L2 shop rules, L3 step goal + schema: one explicit breakpoint per layer end the prompt marks (`cacheMark`), at
- *   most three; the host hands one string today, so the one mark sits at the end of L3 (the end of the stable part);
+ *   L1 the package (craft + tools), L2 the workspace's policies, L3 the step (goal + schema): the domain declares where each stable
+ *   layer ends (`cacheMark`, provider-neutral) and this integration alone turns that into a breakpoint, one per layer end, at most three;
  *   L4: the automatic breakpoint (top-level `cache_control`), which Anthropic places on the last cacheable block of every request, so
  *   the turns of an agent loop reuse each other's prefix.
  */

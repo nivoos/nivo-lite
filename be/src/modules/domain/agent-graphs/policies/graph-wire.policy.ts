@@ -23,12 +23,8 @@ export interface AgentGraphWire {
     readonly problemsJson: string
     /** Each node as a card, as JSON text. */
     readonly cardsJson: string
-    /** The proposals waiting for a person, as JSON text. */
-    readonly proposalsJson: string
     /** The facts a condition may be written on, with their type, unit and words, as JSON text. */
     readonly factsJson: string
-    /** The sums the setup text states as a rule that the graph does not hold, as JSON text. */
-    readonly unheldRulesJson: string
 }
 
 /** One run of the graph over a work item: which trigger, which branch, the version and the nodes, the structured parts as JSON text. */
@@ -79,7 +75,5 @@ export const wireOfView = (view: AgentGraphView): AgentGraphWire => ({
     gapsJson: JSON.stringify(view.gaps),
     problemsJson: JSON.stringify(view.problems),
     cardsJson: JSON.stringify(view.cards),
-    proposalsJson: JSON.stringify(view.proposals),
     factsJson: JSON.stringify(view.facts),
-    unheldRulesJson: JSON.stringify(view.unheldRules),
 })

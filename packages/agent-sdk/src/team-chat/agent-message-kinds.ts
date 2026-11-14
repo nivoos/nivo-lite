@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { backgroundStoppedKind, brainChangeKind, chainStoppedKind } from "./engine-message-kinds"
+import { backgroundStoppedKind, brainChangeKind, chainStoppedKind, jobParkedKind } from "./engine-message-kinds"
 
 /** Where a message that asks for something stands: it waits for a person, or it ended. `sent` is `approved` for content that leaves the app (a message, a file). */
 export const AGENT_MESSAGE_STATES = ["waiting", "approved", "sent", "rejected", "failed", "expired"] as const
@@ -345,7 +345,7 @@ export const workflowStoppedKind: AgentMessageKind<z.ZodType<WorkflowStoppedPayl
 
 /**
  * The kinds the core knows because they name no domain: a text, a table of rows, an approval, a run report, a stopped workflow, the
- * engine's report with facts, a change of the truth graph, a stopped background work and a stopped chain of agents. Media, invoices,
+ * engine's report with facts, a change of the truth graph, a stopped background work, a parked job and a stopped chain of agents. Media, invoices,
  * payment requests and reports are registered by their modules (never with approve or reject: `packageKindRefusalOf`).
  */
 export const coreAgentMessageKinds: ReadonlyArray<AgentMessageKind> = [
@@ -357,6 +357,7 @@ export const coreAgentMessageKinds: ReadonlyArray<AgentMessageKind> = [
     reportFactsKind,
     brainChangeKind,
     backgroundStoppedKind,
+    jobParkedKind,
     chainStoppedKind,
 ]
 

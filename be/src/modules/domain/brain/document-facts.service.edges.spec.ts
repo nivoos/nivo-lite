@@ -23,6 +23,7 @@ import type { Logger } from "@modules/platform/logging"
 import { KnowledgeQueue } from "@modules/queues/knowledge"
 import { TRUTH_CRITIQUE_GATE } from "./direct-apply.policy"
 import type { TruthCritiqueGate } from "./direct-apply.policy"
+import { chainProviders, claimedJob } from "@tests/fixtures/builders/knowledge-chain.builder"
 import { DocumentFactsService, endNoteOf } from "./document-facts.service"
 import { DocumentRelationsService } from "./document-relations.service"
 import { DocumentReviewService } from "./document-review.service"
@@ -52,6 +53,7 @@ const build = async (
     passages: Array<TruthPassage>,
     source = docSourceOf({ status: "ready", visibility: "internal", title: SO_TAY_VI, createdBy: "founder" }),
 ) => {
+    const chain = chainProviders()
     const world: FactsWorld = { passages, row: null, waiting: [], critique: { state: "none", reviewed: new Set(), held: new Set(), confirmedBy: new Map() } }
     const ai = mock<AiService>()
     const logger = mock<Logger>()
@@ -75,9 +77,12 @@ const build = async (
     const parts = mock<DocumentPartsService>()
     const queue = mock<KnowledgeQueue>()
     const tx = fakeTransaction(mockEntityManager())
+    criticService.stopped.mockResolvedValue([])
+    extractions.parked.mockResolvedValue([])
     scriptFactsWorld({ ai, facts, reads, extractions, indexing, sources, chunks, usage, vectors, nature, members, ceiling, notices, critic, parts, queue }, world, source)
     const moduleRef = await Test.createTestingModule({
         providers: [
+            ...chain.providers,
             DocumentFactsService, DocumentTruthStagesService, DocumentSettleService, ModelJsonService,
             { provide: CLOCK, useValue: new FakeClock(new Date("2026-11-11T04:00:00.000Z")) },
             { provide: AI, useValue: ai }, { provide: LOGGER, useValue: logger }, { provide: PRIMARY_ENTITY_MANAGER, useValue: tx.em },
@@ -97,7 +102,7 @@ const build = async (
         ],
     }).compile()
     const service = moduleRef.get(DocumentFactsService)
-    return { service, world, source, ai, indexing, gaps, facts, reads, extractions, sources, chunks, usage, reviews, links, vectors, ceiling, notices, critic, criticService, parts, queue, logger, ...factsRunnersOf(service, ai, world) }
+    return { service, chain, world, source, ai, indexing, gaps, facts, reads, extractions, sources, chunks, usage, reviews, links, vectors, ceiling, notices, critic, criticService, parts, queue, logger, ...factsRunnersOf(service, ai, world) }
 }
 
 describe("DocumentFactsService: credits, failures, waiting", () => {
@@ -106,7 +111,7 @@ describe("DocumentFactsService: credits, failures, waiting", () => {
         // The triage call and the first reading call pass; then the pool is empty.
         t.usage.blockedBy.mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValue(true)
 
-        await expect(t.service.run(PAYLOAD)).resolves.toBe("blocked")
+        await expect(t.service.run(claimedJob(PAYLOAD))).resolves.toBe("blocked")
         expect(t.callsTo(SYSTEM_PROMPT)).toBe(1)
         expect(t.facts.propose).toHaveBeenCalledTimes(4)
         expect(t.world.row).toMatchObject({ status: "blocked_credits", stage: "extract", windowsDone: 1 })
@@ -129,7 +134,7 @@ describe("DocumentFactsService: credits, failures, waiting", () => {
         await expect(t.service.resumeParked()).resolves.toBe(1)
         expect(t.queue.enqueueFactsNext).toHaveBeenCalledTimes(1)
 
-        await expect(t.service.run(PAYLOAD)).resolves.toBe("done")
+        await expect(t.service.run(claimedJob(PAYLOAD))).resolves.toBe("done")
         // Only the four passages not read before are read: two reading calls in all, eight truths, no passage twice.
         expect(t.callsTo(TRIAGE_PROMPT)).toBe(1)
         expect(t.callsTo(SYSTEM_PROMPT)).toBe(2)
@@ -146,7 +151,7 @@ describe("DocumentFactsService: credits, failures, waiting", () => {
             retrieved: 0,
         })
 
-        await expect(t.service.run(PAYLOAD)).resolves.not.toBe("failed")
+        await expect(t.service.run(claimedJob(PAYLOAD))).resolves.not.toBe("failed")
 
         expect(t.world.row?.status).not.toBe("failed")
         expect(t.extractions.note).toHaveBeenCalledWith(WS, SOURCE, objectLike({ skipped: true }))
@@ -187,16 +192,13 @@ describe("DocumentFactsService: a finished reading and the tick that goes on", (
         expect(endNoteOf(row({ factsProposed: 3, linesRefused: 1 }))).toBeNull()
     })
 
-    it("a silent model counts as a try with its own note", async () => {
+    it("a silent model THROWS the transient the runner retries on its ladder: no try is counted and no failed row is written by the reading", async () => {
         const t = await build(documentOf(1, 0))
         t.ai.chat.mockResolvedValue(null)
 
-        await expect(t.service.run(PAYLOAD)).rejects.toMatchObject({ code: BrainErrorCode.ModelUnavailable })
-        expect(t.extractions.save).toHaveBeenLastCalledWith(
-            WS,
-            SOURCE,
-            objectLike({ error: ExtractionNote.ModelBusy, attempts: 1 }),
-        )
+        await expect(t.service.run(claimedJob(PAYLOAD))).rejects.toMatchObject({ code: BrainErrorCode.ModelUnavailable })
+        expect(t.extractions.save).not.toHaveBeenCalledWith(WS, SOURCE, objectLike({ status: "failed" }))
+        expect(t.extractions.save).not.toHaveBeenCalledWith(WS, SOURCE, objectLike({ error: ExtractionNote.ModelBusy }))
         expect(t.usage.record).not.toHaveBeenCalled()
     })
 
@@ -204,7 +206,7 @@ describe("DocumentFactsService: a finished reading and the tick that goes on", (
         const t = await build(documentOf(1, 0))
         // The truths were filed and the reading parked by the earlier build, before anything settled.
         t.reviews.requestForSource.mockRejectedValueOnce(new BrainError({ code: BrainErrorCode.WindowInvalid }))
-        await expect(t.service.run(PAYLOAD)).rejects.toMatchObject({ code: BrainErrorCode.WindowInvalid })
+        await expect(t.service.run(claimedJob(PAYLOAD))).rejects.toMatchObject({ code: BrainErrorCode.WindowInvalid })
         if (t.world.row !== null) t.world.row = { ...t.world.row, status: "awaiting_critique", stage: "settle" }
         t.extractions.parked.mockResolvedValue([
             {
@@ -223,7 +225,7 @@ describe("DocumentFactsService: a finished reading and the tick that goes on", (
         expect(t.queue.enqueueFactsNext).toHaveBeenCalledTimes(1)
         // The tick asks the critic for nothing: no reading waits for a critique.
         expect(t.reviews.requestForSource).not.toHaveBeenCalled()
-        await expect(t.service.run(PAYLOAD)).resolves.toBe("done")
+        await expect(t.service.run(claimedJob(PAYLOAD))).resolves.toBe("done")
         expect(t.facts.applyUnannounced).toHaveBeenCalledTimes(1)
         expect(t.world.row).toMatchObject({ status: "done", counts: { factsApplied: 1 } })
     })
@@ -235,7 +237,7 @@ describe("DocumentFactsService: nothing waits for the critic or for the other pa
             const t = await build(documentOf(1, 0))
             t.world.critique = { ...reviewedAll([]), state: "not_done", reason }
 
-            await expect(t.service.run(PAYLOAD)).resolves.toBe("done")
+            await expect(t.service.run(claimedJob(PAYLOAD))).resolves.toBe("done")
 
             expect(t.facts.applyUnannounced).toHaveBeenCalledTimes(1)
             expect(t.world.row).toMatchObject({ status: "done", counts: { factsApplied: 1, factsWaiting: 0 } })
@@ -264,7 +266,7 @@ describe("DocumentFactsService: nothing waits for the critic or for the other pa
         const part = await build(documentOf(1, 0))
         part.parts.wholeOf.mockResolvedValue([SOURCE, PART_TWO])
 
-        await expect(part.service.run(PAYLOAD)).resolves.toBe("done")
+        await expect(part.service.run(claimedJob(PAYLOAD))).resolves.toBe("done")
 
         expect(part.facts.applyUnannounced).toHaveBeenCalledTimes(1)
         expect(part.extractions.reopen).not.toHaveBeenCalled()
@@ -281,12 +283,12 @@ describe("DocumentFactsService: listening to the critic, and the settle behind a
         expect(t.criticService.whenChanged).toHaveBeenCalledWith(t.service)
     })
 
-    it("the tick never throws: a failed look is logged and the next tick looks again", async () => {
+    it("the tick throws a failed look: no catch counts it, the tick that runs it is a job the runner retries", async () => {
         const t = await build(documentOf(1, 0))
-        t.extractions.parked.mockRejectedValue(new Error("db"))
+        const down = new Error("db")
+        t.extractions.parked.mockRejectedValue(down)
 
-        await expect(t.service.resumeParked()).resolves.toBe(0)
-        expect(t.logger.error).toHaveBeenCalled()
+        await expect(t.service.resumeParked()).rejects.toBe(down)
     })
 
     it("a critique that ends while the reading is still extracting queues nothing: the reading reaches the settle by itself", async () => {
@@ -316,10 +318,10 @@ describe("DocumentFactsService: listening to the critic, and the settle behind a
     it("a job queued to settle again opens the reading first (the settle it followed has ended meanwhile); any other job never does", async () => {
         const t = await build(documentOf(1, 0))
 
-        await t.service.run(PAYLOAD)
+        await t.service.run(claimedJob(PAYLOAD))
         expect(t.extractions.reopen).not.toHaveBeenCalled()
 
-        await t.service.run({ ...PAYLOAD, settleAgain: true })
+        await t.service.run(claimedJob({ ...PAYLOAD, settleAgain: true }))
         expect(t.extractions.reopen.mock.calls).toEqual([[WS, SOURCE]])
     })
 
@@ -332,28 +334,27 @@ describe("DocumentFactsService: listening to the critic, and the settle behind a
 })
 
 describe("DocumentFactsService: the edges of a job", () => {
-    it("drops a payload of another shape and a document that is not ready for the work", async () => {
+    it("refuses a payload of another shape with a typed error and ends a document that is not ready for the work as skipped", async () => {
         const t = await build(documentOf(1, 0))
 
-        await expect(t.service.run({ nope: true })).resolves.toBe("skipped")
-        expect(t.logger.warn).toHaveBeenCalled()
+        await expect(t.service.run(claimedJob({ nope: true }))).rejects.toMatchObject({ code: BrainErrorCode.PayloadInvalid })
 
         const gone = await build(documentOf(1, 0))
         gone.indexing.sourceForFacts.mockResolvedValue(null)
-        await expect(gone.service.run(PAYLOAD)).resolves.toBe("skipped")
+        await expect(gone.service.run(claimedJob(PAYLOAD))).resolves.toBe("skipped")
         expect(gone.chunks.truthPassagesOf).not.toHaveBeenCalled()
         expect(gone.ai.chat).not.toHaveBeenCalled()
     })
 
-    it("a job that ended as failed keeps the document searchable, marks its truths unread and tells the founder", async () => {
+    it("a job that was dead-lettered keeps the document searchable and marks its truths unread; the ONE item is the runner's, so no notice is posted here", async () => {
         const t = await build(documentOf(1, 0))
 
-        await t.service.giveUp(PAYLOAD)
+        await t.service.failed(PAYLOAD)
 
         expect(t.extractions.fail).toHaveBeenCalledWith(WS, SOURCE, ExtractionNote.Aborted)
         expect(t.sources.ready).toHaveBeenCalledWith(WS, SOURCE, StoredNote.FactsUnread)
         expect(t.reviews.requestForSource).toHaveBeenCalledWith(WS, SOURCE)
-        expect(t.notices.postBackgroundStopped).toHaveBeenCalledWith(WS, objectLike({ reason: "gave_up" }))
+        expect(t.notices.postBackgroundStopped).not.toHaveBeenCalled()
     })
 
     it("a deleted document takes back what it contributed and its dossiers are reviewed again", async () => {
@@ -376,7 +377,7 @@ describe("DocumentFactsService: the edges of a job", () => {
             docSourceOf({ status: "ready", visibility: "public", createdBy: "founder" }),
         )
 
-        await t.service.run(PAYLOAD)
+        await t.service.run(claimedJob(PAYLOAD))
 
         expect(t.facts.propose).toHaveBeenCalledWith(WS, objectLike({ scope: "public" }))
         expect(t.gaps.resolve).not.toHaveBeenCalled()
@@ -387,7 +388,7 @@ describe("DocumentFactsService: the edges of a job", () => {
 describe("DocumentFactsService: the founder's answer settles every document its point names (TRIAGE-4)", () => {
     it("re-opens and queues the settle of the OTHER document whose waiting truth the answered point named, and of this one, in one transaction", async () => {
         const t = await build(documentOf(1, 0))
-        await t.service.run(PAYLOAD)
+        await t.service.run(claimedJob(PAYLOAD))
         const rival = proposalOf({
             id: "r1",
             evidence: [{ kind: "document", ref: "doc-b", label: "B", sourceId: "doc-b", chunkHash: "hb" }],

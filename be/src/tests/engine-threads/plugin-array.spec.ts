@@ -1,8 +1,9 @@
 import { Test } from "@nestjs/testing"
 import { mock } from "@starci/jest-preset"
-import { nodeIndexOf, runNode } from "@nivo-lite/agent-sdk/node"
+import { runNode } from "@nivo-lite/agent-sdk/node"
 import { EXAMPLE_TURN, fakeNodePorts } from "@nivo-lite/agent-sdk/testing"
 import { TOOL } from "@nivo-lite/agent-sdk/names"
+import type { GraphSpec } from "@nivo-lite/agent-sdk/graph"
 import type { EntityManager } from "typeorm"
 import { toModuleDefinitionType } from "@features/api/modules/transport/graphql/modules.mapper"
 import { AgentGraphTurnPolicyService } from "@modules/domain/agent-graphs/agent-graph-turn-policy.service"
@@ -52,7 +53,6 @@ import {
     FIXTURE_ENTERPRISE,
     FIXTURE_GUIDANCE,
     FIXTURE_MODULE,
-    FIXTURE_OVERREACH_GRAPH,
     FIXTURE_PRIMARY,
     FIXTURE_SECONDARY,
     FIXTURE_TOOL,
@@ -186,7 +186,7 @@ const world = async () => {
             { provide: SEED_AGENTS, useValue: mock() },
             { provide: EntityNodePortsService, useValue: { ports: () => [] } },
             // The stops of the engine's tables: this workspace has none.
-            { provide: RunStopRecordsService, useValue: mock<RunStopRecordsService>({ ofContacts: jest.fn().mockResolvedValue([]) }) },
+            { provide: RunStopRecordsService, useValue: mock<RunStopRecordsService>({ ofContacts: jest.fn().mockResolvedValue([]), ofRun: jest.fn().mockResolvedValue([]) }) },
             { provide: LOGGER, useValue: mock() },
         ],
     })
@@ -260,20 +260,26 @@ describe("the installation is the array of plugins: a plugin's agent runs by the
         },
     )
 
-    it("admits a workflow whose step uses the agent's own tool and a core tool it reuses, and refuses a tool outside its set", () => {
-        const installed = nodeIndexOf(INSTALLED.nodeInstall())
-        const [version] = FIXTURE_PRIMARY.versions
-        expect(() => requireSoundFlow(version!.graph, installed)).not.toThrow()
-        let refusal: unknown
-        try {
-            requireSoundFlow(FIXTURE_OVERREACH_GRAPH, installed)
-        } catch (error) {
-            refusal = error
+    it("passes the fixture's template workflows as installed, and refuses a copy with a step's params edited (ONE graph format, GRAPH-CLEAN)", () => {
+        // The fixture plugin ships its workflows as TEMPLATE agent graphs (the format every plugin ships): each version is an installed
+        // template's copy, so it passes the one judgement every write road passes; an edited copy is `GRAPH_TEMPLATE_EDITED`.
+        const refusalOf = (graph: GraphSpec): unknown => {
+            try {
+                requireSoundFlow(graph)
+                return null
+            } catch (error) {
+                return error
+            }
         }
-        expect(refusal).toMatchObject({ code: AgentGraphsErrorCode.PublishRefused })
-        expect(JSON.stringify((refusal as { params?: unknown }).params)).toContain(
-            `GRAPH_TOOL_OUTSIDE_AGENT step:${TOOL.agentTag}`,
-        )
+        for (const id of [FIXTURE_PRIMARY.id, FIXTURE_SECONDARY.id]) {
+            // The copy the installation holds (the real core beside the fixture): what a write road compares a flow with.
+            const [version] = INSTALLED.templateOf(id)?.versions ?? []
+            expect(refusalOf(version!.graph)).toBeNull()
+            const [first, ...rest] = version!.graph.nodes
+            const refusal = refusalOf({ ...version!.graph, nodes: [{ ...first!, params: { ...first!.params, edited: true } }, ...rest] })
+            expect(refusal).toMatchObject({ code: AgentGraphsErrorCode.PublishRefused })
+            expect(JSON.stringify((refusal as { params?: unknown }).params)).toContain(`GRAPH_TEMPLATE_EDITED ${FIXTURE_MODULE}`)
+        }
     })
 
     it("carries the fixture tool's label, model words and node model beside the core ones", () => {
@@ -400,7 +406,7 @@ describe("a private plugin's modules are open only to the enterprise workspaces 
             null,
         )
         // What `seedAgent` adopts beside the primary graph: every other template of the module, read from the installation.
-        await expect(adoption.missingTemplatesOf(WS_ENTERPRISE, "agent-1", FIXTURE_MODULE)).resolves.toEqual([FIXTURE_SECONDARY])
+        await expect(adoption.missingTemplatesOf(WS_ENTERPRISE, "agent-1", FIXTURE_MODULE)).resolves.toEqual([INSTALLED.templateOf(FIXTURE_SECONDARY.id)])
     })
 
     it("stops an installed private agent at its next step once the workspace no longer carries the identifier", async () => {

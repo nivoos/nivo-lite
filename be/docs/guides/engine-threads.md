@@ -2,7 +2,7 @@
 
 How a workflow run executes on a LangGraph thread, and what stays NIVO's. Paths are under `be/src/modules/` unless they start
 with `be/` or `packages/`. The design is `LANGGRAPH-20261110.md` (coordinator's lane folder; section 8 wins); the owner's rules are
-the concept records in `.starciwork/concepts/` (`engine-on-langgraph`, `no-code-error-path`, `saga-forward-only`, `team-messages`,
+the concept records in `.starciwork/concepts/` (`engine-on-langgraph`, `no-code-error-path`, `outbox-job`, `team-messages`,
 `ai-call-failure`, `tokens-and-credits`). State of 2026-11-10 late night: built and specs green; front-desk ran live on threads
 for three routes; nothing else on this page is proven live yet.
 

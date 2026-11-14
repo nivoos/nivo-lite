@@ -52,7 +52,12 @@ const detailOf = (text: string) => (
 const switchRowOf = (row: ProviderTriggerRowView, props: ProviderTriggerCardBaseProps, isLoading: boolean): ListRowData => ({
     id: `switch-${row.id}`,
     title: row.title,
-    detail: detailOf(`${row.kindLabel} · ${row.fired ?? ""}`),
+    detail: (
+        <>
+            {detailOf(`${row.kindLabel} · ${row.fired ?? ""}`)}
+            {row.withoutPollReason === null ? null : detailOf(row.withoutPollReason)}
+        </>
+    ),
     control: (
         <Switch
             name={`trigger-${row.id}`}

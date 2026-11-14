@@ -20,6 +20,9 @@ export const PUBLIC_DOCUMENTS_MESSAGES: MessageBundle = {
         "errors.PUBLIC_DOCUMENTS_NO_INTERNAL_RIGHT":
             "Chưa agent nào được quyền đọc tài liệu nội bộ để soạn. Hãy bật công cụ nivo.tool.brain.document.read cho một agent nội bộ ở mục Quyền.",
         "errors.PUBLIC_DOCUMENTS_DRAFT_UNAVAILABLE": "NIVO chưa soạn được lúc này. Hãy thử lại sau.",
+        "errors.PUBLIC_DOCUMENTS_DRAFT_REFUSED": "NIVO không soạn được văn bản từ các tài liệu này.",
+        "errors.PUBLIC_DOCUMENTS_CONFIG_DRAFT_UNCONFIGURED": "Chưa cấu hình mô hình AI để soạn văn bản.",
+        "errors.PUBLIC_DOCUMENTS_PAYLOAD_INVALID": "Yêu cầu soạn văn bản không hợp lệ.",
         "errors.PUBLIC_DOCUMENTS_NOTHING_LEFT":
             "Các tài liệu đã chọn không có nội dung để NIVO soạn thành bài cho khách.",
     },
@@ -42,6 +45,9 @@ export const PUBLIC_DOCUMENTS_MESSAGES: MessageBundle = {
         "errors.PUBLIC_DOCUMENTS_NO_INTERNAL_RIGHT":
             "No agent holds the right to read internal documents for drafting. Turn on the nivo.tool.brain.document.read tool for an internal agent under Rights.",
         "errors.PUBLIC_DOCUMENTS_DRAFT_UNAVAILABLE": "NIVO could not draft right now. Try again later.",
+        "errors.PUBLIC_DOCUMENTS_DRAFT_REFUSED": "NIVO could not write a text from these documents.",
+        "errors.PUBLIC_DOCUMENTS_CONFIG_DRAFT_UNCONFIGURED": "No AI model is configured to draft texts.",
+        "errors.PUBLIC_DOCUMENTS_PAYLOAD_INVALID": "The draft request is not valid.",
         "errors.PUBLIC_DOCUMENTS_NOTHING_LEFT":
             "The chosen documents hold nothing NIVO could write a text for customers from.",
     },

@@ -5,6 +5,7 @@ import { UsageMeterService } from "@modules/domain/knowledge"
 import { KnowledgeSourcesReadService } from "@modules/domain/knowledge-sources"
 import type { SourceDocument } from "@modules/domain/knowledge-sources"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
+import { claimedAiJob } from "@tests/fixtures/builders/brain-ai-effects.builder"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
 import {
@@ -23,6 +24,9 @@ import { PublicDraftWriterService } from "./public-draft-writer.service"
 
 const codes = PublicDocumentsErrorCode
 const payload = { documentId: "d1", workspaceId: WS, draftRevision: 0 }
+
+/** The claimed job of the draft: its id keys the model call (`job-1:draft`). */
+const JOB = claimedAiJob(payload, { kind: "public.draft" })
 
 /** A document NIVO is drafting, with no text yet. The owner's draft is specified in `public-draft-run.service.spec.ts`. */
 const rowOf = (changes: Parameters<typeof documentRow>[0] = {}) =>
@@ -87,12 +91,12 @@ describe("PublicDraftRunService the answer to a customer question", () => {
         reader.hits.mockResolvedValue(hits("s1", "s2", "s3"))
         writer.write.mockResolvedValue({ answers: true, body: "Yes, wheels are trued in one day." })
 
-        await expect(run.generate(payload)).resolves.toBe("done")
+        await expect(run.generate(JOB)).resolves.toBe("done")
 
         expect(reader.hits).toHaveBeenCalledWith(WS, question)
         expect(sources.textOf.mock.calls.map(([, id]) => id)).toEqual(["s1", "s3"])
         expect(writer.write).toHaveBeenCalledTimes(1)
-        expect(writer.write).toHaveBeenCalledWith({
+        expect(writer.write).toHaveBeenCalledWith(expect.objectContaining({
             workspaceId: WS,
             title: question,
             question,
@@ -101,7 +105,7 @@ describe("PublicDraftRunService the answer to a customer question", () => {
                 { sourceId: "s1", title: "Document s1", text: "Wheel truing in one day.", cut: false },
                 { sourceId: "s3", title: "Document s3", text: "Helmets for rent.", cut: false },
             ],
-        })
+        }), "job-1:draft")
         expect(JSON.stringify(writer.write.mock.calls)).not.toContain("Mechanic pay")
         expect(tx.em.insert).toHaveBeenCalledWith(PublicDocumentSourceEntity, [
             { documentId: "d1", sourceId: "s1", workspaceId: WS, sourceTitle: "Document s1", contentHash: "h-s1" },
@@ -126,45 +130,38 @@ describe("PublicDraftRunService the answer to a customer question", () => {
         ["no agent may search", { kind: "no_right" }],
         ["the search was refused", { kind: "refused", code: "tool_error" }],
         ["the search found no document", hits()],
-    ])("drops the proposal when %s", async (_name, outcome) => {
+    ])("leaves the proposal failed with the typed code of why, and deletes nothing, when %s", async (_name, outcome) => {
         const tx = drafting(proposal)
-        const { run, reader, writer, logger } = await build(tx.em)
+        const { run, reader, writer } = await build(tx.em)
         reader.hits.mockResolvedValue(outcome)
 
-        await run.generate(payload)
+        await run.generate(JOB)
 
-        expect(tx.em.delete).toHaveBeenCalledWith(PublicDocumentEntity, {
-            id: "d1",
-            workspaceId: WS,
-            status: "drafting",
-            draftRevision: 0,
-        })
+        const code = outcome.kind === "no_right" ? codes.NoInternalRight : outcome.kind === "ok" ? codes.NothingLeft : codes.DraftUnavailable
+        expect(tx.em.update).toHaveBeenCalledWith(...stopped(code))
+        expect(tx.em.delete).not.toHaveBeenCalled()
         expect(writer.write).not.toHaveBeenCalled()
-        expect(logger.info).toHaveBeenCalledWith("public_documents.proposal.skipped", expect.anything())
     })
 })
 
-describe("PublicDraftRunService a proposal that is dropped", () => {
+describe("PublicDraftRunService a proposal the documents do not answer", () => {
     it.each([
         { answers: false, body: "" },
         { answers: false, body: "Wheels are trued." },
         { answers: true, body: " " },
-    ])("drops the proposal as no_answer when the model answers %j: no word of the question is compared", async (answer) => {
+    ])("leaves the proposal failed with NothingLeft when the model answers %j: no word of the question is compared", async (answer) => {
         const tx = drafting(proposal)
         // The document repeats every word of the question; only the model's answer decides.
-        const { run, reader, writer, logger } = await build(tx.em, [docOf("s1", question)])
+        const { run, reader, writer } = await build(tx.em, [docOf("s1", question)])
         reader.hits.mockResolvedValue(hits("s1"))
         writer.write.mockResolvedValue(answer)
 
-        await run.generate(payload)
+        await run.generate(JOB)
 
         expect(writer.write).toHaveBeenCalledTimes(1)
-        expect(tx.em.delete).toHaveBeenCalledWith(PublicDocumentEntity, expect.anything())
+        expect(tx.em.update).toHaveBeenCalledWith(...stopped(codes.NothingLeft))
+        expect(tx.em.delete).not.toHaveBeenCalled()
         expect(tx.em.insert).not.toHaveBeenCalled()
-        expect(logger.info).toHaveBeenCalledWith("public_documents.proposal.skipped", {
-            documentId: "d1",
-            reason: "no_answer",
-        })
     })
 
     it("writes from a document that shares no word with the question when the model says it answers", async () => {
@@ -173,7 +170,7 @@ describe("PublicDraftRunService a proposal that is dropped", () => {
         reader.hits.mockResolvedValue(hits("s1"))
         writer.write.mockResolvedValue({ answers: true, body: "Yes, overnight." })
 
-        await run.generate(payload)
+        await run.generate(JOB)
 
         expect(tx.em.insert).toHaveBeenCalledWith(PublicDocumentSourceEntity, [expect.objectContaining({ sourceId: "s1" })])
     })
@@ -185,36 +182,34 @@ describe("PublicDraftRunService a proposal with no public document to read", () 
         ["the area of the document found cannot be read", [docOf("s1", "Wheel truing in one day.", "")]],
         ["the document found is gone", []],
         ["the document found is not fully read", [brainDocumentOf({ status: "indexing" })]],
-    ])("drops the proposal as no_answer without the model when %s", async (_name, shelf) => {
+    ])("leaves the proposal failed with NothingLeft, without the model, when %s", async (_name, shelf) => {
         const tx = drafting(proposal)
-        const { run, reader, writer, logger } = await build(tx.em, shelf)
+        const { run, reader, writer } = await build(tx.em, shelf)
         reader.hits.mockResolvedValue(hits("s1"))
 
-        await run.generate(payload)
+        await run.generate(JOB)
 
         expect(writer.write).not.toHaveBeenCalled()
-        expect(tx.em.delete).toHaveBeenCalledWith(PublicDocumentEntity, expect.anything())
-        expect(logger.info).toHaveBeenCalledWith("public_documents.proposal.skipped", {
-            documentId: "d1",
-            reason: "no_answer",
-        })
+        expect(tx.em.update).toHaveBeenCalledWith(...stopped(codes.NothingLeft))
+        expect(tx.em.delete).not.toHaveBeenCalled()
     })
 })
 
 describe("PublicDraftRunService a proposal that writes nothing", () => {
     it.each([null, "Approved answer"])(
-        "does not replace working provenance when the model gives no readable answer or no answer; published=%s",
+        "does not replace working provenance when the model throws or says nothing answers; published=%s",
         async (publishedBody) => {
             const tx = drafting({ ...proposal, publishedBody })
             const { run, reader, writer } = await build(tx.em, [docOf("s1", "Wheel truing in one day.")])
             reader.hits.mockResolvedValue(hits("s1"))
 
-            writer.write.mockResolvedValueOnce(null)
-            await run.generate(payload)
+            writer.write.mockRejectedValueOnce(new Error("outage"))
+            await expect(run.generate(JOB)).rejects.toThrow("outage")
             writer.write.mockResolvedValueOnce({ answers: false, body: "" })
-            await run.generate(payload)
+            await run.generate(JOB)
 
-            expect(tx.em.delete).toHaveBeenCalledTimes(publishedBody === null ? 2 : 0)
+            // Nothing is ever deleted: the second end is a typed stop (a failed row, or a published one that stays published).
+            expect(tx.em.delete).not.toHaveBeenCalled()
             expect(tx.em.insert).not.toHaveBeenCalled()
         },
     )
@@ -224,7 +219,7 @@ describe("PublicDraftRunService a proposal that writes nothing", () => {
         const { run, reader } = await build(tx.em)
         reader.hits.mockResolvedValue(hits())
 
-        await run.generate(payload)
+        await run.generate(JOB)
 
         expect(reader.hits).toHaveBeenCalledWith(WS, question)
     })
@@ -238,7 +233,7 @@ describe("PublicDraftRunService a published answer redraft", () => {
         const { run, reader } = await build(tx.em)
         reader.hits.mockResolvedValue({ kind: "no_right" })
 
-        await run.generate(payload)
+        await run.generate(JOB)
 
         expect(tx.em.delete).not.toHaveBeenCalled()
         expect(tx.em.update).toHaveBeenCalledWith(...stopped(codes.NoInternalRight, "published"))
@@ -251,7 +246,7 @@ describe("PublicDraftRunService a published answer redraft", () => {
         const { run, reader } = await build(tx.em)
         reader.hits.mockResolvedValue({ kind: "refused", code: "unknown_tool" })
 
-        await run.generate(payload)
+        await run.generate(JOB)
 
         expect(tx.em.delete).not.toHaveBeenCalled()
         expect(tx.em.update).toHaveBeenCalledWith(...stopped(codes.DraftUnavailable, "published"))
@@ -266,7 +261,7 @@ describe("PublicDraftRunService a published answer redraft", () => {
         reader.hits.mockResolvedValue(hits("s1"))
         writer.write.mockResolvedValue({ answers: true, body: "Wheels are trued in one day." })
 
-        await run.generate(payload)
+        await run.generate(JOB)
 
         expect(tx.em.delete).toHaveBeenCalledWith(PublicDocumentSourceEntity, { documentId: "d1", workspaceId: WS })
         expect(tx.em.insert).toHaveBeenCalledWith(PublicDocumentSourceEntity, expect.anything())
@@ -292,28 +287,21 @@ describe("PublicDraftRunService concurrent answer jobs", () => {
                 raw: [],
                 generatedMaps: [],
             })
-            await expect(run.generate(payload)).resolves.toBe("done")
+            await expect(run.generate(JOB)).resolves.toBe("done")
             expect(tx.em.delete).not.toHaveBeenCalled()
             expect(tx.em.insert).not.toHaveBeenCalled()
             expect(tx.em.update).toHaveBeenCalledTimes(1)
         },
     )
 
-    it.each([0, undefined])(
-        "does not announce a skipped proposal when a concurrent delete affects %s rows",
-        async (affected) => {
-            const tx = drafting(proposal)
-            const { run, reader, logger } = await build(tx.em)
-            reader.hits.mockResolvedValue({ kind: "no_right" })
-            tx.em.delete.mockResolvedValueOnce({ ...(affected === undefined ? {} : { affected }), raw: [] })
-            await run.generate(payload)
-            expect(tx.em.delete).toHaveBeenCalledWith(PublicDocumentEntity, {
-                id: "d1",
-                workspaceId: WS,
-                status: "drafting",
-                draftRevision: 0,
-            })
-            expect(logger.info).not.toHaveBeenCalled()
-        },
-    )
+    it("stops a proposal only while its revision still drafts: a later redraft is left as it is", async () => {
+        const tx = drafting(proposal)
+        const { run, reader } = await build(tx.em)
+        reader.hits.mockResolvedValue({ kind: "no_right" })
+
+        await run.generate(JOB)
+
+        expect(tx.em.update).toHaveBeenCalledWith(...stopped(codes.NoInternalRight))
+        expect(tx.em.delete).not.toHaveBeenCalled()
+    })
 })

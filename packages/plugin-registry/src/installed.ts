@@ -6,5 +6,5 @@ import { plugin as part1Plugin } from "@nivo-lite/nivo-web-core"
 /** Everything installed: the lists of the core package and of every plugin package, joined and checked once at load. */
 export const installed: Installation = defineInstallation(
     [part0Plugin, part1Plugin],
-    "cd9bb51be6272f4092144cfc37091401e6234c3e9dcf18a8e814ea3b1c90b4fc",
+    "e5e38073292120c0d6e9813fb55070bd913ffa391e017b161dbf278fd581e1ee",
 )

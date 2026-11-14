@@ -3,10 +3,12 @@ import { mock } from "@starci/jest-preset"
 import type { StorageAssetsPort, StorageObjectsPort } from "@modules/integrations/object-storage"
 import { REMOTE_FILES } from "@modules/integrations/remote-files"
 import type { RemoteFileRequest, RemoteFiles } from "@modules/integrations/remote-files"
+import { EFFECTS } from "@modules/platform/effects"
 import { ERROR_REPORTER, type ErrorReporter } from "@modules/platform/errors"
 import { LOGGER } from "@modules/platform/logging"
 import { ok } from "@modules/platform/primitives"
 import type { Logger } from "@modules/platform/logging"
+import { keptEffectsLedger } from "@tests/fixtures/builders/inbound-chain.builder"
 import { CHAT_FILES_ASSETS, CHAT_FILES_STORAGE } from "./chat-files.decorators"
 import { ChatFilesLogEvent } from "./chat-files.log-events"
 import { CustomerFilesService } from "./customer-files.service"
@@ -18,6 +20,12 @@ import { CustomerFilesService } from "./customer-files.service"
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10])
 const ZALO_URL = "https://photo-zalo.test/abc.jpg"
 
+/** The delivery job the files are kept under. */
+const JOB = { jobId: "job-1" }
+
+/** What the network says when nothing answers: the classifier calls it transient. */
+const down = (): Error => Object.assign(new Error("connect ECONNRESET"), { code: "ECONNRESET" })
+
 const build = async (withAssets = true) => {
     const logger = mock<Logger>()
     const remote = mock<RemoteFiles>()
@@ -25,17 +33,19 @@ const build = async (withAssets = true) => {
     const assets = mock<StorageAssetsPort>()
     const errors = mock<ErrorReporter>()
     assets.upload.mockResolvedValue({ error: null })
+    const ledger = keptEffectsLedger()
     const moduleRef = await Test.createTestingModule({
         providers: [
             CustomerFilesService,
             { provide: LOGGER, useValue: logger },
             { provide: REMOTE_FILES, useValue: remote },
             { provide: CHAT_FILES_STORAGE, useValue: storage },
+            { provide: EFFECTS, useValue: ledger.effects },
             ...(withAssets ? [{ provide: CHAT_FILES_ASSETS, useValue: assets }] : []),
             { provide: ERROR_REPORTER, useValue: errors },
         ],
     }).compile()
-    return { service: moduleRef.get(CustomerFilesService), logger, remote, storage, assets, errors }
+    return { service: moduleRef.get(CustomerFilesService), logger, remote, storage, assets, errors, ledger }
 }
 
 const answering = (bytes: Buffer | null, contentType = "image/jpeg", status = 200) =>
@@ -53,7 +63,7 @@ describe("CustomerFilesService.keep", () => {
         const { service, remote, assets } = await build()
         remote.read.mockImplementation(answering(JPEG))
 
-        const [kept] = await service.keep("ws-1", "zalo:m-1", [{ kind: "image", url: ZALO_URL, name: "" }])
+        const [kept] = await service.keep(JOB, "ws-1", "zalo:m-1", [{ kind: "image", url: ZALO_URL, name: "" }])
 
         expect(remote.read).toHaveBeenCalledWith(expect.objectContaining({ url: ZALO_URL, maxBytes: 10 * 1024 * 1024 }))
         const path = String(assets.upload.mock.calls[0]?.[1])
@@ -67,8 +77,8 @@ describe("CustomerFilesService.keep", () => {
         const { service, remote, assets } = await build()
         remote.read.mockImplementation(answering(JPEG))
 
-        await service.keep("ws-1", "zalo:m-1", [{ kind: "image", url: ZALO_URL, name: "" }])
-        await service.keep("ws-1", "zalo:m-1", [{ kind: "image", url: ZALO_URL, name: "" }])
+        await service.keep(JOB, "ws-1", "zalo:m-1", [{ kind: "image", url: ZALO_URL, name: "" }])
+        await service.keep({ jobId: "job-2" }, "ws-1", "zalo:m-1", [{ kind: "image", url: ZALO_URL, name: "" }])
 
         expect(assets.upload.mock.calls[0]?.[1]).toBe(assets.upload.mock.calls[1]?.[1])
     })
@@ -80,9 +90,9 @@ describe("CustomerFilesService.keep", () => {
         remote.read
             .mockImplementationOnce(answering(null, "image/jpeg", 404))
             .mockImplementationOnce(answering(Buffer.from("<html>"), "text/html"))
-            .mockRejectedValueOnce(new Error("timeout"))
+            .mockRejectedValueOnce(Object.assign(new Error("address refused"), { code: "ERR_INVALID_URL" }))
 
-        const kept = await service.keep("ws-1", "zalo:m-2", [
+        const kept = await service.keep(JOB, "ws-1", "zalo:m-2", [
             { kind: "image", url: ZALO_URL, name: "" },
             { kind: "image", url: ZALO_URL, name: "" },
             { kind: "file", url: ZALO_URL, name: "a.pdf" },
@@ -104,11 +114,74 @@ describe("CustomerFilesService.keep", () => {
     it("keeps nothing when the app has no whole-file store, and reads nothing", async () => {
         const { service, remote, errors } = await build(false)
 
-        const kept = await service.keep("ws-1", "zalo:m-3", [{ kind: "image", url: ZALO_URL, name: "" }])
+        const kept = await service.keep(JOB, "ws-1", "zalo:m-3", [{ kind: "image", url: ZALO_URL, name: "" }])
 
         expect(kept.map((file) => [file.id, file.url])).toEqual([["unread:no_store:0", ""]])
         expect(remote.read).not.toHaveBeenCalled()
         expect(errors.report).toHaveBeenCalledTimes(1)
+    })
+})
+
+describe("CustomerFilesService.keep: a failure of the channel or the store is the job's to judge", () => {
+    it("THROWS a read that failed on the way (the network), so the delivery job retries it; nothing is kept for the file", async () => {
+        const { service, remote, assets, errors, ledger } = await build()
+        remote.read.mockRejectedValue(down())
+
+        await expect(service.keep(JOB, "ws-1", "zalo:m-4", [{ kind: "image", url: ZALO_URL, name: "" }])).rejects.toMatchObject({ code: "ECONNRESET" })
+
+        expect(assets.upload).not.toHaveBeenCalled()
+        expect(errors.report).not.toHaveBeenCalled()
+        expect(ledger.rows.get("job-1:file:0")).toMatchObject({ acts: 1, settled: false })
+    })
+
+    it("THROWS a channel that answers a server failure (5xx or 429), but records a refusal (404) as a typed not-kept entry", async () => {
+        const busy = await build()
+        busy.remote.read.mockImplementation(answering(null, "text/html", 503))
+        await expect(busy.service.keep(JOB, "ws-1", "zalo:m-5", [{ kind: "image", url: ZALO_URL, name: "" }])).rejects.toBeDefined()
+
+        const gone = await build()
+        gone.remote.read.mockImplementation(answering(null, "image/jpeg", 404))
+        const [kept] = await gone.service.keep(JOB, "ws-1", "zalo:m-5", [{ kind: "image", url: ZALO_URL, name: "" }])
+        expect(kept?.id).toBe("unread:refused_404:0")
+    })
+
+    it("THROWS a store that is down, but records a store that refused the copy for good as not kept", async () => {
+        const outage = await build()
+        outage.remote.read.mockImplementation(answering(JPEG))
+        outage.assets.upload.mockResolvedValue({ error: down() })
+        await expect(outage.service.keep(JOB, "ws-1", "zalo:m-6", [{ kind: "image", url: ZALO_URL, name: "" }])).rejects.toMatchObject({ code: "REMOTE_FILES_UNAVAILABLE" })
+
+        const refusing = await build()
+        refusing.remote.read.mockImplementation(answering(JPEG))
+        refusing.assets.upload.mockResolvedValue({ error: new Error("bucket policy") })
+        const [kept] = await refusing.service.keep(JOB, "ws-1", "zalo:m-6", [{ kind: "image", url: ZALO_URL, name: "" }])
+        expect(kept?.id).toBe("unread:store_failed:0")
+    })
+
+    it("a retried or resumed delivery gets the entry kept the first time without reading the channel again (its address expires)", async () => {
+        const { service, remote, assets, ledger } = await build()
+        remote.read.mockImplementation(answering(JPEG))
+
+        const first = await service.keep(JOB, "ws-1", "zalo:m-7", [{ kind: "image", url: ZALO_URL, name: "" }])
+        const again = await service.keep(JOB, "ws-1", "zalo:m-7", [{ kind: "image", url: ZALO_URL, name: "" }])
+
+        expect(again).toEqual(first)
+        expect(remote.read).toHaveBeenCalledTimes(1)
+        expect(assets.upload).toHaveBeenCalledTimes(1)
+        expect(ledger.rows.get("job-1:file:0")?.acts).toBe(1)
+    })
+
+    it("keeps the typed not-kept entry on the ledger too, so a resume does not read a refused address again", async () => {
+        const { service, remote, ledger } = await build()
+        remote.read.mockImplementation(answering(null, "image/jpeg", 404))
+
+        const first = await service.keep(JOB, "ws-1", "zalo:m-8", [{ kind: "image", url: ZALO_URL, name: "" }])
+        const again = await service.keep(JOB, "ws-1", "zalo:m-8", [{ kind: "image", url: ZALO_URL, name: "" }])
+
+        expect(again).toEqual(first)
+        expect(again[0]?.notKept).toBe("refused_404")
+        expect(remote.read).toHaveBeenCalledTimes(1)
+        expect(ledger.rows.get("job-1:file:0")?.acts).toBe(1)
     })
 })
 

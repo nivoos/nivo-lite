@@ -16,11 +16,11 @@ import { careTimerInput, careTimerWhereOf } from "./care.timer"
 const CATALOGUE: TemplateCatalogue = {
     name: { vi: "H\u1ecfi th\u0103m sau giao", en: "After-delivery check" },
     summary: { vi: "H\u1ecfi th\u0103m kh\u00e1ch sau khi giao hoa", en: "Checks in with the customer after delivery" },
-    version: 10,
-    publishedAt: "2026-11-14T03:00:00.000Z",
+    version: 11,
+    publishedAt: "2026-11-14T18:55:00.000Z",
     notes: {
-        vi: "Đọc sự kiện theo một đường chung: route, liên hệ, tài khoản và dữ liệu của sự kiện (trigger.data)",
-        en: "Reads its event on the one pipeline: the route, the contact, the account and the event's data (trigger.data)",
+        vi: "Bước chờ không còn đọc việc khách dặn đừng nhắn: hệ thống từ chối lời nhắn chủ động khi liên hệ đã đặt dấu không liên hệ",
+        en: "The wait no longer reads whether the customer asked to stop: the engine refuses an unprompted message when the contact's do-not-contact fact is set",
     },
     // Seeded ACTIVE (TOOLS-LEAD item 6): a seed or re-seed adds it to the agent active, so its trigger reaches it.
     seedActive: true,

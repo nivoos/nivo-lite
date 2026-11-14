@@ -3,7 +3,7 @@ import { Test } from "@nestjs/testing"
 import type { ImapInput } from "./imap-connection.contracts"
 import {
     credentialFromInput,
-    cursorKey,
+    mailboxAddressOf,
     metaFromSettings,
     parseConfig,
     parseCredential,
@@ -16,7 +16,7 @@ import { IMAP_CONNECTION_TEXT, imapSummary } from "./messages/imap-connection.me
 const SUBJECT = Symbol("imap-connection.policy")
 type Subject = Pick<
     typeof SubjectModule,
-    "parseCredential" | "parseConfig" | "credentialFromInput" | "settingsFromInput" | "metaFromSettings" | "cursorKey"
+    "parseCredential" | "parseConfig" | "credentialFromInput" | "settingsFromInput" | "metaFromSettings" | "mailboxAddressOf"
 >
 
 const buildSubject = async () => {
@@ -30,7 +30,7 @@ const buildSubject = async () => {
                     credentialFromInput,
                     settingsFromInput,
                     metaFromSettings,
-                    cursorKey,
+                    mailboxAddressOf,
                 },
             },
         ],
@@ -48,7 +48,6 @@ const input: ImapInput = {
     password: "typed-password",
     folders: ["INBOX", "Sent"],
     sinceDays: 7,
-    syncEveryMinutes: 60,
 }
 const credential = { host: "imap.example.com", port: 993, user: "owner", password: "secret" }
 const refused = async (run: () => unknown, detail: string): Promise<void> => {
@@ -220,20 +219,18 @@ describe("settingsFromInput", () => {
             email: "support@example.com",
             folders: ["INBOX", "Sent"],
             sinceDays: 7,
-            every: 60,
         })
         expect(SINCE_CHOICES).toEqual([7, 30, 90])
     })
 
-    it.each([null, undefined])("defaults the look-back and manual schedule from %s", async (unset) => {
+    it.each([null, undefined])("defaults the look-back from %s", async (unset) => {
         const subject = await buildSubject()
 
-        expect(subject.settingsFromInput({ ...input, sinceDays: unset, syncEveryMinutes: unset })).toEqual({
+        expect(subject.settingsFromInput({ ...input, sinceDays: unset })).toEqual({
             name: "Support mailbox",
             email: "support@example.com",
             folders: ["INBOX", "Sent"],
             sinceDays: 30,
-            every: null,
         })
     })
 
@@ -253,7 +250,6 @@ describe("settingsFromInput", () => {
             email: "x".repeat(320),
             folders: ["x".repeat(200), ...folders.slice(0, 19)],
             sinceDays: 7,
-            every: 60,
         })
     })
 
@@ -283,30 +279,22 @@ describe("settingsFromInput", () => {
         },
     )
 
-    it("refuses unsupported look-back and schedule values", async () => {
+    it("refuses an unsupported look-back (the poll's cadence is the connection poll's, never a setting)", async () => {
         const subject = await buildSubject()
 
         await refused(() => subject.settingsFromInput({ ...input, sinceDays: 60 }), IMAP_CONNECTION_TEXT.sinceInvalid)
-        await refused(
-            () => subject.settingsFromInput({ ...input, syncEveryMinutes: 30 }),
-            IMAP_CONNECTION_TEXT.everyInvalid,
-        )
     })
 })
 
 describe("settingsFromInput", () => {
-    it.each([
-        [30, 15],
-        [90, 360],
-    ])("accepts a look-back of %s days and schedule of %s minutes", async (sinceDays, syncEveryMinutes) => {
+    it.each([30, 90])("accepts a look-back of %s days", async (sinceDays) => {
         const subject = await buildSubject()
 
-        expect(subject.settingsFromInput({ ...input, sinceDays, syncEveryMinutes })).toEqual({
+        expect(subject.settingsFromInput({ ...input, sinceDays })).toEqual({
             name: "Support mailbox",
             email: "support@example.com",
             folders: ["INBOX", "Sent"],
             sinceDays,
-            every: syncEveryMinutes,
         })
     })
 })
@@ -324,7 +312,6 @@ describe("mailbox metadata", () => {
                 email: "owner@example.com",
                 folders,
                 sinceDays: 90,
-                every: null,
             }),
         ).toEqual({
             config: JSON.stringify({ folders, sinceDays: 90 }),
@@ -333,9 +320,10 @@ describe("mailbox metadata", () => {
         })
     })
 
-    it("keeps the folder path intact in its cursor key", async () => {
+    it("rule MI-2: compares mailboxes by their address alone, trimmed and lower-case", async () => {
         const subject = await buildSubject()
 
-        expect(subject.cursorKey("Sent/2026")).toBe("cursor:Sent/2026")
+        expect(subject.mailboxAddressOf(" Shop@Example.COM ")).toBe("shop@example.com")
+        expect(subject.mailboxAddressOf(undefined)).toBe("")
     })
 })

@@ -184,6 +184,47 @@ export type ContactActor =
     | { readonly kind: "step"; readonly agentId: string; readonly stepKey: string | null; readonly approvedBy: string | null }
     | { readonly kind: "channel" }
 
+/**
+ * Who set or cleared a contact's "do not contact" fact: a person (on the contact page), or a node step's call of the engine's contact
+ * tool when the person asked to stop (the package decides WHEN to call it; the engine reads no words). Only a person clears it.
+ */
+export type ConsentActor = Exclude<ContactActor, { readonly kind: "channel" }>
+
+/**
+ * The ONE consent fact of a contact (owner ruling R67, GRAPH-CLEAN): may the shop write to this person on its OWN initiative (a nudge, a
+ * reminder, a round, a campaign). `doNotContact` true = no; an answer on a route the person wrote on is never refused by it. `at`, `by`,
+ * `reason` describe the last change (all null for a contact nobody ever set it on).
+ */
+export interface ContactConsent {
+    /** True when the shop may not start a conversation with this person. */
+    readonly doNotContact: boolean
+    /** When it was last set or cleared, ISO UTC; null when never. */
+    readonly at: string | null
+    /** Who set or cleared it last; null when never. */
+    readonly by: ConsentActor | null
+    /** Why, in the words of whoever set it (shown to people, never read by code); null when none was given. */
+    readonly reason: string | null
+}
+
+/** A change of the consent fact: set (`doNotContact` true) or clear (false, a person only), with an optional reason. */
+export interface ConsentChange {
+    /** The new value. */
+    readonly doNotContact: boolean
+    /** Why; null for none. */
+    readonly reason: string | null
+}
+
+/** Why a consent change was refused: no such contact, or a clear asked by someone who is not a person. */
+export type ConsentRefusal = "contact_missing" | "cleared_only_by_person"
+
+/** What a consent change did: written, already so (nothing written), or refused. */
+export type ConsentOutcome =
+    | { readonly kind: "set" | "unchanged"; readonly contactId: string; readonly consent: ContactConsent }
+    | { readonly kind: "refused"; readonly reason: ConsentRefusal }
+
+/** A contact's consent, or null when the contact is missing (unknown, erased). */
+export type OptionalContactConsent = ContactConsent | null
+
 /** A contact with its identities, or `null` when none matched. */
 export type OptionalContact = ContactWithIdentities | null
 

@@ -10,6 +10,8 @@ export interface ClaimedJob {
     readonly currentStep: string | null
     /** The payload the producer wrote. */
     readonly payload: object
+    /** How many times a person (or the sweep) handed the job back after a park: the park episode its item is keyed by. 0 when absent. */
+    readonly resumeCount?: number | undefined
 }
 
 /** What a worker asks for when it claims a delivery. */

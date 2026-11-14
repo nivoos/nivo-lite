@@ -15,6 +15,6 @@ export class SetSandboxNextCaseHandler extends ICQRSHandler<SetSandboxNextCaseCo
     }
 
     protected override process(command: SetSandboxNextCaseCommand): Promise<SandboxNextCase> {
-        return this.accounts.setNextCase({ principalId: command.params.principal.id, workspaceId: command.params.request.workspaceId }, command.params.request.connectionId, command.params.request.caseId)
+        return this.accounts.setNextCase({ principalId: command.params.principal.id, workspaceId: command.params.request.workspaceId }, command.params.request.connectionId, command.params.request.caseId, command.params.request.scope)
     }
 }

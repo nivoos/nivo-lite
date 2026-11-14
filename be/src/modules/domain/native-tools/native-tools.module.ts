@@ -14,6 +14,7 @@ import { ProviderRegistryReadsService } from "./provider-registry-reads.service"
 import { AccountInfoService } from "./account-info.service"
 import { BankNativeService } from "./bank-native.service"
 import { BrainNativeService } from "./brain-native.service"
+import { BrainPolicyPreReadService } from "./brain-policy-preread.service"
 import { BrainProbeService } from "./brain-probe.service"
 import { NivoNativeService } from "./nivo-native.service"
 import { OpenApiNativeService } from "./openapi-connection-native.service"
@@ -25,7 +26,6 @@ import { PluginToolsNativeService } from "./plugin-tools-native.service"
 import { DriveNativeService } from "./drive-native.service"
 import { LedgerNativeService } from "./ledger-native.service"
 import { MailNativeService } from "./mail-native.service"
-import { MailSendNativeService } from "./mail-send-native.service"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./native-tools.module-definition"
 import { NativeViewService } from "./native-view.service"
 import { ProviderToolsService } from "./provider-tools.service"
@@ -57,7 +57,6 @@ export const NATIVE_TOOL_ADAPTERS: ReadonlyArray<Type<NativeToolFamily>> = [
     BankNativeService,
     LedgerNativeService,
     MailNativeService,
-    MailSendNativeService,
     OpenApiNativeService,
     NivoNativeService,
     ContactToolsNativeService,
@@ -107,6 +106,8 @@ export class NativeToolsModule extends ConfigurableModuleClass {
                 ProviderRegistryReadsService,
                 // The owner's probe of the Brain reads (`BrainProbeService`): the same families, run with no model turn.
                 BrainProbeService,
+                // The engine's pre-read of the workspace's policies (L2 of the agents' model calls): the brain policy tool itself.
+                BrainPolicyPreReadService,
                 { provide: PROVIDER_REGISTRY_READS_PORT, useExisting: ProviderRegistryReadsService },
                 {
                     provide: INTERFACE_READ_PROVIDERS,
@@ -117,7 +118,7 @@ export class NativeToolsModule extends ConfigurableModuleClass {
                     inject: [OpenApiInterfaceReadsService, AccountInfoService],
                 },
             ],
-            exports: [...NATIVE_TOOL_ADAPTERS, BrainProbeService, INTERFACE_READ_PROVIDERS, PROVIDER_REGISTRY_READS_PORT],
+            exports: [...NATIVE_TOOL_ADAPTERS, BrainProbeService, BrainPolicyPreReadService, INTERFACE_READ_PROVIDERS, PROVIDER_REGISTRY_READS_PORT],
         }
     }
 }

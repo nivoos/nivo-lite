@@ -1,16 +1,21 @@
 import { Test } from "@nestjs/testing"
 import { mock } from "@starci/jest-preset"
+import { bankTriggerOf } from "@tests/fixtures/builders/trigger-declaration.builder"
 import { AgentDirectoryService } from "@modules/domain/agents"
 import { AgentAccountsService } from "@modules/domain/tools"
 import {
     PROVIDER_TRIGGER_CORE_DECIDERS,
     PROVIDER_TRIGGER_RECEIVERS,
     ProviderTriggersService,
+    triggerDeclarations,
     type ProviderTriggerCoreDeciders,
     type ProviderTriggerReceivers,
     type ProviderWake,
 } from "@modules/domain/provider-triggers"
 import { ProviderRegistryReadsService } from "./provider-registry-reads.service"
+
+// The reads join the account's switches with the registered declarations of its provider: the bank feed's, as a fixture.
+triggerDeclarations.register(bankTriggerOf())
 
 type Board = Awaited<ReturnType<AgentAccountsService["board"]>>
 type Cards = Awaited<ReturnType<AgentDirectoryService["activeOf"]>>

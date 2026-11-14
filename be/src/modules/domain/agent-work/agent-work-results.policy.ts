@@ -1,5 +1,5 @@
 import { isRecord } from "@modules/platform/primitives"
-import { wakeSources } from "./agent-wake-source.policy"
+import { WAKE_SOURCE_KEY } from "@modules/domain/agent-wake-rules"
 import type { AgentBegin, AgentEndedWake, AgentFinish, AgentProposeResult } from "./agent-work-turns.contracts"
 import type {
     AgentLocale,
@@ -59,14 +59,21 @@ const CONTEXT_TEXT_KEY_SET: Readonly<Record<Exclude<ContextTextKey, "locale">, t
     handedBackJson: true,
     waitOnly: true,
     unclaimed: true,
+    combine: true,
+    count: true,
+    latestEventId: true,
 }
 
 const isContextTextKey = (key: string): key is Exclude<ContextTextKey, "locale"> => key in CONTEXT_TEXT_KEY_SET
 
 const CONTEXT_TEXT_KEYS = Object.keys(CONTEXT_TEXT_KEY_SET).filter(isContextTextKey)
 
+/**
+ * The source a stored wake names. Any key-shaped source reads (rule RETIRED SOURCE): whether this process still SERVES it is the drain's
+ * judgement (`wakeSources.lookup`), so a wake of a retired source is closed once by name instead of making the whole answer unreadable.
+ */
 const sourceOf = (value: unknown): AgentWakeSource | null =>
-    typeof value === "string" && wakeSources.lookup(value) !== undefined ? value : null
+    typeof value === "string" && WAKE_SOURCE_KEY.test(value) ? value : null
 
 const localeOf = (value: unknown): AgentLocale | undefined => {
     if (value === "vi" || value === "en") return value

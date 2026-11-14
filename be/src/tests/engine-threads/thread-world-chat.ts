@@ -1,9 +1,10 @@
 import { TOOL } from "@nivo-lite/agent-sdk/names"
 import { MemoryContactsStore } from "@tests/fixtures/builders/contacts.builder"
-import { MemoryChannelDeliveryStore, MemoryCustomerLineStore, MemoryCustomerRouteStore } from "@tests/fixtures/builders/customer-routes-stores.builder"
+import { MemoryChannelDeliveryStore, MemoryCustomerLineStore, MemoryCustomerRouteStore, MemoryStreamCursorStore } from "@tests/fixtures/builders/customer-routes-stores.builder"
 import { WorldError } from "./thread-world-records"
 import type { AgentWorkOptions } from "@modules/domain/agent-work/agent-work.options"
 import type { HeardWake } from "./thread-world-intake"
+import type { ChannelDeliveryService } from "@modules/domain/channels"
 
 // THE CHATBOT'S OWN RECORDS AND THE ENGINE'S CUSTOMER STORES IN THE WORLD (after the chat flip of 2026-11-13). The engine keeps no record of
 // any agent: the world therefore holds, beside the engine's own stores (the contacts, the routes, the delivery ledger, the raw
@@ -79,10 +80,23 @@ export class ChatWorld {
     seeded = false
 
     /**
+     * The stream cursor of the routes (rule QB-P5 C-4), when a world opts in (`streamCursor`): then the thread read answers each person line's
+     * position and the route's cursor, and notes a step's read as pending until the step ends. Null: the read answers neither, as before.
+     */
+    cursor: MemoryStreamCursorStore | null = null
+
+    /**
      * How the channel answers the next pushes: `acknowledged` (delivered) by default; `ambiguous` = the provider timed out or failed after
      * the request left (nothing reaches the person, nobody knows): R74's channel double. Set it back to deliver again.
      */
     channelOutcome: "acknowledged" | "ambiguous" = "acknowledged"
+
+    /**
+     * The REAL delivery a world composes for one channel key (rule QB-SEND: e.g. the live Telegram port behind the real delivery
+     * boundary, over a faked HTTP answer): a push on that channel goes through it first; its throw (the port's not-sent answer) and its
+     * receipt that did not deliver are the push's answer; a delivered one becomes a world line as the double makes it.
+     */
+    readonly channelDeliveries = new Map<string, Pick<ChannelDeliveryService, "deliverToPerson" | "entranceOf">>()
 
 
     /** The app's burst defaults (the module's `debounceMs` / `debounceMaxMs`; no env sets them); the settle time a registration asks comes first. */
@@ -274,6 +288,8 @@ export const chatRecordCall = (chat: ChatWorld, now: string, tool: string, args:
 
 /** One line of a thread as the model-facing read answers it. */
 interface ThreadFact {
+    /** The line's position in the route's stream, for a person's line of a world with a stream cursor. */
+    readonly seq?: string
     readonly role: string
     readonly text: string
     readonly at: string
@@ -293,12 +309,13 @@ export const chatThreadOf = (
     routeId: string | null,
     contactId: string | null,
     limit: number,
-): ReadonlyArray<Readonly<{ role: string; text: string; at: string; files?: ReadonlyArray<{ url: string; contentType: string }> }>> => {
+): ReadonlyArray<Readonly<{ seq?: string; role: string; text: string; at: string; files?: ReadonlyArray<{ url: string; contentType: string }> }>> => {
     const onRoute = (route: string, contact: string): boolean => route === routeId || (contactId !== null && contact === contactId)
     const facts: Array<ThreadFact> = [
         ...chat.lines.heard
             .filter((row) => onRoute(row.routeId, row.contactId))
             .map((row) => ({
+                ...(chat.cursor === null ? {} : { seq: row.seq }),
                 role: "user",
                 text: row.text,
                 at: row.saidAt,
@@ -312,5 +329,5 @@ export const chatThreadOf = (
     return facts
         .toSorted((left, right) => right.at.localeCompare(left.at) || right.key.localeCompare(left.key))
         .slice(0, limit)
-        .map(({ role, text, at, files }) => ({ role, text, at, ...(files === undefined ? {} : { files }) }))
+        .map(({ seq, role, text, at, files }) => ({ ...(seq === undefined ? {} : { seq }), role, text, at, ...(files === undefined ? {} : { files }) }))
 }

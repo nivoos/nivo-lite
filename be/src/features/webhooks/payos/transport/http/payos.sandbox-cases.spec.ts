@@ -1,6 +1,6 @@
 import type { RawBodyRequest } from "@nestjs/common"
 import type { Request } from "express"
-import { fakeTransaction, mock, mockEntityManager, recordingQueueOutbox } from "@starci/jest-preset"
+import { fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
 import { BankFeedReceiptService } from "@modules/domain/bank-feed-inbox"
 import { BankFeedReceiptsService, type PaymentProofService } from "@modules/domain/billing"
 import type { ConnectionsService } from "@modules/domain/connections"
@@ -40,15 +40,14 @@ const world = () => {
     const { sandbox, store } = sandboxServiceOf(SANDBOX, LIVE)
     const guard = new SandboxWebhookKeyService(store, { enabled: true }, connections)
     const proofs = mock<WebhookProofRegistry>()
-    proofs.verify.mockResolvedValue(undefined)
+    proofs.verify.mockResolvedValue("proven")
     const claims = mock<BankFeedReceiptService>()
-    claims.claim.mockResolvedValue(true)
+    claims.keep.mockResolvedValue(1)
     const receipts = new BankFeedReceiptsService(
         fakeTransaction(mockEntityManager()).em,
         mock<PaymentProofService>(),
         claims,
         mock<FeedWebhookRegistryService>(),
-        recordingQueueOutbox(),
     )
     const door = new PayosWebhook(new ScopedWebhookVerifier(proofs, guard), receipts)
     /** What the HTTP route does with one call: the raw bytes, the id the path names, the sandbox header. payOS's ack is HTTP 200, empty. */
@@ -66,7 +65,7 @@ const world = () => {
     catalogues.register(PAYOS_SANDBOX_CATALOGUE)
     const doors = new ProviderSandboxAccountsService(connections, sandbox, catalogues, new RecordingWebhookPoster(route), { now: () => NOW })
     /** The credits the feed claimed, as the real payOS reading made them. */
-    const claimed = () => claims.claim.mock.calls.map(([, provider, deliveryId, payload]) => ({ provider, deliveryId, ...payload }))
+    const claimed = () => claims.keep.mock.calls.map(([, provider, connection, credits, source]) => ({ provider, connection, credits, source }))
     return { doors, proofs, claimed, route }
 }
 
@@ -81,8 +80,8 @@ describe("payOS sandbox paid case on the real payOS webhook controller (R62)", (
         expect(claimed()).toEqual([
             {
                 provider: "payos",
-                deliveryId: `${SANDBOX.id}:payos:SBXPAYOS000001`,
                 connection: SANDBOX.id,
+                source: "webhook",
                 credits: [
                     expect.objectContaining({
                         amount: 150_000,
@@ -103,7 +102,7 @@ describe("payOS sandbox paid case on the real payOS webhook controller (R62)", (
         await doors.send(ACTOR, SANDBOX.id, "PAYOS-3", { orderCode: 1_780_000_000_001 })
         await doors.send(ACTOR, SANDBOX.id, "PAYOS-3", { orderCode: 1_780_000_000_002 })
 
-        expect(claimed().map((one) => one.deliveryId)).toEqual([`${SANDBOX.id}:payos:SBXPAYOS000001`, `${SANDBOX.id}:payos:SBXPAYOS000002`])
+        expect(claimed().flatMap((one) => one.credits.map((credit) => credit.eventId))).toEqual(["payos:SBXPAYOS000001", "payos:SBXPAYOS000002"])
     })
 
     it("refuses a call for the sandbox account without its key or with a wrong one, and a LIVE account still runs payOS's own signature proof", async () => {

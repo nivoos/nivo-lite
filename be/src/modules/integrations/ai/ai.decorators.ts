@@ -1,6 +1,7 @@
 import { injector, type TypedParameterDecorator } from "@modules/platform/composition"
 import type { AiService } from "./ai.service"
 import type { AiRunner } from "./ai.contracts"
+import type { AiRunnerRoute } from "./ai-runner-route.port"
 import type { AiEndpoint, AiOptions } from "./ai.options"
 
 /** The runner, or null when no key or base URL is set (nothing is built then). */
@@ -30,3 +31,9 @@ export const AI_ENDPOINT_OPTIONS: unique symbol = Symbol("integrations.ai.endpoi
 /** Injects the endpoint the clients call. Parameter type: AiEndpoint. */
 export const InjectAiEndpointOptions = (): TypedParameterDecorator<AiEndpoint> =>
     injector<AiEndpoint>(AI_ENDPOINT_OPTIONS)
+
+/** Token of the optional account route of model calls (`AiRunnerRoute`), bound by the model provider only while the sandbox is on. */
+export const AI_RUNNER_ROUTE: unique symbol = Symbol("integrations.ai.runner-route")
+
+/** Injects the account route of model calls. Parameter type: AiRunnerRoute. */
+export const InjectAiRunnerRoute = (): TypedParameterDecorator<AiRunnerRoute> => injector<AiRunnerRoute>(AI_RUNNER_ROUTE)

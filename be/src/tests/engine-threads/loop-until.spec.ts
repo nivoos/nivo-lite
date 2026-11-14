@@ -1,5 +1,4 @@
 import type { GraphSpec, GraphSpecNode, GraphSpecV2 } from "@nivo-lite/agent-sdk/graph"
-import { nodeIndexOf } from "@nivo-lite/agent-sdk/node"
 import { AgentGraphsError, graphLoopProblemsOf } from "@modules/domain/agent-graphs"
 import { requireSoundFlow } from "@modules/domain/agent-graphs/policies/flow.policy"
 import type { NodeToolDoor } from "@modules/domain/graph-nodes"
@@ -88,7 +87,6 @@ const flowOf = (id: string): GraphSpec => {
 const TRIGGER = { leadId: LEAD, locale: "vi" }
 
 /** The installed nodes the save check reads (the core's). */
-const INDEX = nodeIndexOf(INSTALLED.nodeInstall())
 
 const started = async (_db: ThreadDb, process: ThreadProcess, id: string, flow: GraphSpec = flowOf(id)) => {
     const woken = await startThread(process, { flow, versionId: `${id}@1`, trigger: TRIGGER })
@@ -107,7 +105,7 @@ const writeRowsOf = (db: ThreadDb, stepKey: string) =>
 /** The problems the save check refused a flow for (its `params.problems`), or null when it took the flow. */
 const refusedFor = (flow: GraphSpec): string | null => {
     try {
-        requireSoundFlow(flow, INDEX)
+        requireSoundFlow(flow)
         return null
     } catch (error: unknown) {
         return error instanceof AgentGraphsError ? String(error.params.problems) : String(error)

@@ -84,7 +84,8 @@ export const CONTACT_TOOLS_MANIFEST: ToolManifest = {
         },
         {
             name: CONTACT_TOOL.update,
-            description: "Changes the display name or the tags (the whole set) of the person this run serves.",
+            description:
+                "Changes the display name or the tags (the whole set) of the person this run serves, and with `doNotContact` records that the person asked the shop to stop writing to them first (the shop then starts no message to them; answers on their own line still go). Only a person on the contact page clears it.",
             scope: "write",
             defaultMode: "auto",
             inputSchema: CONTACT_UPDATE_INPUT_SCHEMA,
@@ -250,17 +251,26 @@ export class ContactToolsNativeService implements NativeToolFamily {
     private async update(workspaceId: string, args: ToolJson, caller: ContactCaller): Promise<ToolJson> {
         const asked = argumentsOf(CONTACT_TOOL.update, CONTACT_UPDATE_SCHEMA, args)
         const contactId = await this.targetOf(workspaceId, asked.contactId, caller)
-        const outcome = await this.contacts.update(
-            workspaceId,
-            contactId,
-            {
-                ...(asked.displayName === undefined ? {} : { displayName: asked.displayName }),
-                ...(asked.tags === undefined ? {} : { tags: asked.tags }),
-            },
-            actorOf(caller),
-        )
-        if (outcome.kind === "refused") throw nativeRefusal(outcome.reason)
-        return { updated: true, contactId: outcome.contactId }
+        const by = actorOf(caller)
+        const stop = asked.doNotContact
+        // A call that names only `doNotContact` writes no name or tag (and no `updated` event of its own).
+        const outcome = asked.displayName !== undefined || asked.tags !== undefined || stop === undefined
+            ? await this.contacts.update(
+                  workspaceId,
+                  contactId,
+                  {
+                      ...(asked.displayName === undefined ? {} : { displayName: asked.displayName }),
+                      ...(asked.tags === undefined ? {} : { tags: asked.tags }),
+                  },
+                  by,
+              )
+            : null
+        if (outcome?.kind === "refused") throw nativeRefusal(outcome.reason)
+        if (stop === undefined) return { updated: true, contactId: outcome?.contactId ?? contactId }
+        // The step SETS the fact only (the schema has no clear), so the only refusal left is a contact that is gone.
+        const consent = await this.contacts.setConsent(workspaceId, contactId, { doNotContact: true, reason: stop.reason }, by)
+        if (consent.kind === "refused") throw nativeRefusal("contact_missing")
+        return { updated: true, contactId: consent.contactId, doNotContact: true }
     }
 
     private async remember(workspaceId: string, args: ToolJson, caller: ContactCaller): Promise<ToolJson> {

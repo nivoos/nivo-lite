@@ -3,7 +3,6 @@ import type {
     GraphContext,
     GraphDocument as DomainGraphDocument,
     GraphRecord,
-    ProposalRecord,
     VersionRecord,
 } from "@modules/domain/agent-graphs"
 /** The people a request can go to. */
@@ -343,22 +342,4 @@ export const versionRow = (
     note: "Raised the bound",
     publishedBy: "member-1",
     publishedAt: ROW_TIME,
-})
-
-/** One stored proposal of a graph. */
-export const proposalRow = (overrides: Partial<ProposalRecord> = {}): ProposalRecord => ({
-    id: "p1",
-    workspaceId: "ws-1",
-    fence: "1",
-    agentId: "agent-1",
-    kind: "learned",
-    status: "open",
-    baseVersionId: null,
-    nodeKey: "decide",
-    branchKey: "middle",
-    patch: {},
-    widens: true,
-    evidence: ["d0"],
-    createdAt: ROW_TIME,
-    ...overrides,
 })

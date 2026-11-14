@@ -4,6 +4,7 @@ import { FakeClock, builder, fakeTransaction, mock, mockEntityManager } from "@s
 import type { MockEntityManager } from "@starci/jest-preset"
 import { CLOCK } from "@modules/platform/clock"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
+import { MoreThan } from "typeorm"
 import { KnowledgeQueue } from "@modules/queues/knowledge"
 import { KnowledgeSourcesErrorCode } from "./errors/knowledge-sources.error"
 import type { ProfileSourceInput } from "./knowledge-sources.contracts"
@@ -160,5 +161,69 @@ describe("ProfileSourcesService", () => {
             expect(queue.enqueueIndex).not.toHaveBeenCalled()
             expect(tx.rollbacks).toBe(1)
         })
+    })
+})
+
+describe("ProfileSourcesService: the text documents of a workspace", () => {
+    /** One row of the knowledge table as the listing reads it: its id, its title, when it was created and the origin it carries (none for an upload). */
+    const documentRow = (
+        id: string,
+        title: string,
+        created = 1000,
+        origin: string | null = "seed:demo",
+    ): KnowledgeSourceEntity =>
+        Object.assign(found(), {
+            id,
+            title,
+            origin,
+            createdAt: new Date(created),
+            content: "# Rooms",
+            topic: "Rooms",
+            module: null,
+            visibility: "public",
+        })
+
+    it("lists the documents that carry an origin, oldest first, as documents with their origin set", async () => {
+        const em = mockEntityManager({
+            find: [
+                KnowledgeSourceEntity,
+                [
+                    documentRow("b", "Beta", 3000),
+                    documentRow("a", "Alpha", 2000),
+                    documentRow("n", "Upload", 1000, null),
+                ],
+            ],
+        })
+        const { service } = await build(em)
+
+        const documents = await service.textDocuments(WS)
+
+        expect(documents.map((document) => [document.id, document.title, document.origin])).toEqual([
+            ["a", "Alpha", "seed:demo"],
+            ["b", "Beta", "seed:demo"],
+        ])
+        expect(em.find).toHaveBeenCalledWith(
+            KnowledgeSourceEntity,
+            objectLike({ where: objectLike({ workspaceId: WS, kind: "text" }), order: { id: "ASC" }, take: 500 }),
+        )
+    })
+
+    it("reads the next page after the last id of a full page, until a page is short", async () => {
+        const full = Array.from({ length: 500 }, (_, index) =>
+            documentRow(`id-${String(index).padStart(3, "0")}`, `T${String(index)}`),
+        )
+        const em = mockEntityManager({
+            find: [
+                [KnowledgeSourceEntity, full],
+                [KnowledgeSourceEntity, [documentRow("id-999", "Last")]],
+            ],
+        })
+        const { service } = await build(em)
+
+        const documents = await service.textDocuments(WS)
+
+        expect(documents).toHaveLength(501)
+        expect(em.find).toHaveBeenCalledTimes(2)
+        expect(em.find.mock.calls[1]?.[1]).toMatchObject({ where: { id: MoreThan("id-499") } })
     })
 })

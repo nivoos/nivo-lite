@@ -169,8 +169,11 @@ export const alreadySentOf = (lines: ReadonlyArray<SentLine>): ReadonlyArray<Sen
     return [...first.values()].slice(-ALREADY_SENT_MAX)
 }
 
-/** The subject kinds a ledger record keeps for a call that did NOT act: a refusal, and an act whose outcome is unknown. */
-const NOT_DONE_SUBJECTS: ReadonlySet<string> = new Set(["refused", "outcome-unknown"])
+/**
+ * The subject kinds a ledger record keeps for a call that is not known to have acted: a refusal, an act whose outcome is unknown, and an
+ * intent written before an act whose result was never kept (QB-P3 rule I-1).
+ */
+const NOT_DONE_SUBJECTS: ReadonlySet<string> = new Set(["refused", "outcome-unknown", "intent"])
 
 /**
  * The effects a run step already did, from its own ledger records (D-W8-1): each effect id once, in name order, of the records that

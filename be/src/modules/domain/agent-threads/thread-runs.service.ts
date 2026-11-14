@@ -36,6 +36,7 @@ import { RunStopsService } from "./stops/run-stops.service"
 import { answerIndexOf, endsTheRun, stopAnswerOf } from "./stops/stop-gate.policy"
 import type { StopDecision } from "./stops/run-stop.contracts"
 import { ThreadGraphsService, type DrivenRun } from "./thread-graphs.service"
+import { STEP_REDRIVE_EXHAUSTED } from "./step-refusal.policy"
 import { ThreadProjectionService } from "./thread-projection.service"
 import { UNTIL_PARK_KIND, parkOfQuestion, type UntilPark, type UntilRoundDecision } from "./until-rounds.policy"
 import { WAIT_PARK_KIND, eventOf, parkOfWaitQuestion, waitOnceKeyOf, type WaitCame, type WaitDecision } from "./thread-waits.policy"
@@ -96,6 +97,17 @@ const roundCarryOf = (text: string | undefined): Pick<UntilPark, "parkKey" | "ro
     if (read === null || !read.ok || !isRecord(read.value)) return null
     const { parkKey, round } = read.value
     return typeof parkKey === "string" && typeof round === "number" ? { parkKey, round } : null
+}
+
+/**
+ * Whether a drive wake is the LAST re-drive of its thread (its re-drives spent at that position, rule RE-DRIVE SPENT): it carries
+ * `{ spent: <position> }`. Such a drive refuses the steps the thread waits to run (one engine stop), it never runs them again.
+ */
+const spentCarryOf = (text: string | undefined): string | null => {
+    const read = text === undefined ? null : parseJsonText(text)
+    if (read === null || !read.ok || !isRecord(read.value)) return null
+    const { spent } = read.value
+    return typeof spent === "string" ? spent : null
 }
 
 /** What a decision or a re-drive was refused for before any wake was written. */
@@ -308,10 +320,13 @@ export class ThreadRunsService implements FlowThreads, OnModuleInit {
         const graph = await this.graphs.pinned(ref, run.agentId, seen.version)
         const workflowKey = (await this.workflows?.workflowKeyOfRun(turn.workspaceId, runId)) ?? undefined
         const [pin] = (await this.workflows?.pinsOf(turn.workspaceId, [runId])) ?? []
+        // Rule RE-DRIVE SPENT: the last re-drive refuses the steps the thread waits to run (one engine stop for a person, run in flight).
+        const spent = turn.context.eventName === THREAD_DRIVE_EVENT ? spentCarryOf(turn.context.tagContext) : null
         const driven: DrivenRun = {
             agentId: run.agentId,
             namespace: namespaceOf(this.graphs.moduleKeyOf(seen.version) ?? "", workflowKey),
             workflowId: pin?.workflowId ?? null,
+            ...(spent === null || seen.status !== "open" ? {} : { refuse: { stepKeys: seen.next, code: STEP_REDRIVE_EXHAUSTED } }),
         }
         const decision = carry !== null && (await this.stands(ref, seen, carry)) ? carry.decision : null
         if (carry !== null && decision === null) await this.staleTold(ref, carry)
@@ -421,6 +436,24 @@ export class ThreadRunsService implements FlowThreads, OnModuleInit {
             eventKey: `thread:${ref.runId}:drive:${key}`,
             eventName: THREAD_DRIVE_EVENT,
             carry: null,
+            actorMemberId: null,
+        }
+        return this.admit(ref, run, draft, tx)
+    }
+
+    /**
+     * The LAST re-drive of a thread whose re-drive at `key` was already spent (rule RE-DRIVE SPENT): one more wake of the run's scope,
+     * once per `key`, whose drive refuses the steps the thread waits to run (`STEP_REDRIVE_EXHAUSTED`: one engine stop, one card, the run
+     * in flight and holding its subject). `fresh: false` when it was written before. Refused like `redrive`.
+     */
+    async redriveSpent(ref: ThreadRef, key: string, tx?: EntityManager): Promise<ThreadWakeAdmission> {
+        const run = await this.admissible(ref)
+        if (run.kind === "refused") return this.refused(ref, run.code)
+        if (run.seen.status === "ended") return this.refused(ref, "thread_ended")
+        const draft: WakeDraft = {
+            eventKey: `thread:${ref.runId}:drive:${key}:spent`,
+            eventName: THREAD_DRIVE_EVENT,
+            carry: JSON.stringify({ spent: key }),
             actorMemberId: null,
         }
         return this.admit(ref, run, draft, tx)

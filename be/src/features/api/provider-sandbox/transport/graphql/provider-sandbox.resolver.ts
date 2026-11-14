@@ -20,6 +20,7 @@ import {
     SandboxKeyQuery,
     SandboxLatestRequestQuery,
     SandboxNextCasesQuery,
+    SandboxPayLinkQuery,
     SandboxProvidersQuery,
     SandboxWaitingRunsQuery,
 } from "../../application/provider-sandbox.queries"
@@ -38,6 +39,7 @@ import {
     SandboxCaseType,
     SandboxLatestRequestType,
     SandboxNextCaseType,
+    SandboxPayLinkType,
     SandboxSendResultType,
     SandboxWaitExpiryType,
     SandboxWaitingRunType,
@@ -54,6 +56,8 @@ import {
     toSandboxCaseType,
     toSandboxLatestRequestType,
     toSandboxNextCaseType,
+    toSandboxPayLinkRequest,
+    toSandboxPayLinkType,
     toSandboxProviderRequest,
     toSandboxSendResultType,
     toSandboxWaitingRunsRequest,
@@ -130,6 +134,21 @@ export class ProviderSandboxResolver {
             new SandboxLatestRequestQuery({ request: toSandboxAccountRequest(workspaceId, connectionId), principal }),
         )
         return toSandboxLatestRequestType(latest)
+    }
+
+    /**
+     * One pay link of the workspace's sandbox by its id: its account, amount, transfer content, state (`open`, `paid`, `cancelled`,
+     * `expired`) and the cases that apply to it. Refused `PROVIDER_SANDBOX_PAY_LINK_UNKNOWN` for an id the sandbox never issued,
+     * `PROVIDER_SANDBOX_LIVE_ACCOUNT` for a link of a live account and `PROVIDER_SANDBOX_OFF` while the dev switch is off.
+     */
+    @Query(() => SandboxPayLinkType, { name: "sandboxPayLink" })
+    async sandboxPayLink(
+        @CurrentPrincipal() principal: Principal,
+        @WorkspaceId() workspaceId: string,
+        @Args("linkId", { type: () => String }) linkId: string,
+    ): Promise<SandboxPayLinkType> {
+        const link = await this.queryBus.execute(new SandboxPayLinkQuery({ request: toSandboxPayLinkRequest(workspaceId, linkId), principal }))
+        return toSandboxPayLinkType(link)
     }
 
     /** The account's next case of each outbound operation. */

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { Test } from "@nestjs/testing"
+import type { EntityManager } from "typeorm"
 import { mock } from "@starci/jest-preset"
 import { messageOf, roomOf } from "@tests/fixtures/builders/team-chat.builder"
 import { TEAM_CHAT_TAGS } from "./team-chat.decorators"
@@ -93,7 +94,12 @@ const buildReplying = async (clientId: string | null, authorKind: "agent" | "use
     world.files.verify.mockResolvedValue({ ok: true, value: [] })
     world.store.sentBefore.mockResolvedValue(null)
     world.store.messageIn.mockResolvedValue(messageOf({ id: MSG2, authorKind, authorId: BOT, clientId }))
-    world.store.insertText.mockResolvedValue(messageOf({ id: MSG, replyTo: MSG2 }))
+    const stored = messageOf({ id: MSG, replyTo: MSG2 })
+    world.store.insertText.mockResolvedValue(stored)
+    world.store.insertTextWith.mockImplementation(async (_text, within) => {
+        await within(mock<EntityManager>(), stored)
+        return stored
+    })
     world.views.viewOf.mockResolvedValue(mock<MessageView>())
     return world
 }

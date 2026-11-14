@@ -40,9 +40,10 @@ describe("the Telegram message trigger", () => {
             PROVIDER.telegram,
             "message.received",
             TRIGGER.telegramMessageReceived,
-            "webhook",
+            ["webhook"],
             { by: "subject" },
         ])
+        expect([webhook.dataType, webhook.withoutPoll?.source]).toEqual(["telegram.update", "https://core.telegram.org/bots/api"])
         expect(webhook.settle).toEqual({ windowMs: 6000, maxWaitMs: 20_000 })
     })
 

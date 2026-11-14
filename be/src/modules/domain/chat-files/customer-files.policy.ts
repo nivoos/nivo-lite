@@ -68,6 +68,36 @@ export const unreadFileOf = (index: number, kind: "image" | "file", name: string
  */
 export type FileNotKept = "no_address" | "no_store" | `refused_${number}` | "store_failed" | "fetch_failed"
 
+/** True for a reason a file is recorded as not kept under: the named ones, and `refused_<status>`. */
+const isFileNotKept = (value: unknown): value is FileNotKept =>
+    typeof value === "string" &&
+    (["no_address", "no_store", "store_failed", "fetch_failed"].includes(value) || /^refused_\d{3}$/u.test(value))
+
+/** What the effects ledger keeps of a file entry: its members as JSON text (the entry is small: an id, an address, a name, a type, a reason). */
+export interface KeptFile {
+    readonly [member: string]: string
+}
+
+/** The entry of a file as the effects ledger keeps it. */
+export const keptFileOf = (file: CustomerFile): KeptFile => ({
+    id: file.id,
+    url: file.url,
+    name: file.name,
+    contentType: file.contentType,
+    ...(file.notKept === undefined ? {} : { notKept: file.notKept }),
+})
+
+/** The entry of a file a ledger row kept (the inverse of `keptFileOf`); a row no code wrote is read as a file that was not kept. */
+export const fileOfKept = (kept: unknown, index: number, kind: "image" | "file", name: string): CustomerFile => {
+    if (typeof kept !== "object" || kept === null) return unreadFileOf(index, kind, name, "store_failed")
+    const read = (key: string): unknown => Reflect.get(kept, key)
+    const [id, url, keptName, contentType, notKept] = [read("id"), read("url"), read("name"), read("contentType"), read("notKept")]
+    if (typeof id !== "string" || typeof url !== "string" || typeof keptName !== "string" || typeof contentType !== "string") {
+        return unreadFileOf(index, kind, name, "store_failed")
+    }
+    return { id, url, name: keptName, contentType, ...(isFileNotKept(notKept) ? { notKept } : {}) }
+}
+
 /** The start of the id of a file that is on a line but was not kept (no address): `unread:<reason>:<index>`. */
 export const UNREAD_FILE_PREFIX = "unread:"
 

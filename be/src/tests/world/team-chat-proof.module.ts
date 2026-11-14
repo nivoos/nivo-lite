@@ -1,4 +1,5 @@
 import { Injectable, Module, type DynamicModule } from "@nestjs/common"
+import type { EntityManager } from "typeorm"
 import { AgentDirectoryService } from "@modules/domain/agents"
 import {
     TEAM_CHAT_STORAGE,
@@ -19,7 +20,7 @@ export interface RecordedTag {
     /** The workspace. */
     readonly workspaceId: string
     /** The tag as the chat handed it over. */
-    readonly tag: Parameters<TeamChatTags["handOff"]>[1]
+    readonly tag: Parameters<TeamChatTags["handOff"]>[2]
 }
 
 @Injectable()
@@ -27,11 +28,19 @@ export interface RecordedTag {
 export class TeamChatTagRecorder implements TeamChatTags {
     /** The hand-offs in the order they came. */
     readonly handed: Array<RecordedTag> = []
+    /** The messages whose route job the chat wrote (one per stored message, in the message's own transaction). */
+    readonly routed: Array<Parameters<TeamChatTags["queueRoute"]>[1]> = []
     /** The agents the proof lets a person hand work to. */
     allowed: ReadonlyArray<string> = []
 
+    /** Records the route job of a stored message. */
+    queueRoute(_tx: EntityManager, route: Parameters<TeamChatTags["queueRoute"]>[1]): Promise<void> {
+        this.routed.push(route)
+        return Promise.resolve()
+    }
+
     /** Records the hand-off; true for an allowed agent. */
-    handOff(workspaceId: string, tag: RecordedTag["tag"]): Promise<boolean> {
+    handOff(_tx: EntityManager, workspaceId: string, tag: RecordedTag["tag"]): Promise<boolean> {
         this.handed.push({ workspaceId, tag })
         return Promise.resolve(this.allowed.includes(tag.agentId))
     }

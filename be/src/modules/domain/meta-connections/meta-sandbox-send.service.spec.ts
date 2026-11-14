@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import type { CustomerSendRequest } from "@modules/domain/channels"
+import { ChannelsErrorCode, type CustomerSendRequest } from "@modules/domain/channels"
 import { ProviderSandboxErrorCode } from "@modules/domain/provider-sandbox"
 import { connectionRecord } from "@tests/fixtures/builders/connection-records.builder"
 import { sandboxAccount, sandboxServiceOf, sandboxServiceOff } from "@tests/fixtures/builders/provider-sandbox.builder"
@@ -70,6 +70,17 @@ describe("MetaSandboxSendService", () => {
         await expect(service.send(CONNECTION, TARGET, PERSON, requestOf())).resolves.toEqual(DELIVERED)
     })
 
+    it("META-SEND-4 (sticky): throws the live port's not-sent answer for Meta's rate limit; the window rule still comes first", async () => {
+        const { sandbox, service } = setup()
+        await sandbox.setNextCase(ACCOUNT, "send", "META-SEND-4")
+
+        const notSent = { code: ChannelsErrorCode.SendUnavailable, params: { reason: "meta_rate_limited" } }
+        await expect(service.send(CONNECTION, TARGET, PERSON, requestOf())).rejects.toMatchObject(notSent)
+        await expect(service.send(CONNECTION, TARGET, PERSON, requestOf())).rejects.toMatchObject(notSent)
+        await wroteAt(sandbox, NOW.getTime() - META_REPLY_WINDOW_MS - 1)
+        await expect(service.send(CONNECTION, TARGET, PERSON, requestOf())).resolves.toEqual(NO)
+    })
+
     it("answers a person with no id as the live sender does: its no", async () => {
         const { service } = setup()
 
@@ -104,7 +115,7 @@ describe("MetaSandboxSendService", () => {
     })
 
     it("has unique META-SEND-<n> ids, exactly one default case, all for the send operation", () => {
-        expect(META_SEND_SANDBOX_CASES.map((one) => one.id)).toEqual(["META-SEND-1", "META-SEND-2", "META-SEND-3"])
+        expect(META_SEND_SANDBOX_CASES.map((one) => one.id)).toEqual(["META-SEND-1", "META-SEND-2", "META-SEND-3", "META-SEND-4"])
         expect(META_SEND_SANDBOX_CASES.filter((one) => one.default === true).map((one) => one.id)).toEqual(["META-SEND-1"])
         expect(META_SEND_SANDBOX_CASES.every((one) => one.operation === "send")).toBe(true)
     })

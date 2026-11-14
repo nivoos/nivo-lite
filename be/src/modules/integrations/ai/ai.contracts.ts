@@ -56,6 +56,11 @@ export interface AiTurnRequest {
      * gateway serves it through more than one (`fallbacks[0]`), else the same client. The router already fails over inside a protocol.
      */
     readonly fallback?: boolean
+    /**
+     * The call's metering purpose (`<node id>:<tag>`), when the caller names one: the account route logs and picks a sandbox case by it
+     * (lane concept provider-sandbox, the model row). Absent: the route reads the open work scope. The endpoint never sees it.
+     */
+    readonly purpose?: string | undefined
 }
 
 /**
@@ -210,6 +215,11 @@ export interface AiChatRequest {
     readonly target?: AiTarget | undefined
     /** True on a retry after a provider failure or a timeout (see `AiTurnRequest.fallback`). */
     readonly fallback?: boolean
+    /**
+     * The call's metering purpose (`<node id>:<tag>`), when the caller names one: the account route logs and picks a sandbox case by it
+     * (lane concept provider-sandbox, the model row). Absent: the route reads the open work scope. The endpoint never sees it.
+     */
+    readonly purpose?: string | undefined
     /**
      * The JSON Schema the answer must follow, sent as the API's structured output where the serving protocol has it (Anthropic
      * Messages: `output_config.format` of type `json_schema`, with the call's effort beside it). Every object of it must say

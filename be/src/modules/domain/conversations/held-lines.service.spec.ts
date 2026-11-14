@@ -48,6 +48,7 @@ const build = async (route: Partial<Route> | null) => {
         status: "delivered",
         events: 1,
         dropped: 0,
+        sameFact: 0,
         woken: [{ agentId: "agent-front", workflowId: "wf-front", eventId: "resume", wakeId: "wake-front" }],
         repeats: 0,
         untaken: 0,

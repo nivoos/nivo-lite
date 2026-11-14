@@ -1,7 +1,6 @@
 import { Injectable } from "@nestjs/common"
-import { In, type EntityManager } from "typeorm"
+import type { EntityManager } from "typeorm"
 import { WorkspaceMembersService } from "@modules/domain/workspace-members"
-import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { InjectMessageCatalog, type MessageCatalog } from "@modules/platform/i18n"
 import { InjectLogger, runInScope, workInScope, type Logger } from "@modules/platform/logging"
@@ -19,16 +18,14 @@ import type {
     OptionalGenerationFailure,
     OptionalGenerationState,
     OptionalGenerationProgress,
-    PollVerdict,
     PreparedGenerationId,
 } from "./ai-generations.contracts"
-import { InjectAiGenerationsOptions, InjectUsage } from "./ai-generations.decorators"
+import { InjectUsage } from "./ai-generations.decorators"
 import { AiGenerationsLogEvent } from "./ai-generations.log-events"
-import type { AiGenerationsOptions } from "./ai-generations.options"
 import type { UsageGate } from "./ai-generations.port"
-import { PauseClient } from "@modules/domain/agents"
 import { InjectAi, type AiService } from "@modules/integrations/ai"
 import { AiGenerationsError, AiGenerationsErrorCode } from "./errors/ai-generations.error"
+import { GenerationRunnerService } from "./generation-runner.service"
 import { isRequestableKind } from "./request-kind.policy"
 import {
     clampTimeout,
@@ -42,9 +39,6 @@ import {
 } from "./generation.policy"
 import { AiGenerationEntity } from "./persistence/entities"
 
-/** The generations that still wait for a text, so a cancel or a finish may change them. */
-const OPEN_STATUSES = ["queued", "running"] as const
-
 const failure = (reason: GenerationFailureReason, message: string): GenerationFailure => ({
     ok: false,
     reason,
@@ -56,11 +50,11 @@ const record = (value: unknown): Record<string, unknown> => (isPlainObject(value
 
 @Injectable()
 /**
- * The one door for every text the app writes as a queued generation (the floating assistant, setup chat, content,
- * brain lessons): it writes an `ai_generations` row and its job in one transaction, then looks at
- * the row until the job (run by `GenerationRunnerService` on the AI endpoint) fills it in or the caller's deadline passes. It never
- * calls a model itself, and it refuses only for the quota or a missing AI endpoint. A failure says why (`reason`) with a sentence in the request language; background callers decide for
- * themselves (retry, skip, hand to a person).
+ * The one door for every text the app writes as a generation (the floating assistant, setup chat, content, brain lessons): it writes an
+ * `ai_generations` row. A caller that WAITS for its text takes it in its own process (`generate`: the row is written and
+ * `GenerationRunnerService` runs it at once; no queued job to poll, no sleep); a caller that does not wait queues the row and its job in
+ * one transaction (`requestFor`) and polls it. It refuses only for the quota or a missing AI endpoint. A failure says why (`reason`) with
+ * a sentence in the request language; the caller decides what a text that did not come means (skip, say so, hand to a person).
  */
 export class GenerationsService {
     constructor(
@@ -69,11 +63,9 @@ export class GenerationsService {
         @InjectMessageCatalog() private readonly catalog: MessageCatalog,
         @InjectUsage() private readonly usage: UsageGate,
         @InjectAgentsQueue() private readonly queue: AgentsQueue,
-        private readonly pause: PauseClient,
-        @InjectAiGenerationsOptions() private readonly options: AiGenerationsOptions,
-        @InjectClock() private readonly clock: Clock,
         @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
         private readonly members: WorkspaceMembersService,
+        private readonly runner: GenerationRunnerService,
     ) {}
 
     /** Why a text cannot be written now: the quota of the workspace is used up, or the AI endpoint is not configured; null when it can. */
@@ -89,15 +81,17 @@ export class GenerationsService {
         return this.catalog.get("generation.busy", {}, params.locale ?? "vi")
     }
 
-    /** Writes one text and answers with it, or with the reason there is none. */
+    /**
+     * Writes one text in the caller's own process and answers with it, or with the reason there is none: the row is written and run at
+     * once (the model call is an effect keyed by `params.effectKey`, else by the row), so a job never waits on another job. Anything
+     * that is not a typed end of the generation (a failed write) throws to the caller.
+     */
     async generate(params: GenerateParams): Promise<GenerationOutcome> {
         const refusal = await this.refusalOf(params)
         if (refusal !== null) return refusal
-        const busy = this.busyText(params)
-        return this.run(params, busy).catch((cause: unknown) => {
-            this.logger.error(AiGenerationsLogEvent.GenerationFailed, cause, { purpose: params.purpose })
-            return failure("error", busy)
-        })
+        const id = await this.store(params, inputJsonOf(params, clampTimeout(params.timeoutMs)), this.entityManager)
+        await this.runner.run({ generationId: id, workspaceId: params.workspaceId }, params.effectKey ?? `generation:${id}:generate`)
+        return this.outcomeOf(id, params)
     }
 
     /** A generation a signed-in member asks for from the app: the caller must belong to the workspace the text is written for. */
@@ -250,31 +244,21 @@ export class GenerationsService {
         return this.poll(id, workspaceId)
     }
 
-    private async run(params: GenerateParams, busy: string): Promise<GenerationOutcome> {
-        const timeoutMs = clampTimeout(params.timeoutMs)
-        const deadline = this.clock.now().getTime() + timeoutMs
-        const id = await this.enqueue(params, timeoutMs)
-        const verdict = await this.wait(id, params.workspaceId, deadline)
-        if (verdict.kind === "done") {
-            return {
-                ok: true,
-                output: verdict.text,
-                generationId: id,
-                timings: verdict.progress.timings,
-                usage: verdict.progress.usage,
-            }
+    /** What the row of an in-process generation ended as: its text, or the typed reason there is none. */
+    private async outcomeOf(id: string, params: GenerateParams): Promise<GenerationOutcome> {
+        const busy = this.busyText(params)
+        const row = await this.entityManager.findOne(AiGenerationEntity, {
+            where: { id, workspaceId: params.workspaceId },
+            select: { status: true, error: true, output: true, usage: true, timings: true },
+        })
+        if (row === null) return failure("error", busy)
+        const progress = progressOf(row)
+        const verdict = verdictOf(progress)
+        if (verdict?.kind === "done") {
+            return { ok: true, output: verdict.text, generationId: id, timings: progress.timings, usage: progress.usage }
         }
-        if (verdict.kind === "failed") {
-            this.logger.warn(AiGenerationsLogEvent.GenerationErrored, { purpose: params.purpose, generationId: id })
-            return failure("error", busy)
-        }
-        // Too slow: free the row so the job cannot answer later, and drop whatever it would have produced.
-        await this.entityManager.update(
-            AiGenerationEntity,
-            { id, workspaceId: params.workspaceId, status: In(OPEN_STATUSES) },
-            { status: "cancelled", error: "timeout", finishedAt: this.clock.now() },
-        )
-        return failure("timeout", busy)
+        this.logger.warn(AiGenerationsLogEvent.GenerationErrored, { purpose: params.purpose, generationId: id })
+        return failure(row.error === "timeout" ? "timeout" : "error", busy)
     }
 
     private enqueue(params: GenerateParams, timeoutMs: number): Promise<string> {
@@ -302,15 +286,6 @@ export class GenerationsService {
         const id: unknown = inserted.identifiers[0]?.id
         if (typeof id !== "string") throw new AiGenerationsError({ code: AiGenerationsErrorCode.NotCreated })
         return id
-    }
-
-    /** Looks at the row every poll interval until it has text, failed, or the deadline passed (a vanished row counts as too slow). */
-    private async wait(id: string, workspaceId: string, deadline: number): Promise<PollVerdict> {
-        if (this.clock.now().getTime() >= deadline) return { kind: "timeout" }
-        await this.pause.wait(this.options.pollMs)
-        const progress = await this.poll(id, workspaceId)
-        if (progress === null) return { kind: "timeout" }
-        return verdictOf(progress) ?? this.wait(id, workspaceId, deadline)
     }
 
     private async poll(id: string, workspaceId: string): Promise<OptionalGenerationProgress> {

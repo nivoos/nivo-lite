@@ -14,7 +14,7 @@ const MAC = "connection-mac"
 
 const build = async () => {
     const signature = mock<ScopedWebhookVerifier>()
-    signature.verify.mockResolvedValue(undefined)
+    signature.verify.mockResolvedValue("proven")
     const deliveries = mock<ZaloDeliveryIntakeService>()
     deliveries.accept.mockResolvedValue(undefined)
     const moduleRef = await Test.createTestingModule({
@@ -40,8 +40,8 @@ describe("ZaloWebhook", () => {
         const request = mock<RawBodyRequest<Request>>({ rawBody: BODY })
         const effects: Array<string> = []
         let prove: () => void = () => undefined
-        const proof = new Promise<void>((resolve) => {
-            prove = resolve
+        const proof = new Promise<"proven">((resolve) => {
+            prove = () => resolve("proven")
         })
         signature.verify.mockImplementation(() => {
             effects.push("verify")
@@ -70,7 +70,7 @@ describe("ZaloWebhook", () => {
         await expect(received).resolves.toBeUndefined()
         expect(effects).toEqual(["verify", "accept"])
         expect(deliveries.accept).toHaveBeenCalledTimes(1)
-        expect(deliveries.accept).toHaveBeenCalledWith(BODY, CONNECTION)
+        expect(deliveries.accept).toHaveBeenCalledWith(BODY, CONNECTION, "proven")
     })
 
     it("propagates a signature refusal without calling the domain", async () => {
@@ -113,7 +113,7 @@ describe("Zalo delivery intake", () => {
             timestamp: undefined,
         })
         expect(deliveries.accept).toHaveBeenCalledTimes(1)
-        expect(deliveries.accept).toHaveBeenCalledWith(BODY, CONNECTION)
+        expect(deliveries.accept).toHaveBeenCalledWith(BODY, CONNECTION, "proven")
     })
 
     it("hands missing raw bytes and a missing MAC to the signature verifier unchanged", async () => {
@@ -130,7 +130,7 @@ describe("Zalo delivery intake", () => {
             timestamp: undefined,
         })
         expect(deliveries.accept).toHaveBeenCalledTimes(1)
-        expect(deliveries.accept).toHaveBeenCalledWith(undefined, CONNECTION)
+        expect(deliveries.accept).toHaveBeenCalledWith(undefined, CONNECTION, "proven")
     })
 })
 
@@ -138,5 +138,14 @@ describe("ZaloHttpModule proof declaration", () => {
     it("declares the exact domain verification method", () => {
         expect(webhookVerifiers).toEqual([ScopedWebhookVerifier.prototype.verify])
         expect(ZaloHttpModule.register({}).module).toBe(ZaloHttpModule)
+    })
+
+    it("hands the door's UNPROVEN verdict to the intake as is (the intake obeys it, never decides proof again)", async () => {
+        const { webhook, signature, deliveries } = await build()
+        signature.verify.mockResolvedValue("unproven")
+
+        await webhook.receive(mock<RawBodyRequest<Request>>({ rawBody: BODY }), ROUTE, MAC)
+
+        expect(deliveries.accept).toHaveBeenCalledWith(BODY, CONNECTION, "unproven")
     })
 })

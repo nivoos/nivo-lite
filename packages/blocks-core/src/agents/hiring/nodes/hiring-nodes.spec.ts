@@ -17,7 +17,7 @@ describe("hiring template nodes", () => {
     it("asks a person before the invitation goes, through a sending mailbox; the rest runs on NIVO's own tools", () => {
         expect(hiringInviteNode.mode).toBe("ask")
         expect(hiringInviteNode.accounts).toEqual(["smtp"])
-        expect(hiringInviteNode.tools).toContain(TOOL.mailMessageSend)
+        expect(hiringInviteNode.tools).toContain(TOOL.customerMessageSend)
         for (const node of [hiringScreenNode, hiringNotifyNode, hiringDigestNode]) {
             expect(node.mode).toBe("auto")
             expect(node.accounts).toEqual([])

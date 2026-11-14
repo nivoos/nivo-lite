@@ -51,7 +51,14 @@ const FAILED_ROW = { id: "j-failed", fencingToken: 7 }
 const CLAIM_PARAMS = { kind: "mail", jobKey: "k-1", payload: { id: "m-1" }, workerId: "w-1", leaseMs: 60000 }
 const CLAIM_ROW = { id: "j-1", kind: "mail", fencing_token: "3", current_step: null, payload: { id: "m-1" } }
 
-const claimed: ClaimedJob = { jobId: "j-1", kind: "mail", fencingToken: 3, currentStep: null, payload: { id: "m-1" } }
+const claimed: ClaimedJob = {
+    jobId: "j-1",
+    kind: "mail",
+    fencingToken: 3,
+    currentStep: null,
+    payload: { id: "m-1" },
+    resumeCount: 0,
+}
 
 describe("JobClaimService", () => {
     describe("retryAfterSeconds", () => {
@@ -125,7 +132,7 @@ describe("JobClaimService", () => {
                 ],
             ])
             expect(insert?.callsOf("orIgnore")).toHaveLength(1)
-            expect(insert?.callsOf("returning")).toEqual([["id, kind, fencing_token, current_step, payload"]])
+            expect(insert?.callsOf("returning")).toEqual([["id, kind, fencing_token, current_step, payload, resume_count"]])
         })
 
         it("re-claims a failed or lapsed job in one update that bumps the token in the store", async () => {
@@ -156,7 +163,7 @@ describe("JobClaimService", () => {
                     ],
                 ],
             ])
-            expect(update?.callsOf("returning")).toEqual([["id, kind, fencing_token, current_step, payload"]])
+            expect(update?.callsOf("returning")).toEqual([["id, kind, fencing_token, current_step, payload, resume_count"]])
         })
 
         it("answers null when the job is done or another worker holds a live claim", async () => {
@@ -173,6 +180,26 @@ describe("JobClaimService", () => {
             const { claims } = await build(manager)
 
             await expect(claims.claim(CLAIM_PARAMS)).rejects.toThrow("DATABASE_RETURNING_ROW_REJECTED")
+        })
+    })
+})
+
+describe("JobClaimService", () => {
+    describe("claim resume count", () => {
+        it("answers the park episode of the row: how many times a person or the sweep handed the job back", async () => {
+            const manager = mockEntityManager()
+            queueQueryBuilders(manager, [{ execute: { raw: [] } }, { execute: { raw: [{ ...CLAIM_ROW, resume_count: 2 }] } }])
+            const { claims } = await build(manager)
+
+            await expect(claims.claim(CLAIM_PARAMS)).resolves.toEqual({ ...claimed, resumeCount: 2 })
+        })
+
+        it("reads a resume count the driver hands back as text", async () => {
+            const manager = mockEntityManager()
+            queueQueryBuilders(manager, [{ execute: { raw: [{ ...CLAIM_ROW, resume_count: "3" }] } }])
+            const { claims } = await build(manager)
+
+            await expect(claims.claim(CLAIM_PARAMS)).resolves.toEqual({ ...claimed, resumeCount: 3 })
         })
     })
 })

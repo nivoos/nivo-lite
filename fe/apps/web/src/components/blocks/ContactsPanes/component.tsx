@@ -34,6 +34,7 @@ const DETAIL_PLACEHOLDER: ContactDetailView = {
     facts: [{ name: " ", value: " " }],
     notes: [],
     suggestions: [],
+    consent: { isRefused: false, state: " ", line: null, reason: null },
     canDelete: false,
 }
 

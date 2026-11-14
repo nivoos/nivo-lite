@@ -2,10 +2,12 @@ import { Injectable } from "@nestjs/common"
 import { LessThan, type EntityManager } from "typeorm"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { ok, refused, type Outcome } from "@modules/platform/primitives"
+import { openSecret, parseTokenKey, randomSecret, sealSecret } from "@modules/platform/sealing"
 import { InjectConnectionSecretsOptions } from "./connection-secrets.decorators"
 import type {
     ConnectionSecret,
     ConnectionSecretFacts,
+    ExpiringSecret,
     OptionalSealedText,
     OptionalStoredSecret,
 } from "./connection-secrets.contracts"
@@ -16,7 +18,6 @@ import { ConnectionSecretEntity } from "./persistence/entities"
 /** True when a row names the connection of a lease or a due credential. */
 const hasConnectionId = (value: unknown): value is { readonly connectionId: string } =>
     typeof value === "object" && value !== null && "connectionId" in value && typeof value.connectionId === "string"
-import { openSecret, parseTokenKey, randomSecret, sealSecret } from "./secret-cipher.policy"
 
 @Injectable()
 /** Seals and opens the credential of a connection and keeps its token lease; the only reader and writer of connection_secrets. */
@@ -59,10 +60,19 @@ export class ConnectionSecretsService {
         this.assertOpens(row?.ciphertext ?? null)
     }
 
+    /** Opens a sealed text with the connection key; what cannot be opened is this capability's `CONNECTION_SECRETS_UNREADABLE`. */
+    private unseal(sealed: string): string {
+        try {
+            return openSecret(this.key, sealed)
+        } catch (cause) {
+            throw new ConnectionSecretsError({ code: ConnectionSecretsErrorCode.Unreadable, cause })
+        }
+    }
+
     /** Opens a text `seal` sealed, or a refusal when it cannot be opened with the current key. */
     open(sealed: string): Outcome<string, ConnectionSecretsErrorCode> {
         try {
-            return ok(openSecret(this.key, sealed))
+            return ok(this.unseal(sealed))
         } catch (cause) {
             return refused(ConnectionSecretsErrorCode.Unreadable, { reason: String(cause) })
         }
@@ -89,7 +99,7 @@ export class ConnectionSecretsService {
         try {
             return ok({
                 workspaceId: facts.workspaceId,
-                credential: openSecret(this.key, row.ciphertext),
+                credential: this.unseal(row.ciphertext),
                 webhookSecret: row.webhookSecret,
                 tokenExpiresAt: row.tokenExpiresAt?.toISOString() ?? null,
             })
@@ -98,12 +108,20 @@ export class ConnectionSecretsService {
         }
     }
 
-    /** Replaces the sealed credential; with an expiry it also records the end of the access token and drops the refresh lease. */
-    async save(connectionId: string, sealed: string, expiresAt?: Date): Promise<void> {
+    /**
+     * Replaces the sealed credential; with an expiry it also records the end of the access token and drops the refresh lease. Inside the
+     * caller's transaction when one is handed in, so the credential and what must change with it commit together.
+     */
+    async save(
+        connectionId: string,
+        sealed: string,
+        expiresAt?: Date,
+        manager: EntityManager = this.entityManager,
+    ): Promise<void> {
         if (expiresAt === undefined) {
-            await this.entityManager.update(ConnectionSecretEntity, { connectionId }, { ciphertext: sealed })
+            await manager.update(ConnectionSecretEntity, { connectionId }, { ciphertext: sealed })
         } else {
-            await this.entityManager.update(
+            await manager.update(
                 ConnectionSecretEntity,
                 { connectionId },
                 { ciphertext: sealed, tokenExpiresAt: expiresAt, refreshLockUntil: null },
@@ -134,7 +152,7 @@ export class ConnectionSecretsService {
         return row === null
             ? null
             : {
-                  plain: openSecret(this.key, row.ciphertext),
+                  plain: this.unseal(row.ciphertext),
                   webhookSecret: row.webhookSecret,
                   sealedAt: row.updatedAt.toISOString(),
               }
@@ -186,14 +204,16 @@ export class ConnectionSecretsService {
         await this.entityManager.update(ConnectionSecretEntity, { connectionId }, { refreshLockUntil: null })
     }
 
-    /** The ids of the connections whose access token ends before the horizon, soonest first, at most `limit`. */
-    async expiringBefore(horizon: Date, limit: number): Promise<ReadonlyArray<string>> {
+    /** The connections whose access token ends before the horizon, with the end of that token, soonest first, at most `limit`. */
+    async expiringBefore(horizon: Date, limit: number): Promise<ReadonlyArray<ExpiringSecret>> {
         const rows = await this.entityManager.find(ConnectionSecretEntity, {
-            select: { connectionId: true },
+            select: { connectionId: true, tokenExpiresAt: true },
             where: { tokenExpiresAt: LessThan(horizon) },
             order: { tokenExpiresAt: "ASC" },
             take: limit,
         })
-        return rows.map((row) => row.connectionId)
+        return rows.flatMap((row) =>
+            row.tokenExpiresAt === null ? [] : [{ connectionId: row.connectionId, expiresAt: row.tokenExpiresAt.getTime() }],
+        )
     }
 }

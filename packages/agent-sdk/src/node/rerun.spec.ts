@@ -257,10 +257,11 @@ describe("what the turn tells the agent of a step", () => {
 
         const [first] = asked
         expect(
-            first?.instructions.startsWith(
-                "CH\u00cdNH S\u00c1CH: \u0111\u01a1n t\u1eeb ng\u01b0\u1ee1ng duy\u1ec7t tr\u1edf l\u00ean c\u1ea7n ch\u1ee7 ti\u1ec7m duy\u1ec7t.\n\n",
+            first?.opening?.craft.startsWith(
+                "CH\u00cdNH S\u00c1CH: \u0111\u01a1n t\u1eeb ng\u01b0\u1ee1ng duy\u1ec7t tr\u1edf l\u00ean c\u1ea7n ch\u1ee7 ti\u1ec7m duy\u1ec7t.",
             ),
         ).toBe(true)
+        expect(first?.opening?.craft).not.toContain("`alreadySent`")
         expect(first?.volatile).toContain("`alreadySent`")
         expect(first?.volatile).toContain("`founderAnswers`")
         expect(first?.instructions).not.toContain("`alreadySent`")
@@ -278,8 +279,9 @@ describe("what the turn tells the agent of a step", () => {
         const plain = { purpose: "core", instructions: "Decide.", input: {} }
         const none = { turn: EXAMPLE_TURN, effects: new Map(), tools: new Map() }
         expect(guidedModelRequest(none, plain)).toBe(plain)
-        expect(guidedModelRequest({ ...none, turn: { ...EXAMPLE_TURN, guidance: "G" } }, plain).instructions).toBe(
-            "G\n\nDecide.",
-        )
+        const guided = guidedModelRequest({ ...none, turn: { ...EXAMPLE_TURN, guidance: "G" } }, plain)
+        expect(guided).toMatchObject({ ...plain, opening: { policies: "" } })
+        // L1 = the package's guidance, then the engine's one statement of the order of authority.
+        expect(guided.opening?.craft.startsWith("G\n\nOrder of authority:")).toBe(true)
     })
 })

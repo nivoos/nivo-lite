@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common"
+import { ChannelsError, ChannelsErrorCode } from "@modules/domain/channels"
 import type { ChannelTarget, CustomerSendPort, CustomerSendRequest, DeliveryResult } from "@modules/domain/channels"
 import type { ConnectionRecord } from "@modules/domain/connections"
 import { ProviderSandboxService } from "@modules/domain/provider-sandbox"
@@ -11,9 +12,14 @@ const DELIVERED: DeliveryResult = { delivered: true, failure: null, outcome: "ac
 /** The live receipt of the Page sender's no (the Page is gone, Meta refused, the window is closed, Meta did not answer): the outcome is not known. */
 const UNKNOWN: DeliveryResult = { delivered: false, failure: null, outcome: "ambiguous" }
 
+/** What the live send throws for Meta's rate limit before any part went out: the port's one not-sent answer. */
+const RATE_LIMITED = (): ChannelsError =>
+    new ChannelsError({ code: ChannelsErrorCode.SendUnavailable, params: { reason: "meta_rate_limited" } })
+
 @Injectable()
 /**
- * The sandbox twin of the Meta customer send, Messenger and Instagram (`META-SEND-1` .. `3`): it records the send and never reaches
+ * The sandbox twin of the Meta customer send, Messenger and Instagram (`META-SEND-1` .. `4`; `4` throws the live port's not-sent answer
+ * for Meta's rate limit, `CHANNELS_SEND_UNAVAILABLE`): it records the send and never reaches
  * Meta. A person whose last line (sandbox state `last-line`, kept by the inbound cases) is more than 24 hours before the request's moment
  * is refused, whatever case the account picked; a person who never wrote is open. Otherwise the account's next case answers: delivered
  * (default), the window refusal, or an unknown outcome. The live sender answers only yes or no, so every refusal is the unknown-outcome
@@ -42,6 +48,7 @@ export class MetaSandboxSendService implements CustomerSendPort {
                     const last = await metaLastLineAt(state, userId)
                     const closed = last !== null && request.at.getTime() - last > META_REPLY_WINDOW_MS
                     if (closed || state.nextCase === "META-SEND-2" || state.nextCase === "META-SEND-3") return UNKNOWN
+                    if (state.nextCase === "META-SEND-4") throw RATE_LIMITED()
                     return DELIVERED
                 },
             },

@@ -1,5 +1,5 @@
 import { Injectable, type OnApplicationBootstrap } from "@nestjs/common"
-import { Not, type EntityManager, type FindOptionsWhere } from "typeorm"
+import { LessThan, Not, type EntityManager, type FindOptionsWhere } from "typeorm"
 import { callDbFunction } from "@modules/platform/database"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { InjectQueueOutbox, type QueueOutbox } from "@modules/platform/queue"
@@ -15,6 +15,12 @@ import { JobEntity } from "./persistence/entities"
 
 /** The most parked jobs one resume pass hands back; the next sweep takes the rest. */
 export const RESUME_BATCH = 100
+
+/** How many times the sweep hands a transient dead letter back by itself; after that only a person or a new build does. */
+export const AUTO_RESUMES = 3
+
+/** Who hands a job back: the machine (sweep, new build) keeps the episode and its item; a person opens a new episode. */
+type ResumedBy = "machine" | "person"
 
 /** The workspace a payload names, so the resumed delivery counts against the same workspace limit; null when it names none. */
 const workspaceOf = (payload: object): string | null =>
@@ -57,20 +63,30 @@ export class ParkedJobResumerService implements OnApplicationBootstrap {
         )
     }
 
-    /** Runs one sweep delivery: a payload that names a build hands back the jobs parked under any other build, any other payload every parked job. */
+    /**
+     * Runs one sweep delivery. A payload that names a job is a person's "resume now" written through the outbox. A payload that names a build hands back every job parked under another build (the cause may be fixed).
+     * The tick hands back only TRANSIENT dead letters, each at most `AUTO_RESUMES` times: a dead letter of class input, code or config
+     * waits for a person or a new build. Neither raises a new item: the episode's one item stands until a person resumes.
+     */
     sweep(payload: object): Promise<number> {
-        const build = fieldTextOrNullOf(Object.entries(payload).find(([key]) => key === "build")?.[1])
-        return build === null ? this.resumeAll() : this.resumeWhere({ parkedBuild: Not(build) })
+        const field = (name: string): string | null =>
+            fieldTextOrNullOf(Object.entries(payload).find(([key]) => key === name)?.[1])
+        const jobId = field("jobId")
+        if (jobId !== null) return this.resume(jobId)
+        const build = field("build")
+        return build === null
+            ? this.resumeWhere({ failureClass: "transient", resumeCount: LessThan(AUTO_RESUMES) }, "machine")
+            : this.resumeWhere({ parkedBuild: Not(build) }, "machine")
     }
 
-    /** Hands back every parked job (the sweep tick); answers how many went back. */
+    /** Hands back every transient dead letter the sweep may still retry by itself; answers how many went back. */
     resumeAll(): Promise<number> {
-        return this.resumeWhere({})
+        return this.sweep({})
     }
 
-    /** Hands back one parked job (the owner's "resume now"); answers 0 for an id that is not parked. */
+    /** Hands back one parked job on a person's word ("resume now"); a new park after it raises a new item. 0 for an id not parked. */
     resume(jobId: string): Promise<number> {
-        return this.resumeWhere({ id: jobId })
+        return this.resumeWhere({ id: jobId }, "person")
     }
 
     /**
@@ -81,7 +97,7 @@ export class ParkedJobResumerService implements OnApplicationBootstrap {
         return this.closer.close(this.writer(), jobId, reason)
     }
 
-    private async resumeWhere(where: FindOptionsWhere<JobEntity>): Promise<number> {
+    private async resumeWhere(where: FindOptionsWhere<JobEntity>, by: ResumedBy): Promise<number> {
         const manager = this.writer()
         const parked = await manager.find(JobEntity, {
             select: { id: true },
@@ -91,13 +107,13 @@ export class ParkedJobResumerService implements OnApplicationBootstrap {
         })
         let resumed = 0
         await eachInOrder(parked, async ({ id }) => {
-            if (await this.resumeOne(manager, id)) resumed += 1
+            if (await this.resumeOne(manager, id, by)) resumed += 1
         })
         return resumed
     }
 
     /** Hands one job back in one transaction; false when another replica did it first. */
-    private resumeOne(manager: EntityManager, id: string): Promise<boolean> {
+    private resumeOne(manager: EntityManager, id: string, by: ResumedBy): Promise<boolean> {
         return manager.transaction(async (tx) => {
             const job = await tx
                 .createQueryBuilder(JobEntity, "job")
@@ -127,7 +143,7 @@ export class ParkedJobResumerService implements OnApplicationBootstrap {
                     failureClass: null,
                     parkedBuild: null,
                     parkedAt: null,
-                    alertedAt: null,
+                    ...(by === "person" ? { alertedAt: null } : {}),
                     error: null,
                 },
             )

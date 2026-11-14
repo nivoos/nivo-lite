@@ -1,0 +1,3 @@
+{"data":{},"findings":[],"hash":"595f4b71548261ee201e3bb7b4638b3675310d6829d259f96b12518c82b46df7","path":"db/bootstrap.sql","step":"file-rules"}
+{"data":{},"findings":[],"hash":"7d66f2398eaeb07103850fd9f441008d208c738f6108a7f72553d551cf2e4c41","path":"db/entities.ddl.sql","step":"file-rules"}
+{"data":{},"findings":[],"hash":"9463cb12dd8716b1c99703d078735ca4c720f3da44783c66b0532755998fdc15","path":"db/entities.manifest.json","step":"file-rules"}

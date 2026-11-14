@@ -1,6 +1,5 @@
 import { AgentGraphDetailDrawer } from "@/components/frames/AgentGraphDetailDrawer"
 import { AgentGraphProblems } from "@/components/branches/AgentGraphProblems"
-import { AgentGraphPublish } from "@/components/composites/AgentGraphPublish"
 import { SlotView } from "@nivo-lite/agent-sdk/client"
 import { AgentSetupNotice } from "@/components/frames/AgentSetupNotice"
 import { Pane, PaneGrid, PaneSection, type PaneGridProps } from "@starci/grammar/common"
@@ -43,7 +42,7 @@ export interface AgentSetupPanesBaseProps {
         readonly chatPlaceholder: AgentSetupChatContent
         readonly side: DataSlot<SetupSideView>
         readonly sidePlaceholder: SetupSideView
-        /** The action graph of the agent: the map, the answers, the proposals and the history, every word resolved. */
+        /** The action graph of the agent: the map, the answers and the history (read only), every word resolved. */
         readonly graph: DataSlot<AgentGraphPanelView>
         readonly graphPlaceholder: AgentGraphPanelView
         readonly slotLabels: SlotLabels
@@ -132,7 +131,13 @@ const ThreadBand = (props: AgentSetupPanesBaseProps) => (
                 under={Object.fromEntries(
                     underIdsOf(content).map((id) => [
                         id,
-                        <AgentSetupUnder key={id} messageId={id} content={content} copy={props.props.copy} on={props.on} />,
+                        <AgentSetupUnder
+                            key={id}
+                            messageId={id}
+                            content={content}
+                            copy={props.props.copy}
+                            on={props.on}
+                        />,
                     ]),
                 )}
                 trailing={<AgentSetupTrailing content={content} />}
@@ -185,25 +190,16 @@ const ProblemsBand = (props: AgentSetupPanesBaseProps) =>
 const NoticesBand = (props: AgentSetupPanesBaseProps) =>
     viewOf(props.props.slotLabels, sideOf(props), (view) => <AgentSetupNotices view={view} onOpen={props.on.open} />)
 
-/** What the agent understood, as a title row, three labelled cards and one caption (the status and the publish control of the graph read). */
+/** What the agent understood, as a title row, three labelled cards and one caption (the status of the graph read). */
 const UnderstandingBand = (props: AgentSetupPanesBaseProps) =>
     viewOf(props.props.slotLabels, sideOf(props), (view, isLoading) =>
-        graphViewOf(props, (graph, isGraphLoading) => (
+        graphViewOf(props, (graph) => (
             <AgentSetupUnderstanding
                 view={view}
                 isLoading={isLoading}
                 copy={props.props.copy}
                 status={graph.head.status}
                 chip={graph.versions.activeChip}
-                publish={
-                    graph.head.runningLabel !== "" ? null : (
-                        <AgentGraphPublish
-                            view={graph.head}
-                            isLoading={isGraphLoading}
-                            onPublish={() => props.on.graph({ kind: "publish" })}
-                        />
-                    )
-                }
                 on={{
                     gate: props.on.gate,
                     startEdit: props.on.startEdit,
@@ -214,7 +210,7 @@ const UnderstandingBand = (props: AgentSetupPanesBaseProps) =>
         )),
     )
 
-/** The card of the work map: the mode switch in its head, the graph in its body. */
+/** The card of the work map: the graph in its body. */
 const MapBand = (props: AgentSetupPanesBaseProps) =>
     graphViewOf(props, (view, isLoading) => (
         <AgentSetupMap
@@ -222,7 +218,6 @@ const MapBand = (props: AgentSetupPanesBaseProps) =>
             isLoading={isLoading}
             copy={props.props.copy}
             steps={props.props.steps}
-            onMode={(value) => props.on.graph({ kind: "mode", value })}
             onStep={(nodeKey) => props.on.step({ kind: "open", nodeKey })}
         />
     ))
@@ -230,12 +225,7 @@ const MapBand = (props: AgentSetupPanesBaseProps) =>
 /** The card of the versions: the ones of the graph, the same read as the chip of the understanding card. */
 const VersionsBand = (props: AgentSetupPanesBaseProps) =>
     graphViewOf(props, (view, isLoading) => (
-        <AgentSetupVersions
-            view={view.versions}
-            isLoading={isLoading}
-            copy={props.props.copy}
-            onRestore={(value) => props.on.graph({ kind: "restore", value })}
-        />
+        <AgentSetupVersions view={view.versions} isLoading={isLoading} copy={props.props.copy} />
     ))
 
 /** The bands of the setup chat, drawn by the parts of the chat page: the head, the pink thread well (its notice in the middle), the composer. */

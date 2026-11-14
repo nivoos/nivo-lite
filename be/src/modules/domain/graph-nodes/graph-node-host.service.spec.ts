@@ -20,13 +20,13 @@ import { GraphNodeHostService } from "./graph-node-host.service"
 import { PROBE_COUNT } from "./graph-node-probe.schema"
 import { GraphNodeRegistryService } from "./graph-node-registry.service"
 import { GraphNodeRunTokensService } from "./graph-node-run-tokens.service"
-import { GRAPH_NODE_MODEL, GRAPH_NODE_TOOL_DOOR } from "./graph-nodes.decorators"
-import type { NodeDataPort, NodeModelDoor, NodeSubjectResolver, NodeToolDoor } from "./graph-nodes.contracts"
+import { GRAPH_NODE_MODEL, GRAPH_NODE_WORKSPACE_POLICIES, GRAPH_NODE_TOOL_DOOR } from "./graph-nodes.decorators"
+import type { NodeDataPort, NodeModelDoor, NodeWorkspacePolicies, NodeSubjectResolver, NodeToolDoor } from "./graph-nodes.contracts"
 
 const NOW = "2026-11-04T10:00:00.000Z"
 
 /** The host with every port bound; `port` is what the registry answers for the `record` kind. */
-const build = async (port: NodeDataPort, resolvers: ReadonlyArray<NodeSubjectResolver> = []) => {
+const build = async (port: NodeDataPort, resolvers: ReadonlyArray<NodeSubjectResolver> = [], policies?: NodeWorkspacePolicies) => {
     const registry = mock<GraphNodeRegistryService>()
     const effects = mock<GraphNodeEffectsService>()
     const ai = mock<Required<NodeModelDoor>>()
@@ -42,6 +42,7 @@ const build = async (port: NodeDataPort, resolvers: ReadonlyArray<NodeSubjectRes
             { provide: GraphNodeEffectsService, useValue: effects },
             { provide: GRAPH_NODE_MODEL, useValue: ai },
             { provide: GRAPH_NODE_TOOL_DOOR, useValue: tools },
+            ...(policies === undefined ? [] : [{ provide: GRAPH_NODE_WORKSPACE_POLICIES, useValue: policies }]),
         ],
     }).compile()
     return { host: moduleRef.get(GraphNodeHostService), executor, effects, ai, tokens, registry, tools }
@@ -194,6 +195,73 @@ describe("GraphNodeHostService ports", () => {
         await host.run(INPUT)
 
         expect(tools.call.mock.calls[0]?.[0]).toMatchObject({ token: "", tool: "core.look" })
+        // The workspace's policies (L2) are the engine's own read, never a door call of the step.
+        expect(tools.call.mock.calls.map(([call]) => call.tool)).toEqual(["core.look"])
+    })
+
+    it("lays the workspace's policies the bound reader serves into the node's model call as L2, with no door call of the step", async () => {
+        const policies: NodeWorkspacePolicies = {
+            policiesOf: jest.fn(() =>
+                Promise.resolve({
+                    notice: "N",
+                    total: 1,
+                    policies: [{ id: "f-1", group: "G", title: "Policy one", value: "30", unit: "u", until: null }],
+                }),
+            ),
+        }
+        const { host, ai, tools } = await build(readingPort(), [], policies)
+
+        await host.run(INPUT)
+
+        const asks = [...ai.nodeJson.mock.calls.map((call) => call[1]), ...ai.nodeText.mock.calls.map((call) => call[1])]
+        expect(asks.length).toBeGreaterThan(0)
+        expect(asks.every((ask) => ask.opening?.policies.includes('"title":"Policy one"') === true)).toBe(true)
+        expect(policies.policiesOf).toHaveBeenCalledTimes(1)
+        expect(tools.call.mock.calls.map(([call]) => call.tool)).toEqual(["core.look"])
+    })
+
+    it("pins L2 in the run's turn record: a restart of the visit replays the kept L2, never a newer answer of the reader", async () => {
+        const policies: NodeWorkspacePolicies = {
+            policiesOf: jest.fn(() =>
+                Promise.resolve({ notice: "N", total: 1, policies: [{ id: "f-2", group: "G", title: "Newer", value: "40", unit: null, until: null }] }),
+            ),
+        }
+        const { host, ai } = await build(readingPort(), [], policies)
+        const KEPT = 'nivo.tool.brain.policy.list\n{"notListed":0,"policies":[{"title":"Kept at the first drive"}]}'
+        // The record of a visit that already read L2: it answers the kept value under the same call without acting.
+        const record = jest.fn((call: string, act: () => Promise<unknown>) =>
+            call === "workspace-policies" ? Promise.resolve(KEPT) : act(),
+        )
+
+        await host.run({ ...INPUT, record })
+
+        const asks = [...ai.nodeJson.mock.calls.map((call) => call[1]), ...ai.nodeText.mock.calls.map((call) => call[1])]
+        expect(asks.length).toBeGreaterThan(0)
+        expect(asks.every((ask) => ask.opening?.policies === KEPT)).toBe(true)
+        expect(record.mock.calls.filter(([call]) => call === "workspace-policies")).toHaveLength(1)
+        expect(policies.policiesOf).not.toHaveBeenCalled()
+    })
+
+    it("records the first read of L2 under its call, so the visit's replay can find it", async () => {
+        const policies: NodeWorkspacePolicies = {
+            policiesOf: jest.fn(() => Promise.resolve({ notice: "N", total: 0, policies: [] })),
+        }
+        const { host } = await build(readingPort(), [], policies)
+        const record = jest.fn((_call: string, act: () => Promise<unknown>) => act())
+
+        await host.run({ ...INPUT, record })
+
+        expect(record.mock.calls.map(([call]) => call)).toContain("workspace-policies")
+        expect(policies.policiesOf).toHaveBeenCalledTimes(1)
+    })
+
+    it("lays no L2 when no reader is bound", async () => {
+        const { host, ai } = await build(readingPort())
+
+        await host.run(INPUT)
+
+        const asks = [...ai.nodeJson.mock.calls.map((call) => call[1]), ...ai.nodeText.mock.calls.map((call) => call[1])]
+        expect(asks.every((ask) => (ask.opening?.policies ?? "") === "")).toBe(true)
     })
 
     it("refuses a tool call while no NIVO MCP door is bound", async () => {
@@ -249,8 +317,9 @@ describe("GraphNodeHostService.core", () => {
 
         const [scope, asked] = ai.nodeJson.mock.calls[0] ?? []
         expect(scope).toEqual({ workspaceId: "ws-1", locale: "vi", model: CORE_MODEL })
-        expect(asked?.instructions.startsWith(`${ASK_OWNER_GUIDANCE_VI}\n\n`)).toBe(true)
-        expect(asked?.instructions.endsWith("\n\nDecide once.")).toBe(true)
+        // L1 (the agent's craft) is the call's opening; its own words stay its instructions (L3).
+        expect(asked?.opening?.craft.startsWith(ASK_OWNER_GUIDANCE_VI)).toBe(true)
+        expect(asked?.instructions).toBe("Decide once.")
     })
 
     it("books the engine's own decision as engine-core work of the turn's agent", async () => {

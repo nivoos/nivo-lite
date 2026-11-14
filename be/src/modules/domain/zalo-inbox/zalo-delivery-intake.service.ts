@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common"
 import { PollScheduleService } from "@modules/domain/connection-poll"
+import type { WebhookProofVerdict } from "@modules/platform/http-security"
 import type { ZaloRawDelivery } from "./zalo-inbox.contracts"
 import { ZaloInboxService } from "./zalo-inbox.service"
 
@@ -14,9 +15,9 @@ export class ZaloDeliveryIntakeService {
         private readonly schedule: PollScheduleService,
     ) {}
 
-    /** Records one verified delivery for deferred processing, then marks the connection's webhook as having delivered. */
-    async accept(rawBody: ZaloRawDelivery, connection: string): Promise<void> {
-        await this.inbox.acceptZaloDelivery(rawBody, connection)
+    /** Records one delivery the door judged (its verdict obeyed) for deferred processing, then marks the connection's webhook as having delivered. */
+    async accept(rawBody: ZaloRawDelivery, connection: string, proof: WebhookProofVerdict): Promise<void> {
+        await this.inbox.acceptZaloDelivery(rawBody, connection, proof)
         await this.schedule.recordWebhook(connection)
     }
 }

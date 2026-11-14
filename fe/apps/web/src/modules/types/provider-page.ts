@@ -34,7 +34,7 @@ export interface ProviderDocEntryView {
     readonly id: string
     /** The registry id, drawn as code: `nivo.api.sepay.info`, `nivo.tool.bank.transaction.list`, `transaction.received`. */
     readonly name: string
-    /** The kind chip: Doc, Ghi, Webhook, Poll (the raw kind when the vocabulary has no word for it). */
+    /** The kind chip: Doc, Ghi, or a trigger's "Receives via: webhook, poll" line. */
     readonly kindLabel: string
     /** The registry's one-line summary in the reader's language; null when none is declared (the id stands alone). */
     readonly summary: string | null
@@ -48,7 +48,7 @@ export interface ProviderDocEntryView {
     readonly line: string | null
     /** Why the entry cannot be used now (a Swagger tool whose state is not ready); null when it can. The entry is then muted. */
     readonly stateNote: string | null
-    /** One line under the table (a trigger's batching and recovery); null when there is none. */
+    /** One line under the table (a trigger's reason for having no poll); null when there is none. */
     readonly note: string | null
 }
 
@@ -88,8 +88,10 @@ export interface ProviderTriggerRowView {
     readonly fired: string | null
     /** The decider row; null where the trigger has no decider. */
     readonly decider: ProviderTriggerDeciderView | null
-    /** "Webhook" or "Poll": how the provider reports the event. */
+    /** "Receives via: webhook, poll": the ways the event reaches NIVO. */
     readonly kindLabel: string
+    /** Why the trigger has no poll (a 12 muted line under the row); null when it has one. */
+    readonly withoutPollReason: string | null
     /** The workflows registered on this trigger (the agent and its role beside each); empty when none is. */
     readonly workflows: ReadonlyArray<ProviderTriggerWorkflowView>
 }

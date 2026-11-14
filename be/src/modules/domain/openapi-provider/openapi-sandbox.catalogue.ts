@@ -38,12 +38,12 @@ export const OPENAPI_SANDBOX_CATALOGUE: SandboxCatalogue = {
         },
         {
             id: OPENAPI_SANDBOX_CASE.refused,
-            label: "The system refuses the call: HTTP 422 (the connector's refusal of the system's answer; nothing applied)",
+            label: "The system refuses the call: the package's own 4xx answer of the operation, else HTTP 422 (the connector reads it as the system's refusal; nothing applied)",
             operation: OPENAPI_CALL_OPERATION,
         },
         {
             id: OPENAPI_SANDBOX_CASE.failed,
-            label: "The system fails: HTTP 503 (the effect is unknown; nothing kept)",
+            label: "The system fails: the package's own 5xx answer of the operation, else HTTP 503 (the effect is unknown; nothing kept)",
             operation: OPENAPI_CALL_OPERATION,
         },
         {

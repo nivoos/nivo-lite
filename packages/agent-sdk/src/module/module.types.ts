@@ -107,8 +107,6 @@ export interface ModuleTemplateTrigger {
     readonly preset: ModuleTriggerPreset
     /** The time of day (`HH:MM`) of a daily preset. */
     readonly atTime?: string | undefined
-    /** The probe that decides whether a fire has work. */
-    readonly probeKey?: string | undefined
 }
 
 /**

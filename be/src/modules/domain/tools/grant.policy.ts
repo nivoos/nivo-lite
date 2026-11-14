@@ -1,5 +1,6 @@
 import { DEFAULT_AI_READ_TOOLS, DEFAULT_NODE_TOOLS } from "@nivo-lite/agent-sdk/names"
 import { isDefaultRead } from "@modules/domain/context-sources"
+import { confirmReadsOf } from "@modules/domain/tool-specs"
 import { NIVO_TOOL_PREFIX } from "./tool-name.policy"
 import type { ToolCaller, ManifestTool, GrantVerdict, ToolGrant } from "./tools.contracts"
 import type { ModeVerdict } from "./node-mode.policy"
@@ -32,6 +33,13 @@ const STEP_DEFAULTS: ReadonlySet<string> = new Set<string>([...DEFAULT_NODE_TOOL
 /** True for a tool a step may call although its node does not list it (`STEP_DEFAULTS`). */
 export const isStepDefault = (name: string): boolean => STEP_DEFAULTS.has(name)
 
+/**
+ * True for a READ a step holds because a write on its allow-list declares it for its confirmation (`confirmBy`, QB-P3 rule I-3): the
+ * engine reads it through the step's own door to settle an unknown outcome of that write. Declared data only.
+ */
+const confirmsStepWrite = (spec: ManifestTool, name: string, stepTools: ReadonlyArray<string>): boolean =>
+    spec.scope === "read" && stepTools.some((tool) => confirmReadsOf(tool).includes(name))
+
 /** A grant row as a road outside every node reads it: its mode word, `auto` or `ask`; any other word (an old `never`) is no row. */
 const usableRow = (row: ToolGrant | null): ToolGrant | null => (row?.mode === "auto" || row?.mode === "ask" ? row : null)
 
@@ -52,7 +60,13 @@ export const grantVerdictOf = (
     mode: ModeVerdict,
     road: "step" | "engine" | "outside",
 ): GrantVerdict => {
-    if (road === "step" && caller.run !== undefined && !caller.run.stepTools.includes(name) && !isStepDefault(name))
+    if (
+        road === "step" &&
+        caller.run !== undefined &&
+        !caller.run.stepTools.includes(name) &&
+        !isStepDefault(name) &&
+        !confirmsStepWrite(spec, name, caller.run.stepTools)
+    )
         return { kind: "refuse" }
     if (road === "outside") {
         // A READ outside every node needs a row or a default read (default deny); a write asks (or runs once approved). A write that only

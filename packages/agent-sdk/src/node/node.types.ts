@@ -145,16 +145,17 @@ export interface NodeModelRequest {
     readonly purpose: string
     /**
      * How the model should answer, in the words of the node author. It is the STABLE part of the call, the prefix a provider caches:
-     * the same text for the same agent, shop and step, with nothing that changes from call to call in it (no time, no id).
+     * the same text for the same agent, workspace and step, with nothing that changes from call to call in it (no time, no id).
      */
     readonly instructions: string
     /**
-     * How long the opening of `instructions` is that every call of the turn's agent shares, byte for byte, whatever the step (L1, the
-     * agent's craft and tool set); the rest, after a blank line, is the step's own (L3). Set by the
-     * host's layout (`guidedModelRequest`), never by a node: a host that marks cache breakpoints marks the end of this opening too,
-     * so a step's first call reads it from the cache another step wrote. Absent when the call has no shared opening.
+     * What every call of the turn's agent shares before `instructions`: L1 `craft` (the agent's guidance and its whole tool set, the
+     * same bytes for every step of the agent in every workspace of one install) and L2 `policies` (the workspace's policies, the same bytes for
+     * every step of the agent in one workspace while no rule changes). `instructions` is then the step's own words (L3). Set by the
+     * host's layout (`guidedModelRequest`), never by a node: a host that marks cache breakpoints marks the end of each layer.
+     * Absent when the call has no shared opening.
      */
-    readonly sharedLength?: number | undefined
+    readonly opening?: PromptOpening | undefined
     /**
      * Words that hold for this call only (what waits, what was answered, what was already sent): the host puts them after the
      * stable part, never inside it. Absent when the call has none.
@@ -162,6 +163,12 @@ export interface NodeModelRequest {
     readonly volatile?: string | undefined
     /** What the model works on, passed as data after the instructions. */
     readonly input: unknown
+    /**
+     * What the earlier turns of the same loop came to, oldest first (an agent's calls and what they answered): each is sent as its
+     * own part AFTER `input`, so a later turn only appends to what the earlier one sent, and nothing sent before is rewritten.
+     * Absent on a call that is no turn of a loop.
+     */
+    readonly turns?: ReadonlyArray<unknown> | undefined
     /** Pictures the model should look at, as short-lived addresses the model host can fetch; none when absent. */
     readonly images?: ReadonlyArray<string> | undefined
     /**
@@ -170,6 +177,14 @@ export interface NodeModelRequest {
      * host's default for node calls. It bounds what the model spends on thinking nobody reads, never what the node may do.
      */
     readonly reasoning?: "off" | "low" | "medium" | "high" | undefined
+}
+
+/** The shared opening of a model call: the agent's craft (L1) and the workspace's policies (L2), each "" when it has none. */
+export interface PromptOpening {
+    /** L1: the agent's guidance and its whole tool set. */
+    readonly craft: string
+    /** L2: the workspace's policies, as the host read them for the agent. */
+    readonly policies: string
 }
 
 /** What the AI of a node says when it cannot decide: why, in its own words, and what it needs a person to answer. */

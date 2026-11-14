@@ -18,14 +18,14 @@ describe("chatbot agent template", () => {
         }
     })
 
-    it("front desk version 26: one message trigger per channel (Zalo OA, Telegram, Facebook, Instagram); no burst (settle is the declaration's)", () => {
+    it("front desk version 27: one message trigger per channel (Zalo OA, Telegram, Facebook, Instagram); no burst (settle is the declaration's)", () => {
         // Version 26 (design moved, R68): pure business: a declined send is the step's unsuccessful ending, the engine tells the team (the two
         // "was it declined -> team notice" pairs are gone). Version 25 (design moved, R45): no `fresh-visit` end (a /start with no words goes on and the model greets); the sale gets the
         // visit's start (`since`) and reads the engine's thread; the money-in hand-off's unread `recentLines` is gone.
         // Version 24 (design moved, R43): hear has no `held` end and the outcome `held` is gone (a staff hold is the engine's send door's).
         // Version 23 (design moved, R26): hear stores no line and hands the chat window `startedAt` on; v22 dropped the triggers' `burst`.
         // Version 15: the hand-off to the Booking carries the recent lines. Version 14: the hand-off to the Booking carries the person as `contactId`. Version 13: the Sales hand-offs carry the recent lines. Version 12: the hand-offs to Sales carry the contact. Version 11: Meta's two channels join. Version 10: `paid` hands to the Sales money-in graph (the Accounting reconcile is gone).
-        expect(frontDeskGraph.spec.catalogue?.version).toBe(26)
+        expect(frontDeskGraph.spec.catalogue?.version).toBe(27)
         expect(frontDeskGraph.spec.catalogue?.name).toEqual({ vi: "Lễ tân", en: "Front desk" })
         expect(frontDeskGraph.spec.moduleKey).toBe("chatbot")
         // Ledger (owner key triggerOneSource2026_11_12, CORRECTED 2026-11-12): `account: x` -> `accounts: [x]` (mechanical SDK migration).
@@ -49,7 +49,7 @@ describe("chatbot agent template", () => {
         ])
     })
 
-    it("front desk steps: understand routes five ways; complaint reply then the side notice then the owner", () => {
+    it("front desk steps: understand routes six ways; complaint reply then the side notice then the owner", () => {
         const steps = frontDeskGraph.spec.nodes
         expect(steps.map((step) => step.key).toSorted()).toEqual(
             [
@@ -59,6 +59,9 @@ describe("chatbot agent template", () => {
                 "declined",
                 "hear",
                 "nothing-to-answer",
+                "stop-keep",
+                "stop-reply",
+                "stopped",
                 "to-booking",
                 "to-consult",
                 "to-owner",
@@ -77,8 +80,11 @@ describe("chatbot agent template", () => {
         expect(understand).toMatchObject({
             kind: "node",
             step: "chatbot.understand",
-            routes: { buy: "to-consult", book: "to-booking", paid: "to-payment", complaint: "complaint-reply", question: "answer" },
+            routes: { buy: "to-consult", book: "to-booking", paid: "to-payment", complaint: "complaint-reply", stop: "stop-keep", question: "answer" },
         })
+        // The request to stop: the contact keeps the consent fact, then ONE acknowledgement on the person's own line, then the outcome.
+        expect(steps.find((step) => step.key === "stop-keep")).toMatchObject({ kind: "node", step: "chatbot.stop-keep", next: "stop-reply" })
+        expect(steps.find((step) => step.key === "stop-reply")).toMatchObject({ kind: "node", step: "chatbot.stop-reply", next: "stopped" })
         expect(steps.find((step) => step.key === "complaint-reply")).toMatchObject({ next: "complaint-notify" })
         expect(steps.find((step) => step.key === "complaint-notify")).toMatchObject({
             blocking: false,
@@ -102,7 +108,7 @@ describe("chatbot agent template", () => {
         expect(JSON.stringify(steps.find((step) => step.key === "to-consult"))).toContain('"since":{"$ref":"steps.hear.output.startedAt"}')
         expect(JSON.stringify(steps.find((step) => step.key === "to-payment"))).not.toContain("recentLines")
         expect(JSON.stringify(steps.find((step) => step.key === "to-booking"))).toContain('"recentLines":{"$ref":"steps.understand.output.recentLines"}')
-        expect(frontDeskGraph.spec.outcomes.map((outcome) => outcome.key).toSorted()).toEqual(["declined", "nothing", "owner"])
+        expect(frontDeskGraph.spec.outcomes.map((outcome) => outcome.key).toSorted()).toEqual(["declined", "nothing", "owner", "stopped"])
     })
 
     // R68: the ENGINE tells the team (one post per declined send, as the notice nodes did) and the run ends `declined`, as before.
@@ -120,6 +126,7 @@ describe("chatbot agent template", () => {
     it("front desk names every outcome in both languages (the map never shows a key)", () => {
         expect(frontDeskGraph.spec.outcomes.map((outcome) => [outcome.key, outcome.title])).toEqual([
             ["nothing", { vi: "Không có gì để trả lời", en: "Nothing to answer" }],
+            ["stopped", { vi: "Khách xin ngừng nhắn tin", en: "Asked not to be messaged" }],
             ["owner", { vi: "Chuyển chủ shop", en: "Passed to the owner" }],
             ["declined", { vi: "Bị từ chối", en: "Declined" }],
         ])

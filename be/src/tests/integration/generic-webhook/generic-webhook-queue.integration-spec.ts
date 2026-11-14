@@ -1,10 +1,9 @@
 import { builder } from "@starci/jest-preset"
 import { QueryRunnerProviderAlreadyReleasedError } from "typeorm"
 import {
+    DELIVER_GENERIC_WEBHOOK_JOB,
     GENERIC_WEBHOOK_QUEUE,
-    GenericWebhookJob,
     GenericWebhookQueue,
-    genericWebhookKey,
     type GenericWebhookPayload,
 } from "@modules/queues/generic-webhook"
 import { useTestWorld } from "@tests/world/use-test-world"
@@ -49,14 +48,14 @@ describe("GenericWebhookQueue", () => {
             const rows = await deliveryPublications(tx, GENERIC_WEBHOOK_QUEUE, payload.deliveryId)
             expect(rows).toHaveLength(1)
             expect(rows.map(({ payload: stored, dedupe_key }) => ({ payload: stored, dedupe_key }))).toEqual([
-                { payload, dedupe_key: genericWebhookKey(payload.deliveryId) },
+                { payload, dedupe_key: DELIVER_GENERIC_WEBHOOK_JOB.onceKey(payload) },
             ])
             expect(await deliveryEnvelopes(tx, GENERIC_WEBHOOK_QUEUE, payload.deliveryId)).toEqual([
                 {
                     message: {
-                        name: GenericWebhookJob.Deliver,
+                        name: DELIVER_GENERIC_WEBHOOK_JOB.name,
                         payload,
-                        dedupe: genericWebhookKey(payload.deliveryId),
+                        dedupe: DELIVER_GENERIC_WEBHOOK_JOB.onceKey(payload),
                         outbox_id: rows[0]?.id,
                     },
                 },
@@ -75,7 +74,7 @@ describe("GenericWebhookQueue", () => {
         const rows = await deliveryPublications(world.db.primary, GENERIC_WEBHOOK_QUEUE, payload.deliveryId)
         expect(rows).toHaveLength(1)
         expect(rows[0]?.payload).toEqual(payload)
-        expect(rows[0]?.dedupe_key).toBe(genericWebhookKey(payload.deliveryId))
+        expect(rows[0]?.dedupe_key).toBe(DELIVER_GENERIC_WEBHOOK_JOB.onceKey(payload))
     })
 
     it("rolls back the publication with the caller's rejected receipt transaction", async () => {

@@ -19,11 +19,18 @@ const UNKNOWN: DeliveryResult = { delivered: false, failure: null, outcome: "amb
 /** The receipt of a send Telegram accepted. */
 const DELIVERED: DeliveryResult = { delivered: true, failure: null, outcome: "acknowledged" }
 
+/** Telegram's own `error_code` for "too many requests": the call was refused before anything was sent. */
+const TOO_MANY_REQUESTS = 429
+
+/** The word the port's not-sent answer carries for Telegram's rate refusal. */
+const RATE_LIMITED = "telegram_rate_limited"
+
 @Injectable()
 /**
  * The LIVE Telegram customer send: the text goes through the bot of the account (its token read from the connection secret), the pictures
- * follow as photos or one album, exactly as the engine always sent them. A refusal is an answer, never a throw: Telegram's explicit refusal
- * (a blocked bot) is a definite `rejected` receipt, anything else (no answer) an unknown outcome. It also sends a staff text and shows
+ * follow as photos or one album, exactly as the engine always sent them. A refusal is an answer: Telegram's explicit refusal (a blocked
+ * bot) is a definite `rejected` receipt, its "too many requests" (429) the port's thrown not-sent answer (`CHANNELS_SEND_UNAVAILABLE`,
+ * with Telegram's `retry_after`), anything else (no answer) an unknown outcome. It also sends a staff text and shows
  * "typing". The registry reaches it only for a live account.
  */
 export class TelegramCustomerSendService implements CustomerSendPort {
@@ -68,13 +75,25 @@ export class TelegramCustomerSendService implements CustomerSendPort {
         if (token.kind === "ok") await this.telegram.sendTyping(token.value, personId)
     }
 
-    /** Logs a failed send and answers its receipt: Telegram's explicit refusal is `rejected`, anything else unknown. */
+    /**
+     * Logs a failed send and answers its receipt: Telegram's "too many requests" (its typed `error_code` 429: the text was not taken) is
+     * the port's one not-sent answer, thrown with the wait Telegram asked for; Telegram's other explicit refusal is `rejected`; anything
+     * else (no answer, a 5xx, a timeout after the request left) unknown.
+     */
     private failed(target: ChannelTarget, cause: unknown): DeliveryResult {
         this.logger.error(ChannelsLogEvent.DeliveryFailed, cause, {
             conversationId: target.id,
             channel: target.channel,
             ...deliveryFailureFieldsOf(cause),
         })
-        return cause instanceof TelegramError && cause.code === TelegramErrorCode.Rejected ? NOT_DELIVERED : UNKNOWN
+        if (!(cause instanceof TelegramError) || cause.code !== TelegramErrorCode.Rejected) return UNKNOWN
+        if (cause.params.errorCode === TOO_MANY_REQUESTS) {
+            const wait = cause.params.retryAfter
+            throw new ChannelsError({
+                code: ChannelsErrorCode.SendUnavailable,
+                params: { reason: RATE_LIMITED, ...(typeof wait === "number" ? { retryAfterSeconds: wait } : {}) },
+            })
+        }
+        return NOT_DELIVERED
     }
 }

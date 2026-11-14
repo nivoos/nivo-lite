@@ -18,7 +18,7 @@ export const hiringModule: ModuleDeclaration = defineModule({
     key: HIRING_MODULE_KEY,
     namespace: "hiring",
     agent: {
-        tools: [TOOL.mailMessageSend, TOOL.teamMessagePost],
+        tools: [TOOL.customerMessageSend, TOOL.teamMessagePost],
     },
     permissions: HIRING_PERMISSIONS,
     reads: [jobsRead, jobRead, candidatesRead, CONTACT_CANDIDATES, candidateRead],

@@ -2,7 +2,6 @@ import type { GraphSpec } from "@nivo-lite/agent-sdk/graph"
 import type { IntentBusiness } from "@modules/domain/intent-contracts"
 import type { WorkspaceRole } from "@modules/domain/workspace-members"
 import type { FactSpec, FactView, GraphChangeKind, TriggerMatch } from "./agent-graphs-contract.contracts"
-import type { UnheldRule } from "./policies/unheld-rules.policy"
 
 export type { FactSpec, FactView, GraphChangeKind }
 
@@ -365,12 +364,6 @@ export interface GraphDiff {
     readonly changes: ReadonlyArray<DiffChange>
 }
 
-/** Where a proposal stands: waiting for a person, taken, turned down, or overtaken by a newer change. */
-export type ProposalStatus = "open" | "confirmed" | "declined" | "superseded"
-
-/** The kinds of proposal. */
-export type ProposalKind = "conflict" | "learned" | "template_update" | "gap" | "contract"
-
 /** One version of a graph as the owner lists it. */
 export interface GraphVersionView {
     /** The id. */
@@ -385,34 +378,6 @@ export interface GraphVersionView {
     readonly publishedAt: string
     /** The published by. */
     readonly publishedBy: string | null
-}
-
-/** One proposal as the owner reads it. */
-export interface GraphProposalView {
-    /** The id. */
-    readonly id: string
-    /** The kind. */
-    readonly kind: ProposalKind
-    /** The status. */
-    readonly status: ProposalStatus
-    /** The node key. */
-    readonly nodeKey: string | null
-    /** The branch key. */
-    readonly branchKey: string | null
-    /** The widens. */
-    readonly widens: boolean
-    /** The evidence. */
-    readonly evidence: ReadonlyArray<string>
-    /** The created at. */
-    readonly createdAt: string
-    /** For a conflict: the passage the graph follows now, so the owner reads the two side by side; null for the other kinds. */
-    readonly before?: string | null | undefined
-    /** For a conflict: the passage the Brain says now; null for the other kinds. */
-    readonly after?: string | null | undefined
-    /** For a contract: the intent it is about; null for the other kinds. */
-    readonly intent?: string | null | undefined
-    /** For a gap: the question nothing fitted; for a contract: the task the shop states; null for the other kinds. */
-    readonly text?: string | null | undefined
 }
 
 /** The graph of one agent as the editor opens it. */
@@ -437,14 +402,10 @@ export interface AgentGraphView {
     readonly problems: ReadonlyArray<GraphProblem>
     /** The nodes as the graph draws them at a glance. */
     readonly cards: ReadonlyArray<GraphNodeCard>
-    /** The proposals still waiting for a person. */
-    readonly proposals: ReadonlyArray<GraphProposalView>
     /** The facts a condition may be written on. */
     readonly facts: ReadonlyArray<FactView>
     /** What is wrong with the contracts of the draft and does not stop a publish. */
     readonly warnings: ReadonlyArray<GraphProblem>
-    /** The sums the setup text states as a rule that no condition of the graph holds: prose decides nothing. */
-    readonly unheldRules: ReadonlyArray<UnheldRule>
 }
 
 /** Looks a sentence of the message catalog up in the language of the reader, so a policy stays pure and holds no wording. */

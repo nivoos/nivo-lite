@@ -138,7 +138,7 @@ const EntryTable = (props: EntryTableProps) => {
  * The documented entries of one level of a provider (a read, a tool or a trigger each), one card per entry: the head zone carries
  * the kind chip, the id, the fact and the summary; the body is Grammar's table with one column header (name, type, meaning) and
  * one heading row per member group (parameters, returns, event data); an entry that declares no member is its head alone, as the
- * drawing's `nivo.tool.connection.status.get`; a trigger's batching and recovery line is the card's note.
+ * drawing's `nivo.tool.connection.status.get`; a trigger's no-poll reason is the card's note.
  */
 export const ProviderDocList = (props: ProviderDocListProps) => (
     <Stack gap="section">

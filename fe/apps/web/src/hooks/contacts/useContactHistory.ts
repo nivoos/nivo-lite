@@ -65,6 +65,16 @@ const useHistoryWords = (): ContactHistoryWords => {
             day: (iso, channel) =>
                 channel === null ? dayOf(new Date(iso)) : t("historyDay", { day: dayOf(new Date(iso)), channel }),
             time: (iso) => format.dateTime(new Date(iso), { hour: "2-digit", minute: "2-digit" }),
+            notKept: (reason) => {
+                const why = (): string => {
+                    if (reason === "no_address") return t("historyNotKeptNoAddress")
+                    if (reason === "no_store") return t("historyNotKeptNoStore")
+                    if (reason === "store_failed") return t("historyNotKeptStoreFailed")
+                    if (reason === "fetch_failed") return t("historyNotKeptFetchFailed")
+                    return reason?.startsWith("refused_") === true ? t("historyNotKeptRefused") : t("historyNotKeptUnknown")
+                }
+                return t("historyNotKept", { reason: why() })
+            },
             order: (orderJson) =>
                 orderViewOf(orderJson, {
                     total: t("historyOrderTotal"),

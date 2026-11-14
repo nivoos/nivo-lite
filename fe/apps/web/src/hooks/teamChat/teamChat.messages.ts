@@ -5,6 +5,7 @@ import {
     chatMarkOf,
     daysAgoOf,
     groupPositionsOf,
+    jobParkedViewOf,
     stopCardViewOf,
     stopPreviewOf,
     withPendingTaps,
@@ -167,9 +168,11 @@ const messageRowOf = (
                       time: row.timeLabel,
                   }),
               }
-    return message.backgroundStopped == null
-        ? changed
-        : { ...changed, backgroundStopped: backgroundStoppedViewOf(message.backgroundStopped, words.backgroundStopped) }
+    const stoppedWork =
+        message.backgroundStopped == null
+            ? changed
+            : { ...changed, backgroundStopped: backgroundStoppedViewOf(message.backgroundStopped, words.backgroundStopped) }
+    return message.jobParked == null ? stoppedWork : { ...stoppedWork, jobParked: jobParkedViewOf(message.jobParked, words.jobParked) }
 }
 
 /**

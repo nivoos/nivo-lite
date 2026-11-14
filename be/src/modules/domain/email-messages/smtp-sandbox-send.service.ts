@@ -32,6 +32,9 @@ export class SmtpSandboxSendService implements SmtpSendPort {
                 text: message.text,
                 html: message.html ?? null,
                 attachments: (message.attachments ?? []).map((file) => file.filename),
+                // The thread the mail answers, recorded as the headers would carry it (MAIL-IN rule MI-5).
+                inReplyTo: delivery.thread?.inReplyTo ?? null,
+                references: delivery.thread?.references ?? [],
             },
             {
                 key: to,

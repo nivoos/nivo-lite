@@ -22,10 +22,10 @@ export interface ZaloSandboxCustomer {
 
 /** The customers of the sandbox OA (fixed ids; the same on every machine). */
 export const ZALO_SANDBOX_CUSTOMERS: ReadonlyArray<ZaloSandboxCustomer> = [
-    { userId: "8800110022", name: "Nguyen Van An", picture: "https://s75-ava-talk.zadn.vn/sandbox/an.jpg" },
-    { userId: "8800110033", name: "Tran Thi Binh", picture: "https://s75-ava-talk.zadn.vn/sandbox/binh.jpg" },
-    { userId: "8800110044", name: "Le Minh Chi", picture: "https://s75-ava-talk.zadn.vn/sandbox/chi.jpg" },
-    { userId: "8800110055", name: "Pham Quoc Dung", picture: "https://s75-ava-talk.zadn.vn/sandbox/dung.jpg" },
+    { userId: "8800110022", name: "Nguyen Van An", picture: "https://sandbox.invalid/zalo/an.jpg" },
+    { userId: "8800110033", name: "Tran Thi Binh", picture: "https://sandbox.invalid/zalo/binh.jpg" },
+    { userId: "8800110044", name: "Le Minh Chi", picture: "https://sandbox.invalid/zalo/chi.jpg" },
+    { userId: "8800110055", name: "Pham Quoc Dung", picture: "https://sandbox.invalid/zalo/dung.jpg" },
 ]
 
 /** The profile case that makes the read say nothing (null) for everyone. */
@@ -52,8 +52,6 @@ export interface ZaloSandboxMessage {
     readonly text: string
     /** When Zalo stamped it, epoch milliseconds. */
     readonly sentAt: number
-    /** True when it lay outside the 48-hour reply window when it was sent (the ZALO-3 case). */
-    readonly stale: boolean
 }
 
 /** The state name the messages the account's cases made are kept under (key `""`, an array of `ZaloSandboxMessage`, oldest first): the poll answers them. */
@@ -65,9 +63,6 @@ export const ZALO_SANDBOX_MESSAGES_STATE = "messages"
  * sandbox answers `outside_window` when the line is more than 48 hours older than the send).
  */
 export const ZALO_SANDBOX_LAST_LINE_STATE = "last-line"
-
-/** Zalo's reply window: 48 hours after the customer's last line. */
-export const ZALO_REPLY_WINDOW_MS = 48 * 3_600_000
 
 /** How far before the send's moment the Zalo timestamp of ZALO-3 lies: 49 hours, one hour outside the reply window. */
 export const ZALO_SANDBOX_STALE_AGE_MS = 49 * 3_600_000
@@ -90,7 +85,7 @@ export const zaloWebhookBodyOf = (message: ZaloSandboxMessage): Readonly<Record<
         message.kind === "photo"
             ? {
                   msg_id: message.messageId,
-                  attachments: [{ type: "image", payload: { thumbnail: "https://s75-ava-talk.zadn.vn/sandbox/photo.jpg", url: "https://s75-ava-talk.zadn.vn/sandbox/photo.jpg" } }],
+                  attachments: [{ type: "image", payload: { thumbnail: "https://sandbox.invalid/zalo/photo.jpg", url: "https://sandbox.invalid/zalo/photo.jpg" } }],
               }
             : { msg_id: message.messageId, text: message.text },
 })
@@ -133,7 +128,6 @@ const caseOf = (plan: ZaloMessagePlan, inputs: ReadonlyArray<SandboxInputField>)
             kind: plan.kind,
             text: plan.kind === "text" && typeof input.text === "string" ? input.text : "",
             sentAt,
-            stale: plan.ageMs > ZALO_REPLY_WINDOW_MS,
         }
         const kept = zaloMessagesOf(await context.state.read(ZALO_SANDBOX_MESSAGES_STATE, ""))
         await context.state.write(ZALO_SANDBOX_MESSAGES_STATE, "", [...kept, message])

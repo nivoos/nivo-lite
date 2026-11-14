@@ -1,9 +1,7 @@
 import { BankFeedDeliveryService } from "./bank-feed-delivery.service"
 import { Module, type DynamicModule } from "@nestjs/common"
 import { BankFeedIntakeService } from "./bank-feed-intake.service"
-import { BankFeedPollSourcesService } from "./bank-feed-poll-sources.service"
-import { BankFeedPollService } from "./bank-feed-poll.service"
-import { BankFeedPollTriggerService } from "./bank-feed-poll-trigger.service"
+import { BankFeedAdmissionService } from "./bank-feed-admission.service"
 import { BankFeedReceiptsService } from "./bank-feed-receipts.service"
 import { BankFeedService } from "./bank-feed.service"
 import { BankFeedTriggerService } from "./bank-feed-trigger.service"
@@ -41,9 +39,7 @@ export class BillingModule extends ConfigurableModuleClass {
                 BankFeedTriggerService,
                 BankFeedIntakeService,
                 BankFeedDeliveryService,
-                BankFeedPollService,
-                BankFeedPollTriggerService,
-                BankFeedPollSourcesService,
+                BankFeedAdmissionService,
             ],
             exports: [
                 BillingEventsReadService,
@@ -57,8 +53,6 @@ export class BillingModule extends ConfigurableModuleClass {
                 BankFeedReceiptsService,
                 BankFeedIntakeService,
                 BankFeedDeliveryService,
-                BankFeedPollService,
-                BankFeedPollTriggerService,
             ],
         }
     }

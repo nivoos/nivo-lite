@@ -70,7 +70,7 @@ describe("AccountDataRowsPageService: a connected account's raw provider data, f
 
         await expect(service.rows(ACTOR, { connectionId: "conn-1", type: "sepay.transaction", limit: 500 })).resolves.toEqual({
             refusal: null,
-            rows: [{ id: "row-1", key: "77", typeVersion: 2, occurredAt: "2026-11-13T06:00:00.000Z", value: { id: 77, amount: 250000 } }],
+            rows: [{ id: "row-1", key: "77", typeVersion: 2, occurredAt: "2026-11-13T06:00:00.000Z", value: { id: 77, amount: 250000 }, sameFactOf: null }],
         })
         expect(reads.newest).toHaveBeenCalledWith("conn-1", "sepay.transaction", 100)
     })

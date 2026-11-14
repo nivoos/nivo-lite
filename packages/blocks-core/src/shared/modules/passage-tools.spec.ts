@@ -92,7 +92,7 @@ describe("the document reads", () => {
         }
         const consult = guidedModelRequest(frame, { purpose: "consult", instructions: "Consult.", input: {} })
         const order = guidedModelRequest(frame, { purpose: "order", instructions: "Order.", input: { orderId: "o1" } })
-        const opening = (request: NodeModelRequest): string => request.instructions.slice(0, request.sharedLength)
+        const opening = (request: NodeModelRequest): string => request.opening?.craft ?? ""
 
         expect(opening(consult)).toBe(opening(order))
         for (const id of PASSAGE_TOOLS) expect(opening(consult)).toContain(`"name":"${id}"`)

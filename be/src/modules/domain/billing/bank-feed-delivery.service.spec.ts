@@ -55,9 +55,9 @@ describe("BankFeedDeliveryService", () => {
         { deliveryId: "delivery-1" },
         { deliveryId: "delivery-1", provider: "unknown" },
         { deliveryId: "delivery-1", provider: null },
-    ])("discards invalid references before any claim or effect: %p", async (payload) => {
+    ])("refuses an invalid reference as an input failure before any claim or effect: %p", async (payload) => {
         const { processor, inbox, claims } = await build()
-        await processor.process({ ...job, payload })
+        await expect(processor.process({ ...job, payload })).rejects.toMatchObject({ params: { failureClass: "input" } })
         expect(claims.advance).not.toHaveBeenCalled()
         expect(inbox.processRecordedFeedDelivery).not.toHaveBeenCalled()
     })

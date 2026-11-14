@@ -6,7 +6,7 @@ import { nodeSagaOf, type NodeIndex, type NodeSaga } from "@nivo-lite/agent-sdk/
 import { installedStepIn, type InstalledStep } from "@modules/domain/installed-plugins"
 import { mutatesBySpec } from "@modules/domain/tool-specs"
 import { declaredPayloadOf, triggerSpecOf } from "@modules/domain/trigger-specs"
-import { KEY_SCOPE_PREFIX } from "@modules/domain/provider-triggers/trigger-delivery.policy"
+import { KEY_SCOPE_PREFIX, streamScopeOf } from "@modules/domain/provider-triggers/trigger-delivery.policy"
 import { AgentRunsService, type StepSpec } from "@modules/domain/agent-runs"
 import {
     AgentWorkHandlersService,
@@ -597,6 +597,8 @@ export class AgentGraphFlowRunsService implements AgentWorkFlow, OnModuleInit {
             ...(event.subject === undefined ? {} : { subject: event.subject }),
             data: event.data,
             ...(locale === undefined ? {} : { locale }),
+            // A `stream` marker (rule Q-4): the one-event shape plus when it was taken and how many events it stands for.
+            ...streamScopeOf(turn.context, turn.wakeCreatedAt),
             ...this.callerScopeOf(turn),
         }
     }

@@ -1,5 +1,5 @@
 import { Injectable, Optional } from "@nestjs/common"
-import { ConnectionBindingsReadService } from "@modules/domain/connections"
+import { ConnectionBindingsReadService, halvesOf } from "@modules/domain/connections"
 import { INSTALLED } from "@modules/domain/installed-plugins"
 import {
     ToolRegistryService,
@@ -8,7 +8,7 @@ import {
     type WorkspaceToolFamily,
 } from "@modules/domain/tools"
 import { OPENAPI_PROVIDER, OPENAPI_SOURCE_KEYS, installedDeclarationsOf, sourceOfTool } from "@modules/domain/openapi-tools"
-import { triggersOf } from "@modules/domain/provider-triggers"
+import { declaredOf } from "@modules/domain/provider-triggers"
 import { INTERFACE_READ_PROVIDERS, apiVerbOfRead, type InterfaceReadProvider } from "@modules/domain/workbench-door"
 import { WorkspaceMembersService } from "@modules/domain/workspace-members"
 import { WorkspaceEnterpriseService } from "@modules/domain/workspaces"
@@ -53,7 +53,7 @@ const sourcesOf = (tools: ReadonlySet<string>): ReadonlySet<string> =>
  * WHAT A PROVIDER OFFERS, for the provider page of one connected account: its level-1 reads (the interface-read registry; for the
  * OpenAPI provider, generated from the PINNED document stored on the connection), its level-2 tools (the rights catalogue's tools with
  * the gateway's specs, the plugins' declarations and, for the OpenAPI provider, how each stands against the pinned document) and its
- * level-3 triggers (the trigger catalogue). Documentation only: no read is run, nothing outside is called, no figure of the account is
+ * level-3 triggers (the trigger declarations). Documentation only: no read is run, nothing outside is called, no figure of the account is
  * returned. Any member of the workspace may read it; the account must be the workspace's own.
  */
 export class ProviderOfferService {
@@ -83,7 +83,8 @@ export class ProviderOfferService {
             provider,
             api: await this.apiOf(actor.workspaceId, provider, pin, sourcesOf(open)),
             mcp: this.mcpOf(provider, pin, open),
-            triggers: offeredTriggersOf(triggersOf(provider)),
+            // The account's own provider's triggers and those of every half it holds (a mailbox's inbound half: `imap`).
+            triggers: offeredTriggersOf([provider, ...halvesOf(record)].flatMap((one) => declaredOf(one))),
         }
     }
 

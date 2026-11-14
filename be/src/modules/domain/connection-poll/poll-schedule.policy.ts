@@ -18,9 +18,11 @@ export const DEFAULT_POLL_SCHEDULE: PollScheduleOptions = {
     unavailableRecheckMs: 24 * 3_600_000,
     batchSize: 50,
     leaseMs: 10 * 60_000,
-    maxInlineWaitMs: 5_000,
     backfillChunkPages: 2,
 }
+
+/** A provider whose concurrency slots are all taken is asked again after this long (the schedule's declared value: a connection is planned again, nothing waits for a slot). */
+export const BUSY_PROVIDER_RECHECK_MS = 5_000
 
 /** The facts of a connection the interval is chosen from. */
 export type IntervalFacts = Pick<PollScheduleRow, "failures" | "hotUntil" | "lastWebhookAt">

@@ -48,6 +48,14 @@ const query1: Document = gql`
                         kind
                     }
                 }
+                jobParked {
+                    job
+                    jobId
+                    failureClass
+                    reason
+                    episode
+                    since
+                }
             }
         }
     }

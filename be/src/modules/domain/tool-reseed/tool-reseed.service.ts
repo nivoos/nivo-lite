@@ -1,6 +1,5 @@
 import { Injectable } from "@nestjs/common"
 import type { GraphSpec } from "@nivo-lite/agent-sdk/graph"
-import { nodeIndexOf } from "@nivo-lite/agent-sdk/node"
 import { latestTemplateVersion } from "@nivo-lite/agent-sdk/template"
 import {
     AgentGraphFlowService,
@@ -256,7 +255,6 @@ export class ToolReseedService {
                 agentId,
                 installationId: installation.id,
                 flow: primary.graph,
-                installed: nodeIndexOf(INSTALLED.nodeInstall()),
             })
         }
         // The install road: the primary workflow adopts the flow just published; a template the agent holds none of becomes a workflow.

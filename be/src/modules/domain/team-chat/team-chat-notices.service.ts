@@ -2,18 +2,21 @@ import { Injectable } from "@nestjs/common"
 import { WorkspacesService } from "@modules/domain/workspaces"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import type { BackgroundStopPosted, BackgroundStopReport } from "./background-stop-card.contracts"
+import type { JobParkedReport } from "./job-parked-card.contracts"
+import type { TeamCardMessage } from "./team-chat-audience.contracts"
 import type { NivoNotice, NoticePosted } from "./team-chat-notice.contracts"
 import {
     backgroundStoppedKeyOf,
     backgroundStoppedMessageOf,
     backgroundStoppedPayloadOf,
 } from "./background-stop-card.policy"
+import { jobParkedKeyOf, jobParkedMessageOf, jobParkedPayloadOf } from "./job-parked-card.policy"
 import { cardBodyOf, lineClientIdOf, nivoRoomKeyOf } from "./team-chat.policy"
 import { TeamChatStoreService } from "./team-chat-store.service"
 
 @Injectable()
 /**
- * What NIVO itself (no agent, no run) tells the founder in /chat: the common "background work stopped" card and a plain notice (a line
+ * What NIVO itself (no agent, no run) tells the founder in /chat: the common "background work stopped" card, the "job stopped for a fix" card and a plain notice (a line
  * of words the caller built, once per key). It goes to the
  * founder's NIVO room (a direct room keyed `system:nivo|user:<owner>`, only the owner seated, opened on the first write and never on a
  * read), as a system line carrying the typed card. ONE card per failure episode: the line's key is the work and the episode, so a retry
@@ -28,20 +31,15 @@ export class TeamChatNoticesService {
     ) {}
 
     /** Tells the workspace's founder that a background work stopped, once per failure episode. */
-    async postBackgroundStopped(workspaceId: string, report: BackgroundStopReport): Promise<BackgroundStopPosted> {
-        const ownerId = await this.workspaces.ownerIdOf(workspaceId)
-        if (ownerId === null) return "no_owner"
-        const roomId = await this.nivoRoomOf(workspaceId, ownerId)
+    postBackgroundStopped(workspaceId: string, report: BackgroundStopReport): Promise<BackgroundStopPosted> {
         const message = backgroundStoppedMessageOf(backgroundStoppedPayloadOf(report, this.clock.now()))
-        const created = await this.store.insertLine({
-            workspaceId,
-            roomId,
-            authorAgentId: null,
-            body: cardBodyOf(message.summary),
-            key: backgroundStoppedKeyOf(report.work, report.episode),
-            agentMessage: JSON.stringify(message),
-        })
-        return created === null ? "already" : "posted"
+        return this.postCard(workspaceId, message, backgroundStoppedKeyOf(report.work, report.episode))
+    }
+
+    /** Tells the workspace's founder that a job stopped for a fix, once per job and park episode (a person's resume opens the next episode). */
+    postJobParked(workspaceId: string, report: JobParkedReport): Promise<NoticePosted> {
+        const message = jobParkedMessageOf(jobParkedPayloadOf(report, this.clock.now()))
+        return this.postCard(workspaceId, message, jobParkedKeyOf(report.jobId, report.episode))
     }
 
     /**
@@ -58,6 +56,22 @@ export class TeamChatNoticesService {
             authorAgentId: null,
             body: cardBodyOf(notice.body),
             key: lineClientIdOf(notice.key),
+        })
+        return created === null ? "already" : "posted"
+    }
+
+    /** Writes one typed card as a system line in the founder's NIVO room under its key; a repeat of the key writes nothing new. */
+    private async postCard(workspaceId: string, message: TeamCardMessage, key: string): Promise<NoticePosted> {
+        const ownerId = await this.workspaces.ownerIdOf(workspaceId)
+        if (ownerId === null) return "no_owner"
+        const roomId = await this.nivoRoomOf(workspaceId, ownerId)
+        const created = await this.store.insertLine({
+            workspaceId,
+            roomId,
+            authorAgentId: null,
+            body: cardBodyOf(message.summary),
+            key,
+            agentMessage: JSON.stringify(message),
         })
         return created === null ? "already" : "posted"
     }

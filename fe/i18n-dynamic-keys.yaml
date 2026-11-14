@@ -121,6 +121,12 @@ namespaces:
       reason: "Read as `t(linkOutcomeKeyOf(outcome))` in hooks/contacts/useContactCommands.ts: hooks/contacts/contacts.shared.ts (LINK_OUTCOME_KEYS) holds the closed set of three keys that say what linking an identity did."
     - key: "linkedProposed"
       reason: "Read as `t(linkOutcomeKeyOf(outcome))` in hooks/contacts/useContactCommands.ts: hooks/contacts/contacts.shared.ts (LINK_OUTCOME_KEYS) holds the closed set of three keys that say what linking an identity did."
+    - key: "consentUnchanged"
+      reason: "Read as `t(consentOutcomeKeyOf(outcome, doNotContact))` in hooks/contacts/useContactCommands.ts: hooks/contacts/contacts.shared.ts holds the closed set of three keys that say what setting or clearing the do-not-message-first mark did."
+    - key: "consentSetDone"
+      reason: "Read as `t(consentOutcomeKeyOf(outcome, doNotContact))` in hooks/contacts/useContactCommands.ts: hooks/contacts/contacts.shared.ts holds the closed set of three keys that say what setting or clearing the do-not-message-first mark did."
+    - key: "consentClearDone"
+      reason: "Read as `t(consentOutcomeKeyOf(outcome, doNotContact))` in hooks/contacts/useContactCommands.ts: hooks/contacts/contacts.shared.ts holds the closed set of three keys that say what setting or clearing the do-not-message-first mark did."
   email:
     - prefix: "err_"
       reason: "Key family built at run time as `err_${message.deliveryError}` in hooks/chatbotThread/chatbotThread.shared.ts; the value comes from data (status, kind, id), so the detector cannot enumerate the keys."
@@ -137,6 +143,21 @@ namespaces:
   invite:
     - key: "failed"
       reason: 'Read as the string "failed" in components/blocks/AutomationsBoard/component.tsx, components/blocks/AutomationsBoard/index.tsx; the translator that reaches it is a wrapper hook or typed callback handed in from the block, whose namespace the detector does not bind.'
+  jobProgress:
+    - prefix: "step_"
+      reason: "Key family read through the wrapper translator of hooks/jobProgress/useJobProgressWords.ts as the catalog key JOB_LABEL_WORDS names for a step label key (modules/jobProgress/jobProgress.words.ts): the label key comes from the job frame, so the detector cannot enumerate the keys."
+    - prefix: "class_"
+      reason: "Key family read through the wrapper translator of hooks/jobProgress/useJobProgressWords.ts as the catalog key JOB_CLASS_WORDS names for the failure class of a dead letter (modules/jobProgress/jobProgress.words.ts): the class comes from the job frame, so the detector cannot enumerate the keys."
+    - key: "running"
+      reason: 'Read as the string "running" in modules/jobProgress/jobProgress.words.ts through the wrapper translator of hooks/jobProgress/useJobProgressWords.ts, whose namespace the detector does not bind.'
+    - key: "retry"
+      reason: 'Read as the string "retry" in modules/jobProgress/jobProgress.words.ts through the wrapper translator of hooks/jobProgress/useJobProgressWords.ts, whose namespace the detector does not bind.'
+    - key: "retryAt"
+      reason: 'Read as the string "retryAt" in modules/jobProgress/jobProgress.words.ts through the wrapper translator of hooks/jobProgress/useJobProgressWords.ts, whose namespace the detector does not bind.'
+    - key: "done"
+      reason: 'Read as the string "done" in modules/jobProgress/jobProgress.words.ts through the wrapper translator of hooks/jobProgress/useJobProgressWords.ts, whose namespace the detector does not bind.'
+    - key: "deadLetter"
+      reason: 'Read as the string "deadLetter" in modules/jobProgress/jobProgress.words.ts through the wrapper translator of hooks/jobProgress/useJobProgressWords.ts, whose namespace the detector does not bind.'
   knowledge:
     - key: "errEnqueue"
       reason: 'Read as the string "errEnqueue" in hooks/knowledge/useAddDocuments.ts, hooks/knowledge/useAddQueue.ts; the translator that reaches it is a wrapper hook or typed callback handed in from the block, whose namespace the detector does not bind.'
@@ -179,6 +200,13 @@ namespaces:
   promoAds:
     - suffix: "Title"
       reason: "Key family built at run time as `${kind}Title` in hooks/connection-rows/connection-rows.shared.ts; the stem comes from data, so the detector cannot enumerate the keys."
+  sandbox:
+    - key: "purposeDocumentExtract"
+      reason: "Read as `t(key)` in hooks/sandbox/useSandboxCopy.ts: PURPOSE_WORDS holds the closed table of the purposes of a model call the app has its own words for, so the translator reaches the key through a variable."
+    - key: "purposeDocumentTriage"
+      reason: "Read as `t(key)` in hooks/sandbox/useSandboxCopy.ts: PURPOSE_WORDS holds the closed table of the purposes of a model call the app has its own words for, so the translator reaches the key through a variable."
+    - key: "purposeStepTrouble"
+      reason: "Read as `t(key)` in hooks/sandbox/useSandboxCopy.ts: PURPOSE_WORDS holds the closed table of the purposes of a model call the app has its own words for, so the translator reaches the key through a variable."
   secondBrain:
     - prefix: "lane_"
       reason: "Key family built at run time as `lane_${lane}` in modules/brain/ask-view.ts: the lane is one of the closed LENS_LANES of modules/brain/lenses.ts (documentPublic, documentInternal, factPublic, factInternal, factRestricted), so the detector cannot enumerate the keys."
@@ -196,3 +224,7 @@ namespaces:
   teamChat:
     - prefix: "refusal_"
       reason: "Key family built at run time as `refusal_${code}` in components/blocks/TeamChat/index.tsx: the code is the closed refusal vocabulary of the chat doors (modules/teamChat ChatRefusalCode), so each key is a literal there."
+    - prefix: "jobParked.title."
+      reason: "Key family built at run time as `jobParked.title.${key}` in hooks/teamChat/useChatRowWords.ts: the key comes from the closed JOB_WORDS table of the jobs the app has words for, so the detector cannot enumerate the keys."
+    - prefix: "jobParked.name."
+      reason: "Key family built at run time as `jobParked.name.${key}` in hooks/teamChat/useChatRowWords.ts: the key comes from the closed JOB_WORDS table of the jobs the app has words for, so the detector cannot enumerate the keys."

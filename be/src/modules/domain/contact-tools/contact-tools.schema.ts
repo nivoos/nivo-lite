@@ -10,6 +10,7 @@ const VALUE_MAX = 320
 const TAG_MAX = 40
 const TAGS_MAX = 20
 const FACTS_MAX = 20
+const REASON_MAX = 300
 
 /** A contact id a call may name. */
 const contactId = (): z.ZodOptional<z.ZodString> => z.string().min(1).max(ID_MAX).optional()
@@ -29,12 +30,17 @@ export const CONTACT_SEARCH_SCHEMA = z
     })
     .strict()
 
-/** `nivo.tool.contact.update`: the display name and / or the tags of the contact (the run's own when none is named). */
+/**
+ * `nivo.tool.contact.update`: the display name and / or the tags of the contact (the run's own when none is named), and `doNotContact`
+ * when the person asked the shop to stop writing to them first: it SETS the contact's consent fact with the reason the step states. No
+ * argument clears it (only a person does, on the contact page); WHEN to call it is the package's to decide, never the engine's.
+ */
 export const CONTACT_UPDATE_SCHEMA = z
     .object({
         contactId: contactId(),
         displayName: z.string().min(1).max(NAME_MAX).nullable().optional(),
         tags: z.array(z.string().min(1).max(TAG_MAX)).max(TAGS_MAX).optional(),
+        doNotContact: z.object({ reason: z.string().min(1).max(REASON_MAX) }).strict().optional(),
     })
     .strict()
 

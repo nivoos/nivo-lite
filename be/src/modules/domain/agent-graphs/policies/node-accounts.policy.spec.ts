@@ -1,4 +1,3 @@
-import { Test } from "@nestjs/testing"
 import type { GraphSpec, GraphV2Step } from "@nivo-lite/agent-sdk/graph"
 import { latestTemplateVersion, type TemplateAgent, type TemplateGraph } from "@nivo-lite/agent-sdk/template"
 import { INSTALLED } from "@modules/domain/installed-plugins"
@@ -6,7 +5,6 @@ import { accountKindOf } from "@modules/domain/installed-plugins/template-graph-
 import { templateGraph } from "@tests/fixtures/builders/agent-workflows.builder"
 import { templateFlowProblems } from "./flow.policy"
 import recorded from "./node-accounts-table.json"
-import { nodeAccountLookup, nodeProvidersOf } from "./node-accounts.policy"
 
 /**
  * The proof of the node rights of every installed template agent (the core agents and the NIVO Web plugin's), read from
@@ -82,6 +80,22 @@ import { nodeAccountLookup, nodeProvidersOf } from "./node-accounts.policy"
  * declares ONE write: the chat step keeps its key and loses `smtp` (`webrenew.answer#tell`, `websales.round#follow`, `websales.close#pay`,
  * `websales.won#tell`), a NEW `<key>-mail` step per graph holds the mail send alone (ask, [smtp] plus the CRM where the node reads it), and a NEW
  * auto `<key>-told` merge step (no tools, no accounts) returns the one send that was not skipped.
+ * Ledger (P-CONSENT, 2026-11-14, coordinator business decision "a person who asks the shop to stop messaging them must be able to say so in the chat",
+ * front desk v27, +2 rows read by diff; no other row moves): `chatbot.front-desk` gains the `stop` route of `understand` and its two steps:
+ * `stop-keep` (`chatbot.stop-keep`, auto, none: the one `nivo.tool.contact.update` write, `doNotContact: { reason }`) and `stop-reply`
+ * (`chatbot.stop-reply`, auto, [zalo_oa, telegram, meta]: the one acknowledgement on the person's own line); the update and the send are
+ * separate steps, so each step makes ONE write (the `ask` rule).
+ * Ledger (WEBCORE-5, 2026-11-14, coordinator R91 / R92 "mail is a channel of the ONE customer send" (SEND-ONE), 229 -> 221 rows from the installation of the 19:4x
+ * build, read by diff; only nivo-web-core rows move): (p) the four sends that WEBCORE-4b split by channel because mail was a second tool are ONE asked step
+ * again, each with ONE write (`nivo.tool.customer.message.send`): `webrenew.answer#tell`, `websales.round#follow`, `websales.close#pay`, `websales.won#tell`
+ * are `ask` and list the chat providers AND `smtp` (the mail channel of the one send) in their old order again; the eight steps WEBCORE-4b added
+ * (`tell-mail`, `tell-told`, `follow-mail`, `follow-told`, `pay-mail`, `pay-told`, `tell-mail` of won, `told`) and their nodes are deleted. Every other
+ * row, the other mail steps included (their `smtp` is now the provider of the one send, not of a mail tool), keeps graph/step/node/mode/providers.
+ * Ledger (WEBCORE-6, 2026-11-14, coordinator R91 / MAIL-IN "a person's mail is a line like a chat message", same row count 221, from the installation of the
+ * WEBCORE-6 build, read by diff; only nivo-web-core rows move): (q) `webmail.triage` step `read` (`webmail.read`, auto, [imap]: the batch read of the mailbox) is
+ * replaced by `hear` (`webmail.hear`, auto, none: the person's unread lines of the route, a native read of the conversation); `webmail.triage#sort`
+ * (`webmail.sort`) no longer reads a mail from the mailbox (the line is the person's mail), so it lists no provider ([imap] -> none). The mailbox is the
+ * agent's `smtp` account (the trigger source), no step acts on it; every other row keeps graph/step/node/mode/providers.
  */
 
 /** A node step of a template graph. */
@@ -126,17 +140,6 @@ const declaredLines = (): ReadonlyArray<Line> =>
         })),
     )
 
-const SUBJECT = Symbol("node-accounts.policy")
-
-/** The policy members under test, read through the Nest testing module. */
-const build = async () => {
-    const moduleRef = await Test.createTestingModule({
-        providers: [{ provide: SUBJECT, useValue: { lookup: nodeAccountLookup, providers: nodeProvidersOf } }],
-    }).compile()
-    return moduleRef.get<{ readonly lookup: typeof nodeAccountLookup; readonly providers: typeof nodeProvidersOf }>(
-        SUBJECT,
-    )
-}
 
 describe("the node rights of every installed template agent: each step's ONE mode and its providers in order, recorded", () => {
     // Ledger (TOOLS-LEAD 2026-11-13): "accounting" leaves the list (the agent is dropped); booking, content, hiring and video join it.
@@ -189,21 +192,11 @@ describe("the node rights of every installed template agent: each step's ONE mod
 
     it("passes the engine's save check of its accounts", () => {
         for (const template of INSTALLED.templates().filter((entry) => INSTALLED.templateGraphOf(entry.id) !== null)) {
-            const problems = templateFlowProblems(latestTemplateVersion(template).graph) ?? []
+            const problems = templateFlowProblems(latestTemplateVersion(template).graph)
             expect([template.id, problems.filter((problem) => problem.code.startsWith("NODE_ACCOUNT_"))]).toEqual([
                 template.id,
                 [],
             ])
         }
-    })
-})
-
-describe("nodeAccountLookup", () => {
-    it("knows the kinds of the provider catalogue and a provider only under its own kind", async () => {
-        const { lookup } = await build()
-        expect(lookup.knows("messaging", null)).toBe(true)
-        expect(lookup.knows("payment", "sepay")).toBe(true)
-        expect(lookup.knows("messaging", "sepay")).toBe(false)
-        expect(lookup.knows("fax", null)).toBe(false)
     })
 })

@@ -23,7 +23,22 @@ export { AgentWorkDoorsService } from "./agent-work-doors.service"
 export { AgentTriggersService } from "./agent-triggers.service"
 export { AgentTurnsService } from "./agent-turns.service"
 export { AgentWakeRetentionService } from "./agent-wake-retention.service"
-export { AgentWakeService, WAITING_REASON, handedBackOf, type PendingScopeWake } from "./agent-wake.service"
+export { AgentWakeService, WAITING_REASON, handedBackOf, type PendingScopeWake, type CombineSet } from "./agent-wake.service"
+export {
+    COALESCED_REASON,
+    LATEST_COMBINE,
+    REPLACED_REASON,
+    STREAM_COMBINE,
+    isLatestWake,
+    isStreamWake,
+    latestReplacingOf,
+    settledNotBeforeOf,
+    streamCoalescingOf,
+    streamCountOf,
+    type LatestReplacing,
+    type StreamCoalescing,
+    type UnrunStreamWake,
+} from "./agent-wake-coalesce.policy"
 export { tagContextOf, tagPayloadOf } from "./agent-tag.policy"
 export { AgentWorkHandlersService } from "./agent-work-handlers.service"
 export { AgentWorkReadService } from "./agent-work-read.service"

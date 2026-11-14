@@ -1,5 +1,6 @@
 import { QueueModule, type QueueOptions } from "@modules/platform/queue"
 import { JobsModule } from "@modules/platform/jobs"
+import { EffectsModule } from "@modules/platform/effects"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { MetaModule } from "@modules/integrations/meta"
 import { Secret } from "@modules/platform/config"
@@ -32,6 +33,7 @@ export const JOBS_MODULES: Array<DynamicModule> = [
         leaseMs: 100,
         scheduler: { enabled: false },
     }),
+    EffectsModule.register({ isGlobal: true, connection: PRIMARY_ENTITY_MANAGER }),
 ]
 /** The local provider signing key; this is synthetic test data. */
 export const signingFixture = "integration-meta-provider-fixture"

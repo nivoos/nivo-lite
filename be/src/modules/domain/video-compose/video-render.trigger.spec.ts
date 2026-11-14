@@ -24,9 +24,13 @@ describe("the compose providers' render trigger", () => {
             PROVIDER.shotstack,
             "render.completed",
             TRIGGER.videoRenderCompleted,
-            "webhook",
+            ["webhook"],
             { by: "data", member: "renderId" },
         ])
+        expect(shotstack.dataType).toBe("shotstack.render")
+        expect(shotstack.switch).toEqual({ decided: false, onByDefault: true })
+        expect(shotstack.withoutPoll?.source).toBe("nivo:thread_deadline")
+        expect(Object.keys(shotstack.words.members ?? {}).sort()).toEqual(["error", "outputUrl", "provider", "renderId", "status"])
         expect(triggerOf(PROVIDER.shotstack)).toBe(shotstack)
         expect(triggerOf(PROVIDER.creatomate)).not.toBe(shotstack)
     })

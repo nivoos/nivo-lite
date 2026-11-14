@@ -12,6 +12,8 @@ export const PUBLIC_API_MESSAGES: MessageBundle = {
         "errors.PUBLIC_API_REQUEST_NOT_FOUND": "Không tìm thấy yêu cầu API trong không gian làm việc này.",
         "errors.PUBLIC_API_INBOX_INCONSISTENT":
             "Yêu cầu API đã có biên nhận hộp thư nhưng sổ cái vẫn chưa xử lý; cần kiểm tra để khôi phục.",
+        "errors.PUBLIC_API_SEND_OUTCOME_UNKNOWN":
+            "Một lần gửi trước của tin nhắn này kết thúc không rõ (kênh có thể đã nhận). Hãy kiểm tra với khách rồi chạy lại nếu cần.",
         "errors.PUBLIC_API_SINCE_INVALID":
             'Tham s\u1ed1 "since" ph\u1ea3i l\u00e0 th\u1eddi \u0111i\u1ec3m ISO, v\u00ed d\u1ee5 2026-10-01T00:00:00Z.',
         "errors.PUBLIC_API_CONVERSATION_NOT_FOUND":
@@ -32,6 +34,8 @@ export const PUBLIC_API_MESSAGES: MessageBundle = {
         "errors.PUBLIC_API_REQUEST_NOT_FOUND": "No API request with this identity belongs to the workspace.",
         "errors.PUBLIC_API_INBOX_INCONSISTENT":
             "The inbox already holds a receipt for this API request while the ledger still shows it unprocessed; it needs recovery.",
+        "errors.PUBLIC_API_SEND_OUTCOME_UNKNOWN":
+            "An earlier try to send this message ended uncertain (the channel may have taken it). Check with the customer, then run it again if needed.",
         "errors.PUBLIC_API_SINCE_INVALID":
             'The "since" parameter must be an ISO time, for example 2026-10-01T00:00:00Z.',
         "errors.PUBLIC_API_CONVERSATION_NOT_FOUND": "No conversation with this customer was found.",

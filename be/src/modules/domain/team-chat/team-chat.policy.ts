@@ -14,6 +14,7 @@ import {
     type StoredMention,
 } from "./team-chat.contracts"
 import type { PurposeColumns } from "./team-chat-audience.contracts"
+import type { NewText, TextRow } from "./team-chat-store.contracts"
 import { TeamChatErrorCode } from "./errors/team-chat.error"
 
 /** The longest client id of a message: the column's CHECK (chat_room_messages_client_id_check) holds 1 to 64 characters. */
@@ -175,3 +176,19 @@ export const purposeColumnsOf = (kind: RoomKind, given: GroupPurpose | undefined
 /** Whether a purpose can be stored: a module room names a module of 1 to 64 characters. */
 export const isPurposeValid = (given: GroupPurpose): boolean =>
     given.purpose !== "module" || (given.module.trim().length > 0 && given.module.length <= PURPOSE_MODULE_MAX)
+
+/** The row a person's text message is stored as. */
+export const textRowOf = (id: string, text: NewText): TextRow => ({
+    id,
+    roomId: text.roomId,
+    workspaceId: text.workspaceId,
+    authorKind: "user",
+    authorId: text.authorId,
+    body: text.body,
+    kind: "text",
+    ref: text.ref ?? null,
+    mentions: text.mentions,
+    attachments: text.attachments,
+    clientId: text.clientId,
+    replyTo: text.replyTo ?? null,
+})

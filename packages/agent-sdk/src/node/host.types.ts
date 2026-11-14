@@ -39,6 +39,12 @@ export interface NodeHostPorts {
      * with what the closure answered. Absent, the runner takes the turns itself over `model.json` (one JSON answer per turn).
      */
     readonly agent?: ((loop: NodeAgentLoop) => Promise<NodeAgentLoopEnd>) | undefined
+    /**
+     * The workspace's policies for the turn's agent (L2 of every model call of the node): what the host read of the workspace's truth graph in
+     * the agent's lens, as one text that is the same bytes while no rule changes ("" when there is none). The runner asks it once per
+     * node run, and only when the node calls the model. Absent: no L2.
+     */
+    readonly policies?: (() => Promise<string>) | undefined
 }
 
 /** A tool as the agent is shown it: one of the agent's whole set, the same for every step. */
@@ -81,14 +87,18 @@ export type NodeAgentEndAnswer = { readonly ok: true } | { readonly ok: false; r
  * answers each tool call of the model with `call`, an output with `done` and a confusion with `confused`, one after the other (never
  * two at once), and returns when `done` or `confused` answered `ok: true`, or when `maxTurns` model turns were taken. A refusal the
  * host makes itself (a second call in one model message, a turn with no call) is shown to the model in the same shape,
- * `{ ok: false, refused: NodeAgentRefusal }`, without asking `call`, and counts as a turn. For the cache the host sends `instructions`
- * as the system text, then the tool set, then `step` at the START of the first user message, before `volatile` and `input`.
+ * `{ ok: false, refused: NodeAgentRefusal }`, without asking `call`, and counts as a turn. For the cache the host lays the call out in
+ * the four layers of "The layout of a model call" (`host.ts`): the tool set and `instructions` (L1), then `policies` (L2) as the system text,
+ * then `step` (L3) at the START of the first user message, then `volatile` and `input` (L4); a host that marks breakpoints marks the end
+ * of L1, of L2 and of L3, and the turns only append after them.
  */
 export interface NodeAgentLoop {
     /** What the calls are metered under: the node id and the agent's tag. */
     readonly purpose: string
     /** The agent's craft (L1): the same text for every step of the agent. Never the tool set. */
     readonly instructions: string
+    /** The workspace's policies (L2): the same text for every step of the agent in one workspace while no rule changes; absent when it has none. */
+    readonly policies?: string | undefined
     /** The step (L3): its goal, then as JSON the tools it may call, the ones that must have succeeded, and the schema of its output. */
     readonly step: string
     /** The rules about what changes between two tries of the step (L4); absent when the turn carries none. */

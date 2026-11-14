@@ -88,6 +88,8 @@ export interface TemplateHostPorts {
     readonly model: NodeHostModel
     /** The host's own agent loop, when it takes the turns itself. */
     readonly agent?: NodeHostPorts["agent"]
+    /** The workspace's policies for the agent (L2 of its model calls), when the host reads them. */
+    readonly policies?: NodeHostPorts["policies"]
     /** The clock (the legacy runner's port; a template node never reads it: it reads `run.at`). */
     readonly now: () => Date
 }
@@ -329,6 +331,7 @@ const agentRunOf =
             model: ports.model,
             now: ports.now,
             ...(ports.agent === undefined ? {} : { agent: ports.agent }),
+            ...(ports.policies === undefined ? {} : { policies: ports.policies }),
         }
         const ran = await runNode(
             {

@@ -5,7 +5,7 @@ import { z } from "zod"
 import { MAX_ID } from "../../../shared/bounds"
 import type { NodeSchema } from "../../../shared/nodes/node-schema.types"
 import { nodeGoalOf } from "../../../shared/nodes/node-ui"
-import { ARMED, CARE_OPEN, EXAMPLE_AT, ORDER_O1, personReadsOf } from "./care.examples"
+import { ARMED, EXAMPLE_AT, ORDER_O1, personReadsOf } from "./care.examples"
 import { SHIP_FIRST_LOOK_MINUTES, afterMinutes, dayAfter, deliveryCheckAtOf, deliveryDayOf } from "./care.policy"
 import { careOrderOf, orderPersonOf, type CareOrder } from "./care.reads"
 import { armCare, careTimerArgsOf } from "./care.steps"
@@ -90,13 +90,13 @@ const deliveryCheckOf = async (context: NodeContext, order: CareOrder): Promise<
  * `sales.care-plan-delivery` (Hen hoi tham sau giao): arms ONE timer, the check-in after delivery (`nivo.tool.timer.arm`, kind
  * `delivery-check`, ref the order). The moment is exact arithmetic on the order's instants and `ctx.run.at`; "today" is the run's own day
  * (`ctx.run.day`, the workspace's calendar day); only the reading of the customer's delivery WORDS as a day is the agent's (`ctx.agent.run`, no tool). With no day known the timer carries
- * `data.shipWaits: 0` so the check-in looks for the shipment first. Nothing is armed for a customer who asked to be left alone.
+ * `data.shipWaits: 0` so the check-in looks for the shipment first.
  */
 export const salesCarePlanDeliveryNode: TemplateNode<typeof input, typeof output> = defineTemplateNode({
     id: ID,
     title: { key: "nodeSalesCarePlanDeliveryTitle" },
-    description: { vi: "H\u1eb9n m\u1ed9t l\u1ea7n h\u1ecfi th\u0103m kh\u00e1ch sau ng\u00e0y giao h\u00e0ng. Kh\u00f4ng h\u1eb9n cho kh\u00e1ch \u0111\u00e3 d\u1eb7n \u0111\u1eebng l\u00e0m phi\u1ec1n.", en: "Schedules one check-in with the customer after the delivery day. Schedules nothing for a customer who asked to be left alone." },
-    tools: [TOOL.orderGet, TOOL.leadCareGet],
+    description: { vi: "H\u1eb9n m\u1ed9t l\u1ea7n h\u1ecfi th\u0103m kh\u00e1ch sau ng\u00e0y giao h\u00e0ng.", en: "Schedules one check-in with the customer after the delivery day." },
+    tools: [TOOL.orderGet],
     mode: "auto",
     accounts: [],
     input,
@@ -107,7 +107,7 @@ export const salesCarePlanDeliveryNode: TemplateNode<typeof input, typeof output
         const order = await careOrderOf(context, given.orderId)
         if (order === null) return none
         const person = await orderPersonOf(context, order.id)
-        if (person === null || person.optedOut) return none
+        if (person === null) return none
         const check = await deliveryCheckOf(context, order)
         const arm = await armCare(context, {
             kind: "delivery-check",
@@ -130,7 +130,7 @@ export const salesCarePlanDeliveryNode: TemplateNode<typeof input, typeof output
                     args: { orderId: "o1" },
                     answer: answered({ order: withDeliveryAt("tomorrow afternoon") }),
                 },
-                ...personReadsOf(answered(CARE_OPEN)),
+                ...personReadsOf(),
                 {
                     id: TOOL.timerArm,
                     args: careTimerArgsOf({ kind: "delivery-check", ref: "o1", dueAt: "1970-01-03T02:00:00.000Z" }),
@@ -147,7 +147,7 @@ export const salesCarePlanDeliveryNode: TemplateNode<typeof input, typeof output
             input: { orderId: "o1" },
             tools: [
                 { id: TOOL.orderGet, args: { orderId: "o1" }, answer: answered({ order: ORDER_O1 }) },
-                ...personReadsOf(answered(CARE_OPEN)),
+                ...personReadsOf(),
                 {
                     id: TOOL.timerArm,
                     args: careTimerArgsOf({
@@ -172,7 +172,7 @@ export const salesCarePlanDeliveryNode: TemplateNode<typeof input, typeof output
                     args: { orderId: "o1" },
                     answer: answered({ order: withDeliveryAt("khi n\u00e0o ti\u1ec7n") }),
                 },
-                ...personReadsOf(answered(CARE_OPEN)),
+                ...personReadsOf(),
                 {
                     id: TOOL.timerArm,
                     args: careTimerArgsOf({
@@ -200,7 +200,7 @@ export const salesCarePlanDeliveryNode: TemplateNode<typeof input, typeof output
                         order: { ...withDeliveryAt("tomorrow"), shippedAt: "1970-01-01T08:00:00.000Z" },
                     }),
                 },
-                ...personReadsOf(answered(CARE_OPEN)),
+                ...personReadsOf(),
                 {
                     id: TOOL.timerArm,
                     args: careTimerArgsOf({ kind: "delivery-check", ref: "o1", dueAt: "1970-01-02T08:00:00.000Z" }),
@@ -210,17 +210,6 @@ export const salesCarePlanDeliveryNode: TemplateNode<typeof input, typeof output
             output: { orderId: "o1", checkAt: "1970-01-02T08:00:00.000Z", waitsForShipment: false, declined: false },
         },
         {
-            name: "a customer who asked to be left alone gets no check-in armed",
-            params: {},
-            at: EXAMPLE_AT,
-            input: { orderId: "o1" },
-            tools: [
-                { id: TOOL.orderGet, args: { orderId: "o1" }, answer: answered({ order: ORDER_O1 }) },
-                ...personReadsOf(answered({ ...CARE_OPEN, optedOut: true })),
-            ],
-            output: { orderId: "o1", checkAt: null, waitsForShipment: false, declined: false },
-        },
-        {
             name: "late evening in Vietnam the agent counts from the run's own day, already the next one in UTC terms",
             params: {},
             at: "2026-11-12T18:30:00.000Z",
@@ -228,7 +217,7 @@ export const salesCarePlanDeliveryNode: TemplateNode<typeof input, typeof output
             input: { orderId: "o1" },
             tools: [
                 { id: TOOL.orderGet, args: { orderId: "o1" }, answer: answered({ order: withDeliveryAt("tomorrow") }) },
-                ...personReadsOf(answered(CARE_OPEN)),
+                ...personReadsOf(),
                 {
                     id: TOOL.timerArm,
                     args: careTimerArgsOf({ kind: "delivery-check", ref: "o1", dueAt: "2026-11-15T02:00:00.000Z" }),
@@ -245,7 +234,7 @@ export const salesCarePlanDeliveryNode: TemplateNode<typeof input, typeof output
             input: { orderId: "o1" },
             tools: [
                 { id: TOOL.orderGet, args: { orderId: "o1" }, answer: answered({ order: ORDER_O1 }) },
-                ...personReadsOf(answered(CARE_OPEN)),
+                ...personReadsOf(),
                 {
                     id: TOOL.timerArm,
                     args: careTimerArgsOf({
@@ -266,7 +255,7 @@ export const salesCarePlanDeliveryNode: TemplateNode<typeof input, typeof output
             input: { orderId: "o1" },
             tools: [
                 { id: TOOL.orderGet, args: { orderId: "o1" }, answer: answered({ order: ORDER_O1 }) },
-                ...personReadsOf(answered(CARE_OPEN)),
+                ...personReadsOf(),
                 {
                     id: TOOL.timerArm,
                     args: careTimerArgsOf({

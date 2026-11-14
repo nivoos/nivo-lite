@@ -1,5 +1,5 @@
 import { Test } from "@nestjs/testing"
-import { FakeClock, builder, mock } from "@starci/jest-preset"
+import { FakeClock, builder, fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
 import { BrainFactsError, BrainFactsErrorCode, BrainFactsReadService, BrainFactsService } from "@modules/domain/brain-facts"
 import type { ProposeResult } from "@modules/domain/brain-facts"
 import { BrainLessonsService } from "@modules/domain/brain-lessons"
@@ -7,8 +7,10 @@ import { KnowledgeGapsService } from "@modules/domain/knowledge-gaps"
 import { KnowledgeSourcesService } from "@modules/domain/knowledge-sources"
 import { WorkspaceMembersService } from "@modules/domain/workspace-members"
 import { CLOCK } from "@modules/platform/clock"
+import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
+import { KnowledgeQueue } from "@modules/queues/knowledge"
 import type { FactDecision, FactForm } from "./brain.contracts"
 import { BrainLogEvent } from "./brain.log-events"
 import { BrainService } from "./brain.service"
@@ -38,6 +40,9 @@ const build = async () => {
     const sources = mock<KnowledgeSourcesService>()
     const documentFacts = mock<DocumentFactsService>()
     const reads = mock<BrainFactsReadService>()
+    const queue = mock<KnowledgeQueue>()
+    const em = mockEntityManager()
+    const tx = fakeTransaction(em)
     members.require.mockResolvedValue(memberOf())
     facts.propose.mockResolvedValue({ fact: factOf(), outcome: "applied" })
     lessons.propose.mockResolvedValue(lesson)
@@ -53,6 +58,8 @@ const build = async () => {
             { provide: KnowledgeSourcesService, useValue: sources },
             { provide: DocumentFactsService, useValue: documentFacts },
             { provide: BrainFactsReadService, useValue: reads },
+            { provide: KnowledgeQueue, useValue: queue },
+            { provide: PRIMARY_ENTITY_MANAGER, useValue: em },
         ],
     }).compile()
     return {
@@ -65,70 +72,85 @@ const build = async () => {
         sources,
         documentFacts,
         reads,
+        queue,
+        tx,
     }
 }
 
-describe("BrainService upkeep: the timed job that brings scheduled facts in force (BR1)", () => {
-    /** The dev pair of D-P11-8: 35.000 d scheduled from 00:00 VN, nothing activated it until someone opened the page. */
-    const scheduled = factOf({ id: "fee-35", value: "35.000 d", scope: "internal", status: "active", version: 2 })
-
-    it("runs the page's maintain in every due workspace as the brain itself (no member check); no vector work of its own", async () => {
-        const { service, reads, facts, members, logger, documentFacts } = await build()
+describe("BrainService upkeep: the timed tick queues each due workspace as its own job (BR1)", () => {
+    it("queues one upkeep job per due workspace in ONE transaction, then resumes the documents and readings that wait for credits", async () => {
+        const { service, reads, facts, members, logger, documentFacts, queue, tx } = await build()
         reads.dueWorkspaces.mockResolvedValue([WS, "ws-2"])
-        facts.maintain
-            .mockResolvedValueOnce({ activated: [scheduled], expired: 1 })
-            .mockResolvedValueOnce({ activated: [], expired: 0 })
         documentFacts.resumeParked.mockResolvedValue(1)
 
-        await expect(service.upkeep()).resolves.toEqual({
-            workspaces: 2,
-            activated: 1,
-            expired: 1,
-            failed: 0,
-            readingsResumed: 1,
-        })
+        await expect(service.upkeep()).resolves.toEqual({ workspaces: 2, readingsResumed: 1 })
 
         expect(reads.dueWorkspaces).toHaveBeenCalledWith(200)
+        // Each job is keyed by its workspace and the minute of the tick; both are written in the same transaction.
+        const minute = Math.floor(Date.parse(AT) / 60_000) * 60_000
+        expect(queue.enqueueBrainUpkeep.mock.calls).toEqual([
+            [WS, expect.anything(), minute],
+            ["ws-2", expect.anything(), minute],
+        ])
+        expect(tx.commits).toBe(1)
+        // The tick itself maintains nothing and checks no member.
+        expect(facts.maintain).not.toHaveBeenCalled()
+        expect(members.require).not.toHaveBeenCalled()
         // Documents stored word-only for want of credits are looked at by the same tick (D-U-4).
         expect(documentFacts.resumeIndexing).toHaveBeenCalledTimes(1)
-        expect(facts.maintain.mock.calls).toEqual([[WS], ["ws-2"]])
-        expect(members.require).not.toHaveBeenCalled()
-        // The fact that came in force gets its point from maintain's announcement (its sync job); the vector reconcile catches the rest.
-        expect(logger.info).toHaveBeenCalledWith(BrainLogEvent.UpkeepDone, {
-            workspaces: 2,
-            activated: 1,
-            expired: 1,
-            failed: 0,
-            readingsResumed: 1,
-        })
+        expect(logger.info).toHaveBeenCalledWith(BrainLogEvent.UpkeepDone, { workspaces: 2, readingsResumed: 1 })
     })
 
-    it("does nothing when nothing is due, and one failing workspace never stops the others", async () => {
-        const idle = await build()
-        idle.reads.dueWorkspaces.mockResolvedValue([])
-        idle.documentFacts.resumeParked.mockResolvedValue(0)
-        await expect(idle.service.upkeep()).resolves.toEqual({
-            workspaces: 0,
-            activated: 0,
-            expired: 0,
-            failed: 0,
-            readingsResumed: 0,
-        })
-        expect(idle.facts.maintain).not.toHaveBeenCalled()
-
-        const { service, reads, facts, logger, documentFacts } = await build()
+    it("queues nothing when nothing is due", async () => {
+        const { service, reads, queue, documentFacts } = await build()
+        reads.dueWorkspaces.mockResolvedValue([])
         documentFacts.resumeParked.mockResolvedValue(0)
+
+        await expect(service.upkeep()).resolves.toEqual({ workspaces: 0, readingsResumed: 0 })
+
+        expect(queue.enqueueBrainUpkeep).not.toHaveBeenCalled()
+    })
+
+    it("throws what fails (the tick is a job the runner judges): nothing is swallowed, nothing else is resumed", async () => {
+        const { service, reads, documentFacts } = await build()
         const cause = new Error("db")
-        reads.dueWorkspaces.mockResolvedValue(["broken", WS])
-        facts.maintain.mockRejectedValueOnce(cause).mockResolvedValueOnce({ activated: [], expired: 2 })
-        await expect(service.upkeep()).resolves.toEqual({
-            workspaces: 2,
-            activated: 0,
-            expired: 2,
-            failed: 1,
-            readingsResumed: 0,
-        })
-        expect(logger.error).toHaveBeenCalledWith(BrainLogEvent.UpkeepFailed, cause, { workspaceId: "broken" })
+        reads.dueWorkspaces.mockRejectedValue(cause)
+
+        await expect(service.upkeep()).rejects.toBe(cause)
+        expect(documentFacts.resumeIndexing).not.toHaveBeenCalled()
+    })
+})
+
+describe("BrainService upkeepWorkspace: the upkeep of ONE workspace, as the brain itself (BR1)", () => {
+    const scheduled = factOf({ id: "fee-35", value: "35.000 d", scope: "public", status: "active", version: 2 })
+
+    it("runs the page's maintain with no member check and lets the fact that came in force answer the gaps under its own key", async () => {
+        const { service, facts, members, gaps } = await build()
+        facts.maintain.mockResolvedValue({ activated: [scheduled], expired: 1 })
+
+        await expect(service.upkeepWorkspace(WS)).resolves.toBeUndefined()
+
+        expect(facts.maintain.mock.calls).toEqual([[WS]])
+        expect(members.require).not.toHaveBeenCalled()
+        expect(gaps.resolve).toHaveBeenCalledWith(WS, expect.objectContaining({ by: "fact:fee-35" }))
+    })
+
+    it("throws a failed maintain, so the job runs again; maintain is idempotent", async () => {
+        const { service, facts } = await build()
+        const cause = new Error("db")
+        facts.maintain.mockRejectedValue(cause)
+
+        await expect(service.upkeepWorkspace(WS)).rejects.toBe(cause)
+    })
+
+    it("logs a gap that cannot be answered and goes on: answering a gap never blocks a fact", async () => {
+        const { service, facts, gaps, logger } = await build()
+        const cause = new Error("gaps down")
+        facts.maintain.mockResolvedValue({ activated: [scheduled], expired: 0 })
+        gaps.resolve.mockRejectedValue(cause)
+
+        await expect(service.upkeepWorkspace(WS)).resolves.toBeUndefined()
+        expect(logger.error).toHaveBeenCalledWith(BrainLogEvent.GapsFailed, cause, { factId: "fee-35" })
     })
 })
 

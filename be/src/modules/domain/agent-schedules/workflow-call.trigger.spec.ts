@@ -15,7 +15,7 @@ describe("the workflow call's trigger", () => {
     it("is the engine's call verb, received inside NIVO, keyed by the caller's person", async () => {
         const trigger = await buildSubject()
 
-        expect([trigger.provider, trigger.verb, trigger.via, trigger.key]).toEqual([PROVIDER.nivo, TRIGGER.workflowCalled, "internal", { by: "contact" }])
+        expect([trigger.provider, trigger.verb, trigger.via, trigger.key]).toEqual([PROVIDER.nivo, TRIGGER.workflowCalled, ["internal"], { by: "contact" }])
     })
 
     it("translates a call into one event under the caller's key, its data the params exactly as mapped (the pin is the delivery's, not the event's), purely", async () => {

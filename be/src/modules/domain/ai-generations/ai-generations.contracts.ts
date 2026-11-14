@@ -59,6 +59,11 @@ export interface GenerateParams {
     readonly module: string
     /** The language of the sentence a failure carries; Vietnamese when absent. */
     readonly locale?: Locale
+    /**
+     * The key of the model call as an outside effect, when the caller is itself a job that may run again (`<jobId>:<part>`): a second
+     * run of the caller answers from the ledger and never calls or bills the model twice. Absent: the row's own id keys the call.
+     */
+    readonly effectKey?: string | undefined
 }
 
 /** The generation a fenced job may run, or null when usage or engine availability requires its fallback. */
@@ -216,6 +221,12 @@ export interface TurnAttempt {
     readonly reason: string
     /** True when the deadline of the request passed before the text did. */
     readonly timedOut: boolean
+}
+
+/** Where the model call of one generation leaves the attempt that made no text, so the runner can write its typed reason on the row (the call itself throws, releasing its ledger intent). */
+export interface FailedAttempt {
+    /** The attempt, absent until a call made no text. */
+    attempt?: TurnAttempt
 }
 
 /** A text that was queued: the id to poll. */

@@ -10,7 +10,7 @@ import type {
     SandboxState,
     SandboxWebhookEvent,
 } from "./provider-sandbox.contracts"
-import { InjectProviderSandboxStore, InjectProviderSandboxSwitch } from "./provider-sandbox.decorators"
+import { InjectProviderSandboxStore, InjectProviderSandboxSwitch, InjectSandboxWebOrigin } from "./provider-sandbox.decorators"
 import type { ProviderSandboxStore } from "./provider-sandbox-store.port"
 import { ProviderSandboxError, ProviderSandboxErrorCode } from "./errors/provider-sandbox.error"
 
@@ -41,7 +41,26 @@ export class ProviderSandboxService {
     constructor(
         @InjectProviderSandboxStore() private readonly store: ProviderSandboxStore,
         @InjectProviderSandboxSwitch() private readonly switched: ProviderSandboxSwitch,
+        @InjectSandboxWebOrigin() private readonly webOrigin?: string,
     ) {}
+
+    /**
+     * The address of the pretend payment page of a pay link of a sandbox account: `<web origin>/workspaces/<workspace id>/sandbox/pay/<link id>`
+     * (the page that says "NIVO Sandbox: thanh toán giả"); without a web origin, the reserved host `https://sandbox.invalid/pay/<link id>`
+     * that can never resolve, so nobody who opens it lands on the provider.
+     */
+    payPageUrl(account: SandboxAccount, linkId: string): string {
+        const id = encodeURIComponent(linkId)
+        return this.webOrigin === undefined || this.webOrigin === ""
+            ? `https://sandbox.invalid/pay/${id}`
+            : `${this.webOrigin.replace(/\/+$/u, "")}/workspaces/${encodeURIComponent(account.workspaceId)}/sandbox/pay/${id}`
+    }
+
+    /** One kept value of (name, key) of the account's state, read with no call logged; a live account or the switch off is refused. */
+    async kept(account: SandboxAccount, name: string, key: string): Promise<unknown> {
+        this.assertOpen(account)
+        return (await this.store.stateOf(account, name, key))?.value ?? null
+    }
 
     /** Whether the sandbox is on in this environment (what the Sandbox page reads). */
     enabled(): boolean {

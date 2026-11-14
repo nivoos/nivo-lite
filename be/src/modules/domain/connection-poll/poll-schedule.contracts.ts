@@ -1,11 +1,4 @@
-import type { ConnectionReadyPayload } from "@modules/events/api"
-import type {
-    ConnectionPoller,
-    PollFailure,
-    PollLimits,
-    PollSkipReason,
-    UnavailableReason,
-} from "./connection-poll.contracts"
+import type { PollSkipReason, UnavailableReason } from "./connection-poll.contracts"
 
 /** How one poll of a connection ended, in the terms a scheduler plans the next one with. */
 export type PollOutcome =
@@ -30,32 +23,6 @@ export interface PollWalkOptions {
     readonly newest?: Date | undefined
     /** The most pages this call reads; undefined reads up to the default cap and never resumes. */
     readonly maxPages?: number | undefined
-}
-
-/**
- * What a provider offers to be polled by the scheduler: its poller with the store of its inbox bound, what the provider allows one credential and
- * how its failures are classified. The provider adds nothing else: intervals, breakers, backoff, jitter and fairness are the scheduler's.
- */
-export interface ScheduledPollSource {
-    /** The provider key of the connections it reads. */
-    readonly provider: string
-    /** What the provider allows one credential. */
-    readonly limits: PollLimits
-    /** Reads one page of a connection and stores its items through the inbox the provider's webhook feeds. */
-    readonly poller: ConnectionPoller<unknown>
-    /** Maps what the poller threw to how the failure is handled. */
-    classify(cause: unknown): PollFailure
-}
-
-/** The source of a provider, or undefined when none has it. */
-export type OptionalPollSource = ScheduledPollSource | undefined
-
-/** Finds the scheduled sources of one capability (bank feeds, message inboxes) by provider key. */
-export interface PollSourceDirectory {
-    /** The provider keys it can read. */
-    providers(): ReadonlyArray<string>
-    /** The source of a provider, or undefined when it has none. */
-    sourceOf(provider: string): OptionalPollSource
 }
 
 /** Where the circuit breaker of a connection stands. */
@@ -94,14 +61,4 @@ export interface PollScheduleRow {
     readonly backfillTo: Date | null
     /** The newest instant the unfinished backfill read. */
     readonly backfillNewest: Date | null
-}
-
-/** Where the first poll of a connection that just became ready goes: the queue and job of its provider, and the delivered event. */
-export interface FirstPollTarget {
-    /** The queue of the provider's reconcile job. */
-    readonly queue: string
-    /** The job name inside that queue. */
-    readonly job: string
-    /** The connection_ready fact: the connection, its workspace and the delivery's dedupe key. */
-    readonly ready: Pick<ConnectionReadyPayload, "connectionId" | "workspaceId" | "dedupeKey">
 }

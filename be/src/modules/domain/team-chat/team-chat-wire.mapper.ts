@@ -107,6 +107,7 @@ export const messageWireOf = (view: MessageView): MessageWire => ({
     stop: view.stop,
     brainChange: view.brainChange,
     backgroundStopped: view.backgroundStopped,
+    jobParked: view.jobParked,
 })
 
 /** A room of the domain as the wire shows it. */

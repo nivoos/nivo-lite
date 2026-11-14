@@ -116,6 +116,7 @@ export class BrainModule extends ConfigurableModuleClass {
                 BrainPolicyDerivationsService,
                 BrainPolicyDeriveService,
                 BrainPolicyReadService,
+                BrainPolicyStoreService,
             ],
         }
     }

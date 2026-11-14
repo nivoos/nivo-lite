@@ -1,14 +1,17 @@
 import { Injectable } from "@nestjs/common"
 import { WorkspaceTimeZoneService } from "@modules/domain/workspace-settings"
-import { BrainExtractionsService, ExtractionNote, type AnswerNoteReason, type ExtractionStatus } from "@modules/domain/brain-extractions"
+import { BrainExtractionsService, type AnswerNoteReason, type ExtractionStatus } from "@modules/domain/brain-extractions"
 import { BrainFactsService, foldedText, type FactRecord } from "@modules/domain/brain-facts"
 import { KnowledgeChunksService, type PassageVerdict, type TriageVerdict, type TruthPassage } from "@modules/domain/knowledge-chunks"
 import { UsageMeterService } from "@modules/domain/knowledge"
 import { StoredNote, type SourceRecord } from "@modules/domain/knowledge-sources"
 import { InjectAi, spendOf, type AiChatAttempt, type AiService } from "@modules/integrations/ai"
 import { InjectClock, type Clock } from "@modules/platform/clock"
+import { InjectEffects, onceAnswered, type Effects } from "@modules/platform/effects"
+import { InjectJobProgress, type JobProgress } from "@modules/platform/jobs"
 import { InjectLogger, withWorkStep, type Logger } from "@modules/platform/logging"
 import { concurrencyGateOf, eachInOrder } from "@modules/platform/primitives"
+import { EXTRACT_FACTS_JOB, MODEL_EFFECT } from "@modules/queues/knowledge"
 import { BrainLogEvent } from "./brain.log-events"
 import { batchesOf, type StageEnd, type StageInput, type StageResult } from "./document-truths.contracts"
 import {
@@ -42,7 +45,6 @@ import {
   ANSWERS_APART,
   CALL_TIMEOUT_MS,
   FOLLOW_UP_ANSWER_MAX,
-  MAX_ATTEMPTS,
   MODEL_PLACES,
   DATE_BUDGET,
   TRUTHS_BUDGET,
@@ -71,9 +73,10 @@ import {
 import {
   cutOf,
   followUpFor,
+  outageOf,
   readsBetter,
+  refusalOf,
   splitAt,
-  wroteNothingUsable,
   type Ask,
   type CallFiled,
   type Ended,
@@ -108,6 +111,8 @@ export class DocumentTruthStagesService {
         private readonly vectors: FactEmbeddingsService,
         private readonly nature: DocumentNatureService,
         private readonly zones: WorkspaceTimeZoneService,
+        @InjectEffects() private readonly effects: Effects,
+        @InjectJobProgress() private readonly progress: JobProgress,
     ) {}
 
     /**
@@ -117,16 +122,15 @@ export class DocumentTruthStagesService {
      * said the document holds no rules, or a new reading says so) no longer supports the truths read from it (`withdrawLeft`).
      */
     async triage(input: StageInput): Promise<StageResult> {
-        const { source, passages, state } = input
+        const { job, source, passages, state } = input
         const counts = { passagesTotal: passages.length }
-        const base: Run = { source, stage: "triage", batches: [], counts, before: null, judged: 0 }
+        const base: Run = { job, source, stage: "triage", batches: [], counts, before: null, judged: 0 }
         const start: Step = { index: 0, calls: 0, state, verdicts: new Map(), read: new Set() }
-        const judged = await this.nature.natureFor(source, passages, state.hash)
+        const judged = await this.nature.natureFor(source, passages, state.hash, job)
         if (judged.kind === "blocked") {
             await this.save(base, start, "blocked_credits", StoredNote.NoCreditsForFacts)
             return { ...this.ended("blocked", base, start), passages }
         }
-        if (judged.kind === "retry") return { ...(await this.failed(base, start, true)), passages }
         const inherited = inheritedOf(passages, judged.nature)
         const given = givenWithoutCall(passages, inherited)
         const toModel = passagesForModel(passages, inherited, given)
@@ -172,12 +176,13 @@ export class DocumentTruthStagesService {
 
     /** Stage 2: the truths of every rule passage this version has not read are filed as proposals. */
     async extract(input: StageInput): Promise<StageResult> {
-        const { source, passages, state } = input
+        const { job, source, passages, state } = input
         const batches = batchesOf(
             passages.filter((passage) => needsTruths(passage)),
             PASSAGES_PER_CALL,
         )
         const run: Run = {
+            job,
             source,
             stage: "extract",
             batches,
@@ -224,8 +229,10 @@ export class DocumentTruthStagesService {
             outputSchema: TRIAGE_SCHEMA,
             workspaceId,
             tryNumber: 1,
-        })
-        if (!tried.ok && !wroteNothingUsable(tried)) return this.failed(run, step, true)
+            part: batch[0]?.id ?? "",
+        }, run)
+        const gone = outageOf(tried) ?? refusalOf(tried)
+        if (gone !== null) throw gone
         const parsed = tried.ok ? parseTriage(this.json.jsonOf(tried.answer.text, workspaceId), batch.length) : null
         const counted: Step = { ...step, calls: step.calls + 1 }
         if (parsed === null && batch.length > 1) {
@@ -266,8 +273,10 @@ export class DocumentTruthStagesService {
             budget: TRUTHS_BUDGET,
             workspaceId,
             tryNumber: 1,
-        })
-        if (!first.ok && !wroteNothingUsable(first)) return this.failed(run, step, true)
+            part: batch[0]?.id ?? "",
+        }, run)
+        const gone = outageOf(first) ?? refusalOf(first)
+        if (gone !== null) throw gone
         if (cutOf(first) && batch.length > 1) {
             this.logger.info(FactReadingLogEvent.WindowSplit, { sourceId: source.id, passages: batch.length })
             return this.extractFrom({ ...run, batches: splitAt(run.batches, step.index) }, { ...step, calls: step.calls + 1 })
@@ -311,7 +320,10 @@ export class DocumentTruthStagesService {
             budget: TRUTHS_BUDGET,
             workspaceId: run.source.workspaceId,
             tryNumber: 2,
-        })
+            part: read[0]?.id ?? "",
+        }, run)
+        const goneAgain = outageOf(second) ?? refusalOf(second)
+        if (goneAgain !== null) throw goneAgain
         const again = second.ok ? parseFacts(second.answer.text, read, timeZone) : null
         const better = again !== null && again.valid && readsBetter(again, parsed, why)
         const kept = better ? again : parsed
@@ -418,7 +430,10 @@ export class DocumentTruthStagesService {
             budget: DATE_BUDGET,
             workspaceId: run.source.workspaceId,
             tryNumber: 1,
-        })
+            part: "date",
+        }, run)
+        const outage = outageOf(tried)
+        if (outage !== null) throw outage
         const documentDate: DocumentDate = tried.ok ? parseDocumentDate(tried.answer.text, shown) : { kind: "unread" }
         this.logger.info(FactReadingLogEvent.DocumentDateRead, { sourceId: run.source.id, outcome: documentDate.kind })
         return { ...step, calls: step.calls + 1, documentDate }
@@ -437,62 +452,52 @@ export class DocumentTruthStagesService {
         return this.ended("blocked", run, step)
     }
 
-    /**
-     * The model did not answer at all (a timeout, a provider error): the try is counted. Before `MAX_ATTEMPTS` in a row the stage asks for
-     * the job to be run again (the queue retries later, when the model may answer; the passages already done are not worked twice); at
-     * `MAX_ATTEMPTS` the reading is given up, saved as failed. An answer that could not be USED never comes here: it is split, asked
-     * once more, or skipped.
-     */
-    private async failed(run: Run, step: Step, silent: boolean): Promise<Ended> {
-        const attempts = step.state.attempts + 1
-        const note = silent ? ExtractionNote.ModelBusy : ExtractionNote.AnswerUnreadable
-        const counted: Step = { ...step, state: { ...step.state, attempts } }
-        const gaveUp = attempts >= MAX_ATTEMPTS
-        await this.save(run, counted, gaveUp ? "failed" : "running", note)
-        return this.ended(gaveUp ? "gave_up" : "retry", run, counted)
-    }
-
     /** How a stage ended, with what is left of it. */
     private ended(end: StageEnd, run: Run, step: Step): Ended {
         return { end, state: step.state, left: run.batches.length - step.index, step }
     }
 
-    /** Saves where the reading stands in the stage. */
-    private save(run: Run, step: Step, status: ExtractionStatus, error: string | null): Promise<void> {
+    /** Saves where the reading stands in the stage, and reports it on the job's progress. */
+    private async save(run: Run, step: Step, status: ExtractionStatus, error: string | null): Promise<void> {
         const { source, stage } = run
-        const coded = run.judged
         const judgedByModel = run.batches.slice(0, step.index).reduce((sum, batch) => sum + batch.length, 0)
         const left = run.batches.length - step.index
-        return this.extractions.save(source.workspaceId, source.id, {
+        const total = run.before === null ? step.state.done : step.state.done + left
+        await this.progress.report(run.job, step.state.done, total, `${EXTRACT_FACTS_JOB.name}.${stage}`)
+        await this.extractions.save(source.workspaceId, source.id, {
             status,
             windowsDone: step.state.done,
             factsProposed: step.state.filed,
-            windowsTotal: run.before === null ? step.state.done : step.state.done + left,
+            windowsTotal: total,
             error,
             attempts: step.state.attempts,
             stage,
-            counts: stage === "triage" ? { ...run.counts, passagesTriaged: coded + judgedByModel } : run.counts,
+            counts: stage === "triage" ? { ...run.counts, passagesTriaged: run.judged + judgedByModel } : run.counts,
         })
     }
 
     /** One model call, when it is this call's turn at the model, metered as `brain`; answers the try as it went. */
-    private ask(ask: Ask): Promise<AiChatAttempt> {
+    private ask(ask: Ask, run: Run): Promise<AiChatAttempt> {
         // Booked per stage of the document's reading: `work_kind` from the reading's scope, `step_key` triage or extract.
         return withWorkStep(ask.system === TRIAGE_PROMPT ? "triage" : "extract", "document_read", async () => {
-            const tried = await this.modelGate.run(() =>
-                this.ai.attempt({
-                    // The stable head (the standing instructions) is marked for the provider's cache; the passages follow it.
-                    messages: [{ role: "system", content: ask.system, cacheMark: true }, ...ask.turns],
-                    json: false,
-                    schema: null,
-                    timeoutMs: CALL_TIMEOUT_MS,
-                    budget: ask.budget,
-                    ...(ask.outputSchema === undefined ? {} : { outputSchema: ask.outputSchema }),
-                    context: null,
-                    affinity: ask.workspaceId,
-                    // Triage and extraction are decisions of meaning: the strong model (owner 2026-11-12, round A).
-                    target: INGESTION_TARGET,
-                }),
+            // An outside act keyed by the job, the stage, the passage it starts at and the try (stable across resumes); one a crash lost is made again.
+            const key = `${run.job.jobId}:model:${run.stage}:${ask.part}:${String(ask.tryNumber)}`
+            const tried = await onceAnswered(this.effects, key, MODEL_EFFECT, () =>
+                this.modelGate.run(() =>
+                    this.ai.attempt({
+                        // The stable head (the standing instructions) is marked for the provider's cache; the passages follow it.
+                        messages: [{ role: "system", content: ask.system, cacheMark: true }, ...ask.turns],
+                        json: false,
+                        schema: null,
+                        timeoutMs: CALL_TIMEOUT_MS,
+                        budget: ask.budget,
+                        ...(ask.outputSchema === undefined ? {} : { outputSchema: ask.outputSchema }),
+                        context: null,
+                        affinity: ask.workspaceId,
+                        // Triage and extraction are decisions of meaning: the strong model (owner 2026-11-12, round A).
+                        target: INGESTION_TARGET,
+                    }),
+                ),
             )
             // Every try that returned tokens is booked, one cut at its cap included (concept.tokens-and-credits); only an answer is read.
             const spend = spendOf(tried)

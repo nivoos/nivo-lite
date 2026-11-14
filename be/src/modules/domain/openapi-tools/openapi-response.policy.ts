@@ -88,7 +88,7 @@ export const trimmedOf = (data: unknown): Trimmed => {
 }
 
 /** The schema an operation declares for a status: the status itself, else its class (`2XX`), else `default`; undefined when none. */
-const responseSchemaOf = (operation: PinnedOperation, status: number): SchemaNode | null | undefined => {
+export const responseSchemaOf = (operation: PinnedOperation, status: number): SchemaNode | null | undefined => {
     const names = [String(status), `${Math.floor(status / 100)}XX`, "default"]
     const name = names.find((entry) => Object.hasOwn(operation.responses, entry))
     return name === undefined ? undefined : operation.responses[name]

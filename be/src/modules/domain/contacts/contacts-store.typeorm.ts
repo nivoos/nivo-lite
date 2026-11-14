@@ -2,7 +2,9 @@ import { Injectable } from "@nestjs/common"
 import { And, ILike, In, IsNull, LessThan, MoreThanOrEqual, type EntityManager, type FindOptionsWhere } from "typeorm"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import type {
+    ConsentActor,
     Contact,
+    ContactConsent,
     ContactIdentity,
     IdentityKey,
     IdentityMatch,
@@ -53,6 +55,27 @@ const contactOf = (row: ContactEntity): Contact => ({
     state: row.state === "merged" || row.state === "erased" ? row.state : "active",
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+})
+
+/** Who changed the consent fact of a row, or null when nobody ever did. */
+const consentActorOf = (row: ContactEntity): ConsentActor | null => {
+    if (row.doNotContactActor === "member" && row.doNotContactDecidedBy !== null)
+        return { kind: "member", memberId: row.doNotContactDecidedBy }
+    if (row.doNotContactActor === "step" && row.doNotContactAgentId !== null)
+        return {
+            kind: "step",
+            agentId: row.doNotContactAgentId,
+            stepKey: row.doNotContactStepKey,
+            approvedBy: row.doNotContactDecidedBy,
+        }
+    return null
+}
+
+const consentOf = (row: ContactEntity): ContactConsent => ({
+    doNotContact: row.doNotContact,
+    at: row.doNotContactAt?.toISOString() ?? null,
+    by: consentActorOf(row),
+    reason: row.doNotContactReason,
 })
 
 const identityOf = (row: ContactIdentityEntity): ContactIdentity => ({
@@ -304,6 +327,29 @@ class TypeormContactsTx implements ContactsTx {
         return this.tx.count(ContactEntity, {
             where: { workspaceId, state: "active", createdAt: And(MoreThanOrEqual(from), LessThan(to)) },
         })
+    }
+
+    async consentsOf(workspaceId: string, ids: ReadonlyArray<string>): Promise<ReadonlyMap<string, ContactConsent>> {
+        if (ids.length === 0) return new Map()
+        const rows = await this.tx.find(ContactEntity, { where: { workspaceId, id: In([...ids]) }, take: ids.length })
+        return new Map(rows.map((row) => [row.id, consentOf(row)]))
+    }
+
+    async setConsent(workspaceId: string, id: string, consent: ContactConsent): Promise<void> {
+        const by = consent.by
+        await this.tx.update(
+            ContactEntity,
+            { workspaceId, id },
+            {
+                doNotContact: consent.doNotContact,
+                doNotContactAt: consent.at === null ? null : new Date(consent.at),
+                doNotContactActor: by?.kind ?? null,
+                doNotContactDecidedBy: by === null ? null : by.kind === "member" ? by.memberId : by.approvedBy,
+                doNotContactAgentId: by?.kind === "step" ? by.agentId : null,
+                doNotContactStepKey: by?.kind === "step" ? by.stepKey : null,
+                doNotContactReason: consent.reason,
+            },
+        )
     }
 
     async byNamePrefix(workspaceId: string, prefix: string, size: number): Promise<ReadonlyArray<Contact>> {

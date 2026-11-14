@@ -15,7 +15,7 @@ export const QUIET_PROVIDER_TRIGGERS: Provider = {
     provide: ProviderTriggersService,
     useFactory: () =>
         mock<ProviderTriggersService>({
-            deliver: jest.fn().mockResolvedValue({ status: "delivered", events: 0, dropped: 0, woken: [], repeats: 0, untaken: 0, held: 0 }),
+            deliver: jest.fn().mockResolvedValue({ status: "delivered", events: 0, dropped: 0, sameFact: 0, woken: [], repeats: 0, untaken: 0, held: 0 }),
         }),
 }
 

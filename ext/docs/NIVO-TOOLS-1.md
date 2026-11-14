@@ -17,7 +17,7 @@ A `defineTool(...)` call, or an object literal assigned to a `*TOOL_SPECS` regis
 - `be/src/modules/domain/tool-specs/**`: the engine's tool specs, the one home;
 - `be/src/tests/**`, `be/src/**/*.spec.ts`: the engine's own fixtures and specs;
 - `packages/agent-sdk/**`: the home of `defineTool` itself;
-- `packages/blocks-core/src/shared/vocabulary/**` and `packages/nivo-web-core/src/vocabulary/crm-tools.ts`: the declared contracts that exist today,
+- `packages/blocks-core/src/shared/vocabulary/**` and `packages/nivo-web-core/src/shared/vocabulary/crm-tools.ts`: the declared contracts that exist today,
   allowed until the engine's specs absorb them.
 
 ## Why
@@ -33,4 +33,4 @@ declares no tool of its own.
 
 Valid (`be/src/modules/domain/tool-specs/tool-specs.policy.ts`): `export const TOOL_SPECS = { … }`.
 
-Invalid (`packages/nivo-web-core/src/vocabulary/mail-tools.ts`): `export const mailListTool = defineTool({ … })`.
+Invalid (`packages/nivo-web-core/src/shared/vocabulary/mail-tools.ts`): `export const mailListTool = defineTool({ … })`.

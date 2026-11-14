@@ -181,6 +181,7 @@ describe("node-right-rollups.policy: the holders name their steps by the title t
         const trigger = {
             name: "transaction.received",
             kind: "webhook" as const,
+            title: { vi: "Ngan hang", en: "Bank" },
             summary: { vi: "Co giao dich moi", en: "A new transaction" },
             payload: [],
             batching: { mode: "each" as const, maxEvents: null },

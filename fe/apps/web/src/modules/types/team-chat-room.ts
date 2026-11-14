@@ -1,6 +1,7 @@
 import type { DataSlot, SlotLabels } from "./slot"
 import type { ChatParty, ChatPartyKind, TeamChatComposerProps, TeamChatMessageRow, TeamChatMessagesCopy, TeamChatRoomRow } from "./team-chat"
 import type { TeamChatBrainChangeHandlers } from "./team-chat-brain-change"
+import type { TeamChatJobParkedHandlers } from "./team-chat-job-parked"
 import type { TeamChatStopHandlers } from "./team-chat-stop"
 
 /** The words of the new-chat drawer. */
@@ -154,6 +155,8 @@ export interface TeamChatRoomViewProps {
     readonly stops: Omit<TeamChatStopHandlers, "onAction">
     /** The truth-change cards: the change whose decision is in flight. */
     readonly changes: Omit<TeamChatBrainChangeHandlers, "onAction">
+    /** The "job stopped" cards: the job whose action is in flight. */
+    readonly jobs: Omit<TeamChatJobParkedHandlers, "onAction">
     readonly forward: TeamChatForwardView
     readonly composer: Omit<TeamChatComposerProps, "onDraft" | "onMention" | "onSend" | "onFile" | "onFileClear" | "onReplyClear">
 }
@@ -174,6 +177,7 @@ export interface TeamChatRoomHandlers {
     readonly decide: (decisionId: string, verdict: "approved" | "refused") => void
     readonly stop: TeamChatStopHandlers["onAction"]
     readonly change: TeamChatBrainChangeHandlers["onAction"]
+    readonly job: TeamChatJobParkedHandlers["onAction"]
     readonly draft: (value: string) => void
     readonly mention: (party: ChatParty) => void
     readonly send: () => void

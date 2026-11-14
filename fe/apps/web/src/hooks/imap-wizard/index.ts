@@ -1,5 +1,4 @@
 export {
-    IMAP_EVERY,
     IMAP_GUIDE_KEY,
     IMAP_PRESET_KEY,
     IMAP_PRESETS,

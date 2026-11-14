@@ -102,7 +102,7 @@ export const JOB_TICKS: ReadonlyArray<JobTick> = [
     },
     {
         // The truth graph's timed upkeep (BR1): scheduled facts whose start has come take over, ended facts expire. It rides the brain
-        // command job of the knowledge queue with this literal payload (domain brain `BRAIN_UPKEEP_PAYLOAD`, `isUpkeepTick`).
+        // command job of the knowledge queue with this literal payload (queue knowledge `BRAIN_UPKEEP_PAYLOAD`, `isBrainUpkeepTickPayload`).
         name: "brain-upkeep",
         cron: "*/5 * * * *",
         timeZone: "UTC",
@@ -119,5 +119,24 @@ export const JOB_TICKS: ReadonlyArray<JobTick> = [
         queue: "vector_sync",
         job: "vector.reconcile",
         payload: {},
+    },
+    {
+        // The seed-backup of each declared data set (queue data_copies, `DataCopiesJob.BackupDue`): hourly, it queues one backup job per
+        // set and slot (the set's own `everyMinutes`; the once key is set + slot, so two ticks never run one slot twice).
+        name: "data-backup-tick",
+        cron: "0 * * * *",
+        timeZone: "UTC",
+        queue: "data_copies",
+        job: "data.backup-due",
+        payload: { tick: true },
+    },
+    {
+        // The daily verify of the newest seed-backup copy of every driver (queue data_copies, `DataCopiesJob.Verify`), after the day's backup.
+        name: "data-verify-tick",
+        cron: "30 3 * * *",
+        timeZone: "UTC",
+        queue: "data_copies",
+        job: "data.verify",
+        payload: { tick: true },
     },
 ]

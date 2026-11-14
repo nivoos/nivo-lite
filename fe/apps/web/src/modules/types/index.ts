@@ -2,23 +2,16 @@ export type { AgentGraphData, AgentGraphApproverData, AgentGraphMemberData } fro
 export type { AgentGraphBranchData, AgentGraphBranchHit } from "./agentGraph"
 export type { AgentGraphFlowNode, AgentGraphNodeData, AgentGraphNodeKind } from "./agentGraph"
 export type { AgentGraphFactData, AgentGraphSourceData, AgentGraphLine } from "./agentGraph"
-export type { AgentGraphDecideForm, AgentGraphProposalData } from "./agentGraph"
-export type { AgentGraphFormChange, AgentGraphRowForm, AgentGraphTermForm } from "./agentGraph"
+export type { AgentGraphTermForm } from "./agentGraph"
 export type { AgentGraphOnTimeout, AgentGraphOp, AgentGraphBranchMode } from "./agentGraph"
 export type { AgentGraphPaint, AgentGraphPhoneView, AgentGraphSideTab } from "./agentGraph"
 export type { AgentGraphRunData, AgentGraphWaitData, AgentGraphWords } from "./agentGraph"
 export type { AgentGraphAction, AgentGraphCommands } from "./agentGraphView"
-export type {
-    AgentGraphCanvasView,
-    AgentGraphLegendItem,
-    AgentGraphModeView,
-    AgentGraphPanelView,
-} from "./agentGraphView"
-export type { AgentGraphAdderView, AgentGraphBranchesView } from "./agentGraphView"
-export type { AgentGraphAnswerView, AgentGraphDecideEditorView, AgentGraphOptionView } from "./agentGraphView"
+export type { AgentGraphCanvasView, AgentGraphLegendItem, AgentGraphPanelView } from "./agentGraphView"
+export type { AgentGraphBranchesView } from "./agentGraphView"
+export type { AgentGraphAnswerView } from "./agentGraphView"
 export type { AgentGraphDetailView, AgentGraphHeadView, AgentGraphProblemsView } from "./agentGraphView"
-export type { AgentGraphProposalView, AgentGraphProposalsView } from "./agentGraphView"
-export type { AgentGraphRowView, AgentGraphTermView, AgentGraphRunView, AgentGraphVersionsView } from "./agentGraphView"
+export type { AgentGraphRunView, AgentGraphVersionsView } from "./agentGraphView"
 export type { ConsoleIconName, ConsoleNavItem, ConsoleSessionView, ConsoleWorkspace } from "./console"
 export { ACCOUNT_ITEM, PROFILE_ITEM, SIGN_OUT_ITEM } from "./console"
 export type { Environment, Provider, ProviderKind, Purpose, AgentOption, Connection } from "./connections"
@@ -40,15 +33,7 @@ export type {
     ConnectionListRow,
 } from "./connections-panes"
 export type { ConnectionNextStep, ConnectionsFigures, ConnectionsListView } from "./connections-panes"
-export type {
-    RowAlert,
-    RowCopyLabels,
-    RowDialog,
-    RowMenuSection,
-    RowNote,
-    RowPrimary,
-    RowView,
-} from "./connection-row"
+export type { RowAlert, RowCopyLabels, RowDialog, RowMenuSection, RowNote, RowPrimary, RowView } from "./connection-row"
 export type { AgentChoice, AgentStepView } from "./connection-wizard"
 export type { CopyLabels, GuideField, GuideScreen, VerifyHelpView } from "./connection-wizard"
 export type { MoneyProvider, ProviderKeysResult, MoneyAccountView, MoneyEnvironmentView } from "./connection-wizard"
@@ -201,7 +186,6 @@ export type { BrainChipView, BrainFilterView, BrainHeadView } from "./brain-list
 export type { LessonActionView, LessonDetailView, LessonDrawerView } from "./brain-lists"
 export type { LessonEntryView, LessonsView } from "./brain-lists"
 
-
 export type { ChatMessageFile } from "./chatbot-inbox"
 
 export { textFieldsOf, type TextFieldItem } from "./form-fields"
@@ -213,6 +197,13 @@ export type {
     TeamChatBackgroundStoppedAction,
     TeamChatBackgroundStoppedView,
 } from "./team-chat-background-stopped"
+export type {
+    TeamChatJobParked,
+    TeamChatJobParkedAction,
+    TeamChatJobParkedHandlers,
+    TeamChatJobParkedLabels,
+    TeamChatJobParkedView,
+} from "./team-chat-job-parked"
 export type {
     TeamChatBrainChange,
     TeamChatBrainChangeAction,
@@ -268,10 +259,7 @@ export type {
 } from "./connection-provider"
 export type { WorkspaceMenuView, WorkspaceRenameView } from "./workspaces-menu"
 export type { PendingInviteView, WorkspaceReasonView } from "./workspaces-invites"
-export type {
-    WorkspaceDeleteView,
-    WorkspaceLeaveView,
-} from "./workspaces-dialogs"
+export type { WorkspaceDeleteView, WorkspaceLeaveView } from "./workspaces-dialogs"
 export type {
     WorkspaceMenuCommand,
     WorkspaceTableRowView,
@@ -330,25 +318,18 @@ export type {
     WorkflowVersionRowView,
 } from "./agentWorkflows"
 export type {
-    StepBinding,
     StepBindingView,
     StepCallView,
-    StepPickerView,
-    StepTriggerView,
-    StepBranchView,
     StepAction,
     StepDrawerView,
-    StepFieldInput,
-    StepFieldUnit,
-    StepFieldValue,
-    StepFieldView,
+    StepFactRowView,
+    StepFactSectionView,
     StepsMapView,
-    StepAccountView,
+    StepAccountChoiceView,
     StepAccountsView,
-    StepAccountsSlotView,
+    StepAccountsPanelView,
     StepRunModeView,
-    StepRunModeOptionView,
-    StepEffectiveRowView,
+    WorkflowNodeSettings,
 } from "./workflowSteps"
 export type {
     WorkflowCallParamView,
@@ -356,6 +337,7 @@ export type {
     WorkflowChipView,
     WorkflowInputView,
     WorkflowOverviewRowView,
+    WorkflowOriginView,
     WorkflowOverviewView,
     WorkflowTableRowView,
     ReadinessNextView,
@@ -390,9 +372,21 @@ export type {
     RightHolderView,
     RightPlaceView,
 } from "./node-rights"
-export type { ContactConfirmView, ContactDetailView, ContactEditView } from "./contacts"
-export type { ContactHistoryLineView, ContactHistoryTabView, ContactHistoryThread, ContactHistoryView } from "./contacts"
-export type { ContactHistoryOrderView, ContactHistoryOrderWords, ContactHistoryVoice, ContactHistoryWords } from "./contacts"
+export type { ContactConfirmView, ContactConsentView, ContactDetailView, ContactEditView } from "./contacts"
+export type {
+    ContactHistoryLineView,
+    ContactHistoryTabView,
+    ContactHistoryThread,
+    ContactHistoryView,
+} from "./contacts"
+export type {
+    ContactHistoryFileView,
+    ContactHistoryOrderView,
+    ContactHistoryOrderWords,
+    ContactHistoryUnreadFileView,
+    ContactHistoryVoice,
+    ContactHistoryWords,
+} from "./contacts"
 export type { ContactFactView, ContactIdentityView, ContactLinkView, ContactListRowView } from "./contacts"
 export type { ContactMergeView, ContactModuleAgentView, ContactNoteView } from "./contacts"
 export type { ContactSuggestionView, ContactWords } from "./contacts"
@@ -415,5 +409,16 @@ export type {
     SandboxOpenView,
     SandboxPanesBaseProps,
     SandboxPendingView,
+    SandboxScopeChoiceView,
+    SandboxScopeView,
     SandboxWaitingRowView,
 } from "./sandbox"
+export type {
+    SandboxPayCopy,
+    SandboxPayData,
+    SandboxPayFactView,
+    SandboxPayPanesBaseProps,
+    SandboxPayRefusal,
+    SandboxPayStatusWords,
+    SandboxPayTerms,
+} from "./sandboxPay"

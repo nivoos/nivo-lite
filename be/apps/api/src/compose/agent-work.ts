@@ -10,7 +10,6 @@ import { ENTITY_ENGINE_ERROR_KINDS, ENTITY_ENGINE_MESSAGES, EntityEngineModule }
 import {
     AGENT_RUNS_ERROR_KINDS,
     AGENT_RUNS_MESSAGES,
-    AgentRunEngineAlertsService,
     AgentRunsModule,
 } from "@modules/domain/agent-runs"
 import { AGENT_WORK_ERROR_KINDS, AGENT_WORK_MESSAGES, AgentWorkModule } from "@modules/domain/agent-work"
@@ -38,13 +37,11 @@ import {
     LANGGRAPH_MESSAGES,
     LanggraphModule,
 } from "@modules/integrations/langgraph"
-import {
-    INTENT_CONTRACTS_MESSAGES,
-} from "@modules/domain/intent-contracts"
 import type { ErrorKind } from "@modules/platform/errors"
 import type { ApiOptions } from "../api.options"
 import type { MessageBundle } from "@modules/platform/i18n"
 import { AvatarsService } from "@modules/domain/avatars"
+import { BrainPolicyPreReadService } from "@modules/domain/native-tools"
 import { WorkspaceSettingsModule } from "@modules/domain/workspace-settings"
 
 /** The nodes this app installs: the nodes of every installed plugin (the core package and each plugin package) and the effects, tools and data kinds they may use. */
@@ -58,7 +55,6 @@ export const agentWorkModules = (options: ApiOptions): Array<DynamicModule> => [
         isGlobal: true,
         entities: INSTALLED.entities(),
         jobs: INSTALLED.jobs(),
-        alerts: AgentRunEngineAlertsService,
         cursorKey: options.entityEngine.cursorKey,
         buildId: options.entityEngine.buildId,
     }),
@@ -73,6 +69,8 @@ export const agentWorkModules = (options: ApiOptions): Array<DynamicModule> => [
         agentLoop: { nodes: options.agentLoop?.nodes ?? [], loops: AGENT_LOOPS },
         // The routes a routing step cannot follow in the workspace (`ctx.run.unreachable`): read from the pinned graph.
         routes: AgentNodeRoutesService,
+        // The workspace's policies (L2 of the agents' model calls): the engine's pre-read of `nivo.tool.brain.policy.list`.
+        policies: BrainPolicyPreReadService,
     }),
     ChatNodePortsModule.register({ isGlobal: true }),
     AgentInboundModule.register({ isGlobal: true, stopReporter: TeamChatChainStopReporterService }),
@@ -117,6 +115,5 @@ export const agentWorkMessages: ReadonlyArray<MessageBundle> = [
     AGENT_INBOUND_MESSAGES,
     AGENT_SCHEDULES_MESSAGES,
     AGENT_GRAPHS_MESSAGES,
-    INTENT_CONTRACTS_MESSAGES,
     LANGGRAPH_MESSAGES,
 ]

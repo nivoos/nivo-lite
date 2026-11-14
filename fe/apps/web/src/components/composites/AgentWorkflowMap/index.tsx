@@ -1,5 +1,4 @@
-import { FlowGraph, FlowGraphLegend, Section, type FlowGraphPositions } from "@starci/grammar/common"
-import { useState } from "react"
+import { FlowGraph, FlowGraphLegend, Section } from "@starci/grammar/common"
 import type { StepsMapView } from "@/modules/types"
 
 /** What the map card of a workflow draws, and what pressing a step does. */
@@ -23,11 +22,10 @@ interface AgentWorkflowMapProps {
 /**
  * The card map of the version that runs, in a card: its title above, the white step cards on the well with their kind icons, the
  * branch ports of a condition and the dashed back edges; under the card the kind legend and the caption. Pressing a step opens its
- * settings.
+ * settings. The steps are not movable (a shop never edits a graph): the layout is the computed one; panning, zooming and fit view stay.
  */
 export const AgentWorkflowMap = (props: AgentWorkflowMapProps) => {
     const { flow } = props.props
-    const [positions, setPositions] = useState<FlowGraphPositions>({})
     return (
         <Section
             title={props.props.title}
@@ -47,9 +45,6 @@ export const AgentWorkflowMap = (props: AgentWorkflowMapProps) => {
                 selectedId={props.props.selectedId}
                 onNodePress={props.on.pressStep}
                 background="dots"
-                isEditable
-                positions={positions}
-                onPositionsChange={setPositions}
             />
             <FlowGraphLegend items={flow.legend} />
         </Section>

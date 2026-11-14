@@ -84,7 +84,7 @@ const buildWithoutMembers = async (claims: NodeRunClaims) => {
 
 describe("NodeToolDoorService who calls", () => {
     it("calls as the run its token names, under the replay key, and answers the value", async () => {
-        const value = { provider: "smtp", qrUrl: "https://qr.example/img" }
+        const value = { provider: "payos", qrUrl: "https://qr.example/img" }
         const { door, gateway, tokens } = await build(CLAIMS, { ok: true, value })
 
         await expect(door.call(callOf())).resolves.toEqual(value)
@@ -109,27 +109,27 @@ describe("NodeToolDoorService who calls", () => {
 
     // The gateway's own ask (the step's node mode `ask`) is shown on the mail send: the door hands it on, bound to the account.
     it("calls on the account the runner handed, binds its ask to that account, and carries what a failure proves", async () => {
-        const account = { provider: "smtp", connectionId: "smtp-2", attempt: 2, chosenBy: "fallback" as const }
+        const account = { provider: "payos", connectionId: "payos-2", attempt: 2, chosenBy: "fallback" as const }
         const asking = await build(CLAIMS, { ok: false, code: "approval_required", reason: "ask_mode" })
 
-        const ask = await asking.door.call(callOf({ tool: "nivo.tool.mail.message.send", account })).catch((cause: unknown) => cause)
+        const ask = await asking.door.call(callOf({ tool: "nivo.tool.payment.link.create", account })).catch((cause: unknown) => cause)
 
         expect(asking.gateway.call.mock.calls[0]?.[0]).toMatchObject({
-            connectionId: "smtp-2",
-            provider: "smtp",
+            connectionId: "payos-2",
+            provider: "payos",
             attempt: 2,
             chosenBy: "fallback",
         })
         expect(ask).toMatchObject({
             code: GraphNodesErrorCode.ToolApprovalRequired,
             params: {
-                fingerprint: toolFingerprintOf("nivo.tool.mail.message.send", ARGS, "smtp-2"),
-                connectionId: "smtp-2",
-                provider: "smtp",
+                fingerprint: toolFingerprintOf("nivo.tool.payment.link.create", ARGS, "payos-2"),
+                connectionId: "payos-2",
+                provider: "payos",
             },
         })
-        expect(toolFingerprintOf("nivo.tool.mail.message.send", ARGS, "smtp-2")).not.toBe(
-            toolFingerprintOf("nivo.tool.mail.message.send", ARGS),
+        expect(toolFingerprintOf("nivo.tool.payment.link.create", ARGS, "payos-2")).not.toBe(
+            toolFingerprintOf("nivo.tool.payment.link.create", ARGS),
         )
 
         const failing = await build(CLAIMS, { ok: false, code: "unavailable", detail: "x" })
@@ -152,12 +152,12 @@ describe("NodeToolDoorService who calls", () => {
         expect(gateway.call.mock.calls[0]?.[0]).toMatchObject({ origin: "node", node: step, graphStep: true })
 
         const effects = await buildWithAccounts(
-            { kind: "allow", provider: "smtp", connectionId: "conn-mb" },
+            { kind: "allow", provider: "payos", connectionId: "conn-mb" },
             { ...CLAIMS, step },
-            { mode: "auto", accounts: [{ kind: "mail", provider: "smtp", connectionId: null }] },
+            { mode: "auto", accounts: [{ kind: "payment", provider: "payos", connectionId: null }] },
         )
         await expect(
-            effects.door.effectRight({ token: "token-1", effect: TOOL.mailMessageSend, payload: { orderId: "o-1" }, approval: null }),
+            effects.door.effectRight({ token: "token-1", effect: TOOL.paymentLinkCreate, payload: { orderId: "o-1" }, approval: null }),
         ).resolves.toBeNull()
         expect(effects.requests.requestOf).toHaveBeenCalledWith(CLAIMS.workspaceId, CLAIMS.agentId, step)
     })
@@ -282,11 +282,11 @@ describe("NodeToolDoorService approvals", () => {
     it("asks for a person with the fingerprint of the exact tool and arguments", async () => {
         const { door } = await build(CLAIMS, { ok: false, code: "approval_required", reason: "ask_mode" })
 
-        await expect(door.call(callOf({ tool: "nivo.tool.mail.message.send" }))).rejects.toMatchObject({
+        await expect(door.call(callOf({ tool: "nivo.tool.payment.link.create" }))).rejects.toMatchObject({
             code: GraphNodesErrorCode.ToolApprovalRequired,
             params: {
-                tool: "nivo.tool.mail.message.send",
-                fingerprint: toolFingerprintOf("nivo.tool.mail.message.send", ARGS),
+                tool: "nivo.tool.payment.link.create",
+                fingerprint: toolFingerprintOf("nivo.tool.payment.link.create", ARGS),
                 reason: "ask_mode",
                 args: JSON.stringify({ orderNo: "DH-7", amountVnd: "5000", transferContent: "DH7 thanh toan" }),
             },
@@ -296,17 +296,17 @@ describe("NodeToolDoorService approvals", () => {
     // FX4 (D-P11-5): the engine runs the approved call itself, once, through this door under the same key: the error carries it exactly.
     it("carries the exact call on the ask (its arguments as the host passed them and its key), so the engine can run that call", async () => {
         const { door, gateway } = await build(CLAIMS, { ok: false, code: "approval_required", reason: "outside_write" })
-        const asked = await door.call(callOf({ tool: "nivo.tool.mail.message.send", key: "run-1:answer:tool:abc" })).catch((cause: unknown) => cause)
+        const asked = await door.call(callOf({ tool: "nivo.tool.payment.link.create", key: "run-1:answer:tool:abc" })).catch((cause: unknown) => cause)
 
         expect(asked).toMatchObject({
             code: GraphNodesErrorCode.ToolApprovalRequired,
             params: { call: JSON.stringify(ARGS), key: "run-1:answer:tool:abc" },
         })
-        const again = { by: "member-owner", fingerprint: toolFingerprintOf("nivo.tool.mail.message.send", ARGS) }
+        const again = { by: "member-owner", fingerprint: toolFingerprintOf("nivo.tool.payment.link.create", ARGS) }
         gateway.call.mockResolvedValue({ ok: true, value: { id: "entry-1" } })
 
         await expect(
-            door.call(callOf({ tool: "nivo.tool.mail.message.send", args: ARGS, key: "run-1:answer:tool:abc", approval: again })),
+            door.call(callOf({ tool: "nivo.tool.payment.link.create", args: ARGS, key: "run-1:answer:tool:abc", approval: again })),
         ).resolves.toEqual({ id: "entry-1" })
         expect(gateway.call.mock.calls.at(-1)?.[0]).toMatchObject({ approvedBy: "member-owner", opKey: "run-1:answer:tool:abc" })
     })
@@ -563,40 +563,40 @@ const buildWithAccounts = async (
     return { door: moduleRef.get(NodeToolDoorService), accounts, requests, tokens, logger }
 }
 
-const QR = { token: "token-1", effect: TOOL.mailMessageSend, payload: { orderId: "o-1" }, approval: null }
+const QR = { token: "token-1", effect: TOOL.paymentLinkCreate, payload: { orderId: "o-1" }, approval: null }
 
 /** The agent's attached SMTP account, and the refusal of an agent attached to none. */
-const ON_SMTP = { kind: "allow", provider: "smtp", connectionId: "conn-mb" } as const
-const NOT_ATTACHED = { kind: "refuse", reason: "not_attached", providers: ["smtp"] } as const
+const ON_PAYOS = { kind: "allow", provider: "payos", connectionId: "conn-mb" } as const
+const NOT_ATTACHED = { kind: "refuse", reason: "not_attached", providers: ["payos"] } as const
 
 /** A signed workflow step and its node acting through SMTP in the given mode. */
 const MAIL_STEP = { nodeKey: "mail-quote", versionId: "v-4", workflowId: "wf-mail" }
 const mailNode = (mode: "auto" | "ask"): OptionalNodeRequest => ({
     mode,
-    accounts: [{ kind: "mail", provider: "smtp", connectionId: null }],
+    accounts: [{ kind: "payment", provider: "payos", connectionId: null }],
 })
 
 describe("NodeToolDoorService effect rights: the context.effect road (attached? → mode)", () => {
-    it("judges nivo.tool.mail.message.send and nivo.tool.ledger.entry.append on the run agent's attachment, as the gateway road does", async () => {
-        const { door, accounts, requests } = await buildWithAccounts(ON_SMTP)
+    it("judges nivo.tool.payment.link.create and nivo.tool.ledger.entry.append on the run agent's attachment, as the gateway road does", async () => {
+        const { door, accounts, requests } = await buildWithAccounts(ON_PAYOS)
 
         await expect(door.effectRight(QR)).resolves.toBeNull()
         await expect(door.effectRight({ ...QR, effect: TOOL.ledgerEntryAppend })).resolves.toBeNull()
         // A token that signs no step is the engine's own call: it runs once attached, and no node is read.
         expect(accounts.attachmentOf.mock.calls).toEqual([
-            [CLAIMS.workspaceId, CLAIMS.agentId, TOOL.mailMessageSend, {}],
+            [CLAIMS.workspaceId, CLAIMS.agentId, TOOL.paymentLinkCreate, {}],
             [CLAIMS.workspaceId, CLAIMS.agentId, TOOL.ledgerEntryAppend, {}],
         ])
         expect(requests.requestOf).not.toHaveBeenCalled()
     })
 
     it("judges the account the runner handed, and the step's node mode once attached", async () => {
-        const { door, accounts, requests } = await buildWithAccounts(ON_SMTP, { ...CLAIMS, step: MAIL_STEP }, mailNode("auto"))
-        const account = { provider: "smtp", connectionId: "conn-mb", attempt: 1, chosenBy: "order" as const }
+        const { door, accounts, requests } = await buildWithAccounts(ON_PAYOS, { ...CLAIMS, step: MAIL_STEP }, mailNode("auto"))
+        const account = { provider: "payos", connectionId: "conn-mb", attempt: 1, chosenBy: "order" as const }
 
         await expect(door.effectRight({ ...QR, account })).resolves.toBeNull()
-        expect(accounts.attachmentOf).toHaveBeenCalledWith(CLAIMS.workspaceId, CLAIMS.agentId, TOOL.mailMessageSend, {
-            provider: "smtp",
+        expect(accounts.attachmentOf).toHaveBeenCalledWith(CLAIMS.workspaceId, CLAIMS.agentId, TOOL.paymentLinkCreate, {
+            provider: "payos",
             connectionId: "conn-mb",
         })
         expect(requests.requestOf).toHaveBeenCalledWith(CLAIMS.workspaceId, CLAIMS.agentId, MAIL_STEP)
@@ -607,12 +607,12 @@ describe("NodeToolDoorService effect rights: the context.effect road (attached? 
         await expect(detached.door.effectRight(QR)).resolves.toEqual({
             kind: "refused",
             id: "not_attached",
-            facts: { tool: TOOL.mailMessageSend, providers: ["smtp"] },
+            facts: { tool: TOOL.paymentLinkCreate, providers: ["payos"] },
         })
         // The kill switch is read before the node: a detached agent's node is never asked.
         expect(detached.requests.requestOf).not.toHaveBeenCalled()
 
-        const unread = await buildWithAccounts(ON_SMTP, { ...CLAIMS, step: MAIL_STEP }, null)
+        const unread = await buildWithAccounts(ON_PAYOS, { ...CLAIMS, step: MAIL_STEP }, null)
         await expect(unread.door.effectRight(QR)).resolves.toMatchObject({ kind: "refused", id: "node_mode_unknown" })
         expect(unread.logger.warn).toHaveBeenCalled()
         // Each verdict of an effect is handed to the audit where it is produced (the gateway never sees an effect).
@@ -623,8 +623,8 @@ describe("NodeToolDoorService effect rights: the context.effect road (attached? 
                 line.runId,
             ]),
         ).toEqual([
-            [TOOL.mailMessageSend, "refuse", CLAIMS.runId],
-            [TOOL.mailMessageSend, "refuse", CLAIMS.runId],
+            [TOOL.paymentLinkCreate, "refuse", CLAIMS.runId],
+            [TOOL.paymentLinkCreate, "refuse", CLAIMS.runId],
         ])
     })
 
@@ -634,11 +634,11 @@ describe("NodeToolDoorService effect rights: the context.effect road (attached? 
             const { door, logger } =
                 reason === "not_attached"
                     ? await buildWithAccounts(NOT_ATTACHED, { ...CLAIMS, step: MAIL_STEP }, mailNode("auto"))
-                    : await buildWithAccounts(ON_SMTP, { ...CLAIMS, step: MAIL_STEP }, null)
+                    : await buildWithAccounts(ON_PAYOS, { ...CLAIMS, step: MAIL_STEP }, null)
 
             await expect(door.effectRight({ ...QR, refusals: "answer" })).rejects.toMatchObject({
                 code: GraphNodesErrorCode.ToolNotGranted,
-                params: { tool: TOOL.mailMessageSend, reason },
+                params: { tool: TOOL.paymentLinkCreate, reason },
             })
             expect(logger.warn).toHaveBeenCalled()
         },
@@ -647,13 +647,13 @@ describe("NodeToolDoorService effect rights: the context.effect road (attached? 
 
 describe("NodeToolDoorService effect rights: the ask and the effects that are no provider right", () => {
     it("an `ask` node on an attached account: waits for a person with the fingerprint of the effect and its payload, and runs the call that replays it", async () => {
-        const { door } = await buildWithAccounts(ON_SMTP, { ...CLAIMS, step: MAIL_STEP }, mailNode("ask"))
-        const fingerprint = toolFingerprintOf(TOOL.mailMessageSend, QR.payload)
+        const { door } = await buildWithAccounts(ON_PAYOS, { ...CLAIMS, step: MAIL_STEP }, mailNode("ask"))
+        const fingerprint = toolFingerprintOf(TOOL.paymentLinkCreate, QR.payload)
 
         await expect(door.effectRight(QR)).rejects.toMatchObject({
             code: GraphNodesErrorCode.ToolApprovalRequired,
             params: {
-                tool: TOOL.mailMessageSend,
+                tool: TOOL.paymentLinkCreate,
                 fingerprint,
                 reason: "ask_mode",
                 args: JSON.stringify({ orderId: "o-1" }),

@@ -1,6 +1,6 @@
 import type { useQueryChatMessagesSwr, useQueryChatRoomsSwr } from "@/hooks/swr"
 import type { useTranslations } from "next-intl"
-import { NIVO_MARK, daysAgoOf, draftWithMention, mentionTriggerOf, type BackgroundStoppedWords, type BrainChangeWords, type StopCardWords } from "@/modules/teamChat"
+import { NIVO_MARK, daysAgoOf, draftWithMention, mentionTriggerOf, type BackgroundStoppedWords, type BrainChangeWords, type JobParkedWords, type StopCardWords } from "@/modules/teamChat"
 import type {
     ChatParty,
     ChatPartyKind,
@@ -35,8 +35,9 @@ export interface ChatRowWords {
     readonly copy: TeamChatMessagesCopy
     /** The words of the typed stop cards of a thread. */
     readonly stop: StopCardWords
-    /** The words of the "background work stopped" cards NIVO posts. */
+    /** The words of the "background work stopped" and "a job stopped" cards NIVO posts. */
     readonly backgroundStopped: BackgroundStoppedWords
+    readonly jobParked: JobParkedWords
     /** The words of the truth-change cards. */
     readonly brainChange: BrainChangeWords
     /** A path of the workspace as the address that opens it. */
@@ -71,6 +72,7 @@ const whenOf = (iso: string, words: ChatRowWords): string => {
 const previewOf = (room: ChatRoomNode, words: ChatRowWords, viewerId: string): string => {
     const last = room.lastMessage
     if (last === null) return words.noMessage
+    if (last.jobParked != null) return words.jobParked.titleOf(last.jobParked.job)
     if (last.backgroundStopped != null) return words.backgroundStopped.titleOf(last.backgroundStopped.work, last.backgroundStopped.reason)
     const text = last.body.trim() === "" ? words.attachment : last.body.replaceAll(/\s+/gu, " ").trim()
     if (last.authorKind === "system") return text
@@ -138,6 +140,7 @@ export const roomHandlersOf = (room: TeamChatRoomState, back: () => void): TeamC
     decide: (decisionId, verdict) => void room.cards.decide(decisionId, verdict),
     stop: (card, action) => void room.stops.act(card, action),
     change: (changeId, action) => void room.changes.act(changeId, action),
+    job: (jobId, action) => void room.jobs.act(jobId, action),
     draft: room.composer.setDraft,
     mention: mentionInto(room),
     send: () => void room.composer.send(),
@@ -152,12 +155,8 @@ export type TeamChatWords = ReturnType<typeof useTranslations<"teamChat">>
 /** The words of the stop cards of a thread: the buttons, chips and reply words the web owns, the clock of the viewer and how a preview is drawn. */
 export const stopCardWordsOf = (t: TeamChatWords, timeOf: StopCardWords["timeOf"], previewOf: StopCardWords["previewOf"]): StopCardWords => ({
     labels: {
-        retry: t("stopCard.retry"),
-        takeOver: t("stopCard.takeOver"),
-        skip: t("stopCard.skip"),
-        send: t("stopCard.send"),
-        approve: t("stopCard.approve"),
-        refuse: t("stopCard.refuse"),
+        retry: t("stopCard.retry"), takeOver: t("stopCard.takeOver"), skip: t("stopCard.skip"), send: t("stopCard.send"),
+        approve: t("stopCard.approve"), refuse: t("stopCard.refuse"),
         title: t("stopCard.title"),
         stopsRow: t("stopCard.stopsRow"),
         details: t("stopCard.details"),
@@ -169,6 +168,7 @@ export const stopCardWordsOf = (t: TeamChatWords, timeOf: StopCardWords["timeOf"
         factsLabel: t("stopCard.factsLabel"),
         approvalLabel: t("stopCard.approvalLabel"),
         messageLabel: t("stopCard.messageLabel"),
+        subjectLabel: t("stopCard.subjectLabel"),
         filesLabel: t("stopCard.filesLabel"),
         handBack: t("stopCard.handBack"),
         suggestionsLabel: t("stopCard.suggestionsLabel"),

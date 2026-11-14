@@ -4,8 +4,10 @@ import { holdProvidersOf } from "./thread-world-core"
 import { UNDERSTAND, customersSay, processOf, runTurns, threadDbOf, type ThreadProcess } from "./thread-world"
 
 // WORLD (a) of the backlog: a burst of customer lines is ONE run (coordinator ruling 3 of the one event pipeline, final rule: one run per
-// (graph, subject); events that arrive for a subject are stored rows; the run that starts takes the WHOLE list: the oldest is its trigger
-// scope, the rest are `run.queue`). THE TWO HALVES:
+// (graph, subject)). Since rule Q-4 (QB-P5): the Zalo line declares `combine: "stream"`, so the burst is ONE stream MARKER at delivery: the
+// OLDEST wake stays (count 3, the newest event named), the later ones close `coalesced:<marker>` and begin nothing; the run's trigger is the
+// oldest line plus `since` and `count`, its queue takes nothing, and the words are read from the stream (hear reads the unread lines). THE
+// TWO HALVES:
 //
 //  - PROVED HERE: the customer lines come in through the real Zalo entry (the body kept once, the provider's pure `translate`, the REAL
 //    `ProviderTriggersService.deliver`: contact met, route ensured, the registration asked, one wake per line). The settle time is the one
@@ -46,8 +48,8 @@ const buy = (db: ThreadProcess["db"], times = 1): void => {
     for (let one = 0; one < times; one += 1) db.model.script(UNDERSTAND, { done: { branch: "buy", summary: "Lan: buy" } })
 }
 
-describe("burst: three lines one second apart on one route are ONE run (the oldest is the trigger, the rest are `run.queue`)", () => {
-    it("one run for three lines; the later wakes begin nothing; the run's first visit takes them in order, once", async () => {
+describe("burst: three lines one second apart on one route are ONE run (one stream marker: the oldest, count 3)", () => {
+    it("one run for three lines; the later wakes close behind the oldest at delivery and begin nothing; the run's trigger counts them", async () => {
         const db = threadDbOf()
         buy(db)
         const process = await processOf(db, { extra: [...holdProvidersOf(db), AgentGraphRunQueueService] })
@@ -61,29 +63,32 @@ describe("burst: three lines one second apart on one route are ONE run (the olde
         // One lock scope for the person; the wake door stamped the settle time the Zalo declaration declares on every one of them.
         expect(new Set(wakes.map((wake) => wake.scopeKey)).size).toBe(1)
         expect(wakes.map((wake) => wake.burst)).toEqual(Array(3).fill({ windowMs: 6000, maxWaitMs: 20_000 }))
+        // ONE marker at delivery (rule Q-4 stream): the oldest stays pending with the count and the newest event; the others are closed.
+        const markerId = wakes[0]?.id ?? ""
+        expect(wakes.map((wake) => wake.state)).toEqual(["pending", "queued", "queued"])
+        expect(wakes.map((wake) => wake.reason ?? null)).toEqual([null, `coalesced:${markerId}`, `coalesced:${markerId}`])
+        expect(wakes[0]?.context).toMatchObject({ combine: "stream", eventId: "m-b1", count: "3", latestEventId: "m-b3" })
 
         const woken = await runTurns(process, wakes)
 
-        // ONE run; the two later wakes ran no run of their own: the run's queue took them.
+        // ONE run; the two later wakes ran no run of their own.
         expect(woken).toHaveLength(1)
         expect(woken[0]?.error).toBeNull()
         expect(woken[0]?.ending).toMatchObject({ status: "done" })
         expect([...db.runs.keys()]).toHaveLength(1)
         const runId = woken[0]?.runId ?? ""
         expect(wakes.map((wake) => wake.state)).toEqual(["begun", "queued", "queued"])
-        expect(wakes.map((wake) => wake.reason ?? null)).toEqual([null, `queued:${runId}`, `queued:${runId}`])
-
-        // The FIRST step visit of the run took both, oldest first, as ONE snapshot kept once (a re-run of the step reads the same events);
-        // no later visit takes anything. (The chat flow of the world starts at `hear`.)
-        const [first, ...rest] = snapshotsOf(db, runId)
+        // The trigger is the OLDEST line (R74 item 6) with `since` and `count`; the queue of the first visit takes nothing (nothing pending).
+        const view = await process.threads.stateOf({ workspaceId: db.records.get(AGENT_RUNS, runId)?.workspaceId ?? "", runId })
+        const trigger = (view?.state as { trigger?: { data?: { text?: string }; count?: number; since?: string } } | undefined)?.trigger
+        expect(trigger?.data?.text).toBe("Shop oi")
+        expect(trigger?.count).toBe(3)
+        expect(typeof trigger?.since).toBe("string")
         expect((await stepsOf(process, runId))[0]).toBe("hear")
-        expect(first?.key).toBe(`queue:${runId}:hear:0`)
-        expect(first?.events.map((event) => event.wakeId)).toEqual([wakes[1]?.id, wakes[2]?.id])
-        expect(first?.events.map((event) => (event.scope.data as { text?: string } | undefined)?.text)).toEqual(["cho minh dat hoa", "mot bo hong do nhe"])
-        expect(rest.flatMap((one) => one.events)).toEqual([])
+        expect(snapshotsOf(db, runId).flatMap((one) => one.events)).toEqual([])
     })
 
-    it("a line of ANOTHER route in the same window is its own run: another lock scope, never queued on the first person's run", async () => {
+    it("a line of ANOTHER route in the same window is its own run: another lock scope, never folded into the first person's marker", async () => {
         const db = threadDbOf()
         buy(db, 2)
         const process = await processOf(db, { extra: [...holdProvidersOf(db), AgentGraphRunQueueService] })
@@ -94,13 +99,14 @@ describe("burst: three lines one second apart on one route are ONE run (the olde
             { text: "cho minh dat hoa", key: "m-c2", at: at(2) },
         ])
         expect(new Set(wakes.map((wake) => wake.scopeKey)).size).toBe(2)
+        expect(wakes.map((wake) => wake.reason ?? null)).toEqual([null, null, `coalesced:${wakes[0]?.id ?? ""}`])
 
         const woken = await runTurns(process, wakes)
 
         expect(woken.map((one) => one.error)).toEqual([null, null])
         expect([...db.runs.keys()]).toHaveLength(2)
         const [mine, other] = woken
-        expect(snapshotsOf(db, mine?.runId ?? "").flatMap((one) => one.events.map((event) => event.wakeId))).toEqual([wakes[2]?.id])
+        expect(snapshotsOf(db, mine?.runId ?? "").flatMap((one) => one.events)).toEqual([])
         expect(snapshotsOf(db, other?.runId ?? "").flatMap((one) => one.events)).toEqual([])
         expect(wakes.map((wake) => wake.state)).toEqual(["begun", "begun", "queued"])
     })

@@ -1,14 +1,7 @@
 import { Test } from "@nestjs/testing"
-import { graphRow, proposalRow, sourceRow, versionRow } from "@tests/fixtures/builders/agent-graph-records.builder"
+import { graphRow, versionRow } from "@tests/fixtures/builders/agent-graph-records.builder"
 import { AgentGraphsError, AgentGraphsErrorCode } from "./errors/agent-graphs.error"
-import {
-    chunksOf,
-    graphRecordOf,
-    jsonOf,
-    proposalRecordOf,
-    sourceRecordOf,
-    versionRecordOf,
-} from "./agent-graphs.mapper"
+import { chunksOf, graphRecordOf, jsonOf, versionRecordOf } from "./agent-graphs.mapper"
 
 const SUBJECT = Symbol("agent-graphs.mapper")
 
@@ -67,16 +60,6 @@ describe("the record mappers", () => {
         })
     })
 
-    it("reads a source and a proposal with its evidence as a list", () => {
-        expect(sourceRecordOf(sourceRow())).toMatchObject({ workspaceId: "ws-1", kind: "brain", ref: "fact-1" })
-        expect(proposalRecordOf(proposalRow())).toMatchObject({
-            id: "p1",
-            fence: "4",
-            evidence: ["d0"],
-            createdAt: new Date("2026-11-01T01:00:00.000Z"),
-        })
-    })
-
     it("refuses a record that is not the shape its entity declares", () => {
         expect(unreadable(() => graphRecordOf(graphRow({ mode: "loud" })))).toBe(
             AgentGraphsErrorCode.RecordUnreadable,
@@ -89,9 +72,6 @@ describe("the record mappers on a field that is not what its entity declares", (
         ["a draft revision that is not a number", () => graphRecordOf(graphRow({ draftRev: "3" }))],
         ["a draft that is not an object", () => graphRecordOf(graphRow({ draft: "x" }))],
         ["an agent that is not text", () => graphRecordOf(graphRow({ agentId: undefined }))],
-        ["a flag that is not a boolean", () => proposalRecordOf(proposalRow({ widens: "yes" }))],
-        ["evidence that is not a list", () => proposalRecordOf(proposalRow({ evidence: { ids: "d0" } }))],
-        ["evidence holding a number", () => proposalRecordOf(proposalRow({ evidence: { ids: [1] } }))],
     ])("refuses %s", (_name, read) => {
         expect(unreadable(read)).toBe(AgentGraphsErrorCode.RecordUnreadable)
     })

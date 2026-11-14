@@ -1,5 +1,7 @@
 export { AccountDataModule } from "./account-data.module"
 export { AccountDataIntakeService } from "./account-data-intake.service"
+export { AccountDataAdmissionsService } from "./account-data-admissions.service"
+export { AccountDataFactsService, type FactClaim } from "./account-data-facts.service"
 export { AccountDataReadService } from "./account-data-read.service"
 export { AccountDataTypesService } from "./account-data-types.service"
 export { AccountCursorsService } from "./account-cursors.service"
@@ -22,6 +24,8 @@ export type {
     AccountOwner,
     AccountWrite,
     PendingRow,
+    AdmittedRow,
+    AccountAdmission,
     StoredRow,
 } from "./account-data.contracts"
 export { accountDataEntities } from "./persistence/entities"

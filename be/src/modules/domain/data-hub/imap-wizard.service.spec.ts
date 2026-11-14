@@ -1,226 +1,141 @@
 import { Test } from "@nestjs/testing"
 import { mock } from "@starci/jest-preset"
-import type { ConnectionActor } from "@modules/domain/connections"
-import { IMAP } from "@modules/integrations/data-sources"
-import type { ImapClient } from "@modules/integrations/data-sources"
-import type { DataConnection } from "./data-hub.contracts"
-import { DataHubService } from "./data-hub.service"
-import { DataHubError, DataHubErrorCode } from "./errors/data-hub.error"
+import { connectionRecord } from "@tests/fixtures/builders/connection-records.builder"
+import { ConnectionApiTokenService } from "@modules/domain/connection-secrets"
+import { ConnectionsService, type ConnectionRecord } from "@modules/domain/connections"
+import { IMAP, type ImapClient } from "@modules/integrations/data-sources"
+import { DataHubErrorCode } from "./errors/data-hub.error"
 import type { ImapInput } from "./imap-connection.contracts"
 import { ImapWizardService } from "./imap-wizard.service"
-import { IMAP_CONNECTION_TEXT, imapSummary } from "./messages/imap-connection.messages"
+import { IMAP_CONNECTION_TEXT } from "./messages/imap-connection.messages"
 
-const actor: ConnectionActor = { principalId: "owner-1", workspaceId: "workspace-1" }
+const actor = { principalId: "owner-1", workspaceId: "ws-1" }
+const CONFIG = JSON.stringify({ folders: ["INBOX"], sinceDays: 30 })
+const CREDENTIAL = JSON.stringify({ host: "imap.example.com", port: 993, secure: true, user: "shop@example.com", password: "saved" })
 
-const input: ImapInput = {
-    name: " Support mailbox ",
-    email: " support@example.com ",
-    host: " imap.example.com ",
+const input = (overrides: Partial<ImapInput> = {}): ImapInput => ({
+    name: "Shop mailbox",
+    email: "Shop@Example.com",
+    host: "imap.example.com",
     port: 993,
     security: "tls",
-    user: " support@example.com ",
-    password: "typed-password",
-    folders: ["INBOX", "Sent", "INBOX"],
-    sinceDays: 7,
-    syncEveryMinutes: 60,
-}
+    user: "shop@example.com",
+    password: "typed",
+    folders: ["INBOX"],
+    sinceDays: 30,
+    ...overrides,
+})
 
-const connection: DataConnection = {
-    id: "imap-1",
-    workspaceId: "workspace-1",
-    provider: "imap",
-    name: "Saved mailbox",
-    status: "connected",
-    lastError: null,
-    meta: {
-        config: '{"folders":["Archive"],"sinceDays":90}',
-        email: "saved@example.com",
-        "cursor:Archive": "42",
-    },
-    everyMinutes: 15,
-    lastSyncAt: null,
-}
-
-const savedCredential =
-    '{"host":"saved.example.com","port":143,"secure":false,' + '"user":"saved-user","password":"stored-password"}'
+const smtpOf = (overrides: Partial<ConnectionRecord> = {}): ConnectionRecord =>
+    connectionRecord({ id: "smtp-1", workspaceId: "ws-1", provider: "smtp", meta: { from_email: "shop@example.com", host: "smtp.example.com" }, ...overrides })
+const imapOf = (overrides: Partial<ConnectionRecord> = {}): ConnectionRecord =>
+    connectionRecord({ id: "imap-1", workspaceId: "ws-1", provider: "imap", meta: { email: "shop@example.com", config: CONFIG }, ...overrides })
 
 const build = async () => {
-    const hub = mock<DataHubService>()
+    const connections = mock<ConnectionsService>()
+    connections.authorize.mockResolvedValue({ role: "owner", displayName: "Lan" })
+    connections.listByProvider.mockResolvedValue([])
+    connections.create.mockResolvedValue("imap-new")
+    connections.agentIds.mockResolvedValue(["agent-1", "agent-1"])
+    const tokens = mock<ConnectionApiTokenService>()
+    tokens.write.mockResolvedValue(true)
+    tokens.read.mockResolvedValue(null)
     const imap = mock<ImapClient>()
-    hub.own.mockResolvedValue(connection)
-    hub.credentialOf.mockResolvedValue(savedCredential)
-    hub.create.mockResolvedValue("imap-new")
+    imap.listFolders.mockResolvedValue(["INBOX"])
     const moduleRef = await Test.createTestingModule({
-        providers: [ImapWizardService, { provide: DataHubService, useValue: hub }, { provide: IMAP, useValue: imap }],
+        providers: [
+            ImapWizardService,
+            { provide: ConnectionsService, useValue: connections },
+            { provide: ConnectionApiTokenService, useValue: tokens },
+            { provide: IMAP, useValue: imap },
+        ],
     }).compile()
-    return { service: moduleRef.get(ImapWizardService), hub, imap }
+    return { service: moduleRef.get(ImapWizardService), connections, tokens, imap }
 }
 
-describe("ImapWizardService", () => {
-    it("tests a new mailbox with cleaned login settings and returns its folders", async () => {
-        const { service, hub, imap } = await build()
-        imap.listFolders.mockResolvedValue(["INBOX", "Sent"])
+describe("ImapWizardService.save: one mailbox = one account (MAIL-IN rules MI-1, MI-2)", () => {
+    it("writes the inbound half onto the workspace's mailbox (smtp) account of the SAME address: read credential + settings, no second account", async () => {
+        const { service, connections, tokens } = await build()
+        connections.listByProvider.mockImplementation((_ws, provider) => Promise.resolve(provider === "smtp" ? [smtpOf()] : []))
 
-        await expect(service.test(actor, input)).resolves.toEqual(["INBOX", "Sent"])
-        expect(hub.owner).toHaveBeenCalledWith(actor)
-        expect(hub.own).not.toHaveBeenCalled()
-        expect(hub.credentialOf).not.toHaveBeenCalled()
-        expect(imap.listFolders).toHaveBeenCalledWith({
-            host: "imap.example.com",
-            port: 993,
-            secure: true,
-            user: "support@example.com",
-            password: "typed-password",
+        await expect(service.save(actor, input())).resolves.toBe("smtp-1")
+
+        expect(connections.create).not.toHaveBeenCalled()
+        const [connectionId, credential] = tokens.write.mock.calls[0] ?? []
+        expect(connectionId).toBe("smtp-1")
+        expect(JSON.parse(credential ?? "{}")).toMatchObject({ host: "imap.example.com", password: "typed" })
+        expect(connections.patch).toHaveBeenCalledWith("ws-1", "smtp-1", {
+            meta: expect.objectContaining({ from_email: "shop@example.com", host: "smtp.example.com", config: CONFIG, email: "Shop@Example.com" }),
+            lastError: null,
         })
-        expect(hub.create).not.toHaveBeenCalled()
+        expect(connections.writeSecret).not.toHaveBeenCalled()
     })
 
-    it("tests an owned mailbox with its saved password when the typed password is blank", async () => {
-        const { service, hub, imap } = await build()
-        imap.listFolders.mockResolvedValue(["Archive"])
+    it("updates the address's inbound half standing alone (an imap account) instead of making a second one", async () => {
+        const { service, connections } = await build()
+        connections.listByProvider.mockImplementation((_ws, provider) => Promise.resolve(provider === "imap" ? [imapOf()] : []))
 
-        await expect(
-            service.test(actor, { ...input, connectionId: "imap-1", password: "", security: "starttls", port: 143 }),
-        ).resolves.toEqual(["Archive"])
-        expect(hub.own).toHaveBeenCalledWith("workspace-1", "imap-1", "imap")
-        expect(hub.credentialOf).toHaveBeenCalledWith("imap-1")
-        expect(imap.listFolders).toHaveBeenCalledWith({
-            host: "imap.example.com",
-            port: 143,
-            secure: false,
-            user: "support@example.com",
-            password: "stored-password",
-        })
+        await expect(service.save(actor, input())).resolves.toBe("imap-1")
+
+        expect(connections.create).not.toHaveBeenCalled()
+        expect(connections.writeSecret).toHaveBeenCalledWith("imap-1", expect.stringContaining("typed"))
     })
 
-    it("refuses a blank password when an existing mailbox has no saved credential", async () => {
-        const { service, hub, imap } = await build()
-        hub.credentialOf.mockResolvedValue(null)
+    it("makes a new inbound half standing alone (an imap account) only for an address that has no account", async () => {
+        const { service, connections } = await build()
 
-        await expect(service.test(actor, { ...input, connectionId: "imap-1", password: "" })).rejects.toMatchObject({
+        await expect(service.save(actor, input())).resolves.toBe("imap-new")
+
+        expect(connections.create).toHaveBeenCalledWith(
+            expect.objectContaining({ provider: "imap", status: "connected", meta: expect.objectContaining({ config: CONFIG }) }),
+        )
+    })
+
+    it("refuses an inbound half whose address is not the mailbox account's own (a mailbox is one address)", async () => {
+        const { service, connections } = await build()
+        connections.find.mockResolvedValue(smtpOf())
+
+        await expect(service.save(actor, input({ connectionId: "smtp-1", email: "other@example.com" }))).rejects.toMatchObject({
             code: DataHubErrorCode.Invalid,
-            params: { detail: IMAP_CONNECTION_TEXT.passwordMissing },
+            params: { detail: IMAP_CONNECTION_TEXT.addressOther },
         })
-        expect(imap.listFolders).not.toHaveBeenCalled()
     })
 
-    it("stops before reading or contacting the mailbox when ownership is denied", async () => {
-        const { service, hub, imap } = await build()
-        const refusal = new DataHubError({ code: DataHubErrorCode.NotFound })
-        hub.owner.mockRejectedValue(refusal)
-
-        await expect(service.test(actor, input)).rejects.toBe(refusal)
-        expect(hub.own).not.toHaveBeenCalled()
-        expect(imap.listFolders).not.toHaveBeenCalled()
+    it("refuses an account that is no mailbox, and a missing one", async () => {
+        const { service, connections } = await build()
+        connections.find.mockResolvedValue(connectionRecord({ id: "z-1", workspaceId: "ws-1", provider: "zalo_oa" }))
+        await expect(service.save(actor, input({ connectionId: "z-1" }))).rejects.toMatchObject({ params: { detail: IMAP_CONNECTION_TEXT.notMailbox } })
+        connections.find.mockResolvedValue(null)
+        await expect(service.save(actor, input({ connectionId: "gone" }))).rejects.toMatchObject({ code: DataHubErrorCode.NotFound })
     })
 })
 
-describe("ImapWizardService", () => {
-    it("creates a mailbox with cleaned settings and a sealed credential payload", async () => {
-        const { service, hub } = await build()
+describe("ImapWizardService.load / test", () => {
+    it("loads the inbound half of a mailbox account from its READ credential, never the password", async () => {
+        const { service, connections, tokens } = await build()
+        connections.find.mockResolvedValue(smtpOf({ meta: { from_email: "shop@example.com", config: CONFIG } }))
+        tokens.read.mockResolvedValue(CREDENTIAL)
 
-        await expect(service.save(actor, { ...input, connectionId: null })).resolves.toBe("imap-new")
-        expect(hub.create).toHaveBeenCalledWith(actor, {
-            provider: "imap",
-            name: "Support mailbox",
-            meta: {
-                config: '{"folders":["INBOX","Sent"],"sinceDays":7}',
-                summary: imapSummary("INBOX, Sent", 7),
-                email: "support@example.com",
-            },
-            credential:
-                '{"host":"imap.example.com","port":993,"secure":true,"user":"support@example.com"' +
-                ',"password":"typed-password"}',
-            everyMinutes: 60,
-        })
-        expect(hub.saveCredential).not.toHaveBeenCalled()
-        expect(hub.update).not.toHaveBeenCalled()
+        const view = await service.load(actor, "smtp-1")
+
+        expect(view).toMatchObject({ id: "smtp-1", provider: "smtp", email: "shop@example.com", host: "imap.example.com", folders: ["INBOX"], agentIds: ["agent-1"] })
+        expect(JSON.stringify(view)).not.toContain("saved")
     })
 
-    it("updates an owned mailbox while retaining its cursor and saved password", async () => {
-        const { service, hub } = await build()
+    it("has nothing to load for a sender with no inbound half", async () => {
+        const { service, connections } = await build()
+        connections.find.mockResolvedValue(smtpOf())
 
-        await expect(service.save(actor, { ...input, connectionId: "imap-1", password: "" })).resolves.toBe("imap-1")
-        expect(hub.saveCredential).toHaveBeenCalledWith(
-            "imap-1",
-            '{"host":"imap.example.com","port":993,"secure":true,"user":"support@example.com"' +
-                ',"password":"stored-password"}',
-        )
-        expect(hub.update).toHaveBeenCalledWith("workspace-1", "imap-1", {
-            name: "Support mailbox",
-            meta: {
-                config: '{"folders":["INBOX","Sent"],"sinceDays":7}',
-                email: "support@example.com",
-                "cursor:Archive": "42",
-                summary: imapSummary("INBOX, Sent", 7),
-            },
-            everyMinutes: 60,
-        })
-        expect(hub.create).not.toHaveBeenCalled()
+        await expect(service.load(actor, "smtp-1")).rejects.toMatchObject({ code: DataHubErrorCode.NotFound })
     })
 
-    it("loads the saved public settings and unique agent grants without the password", async () => {
-        const { service, hub } = await build()
-        hub.agentIds.mockResolvedValue(["agent-1", "agent-2", "agent-1"])
+    it("tests with the saved password of the named mailbox when none is typed", async () => {
+        const { service, connections, imap } = await build()
+        connections.find.mockResolvedValue(imapOf())
+        connections.readSecret.mockResolvedValue({ plain: CREDENTIAL, webhookSecret: "" })
 
-        await expect(service.load(actor, "imap-1")).resolves.toEqual({
-            id: "imap-1",
-            name: "Saved mailbox",
-            email: "saved@example.com",
-            host: "saved.example.com",
-            port: 143,
-            security: "starttls",
-            user: "saved-user",
-            folders: ["Archive"],
-            sinceDays: 90,
-            syncEveryMinutes: 15,
-            agentIds: ["agent-1", "agent-2"],
-        })
-        expect(hub.agentIds).toHaveBeenCalledWith("workspace-1", "imap-1")
-    })
-})
+        await expect(service.test(actor, input({ connectionId: "imap-1", password: "" }))).resolves.toEqual(["INBOX"])
 
-describe("ImapWizardService", () => {
-    it("loads default login values when no credential is stored", async () => {
-        const { service, hub } = await build()
-        hub.own.mockResolvedValue({ ...connection, meta: { config: "broken" } })
-        hub.credentialOf.mockResolvedValue(null)
-        hub.agentIds.mockResolvedValue([])
-
-        await expect(service.load(actor, "imap-1")).resolves.toEqual({
-            id: "imap-1",
-            name: "Saved mailbox",
-            email: "",
-            host: "",
-            port: 993,
-            security: "tls",
-            user: "",
-            folders: ["INBOX"],
-            sinceDays: 30,
-            syncEveryMinutes: 15,
-            agentIds: [],
-        })
-    })
-
-    it("loads implicit TLS when a saved credential enables it", async () => {
-        const { service, hub } = await build()
-        hub.credentialOf.mockResolvedValue(
-            '{"host":"imap.example.com","port":993,"secure":true,' + '"user":"mail-user","password":"hidden"}',
-        )
-        hub.agentIds.mockResolvedValue([])
-
-        await expect(service.load(actor, "imap-1")).resolves.toEqual({
-            id: "imap-1",
-            name: "Saved mailbox",
-            email: "saved@example.com",
-            host: "imap.example.com",
-            port: 993,
-            security: "tls",
-            user: "mail-user",
-            folders: ["Archive"],
-            sinceDays: 90,
-            syncEveryMinutes: 15,
-            agentIds: [],
-        })
+        expect(imap.listFolders).toHaveBeenCalledWith(expect.objectContaining({ password: "saved" }))
     })
 })

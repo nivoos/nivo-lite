@@ -16,7 +16,7 @@ describe("the clock's trigger", () => {
     it("is the engine's clock verb, received from the clock, with no key (every slot its own run)", async () => {
         const { clock } = await buildSubject()
 
-        expect([clock.provider, clock.verb, clock.via, clock.key, clock.settle]).toEqual([PROVIDER.nivo, TRIGGER.clockTick, "clock", { by: "none" }, null])
+        expect([clock.provider, clock.verb, clock.via, clock.key, clock.settle]).toEqual([PROVIDER.nivo, TRIGGER.clockTick, ["clock"], { by: "none" }, null])
     })
 
     it("translates a slot into one event under the slot's old once-key, purely, and fits its schemas", async () => {
@@ -43,7 +43,7 @@ describe("the timer's trigger", () => {
     it("is the engine's timer verb, keyed by the timer's task", async () => {
         const { timer } = await buildSubject()
 
-        expect([timer.provider, timer.verb, timer.via, timer.key]).toEqual([PROVIDER.nivo, TRIGGER.timerDue, "clock", { by: "data", member: "taskId" }])
+        expect([timer.provider, timer.verb, timer.via, timer.key]).toEqual([PROVIDER.nivo, TRIGGER.timerDue, ["clock"], { by: "data", member: "taskId" }])
     })
 
     it("translates a due timer into one event under the timer's old once-key, with its ref, its data and the moment", async () => {

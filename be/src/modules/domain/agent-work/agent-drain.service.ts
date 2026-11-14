@@ -7,7 +7,7 @@ import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { startLocalInterval } from "@modules/platform/queue"
 import { InjectAgentTurnQueue, type AgentTurnDrainPayload, type AgentTurnQueue } from "@modules/queues/agent-turn"
 import { AgentTurnsService } from "./agent-turns.service"
-import { AgentEndedWakesService } from "./agent-ended-wakes.service"
+import { AgentEndedWakesService, SOURCE_RETIRED } from "./agent-ended-wakes.service"
 import { AgentWorkHandlersService } from "./agent-work-handlers.service"
 import { AgentWorkLogEvent } from "./agent-work.log-events"
 import {
@@ -35,6 +35,15 @@ import { wakeSources } from "./agent-wake-source.policy"
 
 /** The code a person's line to an agent nobody can answer yet (still in setup) is reported with (`teamChat.reason.agent_not_ready`). */
 const NOT_READY_CODE = "agent_not_ready"
+
+/** How a wake of a source the engine no longer serves ends (rule RETIRED SOURCE): skipped by name, so it is never tried again. */
+const RETIRED: AgentTurnEnding = {
+    status: "skipped",
+    reason: SOURCE_RETIRED,
+    outcome: null,
+    errorCode: null,
+    usage: null,
+}
 
 /** The payload of a follow-up drain: the scope again, and how many follow-ups led to it. */
 interface RearmedDrainPayload extends AgentTurnDrainPayload {
@@ -111,6 +120,12 @@ export class AgentDrainService {
         }
         if (begin.result !== "begun") return
         const { turn } = begin
+        // Rule RETIRED SOURCE: a wake of a source this process no longer serves is closed once by name (skipped, never retried), told once.
+        if (wakeSources.lookup(turn.source) === undefined) {
+            await this.endedWakes.retired(turn)
+            await this.end(payload, turn, RETIRED)
+            return
+        }
         this.logger.info(AgentWorkLogEvent.TurnBegun, { agentId: turn.agentId, wakeId: turn.wakeId, fence: turn.fence })
         const abort = new AbortController()
         let beats = 0

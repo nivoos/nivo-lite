@@ -99,6 +99,13 @@ describe("TelegramFilesService", () => {
         expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(TOKEN)
     })
 
+    it("THROWS a call that failed on the way (the network), so the delivery job retries it instead of losing the picture", async () => {
+        const { service, telegram } = await build()
+        telegram.fileUrl.mockRejectedValueOnce(Object.assign(new Error("connect ECONNRESET"), { code: "ECONNRESET" }))
+
+        await expect(service.addressesOf("c-1", [photo()])).rejects.toMatchObject({ code: "ECONNRESET" })
+    })
+
     it("leaves a file without an address when Telegram gives no file_path", async () => {
         const { service, telegram } = await build()
         telegram.fileUrl.mockResolvedValue("")

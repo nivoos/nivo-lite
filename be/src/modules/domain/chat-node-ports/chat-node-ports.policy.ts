@@ -18,6 +18,8 @@ export interface ChannelSend {
     readonly images?: ReadonlyArray<ChannelImage> | undefined
     /** The order the message is about (a snapshot): kept by the node on its own line so the thread draws the order card. It is not sent to the channel. */
     readonly order?: LineOrder | undefined
+    /** The subject line, handed only to a channel that declares one (rule SO-2). */
+    readonly subject?: string | undefined
 }
 
 /** A message to a person: the core contact (absent: the person the run serves), on a channel and an account (absent: the route the run was woken on). */
@@ -32,6 +34,13 @@ export interface CustomerMessageSend {
     readonly channel?: string | undefined
     /** The account (the connection id), when the person is known on several of one channel. */
     readonly accountId?: string | undefined
+    /**
+     * The person's own address on `channel` (rule SO-3), for a channel addressed by a person-level identity (`addressedBy`, a mail
+     * address): the engine meets the person by it (the contact holding it, else a new one with it as a claim). Named with `channel`.
+     */
+    readonly address?: string | undefined
+    /** The subject line: used by a channel that declares one (required there), not used by any other (rule SO-3). */
+    readonly subject?: string | undefined
     /** The card the message shows beside its words, finished by the step that built it from its records. */
     readonly order?: LineOrder | undefined
     /** Pictures the caller holds the address of (a payment QR), each with its caption. */
@@ -69,6 +78,16 @@ export const SEND_REFUSAL = {
     planBlocked: "plan_blocked",
     /** The channel refused the message: the ledger keeps it marked not sent. */
     notDelivered: "not_delivered",
+    /** The channel declares a subject line (rule SO-2) and the send carries none: nothing is claimed, nothing is asked of a person. */
+    subjectRequired: "subject_required",
+    /** The send names an address on a channel that reaches a person only by its own per-account id (rule SO-3): only the channel vouches for it. */
+    addressNotAccepted: "address_not_accepted",
+    /**
+     * The account the person is reached through is no ENTRANCE (MAIL-IN rule MI-3): it does not both receive and send on its channel (a mail
+     * account with no inbound half: the person's answer would reach no one; an inbound half with no sending side). Facts: the account and
+     * the half it misses. Judged before any approval; nothing is claimed.
+     */
+    entranceIncomplete: "entrance_incomplete",
 } as const
 
 /** The refusal a send answers (one of `SEND_REFUSAL`). */
@@ -219,9 +238,3 @@ const UNREACHABLE_FAILURES: ReadonlySet<string> = new Set(["zalo_recipient", "za
 /** True when the channel refused a message because of who it was for, not because of the window, the quota or its own state. */
 export const recipientRefused = (failure: string | null): boolean =>
     failure !== null && UNREACHABLE_FAILURES.has(failure)
-
-/** The Zalo refusals that say the channel is not taking messages right now, so nothing was sent and a later try can go out: the quota of the account and the night hours. */
-const BUSY_FAILURES: ReadonlySet<string> = new Set(["zalo_quota", "zalo_night_hours"])
-
-/** True when the channel refused a message for now (its quota, the night hours), not for good: the step is tried again after a backoff. */
-export const channelBusy = (failure: string | null): boolean => failure !== null && BUSY_FAILURES.has(failure)

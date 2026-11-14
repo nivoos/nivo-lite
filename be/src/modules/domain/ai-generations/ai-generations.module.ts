@@ -1,7 +1,6 @@
 import { Module, type DynamicModule } from "@nestjs/common"
-import { AI_GENERATIONS_OPTIONS, AI_GENERATIONS_USAGE } from "./ai-generations.decorators"
+import { AI_GENERATIONS_USAGE } from "./ai-generations.decorators"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./ai-generations.module-definition"
-import { DirectGenerationService } from "./direct-generation.service"
 import { GenerationRunnerService } from "./generation-runner.service"
 import { GenerationsService } from "./generations.service"
 import { GuideService } from "./guide.service"
@@ -12,21 +11,17 @@ export class AiGenerationsModule extends ConfigurableModuleClass {
     /** Registers the capability once; the usage port is bound to the class the options name. */
     static register(options: typeof OPTIONS_TYPE): DynamicModule {
         const base = super.register(options)
-        const { isGlobal: _isGlobal, ...parsed } = options
         return {
             ...base,
             providers: [
                 ...(base.providers ?? []),
-                { provide: AI_GENERATIONS_OPTIONS, useValue: parsed },
                 { provide: AI_GENERATIONS_USAGE, useClass: options.usage },
                 GenerationsService,
-                DirectGenerationService,
                 GenerationRunnerService,
                 GuideService,
             ],
             exports: [
                 GenerationsService,
-                DirectGenerationService,
                 GenerationRunnerService,
                 GuideService,
             ],

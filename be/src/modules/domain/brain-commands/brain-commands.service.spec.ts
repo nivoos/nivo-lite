@@ -176,3 +176,18 @@ describe("BrainCommandsService begin, finish and fail", () => {
         ])
     })
 })
+
+describe("BrainCommandsService reopen", () => {
+    it("opens only a command the dead letter closed (its stored code `BRAIN_COMMAND_FAILED`): queued again, no code, no finish time", async () => {
+        const em = mockEntityManager({ update: [BrainCommandEntity, { affected: 1 }] })
+        const { commands } = await build(em)
+
+        await commands.reopen("ws-1", "cmd-1")
+
+        expect(em.update).toHaveBeenCalledWith(
+            BrainCommandEntity,
+            { workspaceId: "ws-1", id: "cmd-1", status: "failed", errorCode: "BRAIN_COMMAND_FAILED" },
+            { status: "queued", errorCode: null, finishedAt: null },
+        )
+    })
+})

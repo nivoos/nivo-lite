@@ -85,6 +85,47 @@ export interface ProviderTemplate {
     readonly baseUrlHint: string
     /** A link to the system's documentation, or absent. */
     readonly docs?: string | undefined
+    /**
+     * What the system answers on a NIVO Sandbox account, by operation (its ONE name, `CRM_NIVOWEB.get_prices`); absent: the sandbox
+     * answers none of this system's calls. Checked against the pinned document when the package loads and when the package is checked.
+     */
+    readonly sandbox?: Readonly<Record<string, ProviderSandboxOperation>> | undefined
+}
+
+/** One answer of the outside system: its HTTP status and its JSON body. */
+export interface ProviderSandboxAnswer {
+    readonly status: number
+    readonly body: unknown
+}
+
+/** A write whose answer the system would remember: kept under the package's collection, keyed by the value at `keyField` of the answer. */
+export interface ProviderSandboxKeeps {
+    /** The collection the record is kept in (the package's word). */
+    readonly collection: string
+    /** The answer's field naming the record (a top-level field); a running `sbx-<n>` is placed there when the answer has none. */
+    readonly keyField: string
+}
+
+/** A read that answers a record an earlier write kept: from `collection`, keyed by the call's parameter `keyParam` (path or query). */
+export interface ProviderSandboxReadsBack {
+    readonly collection: string
+    readonly keyParam: string
+}
+
+/**
+ * How one operation answers on a sandbox account. The answer itself (`status`, `body`; a 2xx) is case `OPENAPI-1`, the default. The
+ * system's refusal (`refused`, a 4xx; case `OPENAPI-2`) and its failure (`failed`, a 5xx; case `OPENAPI-3`) are optional and replace the
+ * engine's own plain answers of those cases; `OPENAPI-4` (the call is applied, its answer is lost: HTTP 504) needs no declaration, the
+ * engine applies the default answer and then loses it. State only where a call must change later reads: a write that `keeps` its
+ * answer (the request body laid over the fixture's body), a read that `readsBack` a kept record (a record nobody kept answers the
+ * fixture's body), a list read that `listsBack` (the fixture's body with the collection's kept records appended under `listField`).
+ */
+export interface ProviderSandboxOperation extends ProviderSandboxAnswer {
+    readonly refused?: ProviderSandboxAnswer | undefined
+    readonly failed?: ProviderSandboxAnswer | undefined
+    readonly keeps?: ProviderSandboxKeeps | undefined
+    readonly readsBack?: ProviderSandboxReadsBack | undefined
+    readonly listsBack?: { readonly collection: string; readonly listField: string } | undefined
 }
 
 /** The messages of one module in both product languages. */

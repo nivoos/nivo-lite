@@ -2,12 +2,12 @@
 // ext/manifest.json check `crm-names` (doc ext/docs/checks/crm-names.md): a CRM is a provider connected through its OpenAPI document, and every
 // operation of it has ONE name, `nivo.api.crm.<crmId>.<method>.<path>` (owner chốt 2026-11-13). Pure node: the derivation is the SDK's
 // (`crmOpsOf` + `crmNamesTextOf` of `@nivo-lite/agent-sdk/names`, from its dist), the same one the engine and a package's codegen use.
-// For every package under `packages/*` that pins a document `src/crm/<id>/openapi.json`:
-//   (a) `src/crm/<id>/api.generated.ts` equals what the SDK writes for the document (the codegen is current);
+// For every package under `packages/*` that pins a document `src/shared/crm/<id>/openapi.json`:
+//   (a) `src/shared/crm/<id>/api.generated.ts` equals what the SDK writes for the document (the codegen is current);
 //   (b) every `nivo.api.crm.<id>.<rest>` text in the package's `src/**/*.ts` names an operation of the document of a template the SAME
 //       package declares for `<id>`: a package that uses another package's CRM id, or an id it declares no template for, is a finding;
 //   (c) the provider templates the plugins declare (`defineProviderTemplate` in `providers`, owner chốt 2026-11-14, read from the built
-//       packages): each template's `src/crm/<id>/openapi.json` exists and equals its `openapi`; no pinned folder lacks its template;
+//       packages): each template's `src/shared/crm/<id>/openapi.json` exists and equals its `openapi`; no pinned folder lacks its template;
 //   (d) template ids are unique across packages (and two packages never pin the same `<id>` folder).
 // The decisions of (b)-(d) are ext/support/crm-names-rules.mjs, judged on fixtures by ext/tests/crm-names.spec.mjs.
 // Also a hand-named `nivo.tool.crm.` text anywhere in `packages/*/src`, `be/src`, `fe/apps/*/src` is a finding. Findings print as file:line.
@@ -63,7 +63,7 @@ const packages = dirsUnder(join(ROOT, "packages")).map((name) => ({ name, dir: j
 /** crm id -> the packages pinning it. */
 const pinned = new Map()
 for (const pkg of packages) {
-    const crmDir = join(pkg.dir, "src", "crm")
+    const crmDir = join(pkg.dir, "src", "shared", "crm")
     for (const id of dirsUnder(crmDir)) {
         const documentPath = join(crmDir, id, "openapi.json")
         if (!existsSync(documentPath)) continue
@@ -119,7 +119,7 @@ const declaredOf = packages.map((pkg) => {
     const exportName = pluginExports.get(npmName)
     const plugin = exportName === undefined ? null : requireRoot(npmName)[exportName]
     const templates = (plugin?.providers ?? []).map((template) => ({ kind: template.kind, id: template.id, openapi: template.openapi }))
-    const pinnedDocs = new Map([...pkg.pins.keys()].map((id) => [id, JSON.parse(readFileSync(join(pkg.dir, "src", "crm", id, "openapi.json"), "utf8"))]))
+    const pinnedDocs = new Map([...pkg.pins.keys()].map((id) => [id, JSON.parse(readFileSync(join(pkg.dir, "src", "shared", "crm", id, "openapi.json"), "utf8"))]))
     return { pkg, name: pkg.name, templates, pinned: pinnedDocs }
 })
 for (const finding of templateFindings(declaredOf)) find(join(ROOT, "packages", finding.pkg, "src", "plugin.ts"), null, finding.text)

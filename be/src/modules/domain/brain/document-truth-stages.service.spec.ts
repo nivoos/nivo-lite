@@ -2,16 +2,19 @@ import { WorkspaceTimeZoneService } from "@modules/domain/workspace-settings"
 import { Test } from "@nestjs/testing"
 import { FakeClock, mock } from "@starci/jest-preset"
 import { DOC_SOURCE, DOC_WS } from "@tests/fixtures/builders/document-facts.builder"
-import { BrainExtractionsService, ExtractionNote } from "@modules/domain/brain-extractions"
+import { BrainExtractionsService } from "@modules/domain/brain-extractions"
 import { BrainFactsService, foldedText } from "@modules/domain/brain-facts"
 import { KnowledgeChunksService } from "@modules/domain/knowledge-chunks"
 import { UsageMeterService } from "@modules/domain/knowledge"
 import { StoredNote } from "@modules/domain/knowledge-sources"
+import { classifyFailure } from "@modules/platform/queue"
+import { BrainErrorCode } from "./errors/brain.error"
 import { AI } from "@modules/integrations/ai"
 import type { AiService } from "@modules/integrations/ai"
 import { CLOCK } from "@modules/platform/clock"
 import { LOGGER, withWorkScope, workInScope } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
+import { chainProviders, claimedJob } from "@tests/fixtures/builders/knowledge-chain.builder"
 import { DocumentTruthStagesService } from "./document-truth-stages.service"
 import { TRUTHS_VERSION } from "./extraction.policy"
 import { FactEmbeddingsService } from "./fact-embeddings.service"
@@ -28,7 +31,10 @@ const WS = DOC_WS
 const SOURCE = DOC_SOURCE
 const source = stageSource
 
+const JOB = claimedJob({ sourceId: "s1" })
+
 const build = async () => {
+    const chain = chainProviders()
     const ai = mock<AiService>()
     const logger = mock<Logger>()
     const facts = mock<BrainFactsService>()
@@ -40,6 +46,7 @@ const build = async () => {
     scriptStageDoubles({ ai, usage, vectors, nature })
     const moduleRef = await Test.createTestingModule({
         providers: [
+            ...chain.providers,
             DocumentTruthStagesService,
             ModelJsonService,
             { provide: AI, useValue: ai },
@@ -54,7 +61,7 @@ const build = async () => {
             { provide: WorkspaceTimeZoneService, useValue: mock<WorkspaceTimeZoneService>({ timeZoneOf: () => Promise.resolve("Asia/Ho_Chi_Minh") }) },
         ],
     }).compile()
-    return { service: moduleRef.get(DocumentTruthStagesService), ai, facts, extractions, chunks, usage, vectors, logger, nature }
+    return { service: moduleRef.get(DocumentTruthStagesService), chain, ai, facts, extractions, chunks, usage, vectors, logger, nature }
 }
 
 describe("DocumentTruthStagesService triage", () => {
@@ -69,7 +76,7 @@ describe("DocumentTruthStagesService triage", () => {
             stagePassageOf(2, "A short story about how the shop began on a small corner."),
         ]
 
-        const result = await t.service.triage({ source, passages, state: STAGES_STATE })
+        const result = await t.service.triage({ job: JOB, source, passages, state: STAGES_STATE })
 
         expect(result.end).toBe("done")
         expect(result.passages.map((passage) => passage.triage)).toEqual(["data", "rule", "none"])
@@ -78,7 +85,7 @@ describe("DocumentTruthStagesService triage", () => {
         // A decision of meaning on the strong model (owner 2026-11-12), the standing instructions marked for the provider's cache.
         expect(t.ai.chat.mock.calls[0]?.[0]).toMatchObject({ target: INGESTION_TARGET })
         expect(t.ai.chat.mock.calls[0]?.[0].messages[0]?.cacheMark).toBe(true)
-        expect(t.nature.natureFor).toHaveBeenCalledWith(source, passages, STAGES_STATE.hash)
+        expect(t.nature.natureFor).toHaveBeenCalledWith(source, passages, STAGES_STATE.hash, JOB)
         expect(t.chunks.setTriage).toHaveBeenNthCalledWith(1, WS, [{ id: "c0", verdict: "data" }], INHERITED_VERSION)
         expect(t.chunks.setTriage).toHaveBeenNthCalledWith(
             2,
@@ -104,7 +111,7 @@ describe("DocumentTruthStagesService triage", () => {
         const t = await build()
         const passages = [stagePassageOf(0, STAGES_RULE, { triage: "rule", triageVersion: TRIAGE_VERSION })]
 
-        await expect(t.service.triage({ source, passages, state: STAGES_STATE })).resolves.toMatchObject({
+        await expect(t.service.triage({ job: JOB, source, passages, state: STAGES_STATE })).resolves.toMatchObject({
             end: "done",
             passages,
         })
@@ -116,7 +123,7 @@ describe("DocumentTruthStagesService triage", () => {
         const t = await build()
         t.usage.blockedBy.mockResolvedValue(true)
 
-        await expect(t.service.triage({ source, passages: [stagePassageOf(0, STAGES_RULE)], state: STAGES_STATE })).resolves.toMatchObject(
+        await expect(t.service.triage({ job: JOB, source, passages: [stagePassageOf(0, STAGES_RULE)], state: STAGES_STATE })).resolves.toMatchObject(
             { end: "blocked" },
         )
         expect(t.ai.chat).not.toHaveBeenCalled()
@@ -136,7 +143,7 @@ describe("DocumentTruthStagesService triage: passages inherit what the document 
         t.nature.natureFor.mockResolvedValue({ kind: "ready", nature: LOG, calls: 1 })
         const passages = [stagePassageOf(0, STAGES_RULE), stagePassageOf(1, "Monday: three bikes in, the compressor was noisy again today.")]
 
-        const result = await t.service.triage({ source, passages, state: STAGES_STATE })
+        const result = await t.service.triage({ job: JOB, source, passages, state: STAGES_STATE })
 
         expect(result.end).toBe("done")
         expect(result.passages.map((passage) => passage.triage)).toEqual(["none", "none"])
@@ -159,7 +166,7 @@ describe("DocumentTruthStagesService triage: passages inherit what the document 
         const kept = stagePassageOf(1, "Short.", { triage: "none", triageVersion: CODE_VERSION })
         const passages = [stagePassageOf(0, STAGES_RULE, { triage: "rule", triageVersion: TRIAGE_VERSION, truthsVersion: 6 }), kept]
 
-        await t.service.triage({ source, passages, state: STAGES_STATE })
+        await t.service.triage({ job: JOB, source, passages, state: STAGES_STATE })
 
         expect(t.facts.withdrawChanged).toHaveBeenCalledWith(WS, SOURCE, "not rule material", {
             hashes: [kept.hash],
@@ -173,16 +180,16 @@ describe("DocumentTruthStagesService triage: passages inherit what the document 
         t.ai.chat.mockResolvedValue(stageReply('{"rule":[1]}'))
         const passages = [stagePassageOf(0, STAGES_RULE, { triage: "none", triageVersion: INHERITED_VERSION })]
 
-        const result = await t.service.triage({ source, passages, state: STAGES_STATE })
+        const result = await t.service.triage({ job: JOB, source, passages, state: STAGES_STATE })
 
         expect(result.passages.map((passage) => passage.triage)).toEqual(["rule"])
         expect(t.chunks.setTriage).toHaveBeenCalledWith(WS, [{ id: "c0", verdict: "rule" }], TRIAGE_VERSION)
     })
 
-    it("waits for credits when the map cannot be asked, and is retried by the queue when the model did not answer it", async () => {
+    it("waits for credits when the map cannot be asked (a business wait, saved for the upkeep): it is the only end the map has besides an answer", async () => {
         const t = await build()
         t.nature.natureFor.mockResolvedValueOnce({ kind: "blocked" })
-        await expect(t.service.triage({ source, passages: [stagePassageOf(0, STAGES_RULE)], state: STAGES_STATE })).resolves.toMatchObject({
+        await expect(t.service.triage({ job: JOB, source, passages: [stagePassageOf(0, STAGES_RULE)], state: STAGES_STATE })).resolves.toMatchObject({
             end: "blocked",
         })
         expect(t.extractions.save).toHaveBeenLastCalledWith(
@@ -190,11 +197,6 @@ describe("DocumentTruthStagesService triage: passages inherit what the document 
             SOURCE,
             objectLike({ status: "blocked_credits", error: StoredNote.NoCreditsForFacts }),
         )
-        t.nature.natureFor.mockResolvedValueOnce({ kind: "retry" })
-        await expect(t.service.triage({ source, passages: [stagePassageOf(0, STAGES_RULE)], state: STAGES_STATE })).resolves.toMatchObject({
-            end: "retry",
-            state: { attempts: 1 },
-        })
         expect(t.ai.chat).not.toHaveBeenCalled()
     })
 })
@@ -209,7 +211,7 @@ describe("DocumentTruthStagesService: booking per try and per stage", () => {
             spent: { model: "claude-haiku-5-5", usage: STAGES_USAGE, served, cap: 200 },
         })
 
-        const cut = await t.service.triage({ source, passages: [stagePassageOf(0, STAGES_RULE)], state: STAGES_STATE })
+        const cut = await t.service.triage({ job: JOB, source, passages: [stagePassageOf(0, STAGES_RULE)], state: STAGES_STATE })
 
         // One passage cut alone is judged `rule` (never a lost rule, never the same prompt again, never a job error: D-N-9).
         expect(cut).toMatchObject({ end: "done", state: { attempts: 0 } })
@@ -236,29 +238,56 @@ describe("DocumentTruthStagesService: booking per try and per stage", () => {
         })
 
         await withWorkScope({ kind: "document_read", ref: `source:${SOURCE}` }, () =>
-            t.service.triage({ source, passages: [stagePassageOf(0, STAGES_RULE)], state: STAGES_STATE }),
+            t.service.triage({ job: JOB, source, passages: [stagePassageOf(0, STAGES_RULE)], state: STAGES_STATE }),
         )
 
         expect(scopes).toEqual([{ kind: "document_read", ref: `source:${SOURCE}`, stepKey: "triage", agentId: null }])
     })
 
-    it("counts a try the model did not answer at all, and gives up at the third in a row", async () => {
+    it("throws a model that could not be reached as the transient the runner retries, counting nothing and writing no failed row", async () => {
         const t = await build()
         t.ai.chat.mockResolvedValue(null)
 
-        const first = await t.service.triage({ source, passages: [stagePassageOf(0, STAGES_RULE)], state: STAGES_STATE })
-        expect(first).toMatchObject({ end: "retry", state: { attempts: 1 } })
-        const third = await t.service.triage({
-            source,
-            passages: [stagePassageOf(0, STAGES_RULE)],
-            state: { ...STAGES_STATE, attempts: 2 },
-        })
-        expect(third).toMatchObject({ end: "gave_up", state: { attempts: 3 } })
-        expect(t.extractions.save).toHaveBeenLastCalledWith(
-            WS,
-            SOURCE,
-            objectLike({ status: "failed", error: ExtractionNote.ModelBusy, attempts: 3 }),
-        )
+        const thrown = await t.service
+            .triage({ job: JOB, source, passages: [stagePassageOf(0, STAGES_RULE)], state: STAGES_STATE })
+            .catch((cause: unknown) => cause)
+
+        expect(thrown).toMatchObject({ code: BrainErrorCode.ModelUnavailable })
+        expect(classifyFailure(thrown)).toBe("transient")
+        expect(t.extractions.save).not.toHaveBeenCalledWith(WS, SOURCE, objectLike({ status: "failed" }))
+    })
+
+    it("throws a model that wrote NOTHING as a refusal no retry can fix (class input): a dead letter, never a silent skip", async () => {
+        const t = await build()
+        t.ai.attempt.mockResolvedValue({ ok: false, failure: "empty" })
+
+        const thrown = await t.service
+            .triage({ job: JOB, source, passages: [stagePassageOf(0, STAGES_RULE)], state: STAGES_STATE })
+            .catch((cause: unknown) => cause)
+
+        expect(thrown).toMatchObject({ code: BrainErrorCode.ModelRefused })
+        expect(classifyFailure(thrown)).toBe("input")
+    })
+
+    it("throws a missing model endpoint as a setting the runner dead-letters (class config)", async () => {
+        const t = await build()
+        t.ai.attempt.mockResolvedValue({ ok: false, failure: "unconfigured" })
+
+        const thrown = await t.service
+            .triage({ job: JOB, source, passages: [stagePassageOf(0, STAGES_RULE)], state: STAGES_STATE })
+            .catch((cause: unknown) => cause)
+
+        expect(classifyFailure(thrown)).toBe("config")
+    })
+
+    it("keys every model call by the job, the stage, the passage it starts at and the try, and reports the stage on the job's progress", async () => {
+        const t = await build()
+        t.ai.chat.mockResolvedValue(stageReply('{"rule":[1],"data":[]}'))
+
+        await t.service.triage({ job: JOB, source, passages: [stagePassageOf(0, STAGES_RULE)], state: STAGES_STATE })
+
+        expect(t.chain.ledger.keys()).toEqual(["job-1:model:triage:c0:1"])
+        expect(t.chain.progress.report).toHaveBeenCalledWith(JOB, expect.any(Number), expect.any(Number), "knowledge.facts.triage")
     })
 })
 
@@ -272,7 +301,7 @@ describe("DocumentTruthStagesService triage: an answer cut at its cap (D-N-9)", 
             .mockResolvedValueOnce({ ok: true, answer: stageReply('{"rule":[],"data":[]}') })
         const passages = Array.from({ length: 12 }, (_, index) => stagePassageOf(index, `${STAGES_RULE} (${String(index)})`))
 
-        const result = await t.service.triage({ source, passages, state: STAGES_STATE })
+        const result = await t.service.triage({ job: JOB, source, passages, state: STAGES_STATE })
 
         expect(result.end).toBe("done")
         expect(t.ai.attempt).toHaveBeenCalledTimes(3)
@@ -293,7 +322,7 @@ describe("DocumentTruthStagesService triage: an answer cut at its cap (D-N-9)", 
             .mockResolvedValueOnce({ ok: true, answer: stageReply("NONE") })
             .mockResolvedValueOnce({ ok: true, answer: stageReply("NONE") })
 
-        const result = await t.service.extract({ source, passages: stageRulesOf(4), state: STAGES_STATE })
+        const result = await t.service.extract({ job: JOB, source, passages: stageRulesOf(4), state: STAGES_STATE })
 
         expect(result).toMatchObject({ end: "done", state: { done: 2 } })
         expect(t.ai.attempt).toHaveBeenCalledTimes(3)
@@ -308,8 +337,8 @@ describe("DocumentTruthStagesService: the reading thinks at effort high (owner 2
         t.ai.chat.mockResolvedValueOnce(stageReply('{"rule":[1]}')).mockResolvedValueOnce(stageReply("NONE"))
         const passages = [stagePassageOf(0, STAGES_RULE)]
 
-        const judged = await t.service.triage({ source, passages, state: STAGES_STATE })
-        await t.service.extract({ source, passages: judged.passages, state: STAGES_STATE })
+        const judged = await t.service.triage({ job: JOB, source, passages, state: STAGES_STATE })
+        await t.service.extract({ job: JOB, source, passages: judged.passages, state: STAGES_STATE })
 
         const [triage, extraction] = t.ai.attempt.mock.calls.map((call) => call[0].budget)
         expect(triage).toMatchObject({ effort: "high" })

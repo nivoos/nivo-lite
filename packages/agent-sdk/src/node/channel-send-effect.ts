@@ -7,6 +7,9 @@ import type { EffectDefinition } from "./effect.types"
 /** The longest id, line of words and body a payload of the send accepts, and the most pictures one message carries (one Telegram album holds ten). */
 const ID_MAX = 200
 const LINE_MAX = 500
+/** The longest subject line and address a send carries (the workspace mailer cuts a subject at 200; RFC 5321 paths at 320). */
+const SUBJECT_MAX = 200
+const ADDRESS_MAX = 320
 const BODY_MAX = 20_000
 const PICTURES_MAX = 10
 const PICTURE_URL_MAX = 2000
@@ -18,6 +21,11 @@ const CARD_ITEMS_MAX = 50
 interface ChannelSendCommon {
     /** The words of the message. */
     readonly text: string
+    /**
+     * The subject line, for a channel whose messages carry one (mail: required there, refused `subject_required` without one); a channel
+     * with none does not use it. So one call fits every channel: the engine picks the channel, the channel takes what it declares.
+     */
+    readonly subject?: string | undefined
     /**
      * The card the stored line shows beside its words (the order the message is about), finished by the package's step that built it from
      * its records: the engine checks its shape and stores it as it is, and reads nothing of it.
@@ -31,8 +39,10 @@ interface ChannelSendCommon {
 
 /**
  * A message to a PERSON: the core contact, on one of the channels they are known on; or to the person of a ROUTE (`routeId`: the route a
- * record came in on), on that route's channel and account. The engine resolves the contact's channel identity (the channel, the account,
- * the channel's id of them) and the route; every rule of the send (holds, consent, rights, the node's mode) is the same either way.
+ * record came in on), on that route's channel and account; or to a person by their own ADDRESS on a channel that reaches people by one
+ * (`channel` + `address`: a mail address; the engine meets the person by it). The engine resolves the contact's channel identity (the
+ * channel, the account, the channel's id of them) and the route; every rule of the send (holds, consent, rights, the node's mode) is the
+ * same whichever way it is addressed, and whichever channel it goes on.
  */
 export type ChannelSendPayload = ChannelSendCommon & {
     /**
@@ -47,6 +57,11 @@ export type ChannelSendPayload = ChannelSendCommon & {
     readonly channel?: string | undefined
     /** The account (the connection id) to use when the person is known on several of one channel. Absent: the route the run was woken on. */
     readonly accountId?: string | undefined
+    /**
+     * The person's own address on `channel` (a mail address), for a person the workspace may not know yet: named with `channel` and no
+     * `contactId`. Refused `address_not_accepted` on a channel that reaches people only by its own per-account ids (a chat).
+     */
+    readonly address?: string | undefined
 }
 
 const id = z.string().min(1).max(ID_MAX)
@@ -72,6 +87,13 @@ export const lineOrderSchema: z.ZodType<LineOrder> = z.object({
 
 /** What a MODEL's call may carry: words, catalogue pictures and tool-given pictures; never the card of an order. */
 const channelSendModelCommon = {
+    subject: z
+        .string()
+        .trim()
+        .min(1)
+        .max(SUBJECT_MAX)
+        .optional()
+        .describe("The subject line, for a channel whose messages carry one (mail needs it); other channels do not use it."),
     text: z
         .string()
         .min(1)
@@ -131,16 +153,32 @@ const channelSendPayloadOf = (
             accountId: id
                 .optional()
                 .describe("The account (connection id) to use when the person is known on several of one channel. Leave it out for the account they wrote on."),
+            address: z
+                .string()
+                .trim()
+                .min(3)
+                .max(ADDRESS_MAX)
+                .optional()
+                .describe(
+                    "The person's own address on `channel` (a mail address), for a person you know only by it: name `channel` with it and no contactId.",
+                ),
             ...common,
         })
         .refine(
             (payload) =>
                 payload.routeId === undefined ||
-                (payload.contactId === undefined && payload.channel === undefined && payload.accountId === undefined),
-            { message: "A send addressed by its route names no contactId, channel or accountId besides.", path: ["routeId"] },
+                (payload.contactId === undefined &&
+                    payload.channel === undefined &&
+                    payload.accountId === undefined &&
+                    payload.address === undefined),
+            { message: "A send addressed by its route names no contactId, channel, accountId or address besides.", path: ["routeId"] },
         )
+        .refine((payload) => payload.address === undefined || (payload.channel !== undefined && payload.contactId === undefined), {
+            message: "A send addressed by an address names its channel and no contactId.",
+            path: ["address"],
+        })
         .describe(
-            "Send one message to a person on one of their channels (by default the one they wrote on). The answer is the delivery receipt: how it ended, and why not when it was not delivered.",
+            "Send one message to a person on one of their channels (by default the one they wrote on; mail too). The answer is the delivery receipt: how it ended, and why not when it was not delivered.",
         )
 
 /** The shape of a MODEL's call of the send (the effect's `payload`): no order card, so no model types an amount or a "paid" onto a customer line. */

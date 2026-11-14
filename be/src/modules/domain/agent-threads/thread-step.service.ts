@@ -82,6 +82,7 @@ import {
 } from "@modules/integrations/langgraph"
 import { AgentThreadsLogEvent } from "./agent-threads.log-events"
 import { FREEZE_NODE, stepExitOf, type CompiledStep } from "./template-compiler.policy"
+import { STEP_REFUSALS } from "./step-refusal.policy"
 import {
     branchGatheredOf,
     fanoutStarted,
@@ -277,6 +278,8 @@ const ENGINE_STOP_CODES: ReadonlySet<string> = new Set([
     FOREACH_ITEM_KEY_DUPLICATE,
     FOREACH_ITEM_KEY_MISSING,
     UNTIL_CONDITION_UNREADABLE,
+    // A step the engine refuses for the run (its node not installed, its re-drives spent): `step-refusal.policy.ts`.
+    ...STEP_REFUSALS,
 ])
 
 /** The most characters of a side step's error the founder's notice carries. */
@@ -664,7 +667,8 @@ export class ThreadStepService {
                 data: { bytes: marked.bytes, limit: marked.limit },
             })
         }
-        if (node === undefined) return this.troubled(at, view, input, node, turn, troubleOfRefusal(NODE_MISSING, step.key))
+        if (node === undefined || step.refusal !== undefined)
+            return this.troubled(at, view, input, node, turn, troubleOfRefusal(step.refusal ?? NODE_MISSING, step.key))
         // Readiness: a side node none of whose providers is connected is skipped on the passed-over path, naming what it waits for.
         const waiting = await this.workflowRuns?.sideNodeWaiting(
             { workspaceId: view.workspaceId, agentId: at.agentId, workflowId: at.workflowId },

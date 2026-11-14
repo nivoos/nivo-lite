@@ -4,12 +4,14 @@ import type {
     SandboxCase,
     SandboxLatestRequest,
     SandboxNextCase,
+    SandboxPayLinkView,
 } from "@modules/domain/provider-sandbox"
 import type { ExecuteParams } from "@modules/platform/cqrs"
 import type {
     SandboxAccountRequest,
     SandboxAccountView,
     SandboxCallsRequest,
+    SandboxPayLinkRequest,
     SandboxProviderRequest,
     SandboxWaitingRunView,
     SandboxWaitingRunsRequest,
@@ -75,6 +77,13 @@ export class SandboxKeyQuery extends Query<string> {
 /** The runs of the workspace parked at a wait, labelled. */
 export class SandboxWaitingRunsQuery extends Query<ReadonlyArray<SandboxWaitingRunView>> {
     constructor(readonly params: ExecuteParams<SandboxWaitingRunsRequest>) {
+        super()
+    }
+}
+
+/** One pay link by its id: its sandbox account, amount, content, state and the cases that apply to it. */
+export class SandboxPayLinkQuery extends Query<SandboxPayLinkView> {
+    constructor(readonly params: ExecuteParams<SandboxPayLinkRequest>) {
         super()
     }
 }

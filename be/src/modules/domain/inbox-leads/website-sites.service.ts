@@ -1,26 +1,26 @@
 import { Injectable } from "@nestjs/common"
 import { AgentDirectoryService } from "@modules/domain/agents"
 import { ConnectionsService } from "@modules/domain/connections"
-import {
-    ContactsService,
-    normaliseEmail,
-    normalisePhone,
-    type ContactActor,
-    type IdentityInput,
-} from "@modules/domain/contacts"
+import { normaliseEmail, normalisePhone } from "@modules/domain/contacts"
 import { EntityEngineError, EntityEngineErrorCode } from "@modules/domain/entity-engine"
 import { InboundEventsService } from "@modules/domain/inbound-events"
 import { WEBSITE_CHANNEL } from "@modules/domain/installed-plugins"
 import { WorkspaceMembersService } from "@modules/domain/workspace-members"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { InjectIds, type Ids } from "@modules/platform/ids"
-import { eachInOrder } from "@modules/platform/primitives"
+import { InjectQueueOutbox, type QueueOutbox } from "@modules/platform/queue"
+import {
+    DELIVER_WEBSITE_FORM_JOB,
+    WEBSITE_FORM_QUEUE,
+    WebsiteFormJob,
+    type WebsiteFormClaim,
+    type WebsiteFormPayload,
+} from "@modules/queues/website-form"
 import { IsNull, type EntityManager } from "typeorm"
 import { validWorkspaceTheme, type WorkspaceTheme } from "@modules/domain/workspace-settings"
 import { WorkspaceEntity } from "@modules/domain/workspaces"
 import { InboxLeadsError, InboxLeadsErrorCode } from "./errors/inbox-leads.error"
 import { WebsiteSiteEntity } from "./persistence/entities"
-import { WebsiteLeadWakeService } from "./website-lead-wake.service"
 import { WebsiteOwnerService } from "./website-owner.service"
 import { customerKeyOf, isAnswerable, newSiteKey, presented, visitorIdOf, type Submission } from "./website-key.policy"
 
@@ -77,8 +77,6 @@ export interface WebsiteSubmission extends Submission {
 
 /** What an accepted submission became. */
 export interface WebsiteAccepted {
-    /** The core contact the submission met. */
-    readonly contactId: string
     /** The input that recorded it. */
     readonly inboundEventId: string
     /** The same submission had been accepted before. */
@@ -104,9 +102,6 @@ interface Given {
     readonly emailKey: string | null
 }
 
-/** Who adds the claims of a form to the contact: the website entrance itself, no person and no step. */
-const BY_FORM: ContactActor = { kind: "channel" }
-
 /** The name, phone and email of a submission, blanks taken out. */
 const givenOf = (submission: WebsiteSubmission): Given => {
     const phone = presented(submission.phone)
@@ -117,7 +112,7 @@ const givenOf = (submission: WebsiteSubmission): Given => {
 }
 
 /** The phone and the email a visitor typed, as claims (no proof): a contact keeps them as proposals. */
-const claimsOf = (given: Given): ReadonlyArray<IdentityInput> => [
+const claimsOf = (given: Given): ReadonlyArray<WebsiteFormClaim> => [
     ...(given.phoneKey === null ? [] : [{ kind: "phone" as const, value: given.phoneKey }]),
     ...(given.emailKey === null ? [] : [{ kind: "email" as const, value: given.emailKey }]),
 ]
@@ -131,18 +126,18 @@ const visitorKeyOf = (visitor: string | null, submissionKey: string): string => 
 @Injectable()
 /**
  * The website that brings customers in. The owner switches it on, picks what the site shows and the agent that receives; a visitor fills in the
- * hosted form under the site key: the submission is stored as one input, the engine meets the visitor's core contact, and the owning agent
- * is woken with it. The intake writes no record of any agent.
+ * hosted form under the site key: the submission is stored as one input and its delivery is written as a queue outbox row in the same
+ * transaction; the api's job (`website-form.deliver`) meets the visitor's core contact and wakes the owning agent with it. The intake
+ * writes no record of any agent.
  */
 export class WebsiteSitesService {
     constructor(
         private readonly members: WorkspaceMembersService,
         private readonly connections: ConnectionsService,
         private readonly directory: AgentDirectoryService,
-        private readonly contacts: ContactsService,
         private readonly inbound: InboundEventsService,
-        private readonly wakes: WebsiteLeadWakeService,
         private readonly owners: WebsiteOwnerService,
+        @InjectQueueOutbox() private readonly outbox: QueueOutbox,
         @InjectIds() private readonly ids: Ids,
         @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
     ) {}
@@ -209,9 +204,11 @@ export class WebsiteSitesService {
     }
 
     /**
-     * Accepts the form a visitor filled in under a site key: the owning agent is resolved first (none refuses before any write), the raw
-     * submission is stored as one input (the same submission id twice is one input), the engine meets the core contact, and the owning
-     * agent is woken with the contact. No record of any agent is written here: the agent's graph keeps its own.
+     * Accepts the form a visitor filled in under a site key: the owning agent is resolved first (none refuses before any write); then, in ONE
+     * transaction, the raw submission is stored as one input (the same submission id twice is one input) and its delivery is written as a
+     * queue outbox row keyed by that input (a repeat is the same job). The visitor's contact is met and the owning agent woken by the job
+     * (`website-form.deliver`), so a crash after this answer loses neither: the job frame redelivers it, or parks it with one item. No
+     * record of any agent is written here: the agent's graph keeps its own.
      */
     async submit(siteKey: string, submission: WebsiteSubmission): Promise<WebsiteAccepted> {
         const site = await this.entityManager.findOne(WebsiteSiteEntity, { where: { siteKey } })
@@ -223,51 +220,46 @@ export class WebsiteSitesService {
         const given = givenOf(submission)
         const submissionKey = presented(submission.submissionId) ?? this.ids.next()
         const visitor = visitorIdOf(submission.visitor)
-        const recorded = await this.inbound.recordInput({
-            workspaceId: site.workspaceId,
-            channel: WEBSITE_CHANNEL,
-            kind: "message",
-            senderName: given.name,
-            senderContact: given.phone ?? given.email,
-            body: presented(submission.message) ?? "",
-            externalRef: null,
-            eventId: `${site.siteKey}:${submissionKey}`,
-            customerKey: customerKeyOf(
-                { ...submission, phone: given.phone, email: given.email },
-                visitor,
-                submissionKey,
-            ),
-            source: sourceOf(submission),
+        const source = sourceOf(submission)
+        return this.entityManager.transaction(async (tx) => {
+            const recorded = await this.inbound.recordInputInTransaction(
+                {
+                    workspaceId: site.workspaceId,
+                    channel: WEBSITE_CHANNEL,
+                    kind: "message",
+                    senderName: given.name,
+                    senderContact: given.phone ?? given.email,
+                    body: presented(submission.message) ?? "",
+                    externalRef: null,
+                    eventId: `${site.siteKey}:${submissionKey}`,
+                    customerKey: customerKeyOf(
+                        { ...submission, phone: given.phone, email: given.email },
+                        visitor,
+                        submissionKey,
+                    ),
+                    source,
+                },
+                tx,
+            )
+            const payload: WebsiteFormPayload = {
+                workspaceId: site.workspaceId,
+                siteId: site.id,
+                agentId,
+                inboundEventId: recorded.inboundEventId,
+                visitorKey: visitorKeyOf(visitor, submissionKey),
+                name: given.name,
+                phone: given.phone,
+                email: given.email,
+                request: presented(submission.message),
+                source,
+                claims: claimsOf(given),
+            }
+            await this.outbox.write(tx, WEBSITE_FORM_QUEUE, payload, {
+                job: WebsiteFormJob.Deliver,
+                dedupeKey: DELIVER_WEBSITE_FORM_JOB.onceKey(payload),
+            })
+            return { inboundEventId: recorded.inboundEventId, duplicate: recorded.duplicate }
         })
-        const contactId = await this.meet(site, given, visitorKeyOf(visitor, submissionKey))
-        await this.wakes.wake(site.workspaceId, agentId, {
-            contactId,
-            siteId: site.id,
-            inboundEventId: recorded.inboundEventId,
-            visitorKey: visitorKeyOf(visitor, submissionKey),
-            name: given.name,
-            phone: given.phone,
-            email: given.email,
-            request: presented(submission.message),
-            source: sourceOf(submission),
-        })
-        return { contactId, inboundEventId: recorded.inboundEventId, duplicate: recorded.duplicate }
-    }
-
-    /**
-     * The core contact of a website visitor: the contact that holds the site's own id of the visitor (the page's visitor id, else the
-     * submission), else a new one; the phone and the email they typed are added as claims (unverified: they merge nothing and raise a
-     * "maybe same person" suggestion when another contact holds the same).
-     */
-    private async meet(site: WebsiteSiteEntity, given: Given, visitorKey: string): Promise<string> {
-        const contactId = await this.contacts.meetChannel(site.workspaceId, {
-            channel: WEBSITE_CHANNEL,
-            account: site.id,
-            userId: visitorKey,
-            name: given.name,
-        })
-        await eachInOrder(claimsOf(given), (claim) => this.contacts.linkIdentity(site.workspaceId, contactId, claim, BY_FORM))
-        return contactId
     }
 
     private async siteOf(workspaceId: string): Promise<WebsiteSiteEntity> {

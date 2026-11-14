@@ -12,7 +12,8 @@ import { mapWordsOf, type MapWords } from "./workflowMap.words"
 
 /** The step ids of the control steps the map draws itself (the adapter of the back end writes them). */
 const IF_STEP = "core.when"
-const WAIT_STEP = "core.wait"
+/** The step id of a wait, which the explanation of a step reads the events and limit of. */
+export const WAIT_STEP = "core.wait"
 const UNTIL_STEP = "core.until"
 
 /** The step id of the trigger card the package view adds first. */
@@ -125,6 +126,18 @@ const dressedWaitOf = (node: GraphNodeView, edges: ReadonlyArray<StepEdge>, word
         description: line,
         subtitle: line,
         outputs: out.map((edge) => ({ id: portIdOf(edge), label: waitPortWords(edge.fromOutputs ?? [portIdOf(edge)], node, words) })),
+    }
+}
+
+/** What a wait step waits for and the longest it waits, in words (the events as the owner names them; an empty limit when none is set). */
+export const waitFactsOf = (
+    node: GraphNodeView,
+    locale: "vi" | "en",
+): { readonly events: ReadonlyArray<string>; readonly limit: string } => {
+    const words = mapWordsOf(locale)
+    return {
+        events: distinct(waitOnsOf(node).map((one) => routeWordsOf(one.key, node, words))),
+        limit: limitOf(node.params?.timeout, words),
     }
 }
 

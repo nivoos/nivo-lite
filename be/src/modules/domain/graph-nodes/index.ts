@@ -1,4 +1,5 @@
 export {
+    EffectOutcomeUnknownCode,
     EffectOutcomeUnknownError,
     GRAPH_NODES_ERROR_KINDS,
     GraphNodesError,
@@ -11,6 +12,7 @@ export {
     GRAPH_NODE_AGENT_LOOPS,
     GRAPH_NODE_MODEL,
     GRAPH_NODE_ROUTES,
+    GRAPH_NODE_WORKSPACE_POLICIES,
     GRAPH_NODE_TOOL_DOOR,
     GRAPH_NODES_OPTIONS,
     InjectGraphEffectOnce,
@@ -18,7 +20,14 @@ export {
 export { GraphNodesModule } from "./graph-nodes.module"
 export { parseAgentLoopConfig } from "./graph-nodes.config"
 export { GraphNodeHostService } from "./graph-node-host.service"
-export { GraphNodeEffectsService, OUTCOME_UNKNOWN_KIND, ledgerKeyOf, placeOf as callPlaceOf } from "./graph-node-effects.service"
+export {
+    GraphNodeEffectsService,
+    INTENT_KIND,
+    OUTCOME_UNKNOWN_KIND,
+    actsOutside,
+    ledgerKeyOf,
+    placeOf as callPlaceOf,
+} from "./graph-node-effects.service"
 export { NODE_EFFECT_STORE } from "./node-effect-store.port"
 export type { NodeEffectStore, StoredEffect } from "./node-effect-store.port"
 
@@ -44,6 +53,7 @@ export type {
     NodeInstall,
     NodeModelDoor,
     NodeRouteReach,
+    NodeWorkspacePolicies,
     NodeRow,
     NodeEffectRightCall,
     NodeEffectRun,

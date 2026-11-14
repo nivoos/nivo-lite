@@ -5,7 +5,7 @@ import { InstallationRecordsService } from "@modules/domain/module-installations
 import { WorkspaceMemberSeatsService } from "@modules/domain/workspace-members"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { InjectQueueOutbox, type QueueOutbox } from "@modules/platform/queue"
-import { WORKFLOW_START_QUEUE, WorkflowStartJob, workflowStartKeyOf, type WorkflowStartPayload } from "@modules/queues/workflow-start"
+import { DELIVER_WORKFLOW_START_JOB, workflowStartKeyOf, type WorkflowStartPayload } from "@modules/queues/workflow-start"
 import type { GraphActor } from "./agent-graph-admin.service"
 import { AgentWorkflowRunsService } from "./agent-workflow-runs.service"
 import { AgentWorkflowsAdminService } from "./agent-workflows-admin.service"
@@ -126,7 +126,10 @@ export class AgentWorkflowStartService {
             inputs: { ...request.inputs },
         }
         await this.entityManager.transaction((tx: EntityManager) =>
-            this.outbox.write(tx, WORKFLOW_START_QUEUE, payload, { job: WorkflowStartJob.Deliver, dedupeKey: payload.key }),
+            this.outbox.write(tx, DELIVER_WORKFLOW_START_JOB.queue, payload, {
+                job: DELIVER_WORKFLOW_START_JOB.name,
+                dedupeKey: DELIVER_WORKFLOW_START_JOB.onceKey(payload),
+            }),
         )
         return { status: "started", refusal: null, issues: [] }
     }

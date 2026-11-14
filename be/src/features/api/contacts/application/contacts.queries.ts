@@ -8,6 +8,7 @@ import type {
     ReadContactsRequest,
 } from "@modules/domain/contacts"
 import type { LinePage } from "@modules/domain/customer-routes"
+import type { ContactConsentView, ReadContactConsentRequest } from "./contact-consent.contracts"
 import type {
     ContactMessagesPageView,
     ContactRouteView,
@@ -76,6 +77,13 @@ export class ReadContactMessagesQuery extends Query<ContactMessagesPageView> {
 /** What the agents did for a person lately, each row labelled in the workspace language. */
 export class ReadContactWorkQuery extends Query<ReadonlyArray<ContactWorkView>> {
     constructor(readonly params: ExecuteParams<ReadContactWorkRequest>) {
+        super()
+    }
+}
+
+/** The contact's ONE consent fact: may the shop write to this person first (the contacts page). */
+export class ReadContactConsentQuery extends Query<ContactConsentView | null> {
+    constructor(readonly params: ExecuteParams<ReadContactConsentRequest>) {
         super()
     }
 }

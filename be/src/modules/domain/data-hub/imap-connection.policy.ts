@@ -5,7 +5,6 @@ import type { ImapConfig, ImapParsedJson, ImapCredential, ImapInput, ImapSetting
 /** The look-back choices for a first read, in days. */
 export const SINCE_CHOICES: ReadonlyArray<number> = [7, 30, 90]
 
-const EVERY_CHOICES: ReadonlySet<number> = new Set([15, 60, 360])
 const DEFAULT_SINCE_DAYS = 30
 
 const invalid = (detail: string): DataHubError =>
@@ -72,7 +71,7 @@ export const credentialFromInput = (input: ImapInput, savedPassword: string | nu
     return { host, port: input.port, secure: input.security === "tls", user, password }
 }
 
-/** Checks the name, folders, look-back and schedule of a save. */
+/** Checks the name, folders and look-back of a save (the poll's cadence is the connection poll's schedule, never the owner's). */
 export const settingsFromInput = (input: ImapInput): ImapSettings => {
     const name = input.name.trim()
     const email = input.email.trim()
@@ -85,9 +84,7 @@ export const settingsFromInput = (input: ImapInput): ImapSettings => {
     if (folders.length === 0) throw invalid(IMAP_CONNECTION_TEXT.folderMissing)
     const sinceDays = input.sinceDays ?? DEFAULT_SINCE_DAYS
     if (!SINCE_CHOICES.includes(sinceDays)) throw invalid(IMAP_CONNECTION_TEXT.sinceInvalid)
-    const every = input.syncEveryMinutes ?? null
-    if (every !== null && !EVERY_CHOICES.has(every)) throw invalid(IMAP_CONNECTION_TEXT.everyInvalid)
-    return { name, email, folders, sinceDays, every }
+    return { name, email, folders, sinceDays }
 }
 
 /** The public meta of a mailbox: its config JSON, a one-line summary and the address. */
@@ -101,5 +98,5 @@ export const metaFromSettings = (settings: ImapSettings): Readonly<Record<string
     }
 }
 
-/** The key under which a folder's cursor is kept in the public meta. */
-export const cursorKey = (folder: string): string => `cursor:${folder}`
+/** The address of a mailbox as accounts are compared by it: trimmed, lower-case (never a pair by anything but the address). */
+export const mailboxAddressOf = (value: string | undefined): string => (value ?? "").trim().toLowerCase()

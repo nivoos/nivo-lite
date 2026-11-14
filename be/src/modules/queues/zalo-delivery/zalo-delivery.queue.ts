@@ -1,22 +1,11 @@
 import { Injectable } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
 import { InjectQueueOutbox, type QueueOutbox } from "@modules/platform/queue"
+import type { ZaloDeliveryRecorded } from "./zalo-delivery.contracts"
+import { DELIVER_ZALO_JOB } from "./zalo-delivery.jobs"
 
-/** The durable queue of the deferred zalo receipt consumer. */
-export const ZALO_DELIVERY_QUEUE = "zalo-delivery"
-/** The durable receipt event consumed after the HTTP transaction commits. */
-export interface ZaloDeliveryRecorded {
-    /** The original provider delivery key. */
-    readonly deliveryId: string
-}
-
-/** Validates a committed receipt reference before the worker resolves its payload. */
-export const isZaloDeliveryRecorded = (value: unknown): value is ZaloDeliveryRecorded =>
-    typeof value === "object" &&
-    value !== null &&
-    "deliveryId" in value &&
-    typeof value.deliveryId === "string" &&
-    value.deliveryId.trim().length > 0
+export { ZALO_DELIVERY_QUEUE, isZaloDeliveryRecorded } from "./zalo-delivery.contracts"
+export type { ZaloDeliveryRecorded } from "./zalo-delivery.contracts"
 
 @Injectable()
 /** Publishes a receipt reference using the transaction that records it. */
@@ -25,8 +14,9 @@ export class ZaloDeliveryQueue {
 
     /** Uses the intake's dedupe identity so a duplicate cannot create another delivery job. */
     enqueueDeliveryRecorded(message: ZaloDeliveryRecorded, tx: EntityManager): Promise<void> {
-        return this.outbox.write(tx, ZALO_DELIVERY_QUEUE, message, {
-            dedupeKey: `${ZALO_DELIVERY_QUEUE}:${message.deliveryId}`,
+        return this.outbox.write(tx, DELIVER_ZALO_JOB.queue, message, {
+            job: DELIVER_ZALO_JOB.name,
+            dedupeKey: DELIVER_ZALO_JOB.onceKey(message),
         })
     }
 }

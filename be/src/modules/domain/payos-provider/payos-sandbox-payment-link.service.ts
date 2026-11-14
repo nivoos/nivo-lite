@@ -14,12 +14,12 @@ import {
     PAYOS_SANDBOX_CANNOT_CANCEL_REASON,
     PAYOS_SANDBOX_CASE,
     PAYOS_SANDBOX_DESCRIPTION_STATE,
+    PAYOS_SANDBOX_EXPIRY_STATE,
     PAYOS_SANDBOX_FIRST_ORDER_CODE,
     PAYOS_SANDBOX_OPERATION,
     PAYOS_SANDBOX_PROVIDER,
     PAYOS_SANDBOX_QR_PAYLOAD,
     PAYOS_SANDBOX_REFUSED_REASON,
-    payosSandboxCheckoutUrl,
     payosSandboxLinkId,
 } from "./payos-sandbox.catalogue"
 
@@ -71,7 +71,7 @@ export class PayosSandboxPaymentLinkService implements PaymentLinkPort {
                 if (state.nextCase === PAYOS_SANDBOX_CASE.createRefused) {
                     throw providerRefusal(PAYOS_SANDBOX_PROVIDER, "rejected", PAYOS_SANDBOX_REFUSED_REASON)
                 }
-                const linkId = payosSandboxLinkId(state.seq + 1)
+                const linkId = payosSandboxLinkId(connection.id, state.seq + 1)
                 const orderCode = PAYOS_SANDBOX_FIRST_ORDER_CODE + state.seq
                 const kept: PaymentLinkState = {
                     linkId,
@@ -85,10 +85,11 @@ export class PayosSandboxPaymentLinkService implements PaymentLinkPort {
                 await state.write(LINK, linkId, kept)
                 await state.write(ORDER, String(orderCode), linkId)
                 await state.write(PAYOS_SANDBOX_DESCRIPTION_STATE, linkId, request.description)
+                if (request.expiresAt !== undefined) await state.write(PAYOS_SANDBOX_EXPIRY_STATE, linkId, request.expiresAt)
                 return {
                     linkId,
                     orderCode,
-                    checkoutUrl: payosSandboxCheckoutUrl(linkId),
+                    checkoutUrl: this.sandbox.payPageUrl(connection, linkId),
                     qrPayload: PAYOS_SANDBOX_QR_PAYLOAD,
                     amountVnd: request.amountVnd,
                     description: request.description,

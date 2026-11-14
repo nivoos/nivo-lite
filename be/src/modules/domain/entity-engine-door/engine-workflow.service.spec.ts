@@ -22,6 +22,7 @@ const WOKEN: Extract<DeliverResult, { readonly status: "delivered" }> = {
     status: "delivered",
     events: 1,
     dropped: 0,
+    sameFact: 0,
     woken: [{ agentId: "a-1", workflowId: "w-1", eventId: "workflow-start:rematch:t-1:o-1", wakeId: "wake-1" }],
     repeats: 0,
     untaken: 0,

@@ -28,6 +28,22 @@ export const BRAIN_FACTS_LIST_SCHEMA: z.ZodObject<
     })
     .strict()
 
+/**
+ * `nivo.tool.brain.policy.list`: the workspace's policies in force of the caller's view (the truths the truth graph's policy judgement
+ * marks as policies), in their stable order, at most `limit`, with how many there are in all.
+ */
+export const BRAIN_POLICY_LIST_SCHEMA: z.ZodObject<{ limit: z.ZodDefault<z.ZodNumber> }, z.core.$strict> = z
+    .object({ limit: z.number().int().min(1).max(200).default(50) })
+    .strict()
+
+/** The arguments of `nivo.tool.brain.policy.list` as its validator reads them. */
+export type BrainPolicyListInput = z.output<typeof BRAIN_POLICY_LIST_SCHEMA>
+
+/** The schema `nivo.tool.brain.policy.list` advertises, generated from its validator. */
+export const BRAIN_POLICY_LIST_INPUT_SCHEMA: z.core.ZodStandardJSONSchemaPayload<
+    z.ZodObject<{ limit: z.ZodDefault<z.ZodNumber> }, z.core.$strict>
+> = z.toJSONSchema(BRAIN_POLICY_LIST_SCHEMA, { io: "input" })
+
 /** `nivo.tool.brain.fact.get`: one fact in force of the caller's view with its evidence. */
 export const BRAIN_FACTS_GET_SCHEMA: z.ZodObject<
     {

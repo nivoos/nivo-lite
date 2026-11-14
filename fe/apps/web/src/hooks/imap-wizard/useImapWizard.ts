@@ -2,7 +2,7 @@
 
 import { useImapWizardActions } from "./useImapWizardActions"
 import { accountOf, requestOf, stateOf, IMAP_STEPS, type ImapPresetId } from "./imap-wizard.shared"
-import { useSetConnectionAgents, useSyncNow } from "@/hooks/connections"
+import { useSetConnectionAgents } from "@/hooks/connections"
 import { useImapAccountForm, type ImapAccountValues } from "@/hooks/rhf"
 import { useEffect, useReducer, useRef } from "react"
 import { useImapCommands } from "./useImapCommands"
@@ -26,7 +26,6 @@ export interface ImapWizardState {
     readonly tested: string | null
     readonly folders: ReadonlyArray<string>
     readonly sinceDays: number
-    readonly every: number | null
     readonly agentIds: ReadonlyArray<string>
     readonly error: string | null
 }
@@ -38,14 +37,13 @@ export interface ImapWizardView {
     reads: readonly SlotRead<unknown>[]
     loading: boolean
     loadError: string | null
-    step: "account" | "agent" | "schedule" | "folders"
+    step: "account" | "agent" | "folders"
     index: number
     savedId: string | null
     preset: ImapPresetId
     folderList: readonly string[]
     folders: readonly string[]
     sinceDays: number
-    every: number | null
     agentIds: readonly string[]
     error: string | null
     values: ImapAccountValues
@@ -59,7 +57,6 @@ export interface ImapWizardView {
     pickSecurity: (value: string) => void
     setFolders: (folders: ReadonlyArray<string>) => void
     setSinceDays: (sinceDays: number) => void
-    setEvery: (every: number | null) => void
     setAgentIds: (agentIds: ReadonlyArray<string>) => void
     check: () => void
     save: () => void
@@ -69,13 +66,12 @@ export interface ImapWizardView {
 
 /**
  * The mailbox wizard's state machine: 1 sign-in with a test that lists the folders, 2 folders and how far back the first sync reads,
- * 3 how often to sync (the mailbox is saved here), 4 attach agents. When resuming, the saved mailbox is read first (`loading`, or
+ * 3 attach agents (the mailbox is saved on leaving the folders step). When resuming, the saved mailbox is read first (`loading`, or
  * `loadError` when it could not be) and seeds the steps once. The password goes to the back end once and is never read back.
  */
 export const useImapWizard = ({ resumeId, onClose }: ImapWizardInput): ImapWizardView => {
     const commands = useImapCommands()
     const setConnectionAgents = useSetConnectionAgents()
-    const { start: startSync } = useSyncNow()
     const { loading, view: mailbox, error: loadError, reload, reads } = useImapMailbox(resumeId)
     const [state, patch] = useReducer(merge, undefined, stateOf)
     const form = useImapAccountForm(state.savedId !== null)
@@ -103,7 +99,6 @@ export const useImapWizard = ({ resumeId, onClose }: ImapWizardInput): ImapWizar
         state,
         onClose,
         setConnectionAgents,
-        startSync,
     })
 
     return {
@@ -117,7 +112,6 @@ export const useImapWizard = ({ resumeId, onClose }: ImapWizardInput): ImapWizar
         folderList: state.folderList,
         folders: state.folders,
         sinceDays: state.sinceDays,
-        every: state.every,
         agentIds: state.agentIds,
         error: state.error,
         values,
@@ -131,7 +125,6 @@ export const useImapWizard = ({ resumeId, onClose }: ImapWizardInput): ImapWizar
         pickSecurity,
         setFolders: (folders: ReadonlyArray<string>) => patch({ folders }),
         setSinceDays: (sinceDays: number) => patch({ sinceDays }),
-        setEvery: (every: number | null) => patch({ every }),
         setAgentIds: (agentIds: ReadonlyArray<string>) => patch({ agentIds }),
         check,
         save,

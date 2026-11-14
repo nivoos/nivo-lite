@@ -163,6 +163,27 @@ describe("ConnectionsUpkeepService > sync scheduling and default SMTP", () => {
         expect(tx.commits).toBe(1)
     })
 
+    it("claims inside the caller's transaction when one is given, opening none of its own", async () => {
+        const own = mockEntityManager()
+        const caller = fakeTransaction(mockEntityManager())
+        withBuilders([{ getRawMany: [{ id: "c1" }] }, { execute: { raw: [{ id: "c1", workspace_id: "ws-1" }] } }], caller.em)
+        await expect((await build(own)).claimDueSyncs(["telegram"], 1, caller.em)).resolves.toEqual([{ id: "c1", workspaceId: "ws-1" }])
+        expect(own.transaction).not.toHaveBeenCalled()
+        expect(caller.em.transaction).not.toHaveBeenCalled()
+    })
+
+    it("writes a sync's end and its failure on the caller's manager when one is given", async () => {
+        const own = mockEntityManager()
+        const caller = mockEntityManager({ update: [ConnectionEntity, { affected: 1 }] })
+        withBuilders([{ execute: {} }], caller)
+        const service = await build(own)
+        await expect(service.markSynced("c1", { items: "3" }, caller)).resolves.toBeUndefined()
+        await expect(service.markSyncFailed("c1", "Expired token", caller)).resolves.toBeUndefined()
+        expect(caller.update).toHaveBeenCalledTimes(1)
+        expect(own.update).not.toHaveBeenCalled()
+        expect(own.createQueryBuilder).not.toHaveBeenCalled()
+    })
+
     it("claims nothing and writes nothing when no sync is due", async () => {
         const tx = fakeTransaction(mockEntityManager())
         withBuilders([{ getRawMany: [] }], tx.em)

@@ -49,6 +49,18 @@ describe("TelegramSandboxSendService", () => {
         await expect(service.send(CONNECTION, TARGET, CHAT, requestOf())).resolves.toMatchObject({ delivered: true })
     })
 
+    it("TELEGRAM-SEND-4 (sticky): throws the live port's not-sent answer for too many requests, with Telegram's wait; one logged call per send", async () => {
+        const { sandbox, service } = setup()
+        await sandbox.setNextCase(ACCOUNT, "send", "TELEGRAM-SEND-4")
+
+        const notSent = { code: ChannelsErrorCode.SendUnavailable, params: { reason: "telegram_rate_limited", retryAfterSeconds: 30 } }
+        await expect(service.send(CONNECTION, TARGET, CHAT, requestOf())).rejects.toMatchObject(notSent)
+        await expect(service.send(CONNECTION, TARGET, CHAT, requestOf())).rejects.toMatchObject(notSent)
+        expect(await sandbox.calls(ACCOUNT, "send")).toHaveLength(2)
+        await sandbox.setNextCase(ACCOUNT, "send", "TELEGRAM-SEND-1")
+        await expect(service.send(CONNECTION, TARGET, CHAT, requestOf())).resolves.toMatchObject({ delivered: true })
+    })
+
     it("has no reply window: a send is delivered however long ago the person wrote", async () => {
         const { sandbox, service } = setup()
         await sandbox.call(ACCOUNT, "inbound", {}, { answer: (state) => state.write("last-line", CHAT, NOW.getTime() - 400 * 24 * 3_600_000) })
@@ -132,7 +144,7 @@ describe("TelegramSandboxSendService", () => {
     })
 
     it("has unique TELEGRAM-SEND-<n> ids with exactly one default and TELEGRAM-STAFF-<n> likewise, each for its operation", () => {
-        expect(TELEGRAM_SEND_SANDBOX_CASES.map((one) => one.id)).toEqual(["TELEGRAM-SEND-1", "TELEGRAM-SEND-2", "TELEGRAM-SEND-3"])
+        expect(TELEGRAM_SEND_SANDBOX_CASES.map((one) => one.id)).toEqual(["TELEGRAM-SEND-1", "TELEGRAM-SEND-2", "TELEGRAM-SEND-3", "TELEGRAM-SEND-4"])
         expect(TELEGRAM_SEND_SANDBOX_CASES.filter((one) => one.default === true).map((one) => one.id)).toEqual(["TELEGRAM-SEND-1"])
         expect(TELEGRAM_SEND_SANDBOX_CASES.every((one) => one.operation === "send")).toBe(true)
         expect(TELEGRAM_STAFF_SANDBOX_CASES.map((one) => one.id)).toEqual(["TELEGRAM-STAFF-1", "TELEGRAM-STAFF-2"])

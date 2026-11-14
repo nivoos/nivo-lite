@@ -1,3 +1,4 @@
+import type { EntityManager } from "typeorm"
 /** Format of a source: what the owner pasted or uploaded. */
 export type SourceKind = "text" | "faq" | "file" | "url"
 
@@ -434,6 +435,26 @@ export interface ProfileSourceInput {
     readonly content: string
 }
 
+/** One text document of a workspace that carries an origin, as a configuration seed lists it. */
+export interface ProfileDocument {
+    /** The source id. */
+    readonly id: string
+    /** The origin that marks the run that kept it, e.g. `seed:<profile>`. */
+    readonly origin: string
+    /** The title; the key together with the origin. */
+    readonly title: string
+    /** The topic label, or null. */
+    readonly topic: string | null
+    /** The module that reads it; null = every module. */
+    readonly module: string | null
+    /** Who may read it. */
+    readonly visibility: "public" | "internal"
+    /** The markdown text. */
+    readonly content: string
+    /** When the row was created: the oldest row of a key is the one a seed finds again. */
+    readonly createdAt: Date
+}
+
 /** What keeping one document did: a new row, a changed text queued again, or nothing. */
 export type ProfileSourceOutcome = "inserted" | "requeued" | "unchanged"
 
@@ -459,4 +480,30 @@ export interface SourceCategory {
     readonly documentCount: number
     /** The raw bytes those documents hold. */
     readonly sizeBytes: number
+}
+
+/** The write of the next step's job (or of what it needs), made in the same transaction as the change that ends this step. */
+export type NextStepWrite = (tx: EntityManager) => Promise<void>
+
+/** The stages a source passes while it is taken in, in order; the table holds them under a CHECK. The last, `critic`, is worn by a ready document while the critic checks it. */
+export type SourceStage = "read" | "chunk" | "embed" | "store" | "facts" | "critic"
+
+/** What a writer changes about a source: only the columns it names are written. */
+export interface ProgressChange {
+    /** The new status. */
+    readonly status?: SourceStatus
+    /** The new progress, 0 to 100 (rounded and clamped). */
+    readonly progress?: number
+    /** The stage, or null to clear it. */
+    readonly stage?: SourceStage | null
+    /** Passages done in the stage, or null to clear. */
+    readonly done?: number | null
+    /** Passages of the stage in all, or null to clear. */
+    readonly total?: number | null
+    /** The stored code or note, or null to clear it. */
+    readonly error?: string | null
+    /** How many passages are stored. */
+    readonly chunkCount?: number
+    /** The hash of the text now complete. */
+    readonly contentHash?: string
 }

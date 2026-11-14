@@ -177,6 +177,7 @@ export class AiTasksService {
                 .turnModel({
                     ...callLimitsOf(this.options, asked, 1, scope.model?.maxOutputTokens),
                     affinity: request.workspaceId,
+                    purpose: ask.purpose,
                     ...(first === null ? {} : { target: first.target }),
                 })
                 .then((model) => model ?? undefined)
@@ -251,6 +252,8 @@ export class AiTasksService {
         const limits = {
             ...callLimitsOf(this.options, reasoning, tries.made, scope.model?.maxOutputTokens),
             affinity: request.workspaceId,
+            // The purpose rides along for the account route (a sandbox model account logs and picks its case by it).
+            purpose: request.purpose,
             ...(choice === null ? {} : { target: choice.target }),
             ...fallbackOf(tries),
         }
@@ -456,6 +459,7 @@ export class AiTasksService {
             ...limits,
             ...(choice === null ? {} : { target: choice.target }),
             ...fallbackOf(tries),
+            purpose: request.purpose,
         })
         if (tried.ok) return { answer: tried.answer, choice }
         tries.failures.push(tried.failure)

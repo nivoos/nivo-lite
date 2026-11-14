@@ -12,7 +12,7 @@ import { DATA_SOURCES_OPTIONS, PUBLIC_HOST } from "./data-sources.decorators"
 import type { DataSourcesOptions } from "./data-sources.options"
 import { DataSourcesError, DataSourcesErrorCode } from "./errors/data-sources.error"
 import { ImapClient } from "./imap.client"
-import type { ImapFolderRequest, ImapLogin, ImapPullRequest } from "./imap-mailbox.contracts"
+import type { ImapLogin } from "./imap-mailbox.contracts"
 import { ImapLogEvent } from "./imap.log-events"
 import { IMAP_TEXT } from "./messages/imap.messages"
 import type { PublicHostClient } from "./public-host.client"
@@ -118,230 +118,78 @@ const registerMailboxCleanup = () => {
     })
 }
 
-const registerMailboxBoundaries = () => {
-    it("stops before a folder once the run is expired", async () => {
+const registerMailboxPages = () => {
+    it("reads ONE page of the window: the newest messages first, at most the limit, with how many the window held", async () => {
         const { client } = await build()
-
-        await expect(client.pull(login, pull({ isExpired: () => true }))).resolves.toEqual({
-            folders: [],
-            expired: true,
-        })
-    })
-
-    it("keeps a folder failure and still releases the lock", async () => {
-        const { client } = await build()
-        mockImap.lockError = new Error("mailbox does not exist")
-        const folders: Array<ImapFolderRequest> = [
-            { path: "INBOX", cursor: null },
-            { path: "Sent", cursor: null },
+        mockImap.searchResult = [1, 2, 3]
+        mockImap.messages = [
+            messageOf(1, "2026-01-02T00:00:00.000Z", "a"),
+            messageOf(2, "2026-01-03T00:00:00.000Z", "b"),
+            messageOf(3, "2026-01-04T00:00:00.000Z", "c"),
         ]
-        let calls = 0
 
-        const result = await client.pull(
-            login,
-            pull({
-                folders,
-                isExpired: () => {
-                    calls += 1
-                    return calls > 1
-                },
-            }),
-        )
+        const page = await client.page(login, { folders: ["INBOX"], from: new Date("2026-01-01T00:00:00.000Z"), to: undefined, limit: 2 })
 
-        expect(result.expired).toBe(true)
-        expect(result.folders).toEqual([
-            { path: "INBOX", cursor: null, rows: 0, more: false, failure: IMAP_TEXT.folderMissing },
-        ])
+        expect(page.fetched).toBe(3)
+        expect(page.newestAt).toEqual(new Date("2026-01-04T00:00:00.000Z"))
+        expect(page.oldestAt).toEqual(new Date("2026-01-03T00:00:00.000Z"))
+        expect(page.rows.map((row) => row.externalId).toSorted()).toEqual(["INBOX:9:2", "INBOX:9:3"])
+        // The window is searched by day, then narrowed on each message's INTERNALDATE (no body), then the page is fetched whole.
+        expect(mockImap.searches).toEqual([{ query: { since: new Date("2026-01-01T00:00:00.000Z") }, options: { uid: true } }])
+        expect(mockImap.fetches).toEqual(["1,2,3", "3,2"])
+        expect(mockImap.closed).toBe(false)
     })
 
-    it("initializes an empty folder cursor and retains a known cursor for an empty search", async () => {
+    it("leaves out a message received outside the window and searches up to the day after its end", async () => {
+        const { client } = await build()
+        mockImap.searchResult = [1, 2]
+        mockImap.messages = [messageOf(1, "2026-01-02T10:00:00.000Z", "a"), messageOf(2, "2026-01-02T23:00:00.000Z", "b")]
+        const to = new Date("2026-01-02T12:00:00.000Z")
+
+        const page = await client.page(login, { folders: ["INBOX"], from: new Date("2026-01-02T00:00:00.000Z"), to, limit: 50 })
+
+        expect(page.rows.map((row) => row.externalId)).toEqual(["INBOX:9:1"])
+        expect(page.fetched).toBe(1)
+        expect(mockImap.searches[0]?.query).toEqual({ since: new Date("2026-01-02T00:00:00.000Z"), before: new Date("2026-01-03T12:00:00.000Z") })
+    })
+
+    it("answers an empty page for an empty window and a mailbox that cannot be opened", async () => {
         const { client } = await build()
         mockImap.searchResult = false
-        const first = await client.pull(login, pull())
-        expect(first.folders).toEqual([{ path: "INBOX", cursor: "9:0", rows: 0, more: false, failure: null }])
-        expect(mockImap.searches[0]?.query).toEqual({ since: new Date("2026-01-01T00:00:00.000Z") })
-        expect(mockImap.released).toBe(true)
 
-        mockImap.searchResult = undefined
-        const again = await client.pull(login, pull({ folders: [{ path: "INBOX", cursor: "9:4" }] }))
-        expect(again.folders).toEqual([{ path: "INBOX", cursor: null, rows: 0, more: false, failure: null }])
-        expect(mockImap.searches.at(-1)?.query).toEqual({ uid: "5:*" })
-    })
-    registerMessageDelivery()
-    registerDeliveryDeadlines()
-    registerPullFailures()
-}
-
-const registerMessageDelivery = () => {
-    it("stores the new messages, skips one without a source, and marks a page that was cut at 200", async () => {
-        const { client, logger } = await build()
-        const delivered: Array<number> = []
-        mockImap.searchResult = [3, 1]
-        mockImap.messages = [messageOf(1, "2026-01-02T00:00:00.000Z"), messageOf(3, "2026-01-03T00:00:00.000Z", "raw")]
-
-        const result = await client.pull(
-            login,
-            pull({
-                folders: [{ path: "INBOX", cursor: "nope" }],
-                deliver: (rows) => {
-                    delivered.push(rows.length)
-                    return Promise.resolve(rows.length)
-                },
-            }),
-        )
-
-        expect(delivered).toEqual([1])
-        expect(result.folders[0]).toMatchObject({ cursor: "9:3", rows: 1, more: false, failure: null })
-        expect(mockImap.fetches).toEqual(["1,3"])
-
-        mockMail.fail = new Error("bad")
-        mockImap.searchResult = Array.from({ length: 201 }, (_item, index) => index + 1)
-        mockImap.messages = [messageOf(1, "2026-01-02T00:00:00.000Z", "raw")]
-        const cut = await client.pull(login, pull({ folders: [{ path: "INBOX", cursor: "8:1" }] }))
-        expect(cut.folders[0]).toMatchObject({ more: true, rows: 10, failure: null })
-        expect(logger.warn).toHaveBeenCalledWith(ImapLogEvent.MessageUnreadable, { reason: IMAP_TEXT.generic })
-    })
-
-    it("answers an idle folder when the mailbox is not open and a failure when the read throws", async () => {
-        const { client } = await build()
+        await expect(client.page(login, { folders: ["INBOX"], from: new Date(0), to: undefined, limit: 50 })).resolves.toEqual({
+            rows: [],
+            fetched: 0,
+            oldestAt: undefined,
+            newestAt: undefined,
+        })
         mockImap.mailbox = false
-        await expect(client.pull(login, pull())).resolves.toEqual({
-            folders: [{ path: "INBOX", cursor: null, rows: 0, more: false, failure: null }],
-            expired: false,
-        })
+        await expect(client.page(login, { folders: ["INBOX"], from: new Date(0), to: undefined, limit: 50 })).resolves.toMatchObject({ fetched: 0 })
+    })
 
-        mockImap.mailbox = mailboxOf(9n)
+    it("fails the read when a folder cannot be opened (a page never skips a folder silently) and still logs out", async () => {
+        const { client } = await build()
+        const refused = Object.assign(new Error("no"), { code: "ECONNREFUSED" })
+        mockImap.lockError = refused
+
+        await expect(client.page(login, { folders: ["INBOX"], from: new Date(0), to: undefined, limit: 50 })).rejects.toMatchObject({
+            code: DataSourcesErrorCode.Unavailable,
+            cause: refused,
+        })
+    })
+
+    it("keeps a message it cannot parse as an unreadable row", async () => {
+        const { client, logger } = await build()
         mockImap.searchResult = [1]
         mockImap.messages = [messageOf(1, "2026-01-02T00:00:00.000Z", "raw")]
-        let seen = false
-        const stopped = await client.pull(
-            login,
-            pull({
-                isExpired: () => {
-                    const expired = seen
-                    seen = true
-                    return expired
-                },
-            }),
-        )
-        expect(stopped.folders[0]).toMatchObject({ rows: 0, cursor: "9:0" })
-    })
-}
+        mockMail.fail = new Error("broken")
 
-const registerDeliveryDeadlines = () => {
-    it("does not check the deadline again after the first expired folder", async () => {
-        const { client } = await build()
-        const deadline = mock<{ expired: () => boolean }>()
-        deadline.expired.mockReturnValue(true)
+        const page = await client.page(login, { folders: ["INBOX"], from: new Date(0), to: undefined, limit: 50 })
 
-        await expect(
-            client.pull(
-                login,
-                pull({
-                    folders: [
-                        { path: "INBOX", cursor: null },
-                        { path: "Sent", cursor: null },
-                    ],
-                    isExpired: deadline.expired,
-                }),
-            ),
-        ).resolves.toEqual({ folders: [], expired: true })
-        expect(deadline.expired).toHaveBeenCalledTimes(1)
-        expect(mockImap.released).toBe(false)
-    })
-
-    it.each([false, undefined] as const)("keeps the known cursor when UID search returns %s", async (found) => {
-        const { client } = await build()
-        mockImap.searchResult = found
-
-        await expect(client.pull(login, pull({ folders: [{ path: "INBOX", cursor: "9:4" }] }))).resolves.toEqual({
-            folders: [{ path: "INBOX", cursor: null, rows: 0, more: false, failure: null }],
-            expired: false,
-        })
-        expect(mockImap.searches).toEqual([{ query: { uid: "5:*" }, options: { uid: true } }])
-    })
-
-    it("handles an absent initial search and a fetch that returns no messages", async () => {
-        const { client } = await build()
-        mockImap.searchResult = undefined
-        await expect(client.pull(login, pull())).resolves.toEqual({
-            folders: [{ path: "INBOX", cursor: "9:0", rows: 0, more: false, failure: null }],
-            expired: false,
-        })
-
-        mockImap.searchResult = [2, 5]
-        const delivery = mock<{ write: ImapPullRequest["deliver"] }>()
-        await expect(
-            client.pull(login, pull({ folders: [{ path: "INBOX", cursor: "9:4" }], deliver: delivery.write })),
-        ).resolves.toEqual({
-            folders: [{ path: "INBOX", cursor: "9:4", rows: 0, more: false, failure: null }],
-            expired: false,
-        })
-        expect(mockImap.fetches).toEqual(["5"])
-        expect(delivery.write).not.toHaveBeenCalled()
-    })
-
-    it("records a delivery failure and releases the folder lock", async () => {
-        const { client } = await build()
-        mockImap.searchResult = [1]
-        mockImap.messages = [messageOf(1, "2026-01-02T00:00:00.000Z", "raw")]
-        const delivery = mock<{ write: ImapPullRequest["deliver"] }>()
-        delivery.write.mockRejectedValue(new Error("delivery unavailable"))
-
-        await expect(client.pull(login, pull({ deliver: delivery.write }))).resolves.toEqual({
-            folders: [{ path: "INBOX", cursor: null, rows: 0, more: false, failure: IMAP_TEXT.generic }],
-            expired: false,
-        })
-        expect(delivery.write).toHaveBeenCalledTimes(1)
-        expect(mockImap.released).toBe(true)
-    })
-}
-
-const registerPullFailures = () => {
-    it("parses an empty buffer when a fetched message no longer supplies its source", async () => {
-        const { client } = await build()
-        mockImap.searchResult = [1]
-        const message = messageOf(1, "2026-01-02T00:00:00.000Z", "raw")
-        let reads = 0
-        Object.defineProperty(message, "source", {
-            get: () => {
-                reads += 1
-                return reads === 1 ? Buffer.from("raw") : undefined
-            },
-        })
-        mockImap.messages = [message]
-
-        await expect(client.pull(login, pull())).resolves.toEqual({
-            folders: [{ path: "INBOX", cursor: "9:1", rows: 1, more: false, failure: null }],
-            expired: false,
-        })
-        expect(parserSpy).toHaveBeenCalledWith(Buffer.alloc(0))
-    })
-
-    it("propagates a mailbox lock release failure after reading the folder", async () => {
-        const { client } = await build()
-        const failure = new DataSourcesError({ code: DataSourcesErrorCode.Unavailable })
-        mockImap.releaseError = failure
-
-        await expect(client.pull(login, pull())).rejects.toBe(failure)
-        expect(mockImap.released).toBe(true)
-        expect(mockImap.searches).toEqual([
-            { query: { since: new Date("2026-01-01T00:00:00.000Z") }, options: { uid: true } },
+        expect(page.rows).toEqual([
+            expect.objectContaining({ externalId: "INBOX:9:1", data: expect.objectContaining({ unreadable: true }) }),
         ])
-    })
-
-    it("propagates a lock release failure when delivery also fails", async () => {
-        const { client } = await build()
-        const failure = new DataSourcesError({ code: DataSourcesErrorCode.Unavailable })
-        mockImap.releaseError = failure
-        mockImap.searchResult = [1]
-        mockImap.messages = [messageOf(1, "2026-01-02T00:00:00.000Z", "raw")]
-        const delivery = mock<{ write: ImapPullRequest["deliver"] }>()
-        delivery.write.mockRejectedValue(new Error("delivery unavailable"))
-
-        await expect(client.pull(login, pull({ deliver: delivery.write }))).rejects.toBe(failure)
-        expect(delivery.write).toHaveBeenCalledTimes(1)
-        expect(mockImap.released).toBe(true)
+        expect(logger.warn).toHaveBeenCalledWith(ImapLogEvent.MessageUnreadable, expect.anything())
     })
 }
 
@@ -449,8 +297,10 @@ const connectionOf = (options?: ImapFlowOptions): ImapFlow => {
         return Promise.resolve(state.searchResult)
     })
     connection.fetch.mockImplementation((range) => {
-        state.fetches.push(typeof range === "string" ? range : JSON.stringify(range))
-        return listed(state.messages)
+        const asked = typeof range === "string" ? range : JSON.stringify(range)
+        state.fetches.push(asked)
+        const uids = new Set(asked.split(",").map(Number))
+        return listed(state.messages.filter((message) => uids.has(message.uid)))
     })
     return connection
 }
@@ -476,14 +326,6 @@ const build = async (allowPrivateHosts = false) => {
     }).compile()
     return { client: moduleRef.get(ImapClient), logger, hosts }
 }
-
-const pull = (partial: Partial<ImapPullRequest> = {}): ImapPullRequest => ({
-    folders: [{ path: "INBOX", cursor: null }],
-    since: new Date("2026-01-01T00:00:00.000Z"),
-    isExpired: () => false,
-    deliver: () => Promise.resolve(1),
-    ...partial,
-})
 
 /** Hands a scripted stand-in over as the TLS socket type `tls.connect` answers; the one place the socket double is typed `never`. */
 function socketOf(target: object): never
@@ -634,24 +476,11 @@ const registerWireCommands = () => {
             return socketOf(server)
         })
         const { client } = await build()
-        const rows: Array<string> = []
 
-        const result = await client.pull(
-            login,
-            pull({
-                deliver: (delivered) => {
-                    rows.push(...delivered.map((row) => row.externalId))
-                    return Promise.resolve(delivered.length)
-                },
-            }),
-        )
+        const page = await client.page(login, { folders: ["INBOX"], from: new Date("2026-01-01T00:00:00.000Z"), to: undefined, limit: 50 })
 
         expect(connect).toHaveBeenCalledTimes(1)
-        expect(result).toEqual({
-            folders: [{ path: "INBOX", cursor: "7:1", rows: 1, more: false, failure: null }],
-            expired: false,
-        })
-        expect(rows).toEqual(["INBOX:7:1"])
+        expect(page.rows.map((row) => row.externalId)).toEqual(["INBOX:7:1"])
         expect(server.verbs).toEqual([
             "LOGIN",
             "CAPABILITY",
@@ -660,6 +489,7 @@ const registerWireCommands = () => {
             "LSUB",
             "EXAMINE",
             "UID SEARCH",
+            "UID FETCH",
             "UID FETCH",
             "LOGOUT",
         ])
@@ -671,11 +501,14 @@ const registerWireCommands = () => {
             '5 LSUB "INBOX/" "INBOX"',
             "6 EXAMINE INBOX",
             "7 UID SEARCH SINCE 01-Jan-2026",
-            "8 UID FETCH 1 (UID INTERNALDATE BODY.PEEK[]<0.2000000>)",
-            "9 LOGOUT",
+            // The window is narrowed on INTERNALDATE alone (no body), then the page's message is read with BODY.PEEK.
+            "8 UID FETCH 1 (UID INTERNALDATE)",
+            "9 UID FETCH 1 (UID INTERNALDATE BODY.PEEK[]<0.2000000>)",
+            "A LOGOUT",
         ])
         expect(server.lines.find((line) => line.includes(" EXAMINE "))).toMatch(/ EXAMINE "?INBOX"?$/u)
-        expect(server.lines.find((line) => line.includes(" UID FETCH "))).toMatch(/BODY\.PEEK\[\]/u)
+        // Every FETCH that reads a body reads it with BODY.PEEK (never BODY[], which sets \Seen).
+        expect(server.lines.filter((line) => line.includes(" UID FETCH ") && line.includes("BODY")).every((line) => /BODY\.PEEK\[\]/u.test(line))).toBe(true)
         expect(server.verbs.filter((verb) => WRITE_VERBS.includes(verb))).toEqual([])
         expect(server.lines.some((line) => /\\Seen|\+FLAGS|-FLAGS/iu.test(line))).toBe(false)
         connect.mockRestore()
@@ -698,7 +531,7 @@ describe("ImapClient", () => {
 
     describe("listFolders", registerMailboxListing)
 
-    describe("pull", registerMailboxBoundaries)
+    describe("page", registerMailboxPages)
 
     describe("on the wire (a scripted IMAP server)", registerWireCommands)
 })

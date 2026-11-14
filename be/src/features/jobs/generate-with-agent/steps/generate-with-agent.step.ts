@@ -3,7 +3,7 @@ import { GenerationRunnerService } from "@modules/domain/ai-generations"
 import { InjectJobClaims, type ClaimedJob, type JobClaims, type JobStep } from "@modules/platform/jobs"
 
 @Injectable()
-/** The one effect of the job: the queued generation runs on the model and its answer, or its failure, is written on the row (it never retries). */
+/** The one effect of the job: the queued generation runs on the model (an effect keyed by the job, its answer kept) and its answer, or its typed failure, is written on the row. */
 export class GenerateWithAgentStep implements JobStep {
     constructor(
         private readonly runner: GenerationRunnerService,

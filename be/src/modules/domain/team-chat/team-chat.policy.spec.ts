@@ -21,6 +21,7 @@ import {
     positionOf,
     sendProblem,
     storedMentionsOf,
+    textRowOf,
     uniqueMembers,
 } from "./team-chat.policy"
 
@@ -226,5 +227,26 @@ describe("the read-only room", () => {
         expect(isReadOnlyRoom({ kind: "direct", directKey: directKeyOf(ME, BOT) })).toBe(false)
         expect(isReadOnlyRoom({ kind: "group", directKey: null })).toBe(false)
         expect(isReadOnlyRoom({ kind: "group", directKey: `system:nivo|user:${ME.memberId}` })).toBe(false)
+    })
+})
+
+describe("textRowOf", () => {
+    it("is the stored row of a person's text: the author kind and kind fixed, the optional reply and reference as none", () => {
+        const text = { workspaceId: "w", roomId: "r", authorId: "a", body: "hi", clientId: "c", mentions: [], attachments: [] }
+
+        expect(textRowOf("m-1", text)).toEqual({
+            id: "m-1",
+            roomId: "r",
+            workspaceId: "w",
+            authorKind: "user",
+            authorId: "a",
+            body: "hi",
+            kind: "text",
+            ref: null,
+            mentions: [],
+            attachments: [],
+            clientId: "c",
+            replyTo: null,
+        })
     })
 })

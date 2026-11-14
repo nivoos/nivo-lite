@@ -5,6 +5,7 @@ import type {
     SandboxInput,
     SandboxLatestRequest,
     SandboxNextCase,
+    SandboxPayLinkView,
     SandboxSendResult,
 } from "@modules/domain/provider-sandbox"
 import type {
@@ -14,6 +15,7 @@ import type {
     SandboxAccountView,
     SandboxAgentRequest,
     SandboxCallsRequest,
+    SandboxPayLinkRequest,
     SandboxProviderRequest,
     SandboxWaitingRunsRequest,
     SandboxWorkspaceRequest,
@@ -35,6 +37,7 @@ import type {
     SandboxInputValueType,
     SandboxLatestRequestType,
     SandboxNextCaseType,
+    SandboxPayLinkType,
     SandboxSendResultType,
 } from "./dto/provider-sandbox.types"
 
@@ -49,6 +52,9 @@ export const toSandboxProviderRequest = (workspaceId: string, provider: string):
 
 /** Maps the arguments of a door about one sandbox account. */
 export const toSandboxAccountRequest = (workspaceId: string, connectionId: string): SandboxAccountRequest => ({ workspaceId, connectionId })
+
+/** Maps the arguments of sandboxPayLink. */
+export const toSandboxPayLinkRequest = (workspaceId: string, linkId: string): SandboxPayLinkRequest => ({ workspaceId, linkId })
 
 /** Maps the arguments of sandboxCalls. */
 export const toSandboxCallsRequest = (workspaceId: string, connectionId: string, operation: string | null | undefined): SandboxCallsRequest => ({
@@ -84,6 +90,7 @@ export const toSendSandboxCaseRequest = (workspaceId: string, input: SendSandbox
     connectionId: input.connectionId,
     caseId: input.caseId,
     inputs: (input.inputs ?? []).map((one) => ({ name: one.name, value: one.value })),
+    dropWebhook: input.dropWebhook === true,
 })
 
 /** Maps the input of setSandboxNextCase. */
@@ -91,6 +98,7 @@ export const toSetSandboxNextCaseRequest = (workspaceId: string, input: SetSandb
     workspaceId,
     connectionId: input.connectionId,
     caseId: input.caseId,
+    ...(input.scope === undefined || input.scope === null ? {} : { scope: input.scope }),
 })
 
 /** Maps the input of expireSandboxWait. */
@@ -161,10 +169,24 @@ export const toSandboxSendResultType = (result: SandboxSendResult): SandboxSendR
         status: delivery.status,
         bodyJson: delivery.body === undefined || delivery.body === null ? null : jsonOf(delivery.body),
     })),
+    webhookDropped: result.webhookDropped,
 })
 
 /** The account just opened. */
 export const toOpenedSandboxAccountType = (opened: OpenedSandbox): OpenedSandboxAccountType => ({
     id: opened.id,
     sandboxKey: opened.sandboxKey,
+})
+
+/** One pay link: the account, the amounts, the state word, the cases that apply and the inputs the link gives them as text. */
+export const toSandboxPayLinkType = (link: SandboxPayLinkView): SandboxPayLinkType => ({
+    linkId: link.linkId,
+    account: { id: link.account.id, provider: link.account.provider, label: link.account.label },
+    amountVnd: link.amountVnd,
+    content: link.content,
+    orderCode: link.orderCode,
+    status: link.status,
+    amountReceivedVnd: link.amountReceivedVnd,
+    caseIds: [...link.caseIds],
+    inputs: toSandboxInputValues(link.inputs),
 })

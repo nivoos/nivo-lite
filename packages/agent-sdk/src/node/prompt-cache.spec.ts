@@ -9,9 +9,9 @@ import type { Namespaced } from "../schema/schema.types"
 import type { NodeDefinition, NodeModelRequest, TurnRef } from "./node.types"
 
 /**
- * PROMPT CACHE: a provider caches the prefix of a prompt, so the stable part of every model call of the engine (`instructions`: the
- * agent's craft and tool set, the step) must be the same text, byte for byte, whatever changes from call
- * to call; the volatile part (`volatile`, `input`) comes after it. These specs hold that layout.
+ * PROMPT CACHE: a provider caches the prefix of a prompt, so the stable part of every model call of the engine (`opening.craft` L1:
+ * the agent's craft and tool set; `opening.policies` L2: the workspace's policies; `instructions` L3: the step) must be the same text, byte for
+ * byte, whatever changes from call to call; the volatile part (`volatile`, `input`, `turns`) comes after it. These specs hold that layout.
  */
 
 const settle = defineEffect({
@@ -60,12 +60,24 @@ const stepOf = (
         examples: [{ name: "answers", params: {}, input: {}, output: done, effects: [], model: [{ done }] }],
     })
 
-const SETTLE_STEP = stepOf("payment.settle", "Mark the order paid.", ["nivo.tool.payment.order.settle"], z.object({ paid: z.boolean() }), {
-    paid: true,
-})
-const REPLY_STEP = stepOf("chat.reply", "Answer the customer.", ["nivo.tool.customer.message.send"], z.object({ said: z.string() }), {
-    said: "ok",
-})
+const SETTLE_STEP = stepOf(
+    "payment.settle",
+    "Mark the order paid.",
+    ["nivo.tool.payment.order.settle"],
+    z.object({ paid: z.boolean() }),
+    {
+        paid: true,
+    },
+)
+const REPLY_STEP = stepOf(
+    "chat.reply",
+    "Answer the customer.",
+    ["nivo.tool.customer.message.send"],
+    z.object({ said: z.string() }),
+    {
+        said: "ok",
+    },
+)
 
 const TURN: TurnRef = {
     ...EXAMPLE_TURN,
@@ -80,6 +92,7 @@ const asksOf = async (
     input: Readonly<Record<string, unknown>>,
     key: string,
     model: ReadonlyArray<unknown>,
+    policies?: () => Promise<string>,
 ): Promise<ReadonlyArray<NodeModelRequest>> => {
     const fake = scriptedNodePorts({ model: [...model] })
     const json = jest.spyOn(fake.ports.model, "json")
@@ -93,12 +106,14 @@ const asksOf = async (
         tools: TOOLS,
         key,
     }
-    await runNode(request, fake.ports)
+    await runNode(request, policies === undefined ? fake.ports : { ...fake.ports, policies })
     return json.mock.calls.map((call) => call[1])
 }
 
 const PAID = { done: { paid: true } }
-const SETTLE_CALL = { call: { tool: "nivo.tool.payment.order.settle", args: { orderId: "o-1", transactionId: "tx-1" } } }
+const SETTLE_CALL = {
+    call: { tool: "nivo.tool.payment.order.settle", args: { orderId: "o-1", transactionId: "tx-1" } },
+}
 
 describe("prompt cache: what the tool set costs", () => {
     const audience = "Who also reads the line: the owner alone, or a group too."
@@ -117,7 +132,7 @@ describe("prompt cache: what the tool set costs", () => {
         ...(words === undefined ? {} : { words }),
     })
     const shown = (words?: (key: string) => string | undefined): string =>
-        guidedModelRequest(frameOf(words), { purpose: "p", instructions: "Decide.", input: {} }).instructions
+        guidedModelRequest(frameOf(words), { purpose: "p", instructions: "Decide.", input: {} }).opening?.craft ?? ""
 
     it("says what a tool does in words, never as a bare text key; a key with no words stays the key", () => {
         const text = shown((key) => (key === "effectTeamPost" ? "Tell the owner in the chat" : undefined))
@@ -142,12 +157,19 @@ describe("prompt cache: what the tool set costs", () => {
         expect(shown()).not.toContain("$schema")
         const [asked] = await asksOf(SETTLE_STEP, TURN, {}, "k", [PAID])
         expect(asked?.instructions).not.toContain("$schema")
+        expect(asked?.opening?.craft).not.toContain("$schema")
     })
 })
 
 describe("prompt cache: the stable prefix of a model call", () => {
-    it("is byte-identical for the same agent, shop and step whatever the volatile data is", async () => {
-        const [first] = await asksOf(SETTLE_STEP, TURN, { orderId: "o-1", at: "2026-11-10T01:00:00Z" }, "run-1:settle", [PAID])
+    it("is byte-identical for the same agent, workspace and step whatever the volatile data is", async () => {
+        const [first] = await asksOf(
+            SETTLE_STEP,
+            TURN,
+            { orderId: "o-1", at: "2026-11-10T01:00:00Z" },
+            "run-1:settle",
+            [PAID],
+        )
         const [second] = await asksOf(
             SETTLE_STEP,
             {
@@ -177,10 +199,19 @@ describe("prompt cache: the stable prefix of a model call", () => {
             {
                 ...TURN,
                 founderDecisions: [
-                    { question: "Does the shop issue VAT invoices?", answer: "Yes, 8% fee", at: "2026-11-11T09:11:00.000Z" },
+                    {
+                        question: "Does the shop issue VAT invoices?",
+                        answer: "Yes, 8% fee",
+                        at: "2026-11-11T09:11:00.000Z",
+                    },
                 ],
                 creditsJoined: [
-                    { transactionId: "tx-2", amountVnd: 1000, reference: "DH202611110005", at: "2026-11-11T09:03:00.000Z" },
+                    {
+                        transactionId: "tx-2",
+                        amountVnd: 1000,
+                        reference: "DH202611110005",
+                        at: "2026-11-11T09:03:00.000Z",
+                    },
                 ],
             },
             {},
@@ -211,26 +242,28 @@ describe("prompt cache: the stable prefix of a model call", () => {
         expect(JSON.stringify(asked?.input)).toContain("thread-SECRET")
     })
 
-    it("is shared by two different steps of the agent up to the step itself: the craft and the whole tool set", async () => {
+    it("is shared by two different steps of the agent up to the step itself: the craft and the whole tool set (L1)", async () => {
         const [settleAsk] = await asksOf(SETTLE_STEP, TURN, {}, "run-1:settle", [PAID])
         const [replyAsk] = await asksOf(REPLY_STEP, TURN, {}, "run-1:reply", [{ done: { said: "ok" } }])
-        const settled = settleAsk?.instructions ?? ""
-        const replied = replyAsk?.instructions ?? ""
+        const craft = settleAsk?.opening?.craft ?? ""
 
-        const shared = settled.slice(0, settled.indexOf("Mark the order paid."))
-        expect(shared.length).toBeGreaterThan(0)
-        expect(replied.startsWith(shared)).toBe(true)
-        expect(replied.slice(shared.length).startsWith("Answer the customer.")).toBe(true)
-        // The shared part is L1: guidance, the full set in name order (not the step's own tools), how turns go.
-        expect(shared.startsWith("Speak kindly. Never promise a refund.\n\n")).toBe(true)
-        const names = ['"name":"catalog.item.find"', '"name":"nivo.tool.customer.message.send"', '"name":"nivo.tool.payment.order.settle"']
-        const places = names.map((name) => shared.indexOf(name))
+        expect(replyAsk?.opening).toEqual(settleAsk?.opening)
+        // L1: guidance, then the full set in name order (not the step's own tools); nothing about how a call answers.
+        expect(craft.startsWith("Speak kindly. Never promise a refund.\n\n")).toBe(true)
+        const names = [
+            '"name":"catalog.item.find"',
+            '"name":"nivo.tool.customer.message.send"',
+            '"name":"nivo.tool.payment.order.settle"',
+        ]
+        const places = names.map((name) => craft.indexOf(name))
         expect(places.every((place) => place > 0)).toBe(true)
         expect([...places].sort((left, right) => left - right)).toEqual(places)
-        expect(shared.indexOf("You act by calling tools")).toBeGreaterThan(places[2] ?? 0)
-        expect(shared.endsWith("\n\n")).toBe(true)
-        // The step names what it may call; the right itself stays in code.
-        expect(settled.slice(shared.length)).toContain('"tools":["nivo.tool.payment.order.settle"]')
+        expect(craft).not.toContain("You act by calling tools")
+        // L3: how a turn answers, then the step; the step names what it may call, the right itself stays in code.
+        expect(settleAsk?.instructions.startsWith("You act by calling tools")).toBe(true)
+        expect(settleAsk?.instructions).toContain("Mark the order paid.")
+        expect(replyAsk?.instructions).toContain("Answer the customer.")
+        expect(settleAsk?.instructions).toContain('"tools":["nivo.tool.payment.order.settle"]')
     })
 
     it("writes equal data as equal text: the order the tool ids were given in does not show", async () => {
@@ -241,19 +274,25 @@ describe("prompt cache: the stable prefix of a model call", () => {
         const [first] = await asksOf(SETTLE_STEP, TURN, {}, "k", [PAID])
         const [second] = await asksOf(SETTLE_STEP, shuffled, {}, "k", [PAID])
 
+        expect(second?.opening).toEqual(first?.opening)
         expect(second?.instructions).toBe(first?.instructions)
     })
 
-    it("keeps the turns of one step append-only: every turn has the same stable part, and the calls so far only grow at the end", async () => {
-        const asks = await asksOf(SETTLE_STEP, TURN, { orderId: "o-1" }, "run-1:settle", [SETTLE_CALL, SETTLE_CALL, PAID])
+    it("keeps the turns of one step append-only: the same L1-L3 and input every turn, the turns so far only grow at the end", async () => {
+        const asks = await asksOf(SETTLE_STEP, TURN, { orderId: "o-1" }, "run-1:settle", [
+            SETTLE_CALL,
+            SETTLE_CALL,
+            PAID,
+        ])
         expect(asks).toHaveLength(3)
-        expect(new Set(asks.map((ask) => ask.instructions)).size).toBe(1)
-
-        const texts = asks.map((ask) => JSON.stringify(ask.input))
-        const opening = (text: string): string => text.slice(0, text.lastIndexOf('],"turnsLeft"'))
-        expect(Object.keys(asks[0]?.input ?? {})).toEqual(["input", "calls", "turnsLeft"])
-        expect(opening(texts[1] ?? "").startsWith(opening(texts[0] ?? ""))).toBe(true)
-        expect(opening(texts[2] ?? "").startsWith(opening(texts[1] ?? ""))).toBe(true)
+        expect(new Set(asks.map((ask) => JSON.stringify([ask.opening, ask.instructions, ask.input]))).size).toBe(1)
+        expect(asks[0]?.turns).toBeUndefined()
+        expect(asks[1]?.turns).toHaveLength(1)
+        expect(asks[2]?.turns).toHaveLength(2)
+        // An earlier turn is never rewritten: the second turn's list opens the third's.
+        expect(asks[2]?.turns?.[0]).toEqual(asks[1]?.turns?.[0])
+        expect(asks[1]?.turns?.[0]).toMatchObject({ tool: "nivo.tool.payment.order.settle", ok: true, turnsLeft: 4 })
+        expect(asks[0]?.input).toMatchObject({ turnsLeft: 5 })
     })
 
     it("lays a host's own call for the agent out the same way, so it shares the craft and the tool set", async () => {
@@ -263,41 +302,93 @@ describe("prompt cache: the stable prefix of a model call", () => {
             { purpose: "core", instructions: "Decide what to do with the stuck step.", input: { reason: "x" } },
         )
 
-        const craft = core.instructions.slice(0, core.instructions.indexOf("Decide what to do with the stuck step."))
-        expect(craft.startsWith("Speak kindly. Never promise a refund.\n\n")).toBe(true)
-        expect(craft).toContain('"name":"catalog.item.find"')
-        // The guidance and the tool set open a step's call with the same text.
-        expect(stepAsk?.instructions.startsWith(craft.trimEnd())).toBe(true)
-        expect(core.instructions.endsWith("\n\nDecide what to do with the stuck step.")).toBe(true)
+        // The same L1 as a step's turn: one cache entry for every call of the agent; the call's own words are its L3, unchanged.
+        expect(core.opening).toEqual(stepAsk?.opening)
+        expect(core.instructions).toBe("Decide what to do with the stuck step.")
     })
 })
 
-describe("prompt cache: where the opening every step shares ends (ENG1: L1 cached ACROSS steps)", () => {
-    it("names the length of the L1 opening: the same bytes for two steps, the step's own words after one blank line", async () => {
-        const [settleAsk] = await asksOf(SETTLE_STEP, TURN, {}, "run-1:settle", [PAID])
-        const [replyAsk] = await asksOf(REPLY_STEP, TURN, {}, "run-1:reply", [{ done: { said: "ok" } }])
-        const settled = settleAsk?.instructions ?? ""
-        const replied = replyAsk?.instructions ?? ""
+describe("prompt cache: the workspace's policies are L2, read once per node run", () => {
+    const POLICIES = 'nivo.tool.brain.policy.list\n{"notListed":0,"policies":[{"id":"f-1","value":"500"}]}'
 
-        expect(settleAsk?.sharedLength).toBeGreaterThan(0)
-        expect(replyAsk?.sharedLength).toBe(settleAsk?.sharedLength)
-        const opening = settled.slice(0, settleAsk?.sharedLength)
-        expect(replied.slice(0, replyAsk?.sharedLength)).toBe(opening)
-        expect(opening).toContain('"name":"catalog.item.find"')
-        expect(settled.slice(opening.length)).toMatch(/^\n\nMark the order paid\./u)
-        expect(replied.slice(opening.length)).toMatch(/^\n\nAnswer the customer\./u)
+    it("puts the workspace's policies after the craft and before the step: a rule change changes L2 only", async () => {
+        const [before] = await asksOf(SETTLE_STEP, TURN, {}, "run-1:settle", [PAID], () => Promise.resolve(POLICIES))
+        const [after] = await asksOf(SETTLE_STEP, TURN, {}, "run-2:settle", [PAID], () =>
+            Promise.resolve(POLICIES.replace('"500"', '"300"')),
+        )
+        const [none] = await asksOf(SETTLE_STEP, TURN, {}, "run-3:settle", [PAID])
+
+        expect(before?.opening?.policies).toBe(POLICIES)
+        expect(after?.opening?.craft).toBe(before?.opening?.craft)
+        expect(after?.opening?.policies).not.toBe(before?.opening?.policies)
+        expect(after?.instructions).toBe(before?.instructions)
+        expect(after?.input).toEqual(before?.input)
+        expect(none?.opening).toEqual({ craft: before?.opening?.craft, policies: "" })
     })
 
-    it("names it on a host's own call for the agent too, and not on a call whose turn carries no craft", () => {
-        const core = guidedModelRequest(
-            { turn: TURN, effects: EFFECTS, tools: TOOLS },
-            { purpose: "core", instructions: "Decide.", input: {} },
+    it("reads the policies once per node run, however many turns the agent takes", async () => {
+        const policies = jest.fn(() => Promise.resolve(POLICIES))
+        const asks = await asksOf(SETTLE_STEP, TURN, {}, "run-1:settle", [SETTLE_CALL, PAID], policies)
+
+        expect(asks).toHaveLength(2)
+        expect(policies).toHaveBeenCalledTimes(1)
+        expect(asks.every((ask) => ask.opening?.policies === POLICIES)).toBe(true)
+    })
+
+    it("hands the policies to a host that takes the turns itself, beside the craft and apart from the step", async () => {
+        const fake = scriptedNodePorts({ model: [] })
+        const loops: Array<{ instructions: string; policies: string | undefined; step: string }> = []
+        await runNode(
+            {
+                node: SETTLE_STEP,
+                params: {},
+                input: {},
+                turn: TURN,
+                grant: {},
+                effects: EFFECTS,
+                tools: TOOLS,
+                key: "run-1:settle",
+            },
+            {
+                ...fake.ports,
+                policies: () => Promise.resolve(POLICIES),
+                agent: (loop) => {
+                    loops.push({ instructions: loop.instructions, policies: loop.policies, step: loop.step })
+                    loop.done({ paid: true })
+                    return Promise.resolve({ turns: 1 })
+                },
+            },
         )
-        expect(core.instructions.slice(0, core.sharedLength)).toBe(core.instructions.slice(0, -"\n\nDecide.".length))
+
+        expect(loops).toHaveLength(1)
+        expect(loops[0]?.policies).toBe(POLICIES)
+        expect(loops[0]?.instructions).not.toContain(POLICIES)
+        expect(loops[0]?.step.startsWith("Mark the order paid.")).toBe(true)
+    })
+
+    it("asks no policies of a node that never calls the model, and none when the host has no policies port", async () => {
+        const policies = jest.fn(() => Promise.resolve(POLICIES))
+        const fake = scriptedNodePorts({ model: [] })
+        const quiet = defineNode({
+            id: "payment.quiet",
+            role: "output",
+            title: { key: "t" },
+            params: z.object({}),
+            input: z.object({}),
+            output: z.object({ ok: z.boolean() }),
+            effects: [],
+            run: () => Promise.resolve({ ok: true }),
+            examples: [{ name: "answers", params: {}, input: {}, output: { ok: true }, effects: [] }],
+        })
+        await runNode(
+            { node: quiet, params: {}, input: {}, turn: TURN, grant: {}, effects: EFFECTS, tools: TOOLS, key: "k" },
+            { ...fake.ports, policies },
+        )
+        expect(policies).not.toHaveBeenCalled()
 
         const bare = { purpose: "core", instructions: "Decide.", input: {} }
         const plain = guidedModelRequest({ turn: EXAMPLE_TURN, effects: new Map(), tools: new Map() }, bare)
         expect(plain).toBe(bare)
-        expect(plain.sharedLength).toBeUndefined()
+        expect(plain.opening).toBeUndefined()
     })
 })

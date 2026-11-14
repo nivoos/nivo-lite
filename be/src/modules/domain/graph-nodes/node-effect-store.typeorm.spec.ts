@@ -37,3 +37,30 @@ describe("TypeormNodeEffectStore insert", () => {
         expect(em.createQueryBuilder).toHaveBeenCalledWith(NodeEffectEntity, "effect")
     })
 })
+
+describe("TypeormNodeEffectStore intent rows (QB-P3 rule I-1)", () => {
+    it("resettle moves only a row still of the open kind, and answers whether it moved one", async () => {
+        const { store, em } = await build()
+        em.update.mockResolvedValueOnce({ affected: 1, raw: [], generatedMaps: [] }).mockResolvedValueOnce({ affected: 0, raw: [], generatedMaps: [] })
+        const settled = { subjectEntity: "order", subjectId: "o1", facts: { total: 1 } }
+
+        await expect(store.resettle(WS, "k1", "intent", settled)).resolves.toBe(true)
+        await expect(store.resettle(WS, "k1", "intent", settled)).resolves.toBe(false)
+
+        expect(em.update).toHaveBeenCalledWith(
+            NodeEffectEntity,
+            { workspaceId: WS, effectKey: "k1", subjectEntity: "intent" },
+            { subjectEntity: "order", subjectId: "o1", facts: { total: 1 } },
+        )
+    })
+
+    it("release deletes only a row still of the kind named, and answers whether it deleted one", async () => {
+        const { store, em } = await build()
+        em.delete.mockResolvedValueOnce({ affected: 1, raw: [] }).mockResolvedValueOnce({ affected: 0, raw: [] })
+
+        await expect(store.release(WS, "k1", "intent")).resolves.toBe(true)
+        await expect(store.release(WS, "k1", "intent")).resolves.toBe(false)
+
+        expect(em.delete).toHaveBeenCalledWith(NodeEffectEntity, { workspaceId: WS, effectKey: "k1", subjectEntity: "intent" })
+    })
+})

@@ -11,7 +11,7 @@ import { type ThreadFact, lastOrderCodeOf, threadFactSchema, recentLinesOf, rece
 
 type NoParams = Record<string, never>
 
-/** What the customer wants now: the five routes of the front desk. */
+/** What the customer wants now: the six routes of the front desk. */
 export type UnderstandBranch = FrontDeskBranch
 
 /** A file the customer sent with a message, as the channel trigger carries it. */
@@ -47,7 +47,7 @@ export interface UnderstandInput {
 
 /** The route the graph takes and the one line that says why. */
 export interface UnderstandOutput {
-    /** The route: to buy, to book an appointment, a transfer the customer reports, a complaint, or a question. */
+    /** The route: to buy, to book an appointment, a transfer the customer reports, a complaint, a request to stop messaging them, or a question. */
     readonly branch: UnderstandBranch
     /** One line in Vietnamese saying what the customer wants, for the team and the next workflow. */
     readonly summary: string
@@ -81,6 +81,7 @@ const input: NodeSchema<UnderstandInput> = z.object({
 })
 /** What each route means, as the decision's schema describes it to the model. */
 const BRANCH_MEANING: Readonly<Record<UnderstandBranch, string>> = {
+    stop: "stop: asks the shop to stop messaging them or not to write to them first",
     buy: "buy: wants to buy or asks about a product",
     book: "book: wants to book, reschedule an appointment, a table or a time slot with the shop",
     paid: "paid: reports a transfer",
@@ -93,7 +94,7 @@ const branchOf = (offered: readonly [UnderstandBranch, ...Array<UnderstandBranch
     z.enum(offered).describe(offered.map((branch) => BRANCH_MEANING[branch]).join("; "))
 
 /** The routes of the node, in the order the editor lists them. */
-const ROUTE_NAMES: readonly [UnderstandBranch, ...Array<UnderstandBranch>] = ["buy", "book", "paid", "complaint", "question"]
+const ROUTE_NAMES: readonly [UnderstandBranch, ...Array<UnderstandBranch>] = ["buy", "book", "paid", "complaint", "stop", "question"]
 
 const summary = z.string().min(1).max(MAX_LINE).describe("One line in Vietnamese: what the customer wants, for the team")
 
@@ -133,7 +134,7 @@ const CONFUSED_QUESTION = frontDeskSample("confusedQuestion")
 /**
  * `chatbot.understand` (the front desk's "understand the customer"): a pure decision over the customer's new message, the recent
  * conversation and the code of the customer's last order, both read by the step through the context reads. It routes the front desk
- * one of five ways (buy, book, paid, complaint, question) by its output `branch` and says in one line why, and hands on the recent lines
+ * one of six ways (buy, book, paid, complaint, stop, question) by its output `branch` and says in one line why, and hands on the recent lines
  * (`recentLines`) for the Booking, which reads them instead of the conversation. It writes and stores nothing. No words are required: a line
  * with only pictures is read from its pictures, and a fresh visit with neither is the customer opening the chat (ruling R45). When the AI
  * cannot tell, `agent.run` fails confused by itself and the engine takes over.
@@ -154,7 +155,7 @@ export const chatbotUnderstandNode: TemplateNode<
     input,
     output,
     model: "claude-sonnet-5-5",
-    routes: { by: "branch", names: ["buy", "book", "paid", "complaint", "question"] },
+    routes: { by: "branch", names: ["buy", "book", "paid", "complaint", "stop", "question"] },
     run: async (given, context) => {
         const rows = await threadRowsOf(context, { since: given.since })
         const lastOrderCode = await lastOrderCodeOf(context)
@@ -212,6 +213,14 @@ export const chatbotUnderstandNode: TemplateNode<
             tools: [threadRead(COMPLAINT_THREAD), lastOrderRead(null)],
             agent: [{ answer: { branch: "complaint", summary: frontDeskSample("summaryComplaint") } }],
             output: { branch: "complaint", summary: frontDeskSample("summaryComplaint"), recentLines: COMPLAINT_LINES },
+        },
+        {
+            name: "a person who asks the shop to stop messaging them goes to the stop route; the summary is the reason the contact keeps",
+            params: {},
+            input: { text: "Shop \u0111\u1eebng nh\u1eafn tin cho m\u00ecnh n\u1eefa nh\u00e9" },
+            tools: [threadRead([]), lastOrderRead(null)],
+            agent: [{ answer: { branch: "stop", summary: "Kh\u00e1ch xin \u0111\u1eebng nh\u1eafn tin ch\u1ee7 \u0111\u1ed9ng" } }],
+            output: { branch: "stop", summary: "Kh\u00e1ch xin \u0111\u1eebng nh\u1eafn tin ch\u1ee7 \u0111\u1ed9ng", recentLines: [] },
         },
         {
             name: "a greeting is a question the front desk answers",

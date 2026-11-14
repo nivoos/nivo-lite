@@ -3,6 +3,8 @@ import type { Evidence, FactRecord } from "@modules/domain/brain-facts"
 import type { TriageVerdict, TruthPassage } from "@modules/domain/knowledge-chunks"
 import type { SourceRecord } from "@modules/domain/knowledge-sources"
 import type { AiBudget, AiChatAnswer, AiChatAttempt, AiMessage } from "@modules/integrations/ai"
+import type { ClaimedJob } from "@modules/platform/jobs"
+import { BrainError, BrainErrorCode } from "./errors/brain.error"
 import type { Reading, StageEnd } from "./document-truths.contracts"
 import type { DocumentDate, ExtractedFact, FollowUp, ParsedFacts } from "./extraction.policy"
 
@@ -22,6 +24,25 @@ const CUT_REASONS: ReadonlySet<string> = new Set(["length", "max_tokens"])
 export const wroteNothingUsable = (tried: AiChatAttempt): boolean =>
     !tried.ok &&
     (tried.failure === "length" || tried.failure === "empty" || CUT_REASONS.has(tried.spent?.served.finishReason ?? ""))
+
+/**
+ * The failure of a call that gave NO answer because the model could not be reached (a timeout, a provider error) or no endpoint is
+ * configured, as the typed brain error the runner classifies (transient, or config); null when the model answered or only wrote
+ * something unusable. The code throws it; no code counts or waits.
+ */
+export const outageOf = (tried: AiChatAttempt): BrainError | null => {
+    if (tried.ok) return null
+    if (tried.failure === "timeout" || tried.failure === "provider") return new BrainError({ code: BrainErrorCode.ModelUnavailable })
+    if (tried.failure === "unconfigured") return new BrainError({ code: BrainErrorCode.ModelUnconfigured })
+    return null
+}
+
+/**
+ * The failure of a call whose answer was EMPTY: the model wrote nothing for this prompt and would write nothing again (a refusal), so
+ * it is input, a dead letter with one item, never a retry. An answer cut at its cap is not one (it splits); null otherwise.
+ */
+export const refusalOf = (tried: AiChatAttempt): BrainError | null =>
+    !tried.ok && tried.failure === "empty" && !cutOf(tried) ? new BrainError({ code: BrainErrorCode.ModelRefused }) : null
 
 /** Whether a try was cut at its token cap. */
 export const cutOf = (tried: AiChatAttempt): boolean =>
@@ -52,12 +73,16 @@ export interface Ask {
     readonly workspaceId: string
     /** The try of the window this call is (a follow-up is the second). */
     readonly tryNumber: number
+    /** What the call is for, in ids (the first passage of its batch, or `date`): with the stage and the try it keys the call's effect. */
+    readonly part: string
     /** The JSON Schema of the answer, sent as the API's structured output where the route has it (TRIAGE-5); absent: free text. */
     readonly outputSchema?: Readonly<Record<string, unknown>>
 }
 
 /** What a stage carries from one call to the next. */
 export interface Run {
+    /** The claimed job whose model calls these are. */
+    readonly job: ClaimedJob
     /** The document. */
     readonly source: SourceRecord
     /** The stage. */

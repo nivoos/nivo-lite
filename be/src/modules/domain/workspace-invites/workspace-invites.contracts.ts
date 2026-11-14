@@ -5,6 +5,18 @@ export type InviteDelivery = "invited" | "existing" | "none"
 export interface InviteDeliveryPort {
     /** Emails the invitation and answers how it reached the person; never throws. */
     deliverInvite(email: string, redirectTo: string): Promise<InviteDelivery>
+    /** Emails the invitation of a job exactly once under `key`; a mail that cannot be sent is thrown (the job's runner retries it or parks it). */
+    deliverInviteOnce(key: string, email: string, redirectTo: string): Promise<InviteDelivery>
+}
+
+/**
+ * Names the job that issues an invitation: the effect keys of its token and its mail start with `key` (`<jobId>`), so the invitation
+ * is made once per command and a run again changes and sends nothing that already happened. Absent = a person waiting on the call
+ * (the web app's own request), which gets the answer and, when the mail cannot be sent, the link to copy.
+ */
+export interface InviteIssuance {
+    /** The effect key prefix of the job's invitation (`<jobId>`). */
+    readonly key: string
 }
 
 /** What an owner or manager asks to invite. */

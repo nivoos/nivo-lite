@@ -216,7 +216,6 @@ const localApiOptions = (): ApiOptions => ({
     channelSetup: { zaloOauthBase: undefined, siteUrl: SITE, timeoutMs: 1000 },
     webhookDelivery: { timeoutMs: 1000 },
     toolsConfig: { defaultTimeoutMs: 4000 },
-    knowledge: { indexChunkDelayMs: 0 },
     // The vector index is a required engine piece. A proof runs no Qdrant: this address refuses at once (the discard port), so the
     // collections are not prepared, a meaning search answers by words, and the readiness probe says `vectors` is down.
     qdrant: { url: "http://127.0.0.1:9", apiKey: null, timeoutMs: 1000 },

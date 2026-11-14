@@ -23,7 +23,8 @@ export const cliSetupModules = (_options: CliAppOptions): Array<DynamicModule> =
         },
     }),
     ChatRoomDirectoryModule.register({ isGlobal: true, rooms: teamChatEntities[0], seats: teamChatEntities[1] }),
-    BrainFactsModule.register({ isGlobal: true }),
+    // The rows alone: the cli writes and reads facts by words, never searches by meaning nor embeds, so it composes no vector index.
+    BrainFactsModule.register({ isGlobal: true, rowsOnly: true }),
     KnowledgeGapsModule.register({ isGlobal: true }),
     ModulesModule.register({
         isGlobal: true,

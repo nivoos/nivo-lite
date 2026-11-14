@@ -15,7 +15,6 @@ import { ChannelDeliveriesService } from "@modules/domain/customer-routes/channe
 import { CustomerMessagesService } from "@modules/domain/customer-routes/customer-messages.service"
 import { CUSTOMER_ROUTE_STORE } from "@modules/domain/customer-routes/customer-route-store.port"
 import { CustomerRoutesService } from "@modules/domain/customer-routes/customer-routes.service"
-import { LeadMemoryService } from "@modules/domain/lead-memory"
 import { MemoryChannelDeliveryStore, MemoryCustomerRouteStore } from "./customer-routes-stores.builder"
 
 /** The instant the channel send specs run at. */
@@ -79,7 +78,6 @@ export interface ChannelSendWorld {
     readonly ledger: MemoryChannelDeliveryStore
     readonly delivery: MockOf<ChannelDeliveryService>
     readonly logger: MockOf<Logger>
-    readonly memory: MockOf<LeadMemoryService>
     readonly team: MockOf<NodeEffectExecutor>
     readonly access: MockOf<AgentAccountsService>
     readonly connections: MockOf<ConnectionsService>
@@ -99,7 +97,6 @@ export const build = async (): Promise<ChannelSendWorld> => {
     const ledger = new MemoryChannelDeliveryStore()
     const delivery = mock<ChannelDeliveryService>()
     const logger = mock<Logger>()
-    const memory = mock<LeadMemoryService>()
     const team = mock<NodeEffectExecutor>()
     // The accounts judge of a channel-bound send (the attachment to the account: proved on the real service in its own spec; the node's mode is the tool door's).
     const access = mock<AgentAccountsService>()
@@ -118,7 +115,6 @@ export const build = async (): Promise<ChannelSendWorld> => {
             { provide: ContactsService, useValue: contacts },
             { provide: ChannelDeliveryService, useValue: delivery },
             { provide: AgentAccountsService, useValue: access },
-            { provide: LeadMemoryService, useValue: memory },
             { provide: ConnectionsService, useValue: connections },
             { provide: CustomerMessagesService, useValue: lines },
         ],
@@ -130,7 +126,10 @@ export const build = async (): Promise<ChannelSendWorld> => {
     // The route the run was woken on: the person's Telegram entrance, the first route of the stores (`route-1`).
     await moduleRef.get(CustomerRoutesService).ensure("ws-1", { contactId: PERSON, channel: "telegram", accountId: TELEGRAM_ACCOUNT })
     delivery.deliverToPerson.mockResolvedValue({ delivered: true, failure: null, outcome: "acknowledged" })
-    memory.snapshot.mockResolvedValue(null)
+    // Every account of the kit is an entrance (rule MI-3); a spec of the entrance rule answers its own.
+    delivery.entranceOf.mockResolvedValue(null)
+    lines.threadOf.mockResolvedValue({ rows: [], next: null })
+    contacts.consentOf.mockResolvedValue(null)
     team.execute.mockResolvedValue({ kind: "chat-message", id: "team-1" })
     registry.optionalExecutorOf.mockImplementation((effect) => (effect === TOOL.teamMessagePost ? team : undefined))
     access.judgeSend.mockResolvedValue({ kind: "allow", provider: "telegram", connectionId: TELEGRAM_ACCOUNT })
@@ -149,7 +148,6 @@ export const build = async (): Promise<ChannelSendWorld> => {
         ledger,
         delivery,
         logger,
-        memory,
         team,
         access,
         connections,

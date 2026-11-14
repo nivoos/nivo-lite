@@ -24,6 +24,8 @@ export enum IdentityErrorCode {
     EmailNotConfirmed = "IDENTITY_EMAIL_NOT_CONFIRMED",
     /** No account has that id. */
     AccountNotFound = "IDENTITY_ACCOUNT_NOT_FOUND",
+    /** This app composes no effects ledger, so an invitation mail that must be sent once cannot be made here. */
+    EffectsMissing = "IDENTITY_CONFIG_EFFECTS_MISSING",
 }
 
 /** How each identity code travels. */
@@ -39,6 +41,7 @@ export const IDENTITY_ERROR_KINDS: Record<IdentityErrorCode, ErrorKind> = {
     [IdentityErrorCode.TooManyAttempts]: "rate-limited",
     [IdentityErrorCode.EmailNotConfirmed]: "forbidden",
     [IdentityErrorCode.AccountNotFound]: "not-found",
+    [IdentityErrorCode.EffectsMissing]: "unavailable",
 }
 
 /** The one error class of the identity capability. */

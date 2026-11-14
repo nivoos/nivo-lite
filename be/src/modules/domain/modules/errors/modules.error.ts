@@ -49,8 +49,12 @@ export enum ModulesErrorCode {
     CardFactNotApplied = "MODULES_CARD_FACT_NOT_APPLIED",
     /** The operating mode of an agent is gone: a node's declared mode alone decides (2026-11-13); the old door answers this. */
     OperatingModeRemoved = "MODULES_OPERATING_MODE_REMOVED",
-    /** A turn of the setup chat failed in a way that heals (gateway, model, empty answer): the queue attempts it again. */
-    SetupTurnTransient = "MODULES_SETUP_TURN_TRANSIENT",
+    /** A turn of the setup chat found the model unavailable (gateway, timeout): it heals, so the job's `waited` ladder attempts it again. */
+    SetupTurnUnavailable = "MODULES_SETUP_TURN_UNAVAILABLE",
+    /** The model wrote nothing for a turn of the setup chat: the same prompt gets the same answer, so no retry helps (a dead letter). */
+    SetupTurnRefused = "MODULES_SETUP_TURN_REFUSED",
+    /** A setup-turn job reached its domain method with a payload its declaration refuses: a bug of the producer. */
+    SetupTurnPayloadInvalid = "MODULES_SETUP_TURN_PAYLOAD_INVALID",
 }
 
 /** How each modules code travels. */
@@ -79,7 +83,9 @@ export const MODULES_ERROR_KINDS: Record<ModulesErrorCode, ErrorKind> = {
     [ModulesErrorCode.CardNeedsSituation]: "invalid",
     [ModulesErrorCode.CardFactNotApplied]: "conflict",
     [ModulesErrorCode.OperatingModeRemoved]: "invalid",
-    [ModulesErrorCode.SetupTurnTransient]: "unavailable",
+    [ModulesErrorCode.SetupTurnUnavailable]: "unavailable",
+    [ModulesErrorCode.SetupTurnRefused]: "invalid",
+    [ModulesErrorCode.SetupTurnPayloadInvalid]: "invalid",
 }
 
 /** The one error class of the modules capability. */

@@ -10,12 +10,9 @@ export const IMAP_CONNECTION_TEXT = {
     emailTooLong: "Địa chỉ email quá dài.",
     folderMissing: "Chọn ít nhất một thư mục.",
     sinceInvalid: "Khoảng thời gian không hợp lệ.",
-    everyInvalid: "Chu kỳ không hợp lệ.",
-    stoppedEarly: "Dừng sớm do hết thời gian, lần sau sẽ tiếp tục.",
+    addressOther: "Địa chỉ nhận thư phải trùng địa chỉ gửi của hộp thư này: một hộp thư là một địa chỉ.",
+    notMailbox: "Kết nối này không phải hộp thư.",
 } as const
 
 /** The one-line summary of a mailbox: the first folders and the look-back. */
 export const imapSummary = (shown: string, sinceDays: number): string => `${shown} · ${sinceDays} ngày`
-
-/** The note that new messages are left for the next run. */
-export const imapMoreNote = (folder: string): string => `${folder}: còn thư mới, sẽ lấy tiếp ở lần sau.`

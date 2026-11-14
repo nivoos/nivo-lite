@@ -530,10 +530,10 @@ describe("AiTasksService the turns of a node's agent loop", () => {
         ])
         // The first try has the node call's deadline, each retry the shorter one; every try the same reasoning, cap and affinity.
         expect(ai.turnModel.mock.calls.map(([request]) => request)).toEqual([
-            { timeoutMs: 90_000, budget: { effort: "low", maxTokens: 4000 }, affinity: "ws-1" },
+            { timeoutMs: 90_000, budget: { effort: "low", maxTokens: 4000 }, affinity: "ws-1", purpose: LOOP_ASK.purpose },
             // A retry after a timeout takes the name's next protocol when it has one (`fallback`); after a cut answer it does not.
-            { timeoutMs: 45_000, budget: { effort: "low", maxTokens: 4000 }, affinity: "ws-1", fallback: true },
-            { timeoutMs: 45_000, budget: { effort: "low", maxTokens: 4000 }, affinity: "ws-1" },
+            { timeoutMs: 45_000, budget: { effort: "low", maxTokens: 4000 }, affinity: "ws-1", fallback: true, purpose: LOOP_ASK.purpose },
+            { timeoutMs: 45_000, budget: { effort: "low", maxTokens: 4000 }, affinity: "ws-1", purpose: LOOP_ASK.purpose },
         ])
         expect(meter.blockedBy).toHaveBeenCalledTimes(1)
         expect(meter.blockedBy).toHaveBeenCalledWith("ws-1", "engine", "vi")
@@ -668,6 +668,7 @@ describe("AiTasksService the turns of a node's agent loop: pictures, client and 
             timeoutMs: 90_000,
             budget: { effort: "low", maxTokens: 4000 },
             affinity: "ws-1",
+            purpose: LOOP_ASK.purpose,
             routing: { order: ["together", "wafer"], allowFallbacks: true },
         })
         // No routing set: the client carries none, so no `provider` field is sent.

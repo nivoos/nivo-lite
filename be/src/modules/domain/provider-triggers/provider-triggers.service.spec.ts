@@ -5,11 +5,16 @@ import { CLOCK } from "@modules/platform/clock"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { LOGGER, type Logger } from "@modules/platform/logging"
 import { switchRowOf } from "@tests/fixtures/builders/provider-triggers.builder"
+import { bankTriggerOf, renderTriggerOf } from "@tests/fixtures/builders/trigger-declaration.builder"
 import type { ProviderTriggerSwitchEntity } from "./persistence/entities"
 import { ProviderTriggerStoreService } from "./provider-trigger-store.service"
 import type { ProviderTriggerCoreDeciders, ProviderTriggerReceivers } from "./provider-triggers.contracts"
 import { PROVIDER_TRIGGER_CORE_DECIDERS, PROVIDER_TRIGGER_RECEIVERS } from "./provider-triggers.decorators"
 import { ProviderTriggersService } from "./provider-triggers.service"
+import { triggerDeclarations } from "./trigger-declarations.registry"
+
+// The switches of an account are those of the declarations of its provider that carry one: the bank feed's and a compose provider's render, as fixtures.
+triggerDeclarations.register(bankTriggerOf(), renderTriggerOf("shotstack"))
 
 type ConnectionRecord = NonNullable<Awaited<ReturnType<ConnectionBindingsReadService["recordOf"]>>>
 

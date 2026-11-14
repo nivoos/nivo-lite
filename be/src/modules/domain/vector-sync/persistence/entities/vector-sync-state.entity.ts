@@ -20,14 +20,6 @@ export class VectorSyncStateEntity extends AbstractEntity {
     @Column({ name: "passes", type: "integer", default: () => "0" })
     passes!: number
 
-    /** How many consecutive runs ended with drift they could not repair; 0 after a run that repaired everything it met. */
-    @Column({ name: "drift_runs", type: "integer", default: () => "0" })
-    driftRuns!: number
-
-    /** When the current episode of unrepaired drift began; null while there is none. It keys the one report of the episode. */
-    @Column({ name: "drift_since", type: "timestamptz", nullable: true })
-    driftSince!: Date | null
-
     /** When the last run ended. */
     @Column({ name: "last_run_at", type: "timestamptz", nullable: true })
     lastRunAt!: Date | null

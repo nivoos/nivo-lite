@@ -35,7 +35,6 @@ import { runViewOf } from "@tests/fixtures/builders/agent-runs.builder"
 import { agentTurnViewOf } from "@tests/fixtures/builders/agent-work.builder"
 import { storeDoubles } from "@tests/fixtures/builders/agent-workflows.builder"
 import { AgentGraphFlowService } from "../../modules/domain/agent-graphs/agent-graph-flow.service"
-import { AgentGraphLayoutService } from "../../modules/domain/agent-graphs/agent-graph-layout.service"
 import { AgentGraphRecordsService } from "../../modules/domain/agent-graphs/agent-graph-records.service"
 import { AgentRightsRecordsService } from "../../modules/domain/agent-graphs/agent-rights-records.service"
 import { AgentGraphWakeNoticesService } from "../../modules/domain/agent-graphs/agent-graph-wake-notices.service"
@@ -168,7 +167,6 @@ const build = async (decides: boolean, bank = true) => {
                 useValue: mock<NodeRightsSwitchService>({ decides: jest.fn().mockResolvedValue(decides) }),
             },
             { provide: WorkspaceMemberSeatsService, useValue: seats },
-            { provide: AgentGraphLayoutService, useValue: mock<AgentGraphLayoutService>() },
             { provide: AgentDirectoryService, useValue: mock<AgentDirectoryService>() },
             { provide: PRIMARY_ENTITY_MANAGER, useValue: fakeTransaction(mockEntityManager()).em },
             {
@@ -387,20 +385,14 @@ describe("installing again changes nothing, and what the workspace changed is ke
         expect(heldOf(world, SALES)).toContainEqual([paused?.template?.templateId, "paused", false])
     })
 
-    it("a flow the agent already runs is never replaced by the template's, and a draft with an unpublished edit is left alone", async () => {
+    it("a flow the agent already runs is never replaced by the template's", async () => {
         const world = await build(false)
         await world.applied(CHATBOT)
         const own = (await world.graphs.stateOfAgent(WS, CHATBOT.agentId))?.active?.flow
         await world.install(CHATBOT)
-        const editing = await build(false)
-        await editing.applied(SALES)
-        const state = await editing.graphs.stateOfAgent(WS, SALES.agentId)
-        // The owner is half way through an edit of the published graph.
-        await editing.graphs.saveDraft(WS, SALES.agentId, state?.draftRev ?? 0, { nodes: [] })
 
         expect((await world.graphs.stateOfAgent(WS, CHATBOT.agentId))?.active?.flow).toEqual(own)
         expect(own).toBeDefined()
-        await expect(editing.install(SALES)).resolves.toMatchObject({ flow: "kept" })
     })
 })
 

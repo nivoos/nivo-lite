@@ -2,9 +2,7 @@ import { Injectable } from "@nestjs/common"
 import { ConnectionSecretsService } from "@modules/domain/connection-secrets"
 import { ConnectionsService, type WizardSettlement } from "@modules/domain/connections"
 import { ZaloWizardDraftsService } from "@modules/domain/zalo-wizard-drafts"
-import { InjectLogger, type Logger } from "@modules/platform/logging"
-import { isZaloWizardPayload, type ZaloWizardPayload } from "@modules/queues/zalo-wizard"
-import { ChannelsLogEvent } from "./channels.log-events"
+import { RUN_ZALO_WIZARD_JOB, isZaloWizardPayload, type ZaloWizardPayload } from "@modules/queues/zalo-wizard"
 import { ChannelsError, ChannelsErrorCode } from "./errors/channels.error"
 import { ZaloCredentialsService } from "./zalo-credentials.service"
 
@@ -33,32 +31,39 @@ const failed = (command: string, code: ChannelsErrorCode): WizardSettlement => (
  * The three steps of the Zalo connection wizard that need the back end: sealing the app keys, sealing the OA Secret Key and building the Zalo
  * permission URL. The keys come from a draft the wizard's database function wrote (never from the queue payload) and the draft is removed once
  * sealed. The result is written on the connection row next to the ticket of the request, where the wizard reads it. A refusal the owner can
- * act on is a failed result; anything else is thrown and the queue tries again.
+ * act on (the connection is not theirs, the keys are missing) is a failed result and the job returns; anything else is thrown for the runner,
+ * and at the dead letter the same ticket reads failed. Every step is safe to run again: the permission URL reuses the verifier it stored, the
+ * keys are sealed from the draft that is still there or found already sealed, and the result is written to the same ticket.
  */
 export class ZaloWizardService {
     constructor(
-        @InjectLogger() private readonly logger: Logger,
         private readonly secrets: ConnectionSecretsService,
         private readonly drafts: ZaloWizardDraftsService,
         private readonly connections: ConnectionsService,
         private readonly credentials: ZaloCredentialsService,
     ) {}
 
-    /** Runs one wizard job; a payload that is not one is ignored. */
+    /** Runs one wizard job and writes its result next to its ticket. */
     async run(payload: unknown): Promise<void> {
-        if (!isZaloWizardPayload(payload)) return
-        const settlement = await this.perform(payload).catch((cause: unknown) => {
-            if (!(cause instanceof ChannelsError)) throw cause
-            this.logger.error(ChannelsLogEvent.ZaloWizardRefused, cause, {
-                connectionId: payload.connectionId,
-                command: payload.command,
-            })
-            return failed(payload.command, cause.code)
-        })
-        await this.connections.settleWizard(payload.connectionId, payload.ticket, settlement)
+        const wizard = this.wizardOf(payload)
+        await this.connections.settleWizard(wizard.connectionId, wizard.ticket, await this.perform(wizard))
     }
 
-    private perform(payload: ZaloWizardPayload): Promise<WizardSettlement> {
+    /** The wizard job went to its dead letter: the ticket reads failed (the owner can ask again), and a resume runs the step again. */
+    async stopped(payload: unknown): Promise<void> {
+        const wizard = this.wizardOf(payload)
+        await this.connections.settleWizard(wizard.connectionId, wizard.ticket, failed(wizard.command, ChannelsErrorCode.WizardStopped))
+    }
+
+    private wizardOf(payload: unknown): ZaloWizardPayload {
+        if (!isZaloWizardPayload(payload)) {
+            throw new ChannelsError({ code: ChannelsErrorCode.PayloadInvalid, params: { job: RUN_ZALO_WIZARD_JOB.name } })
+        }
+        return payload
+    }
+
+    private async perform(payload: ZaloWizardPayload): Promise<WizardSettlement> {
+        if (!(await this.ownsConnection(payload))) return failed(payload.command, ChannelsErrorCode.ConnectionNotFound)
         if (payload.command === "begin") return this.begin(payload)
         return payload.command === "app" ? this.sealApp(payload) : this.sealOa(payload)
     }
@@ -69,7 +74,6 @@ export class ZaloWizardService {
     }
 
     private async sealApp(payload: ZaloWizardPayload): Promise<WizardSettlement> {
-        await this.requireConnection(payload)
         const { present, appId, appSecret } = await this.drafts.draftOf(payload.connectionId)
         if (!present) return this.alreadySealed(payload)
         if (appId === "" || appSecret === "") return failed(payload.command, ChannelsErrorCode.SecretUnreadable)
@@ -83,7 +87,6 @@ export class ZaloWizardService {
     }
 
     private async sealOa(payload: ZaloWizardPayload): Promise<WizardSettlement> {
-        await this.requireConnection(payload)
         const { present, oaSecret } = await this.drafts.draftOf(payload.connectionId)
         if (!present || oaSecret === "") return this.alreadySealed(payload)
         const loaded = await this.credentials.load(payload.connectionId)
@@ -103,11 +106,9 @@ export class ZaloWizardService {
         return done(payload.command, { oaSecretSaved: payload.command === "oa" && loaded.value.secret.oaSecret !== "" })
     }
 
-    /** The connection must be a Zalo connection of the workspace the owner proved. */
-    private async requireConnection(payload: ZaloWizardPayload): Promise<void> {
+    /** True when the connection is a Zalo connection of the workspace the owner proved. */
+    private async ownsConnection(payload: ZaloWizardPayload): Promise<boolean> {
         const intake = await this.connections.intakeOf(payload.connectionId, PROVIDER)
-        if (intake.kind !== "ok" || intake.value.workspaceId !== payload.workspaceId) {
-            throw new ChannelsError({ code: ChannelsErrorCode.ConnectionNotFound })
-        }
+        return intake.kind === "ok" && intake.value.workspaceId === payload.workspaceId
     }
 }

@@ -1,6 +1,7 @@
 import type { ExtractionStatus } from "@modules/domain/brain-extractions"
 import type { TruthPassage } from "@modules/domain/knowledge-chunks"
 import type { SourceRecord } from "@modules/domain/knowledge-sources"
+import type { ClaimedJob } from "@modules/platform/jobs"
 
 /** Where the truths work of a document stands inside one job. */
 export interface Reading {
@@ -22,11 +23,10 @@ export interface Reading {
  * How a stage of the truths work ended in this job:
  * - `done`: every passage of the stage is worked; the next stage follows;
  * - `budget`: the job made its calls; a follow-up job goes on (`left` batches are left);
- * - `blocked`: the credit pool is empty; the reading waits;
- * - `retry`: a call gave nothing usable; the queue runs the job again;
- * - `gave_up`: three tries in a row failed; the reading is given up.
+ * - `blocked`: the credit pool is empty; the reading waits.
+ * A call that gives nothing usable is not an end: it throws (a typed brain error) and the runner retries or dead-letters the job.
  */
-export type StageEnd = "done" | "budget" | "blocked" | "retry" | "gave_up"
+export type StageEnd = "done" | "budget" | "blocked"
 
 /** What a stage hands back: how it ended, the passages as they stand now, and where the reading stands. */
 export interface StageResult {
@@ -42,6 +42,8 @@ export interface StageResult {
 
 /** What one stage works on. */
 export interface StageInput {
+    /** The claimed job that runs the stage: its model calls are keyed by it. */
+    readonly job: ClaimedJob
     /** The document. */
     readonly source: SourceRecord
     /** Its passages as they stand. */

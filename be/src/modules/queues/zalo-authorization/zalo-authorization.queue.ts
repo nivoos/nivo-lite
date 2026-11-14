@@ -1,5 +1,14 @@
+import { createHash } from "node:crypto"
+
 /** The queue name: the contract between the database function the front end calls and the processor of the complete-zalo-authorization job (the durable queue name). */
 export const ZALO_AUTHORIZATION_QUEUE = "zalo_authorization"
+
+/** The job name the `zalo_authorization_return` database function writes. */
+export const ZALO_AUTHORIZATION_JOB = "complete-zalo-authorization"
+
+/** The once key of the job, as the database function writes it: the connection the state names and the digest of the state (sha-256 of the text, hex: the nonce in the state is a one-time secret and never travels in a key). */
+export const zaloAuthorizationKey = (payload: ZaloAuthorizationPayload): string =>
+    `zalo-authorization:${payload.state.split(".")[0] ?? ""}:${createHash("sha256").update(payload.state).digest("hex")}`
 
 /** The payload of one complete-zalo-authorization job, written by the `zalo_authorization_return` database function. */
 export interface ZaloAuthorizationPayload {

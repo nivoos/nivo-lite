@@ -13,6 +13,6 @@ export class SyncRowsStep implements JobStep {
     /** Records the step with the token this worker holds FIRST, so a stale token stops here before any effect; then does the work. */
     async run(job: ClaimedJob): Promise<void> {
         await this.claims.advance({ jobId: job.jobId, expectedFencingToken: job.fencingToken, step: "sync" })
-        await this.vectors.sync(job.payload)
+        await this.vectors.sync(job)
     }
 }

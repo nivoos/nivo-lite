@@ -65,4 +65,5 @@ export type {
     StopCardState,
 } from "./stop-card.contracts"
 export { TeamChatTagDeliveryService } from "./team-chat-tag-delivery.service"
+export { TeamChatRouteService } from "./team-chat-route.service"
 export { TEAM_CHAT_MESSAGE_TRIGGER } from "./team-chat-message.trigger"

@@ -1,11 +1,8 @@
-import { BankFeedReceiptService, type FeedReceiptPayload, type IncomingCredit } from "@modules/domain/bank-feed-inbox"
-import { InjectQueueOutbox, type QueueOutbox } from "@modules/platform/queue"
-import { BANK_FEED_DELIVERY_QUEUE, type BankFeedDeliveryRecorded } from "@modules/queues/bank-feed-delivery"
+import { BankFeedReceiptService, type IncomingCredit } from "@modules/domain/bank-feed-inbox"
 import { Injectable } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
 import { FeedWebhookRegistryService, type FeedWebhookPort } from "@modules/domain/provider-registry"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
-import { createHash } from "node:crypto"
 import type { RawBody, HeaderValue, BankFeedProvider } from "./billing.contracts"
 import { bankFactsOfCredit } from "./bank-facts.policy"
 import { cassoCredits, isCassoError } from "./casso.policy"
@@ -16,9 +13,9 @@ import { parseJsonObject } from "./webhook-body.policy"
 
 @Injectable()
 /**
- * The receipt intake of the bank feed: a webhook door proves each delivery, and this service records it once, with its queue message in
- * the same transaction. It decides nothing about a movement; when the job runs, `BankFeedService` keeps the delivery as raw account rows and
- * hands them to the account's trigger.
+ * The webhook doors' intake of the bank feed: a door proves each delivery, and this service keeps each movement of it once as the account's
+ * `<provider>.transaction` row; a NEW row is admitted in the same transaction (`BankFeedAdmissionService`: its job runs `BankFeedService`,
+ * which marks the account fed and hands the movement to its trigger). It decides nothing about a movement.
  */
 export class BankFeedReceiptsService {
     constructor(
@@ -26,10 +23,9 @@ export class BankFeedReceiptsService {
         private readonly proof: PaymentProofService,
         private readonly bankFeedInbox: BankFeedReceiptService,
         private readonly webhooks: FeedWebhookRegistryService,
-        @InjectQueueOutbox() private readonly outbox: QueueOutbox,
     ) {}
 
-    /** Records Casso's verified raw delivery for processing after the receipt commits. */
+    /** Keeps each positive movement of Casso's verified delivery once (a new one is admitted in the same transaction). */
     acceptCassoDelivery(rawBody: RawBody, connection: string): Promise<void> {
         const raw = rawBody ?? Buffer.alloc(0)
         const body = parseJsonObject(raw)
@@ -42,15 +38,14 @@ export class BankFeedReceiptsService {
                   fallbackBankName: credit.bankName,
                   ...bankFactsOfCredit(credit),
               }))
-        const deliveryId = `${connection}:${createHash("sha256").update(raw).digest("hex")}`
-        return this.recordFeedDelivery("casso", deliveryId, connection, credits)
+        return this.keepMovements("casso", connection, credits)
     }
 
     /** Records a verified paid payOS delivery; confirmation pings and unpaid deliveries remain acknowledgements only. */
     acceptPayosDelivery(rawBody: RawBody, connection: string): Promise<void> {
         const reading = readPayosDelivery(payosBodyOf(parseJsonObject(rawBody)))
         if (reading.kind === "ignored") return Promise.resolve()
-        return this.recordFeedDelivery("payos", `${connection}:${reading.eventId}`, connection, [
+        return this.keepMovements("payos", connection, [
             {
                 amount: reading.amount,
                 content: reading.content,
@@ -91,52 +86,20 @@ export class BankFeedReceiptsService {
         return port.traceIntake(connection, rawBody, () => this.bookFeedDelivery(port, rawBody, connection))
     }
 
-    /**
-     * Records one transaction a reconcile run read back from its provider, through the receipt path a webhook delivery takes, under the
-     * delivery key the webhook uses: a transaction the webhook already delivered is not recorded again. Answers true when this call
-     * recorded it, that is when the webhook never did.
-     */
-    acceptPolledCredit(
-        connection: string,
-        provider: BankFeedProvider,
-        deliveryId: string,
-        credit: IncomingCredit,
-    ): Promise<boolean> {
-        return this.claimFeedDelivery(provider, deliveryId, { connection, credits: [credit], source: "poll" })
-    }
-
     private async bookFeedDelivery(port: FeedWebhookPort, rawBody: RawBody, connection: string): Promise<void> {
         const reading = port.read(parseJsonObject(rawBody))
         if (reading.kind === "invalid") throw new BillingError({ code: BillingErrorCode.WebhookInvalid })
         if (reading.kind === "ignored") return
-        await this.recordFeedDelivery(port.inboxProvider, `${connection}:${reading.credit.eventId}`, connection, [
-            reading.credit,
-        ])
+        await this.keepMovements(port.inboxProvider, connection, [reading.credit])
     }
 
-    private async recordFeedDelivery(
+    /** Keeps the movements once and admits the new ones in one transaction; a repeat, an empty delivery or an unknown connection keeps nothing. */
+    private async keepMovements(
         provider: BankFeedProvider,
-        deliveryId: string,
         connection: string,
         credits: ReadonlyArray<IncomingCredit>,
     ): Promise<void> {
-        await this.claimFeedDelivery(provider, deliveryId, { connection, credits })
-    }
-
-    /** Claims the receipt once and hands it to the delivery job in the same transaction; answers false for a repeat or an empty delivery. */
-    private claimFeedDelivery(
-        provider: BankFeedProvider,
-        deliveryId: string,
-        payload: FeedReceiptPayload,
-    ): Promise<boolean> {
-        if (payload.credits.length === 0) return Promise.resolve(false)
-        return this.entityManager.transaction(async (manager) => {
-            if (!(await this.bankFeedInbox.claim(manager, provider, deliveryId, payload))) return false
-            const message: BankFeedDeliveryRecorded = { provider, deliveryId }
-            await this.outbox.write(manager, BANK_FEED_DELIVERY_QUEUE, message, {
-                dedupeKey: `${BANK_FEED_DELIVERY_QUEUE}:${provider}:${deliveryId}`,
-            })
-            return true
-        })
+        if (credits.length === 0) return
+        await this.entityManager.transaction((manager) => this.bankFeedInbox.keep(manager, provider, connection, credits, "webhook"))
     }
 }

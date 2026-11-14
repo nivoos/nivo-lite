@@ -140,6 +140,7 @@ export type MetaFailure =
     | "comment_age_unknown"
     | "private_reply_expired"
     | "rate_limited"
+    | "unavailable"
     | "token"
     | "permission"
     | "not_found"
@@ -187,7 +188,13 @@ export type SendResult =
           /** A private reply: the PSID / IGSID of the commenter the message reached. */
           readonly recipientId?: string
       }
-    | { readonly ok: false; readonly reason: MetaFailure; readonly detail?: string }
+    | {
+          readonly ok: false
+          readonly reason: MetaFailure
+          readonly detail?: string
+          /** How many parts of a long text Meta had already taken before this refusal (a text goes in parts); absent = none. */
+          readonly partsSent?: number
+      }
 
 /** One object of the app-level webhook subscription. */
 export interface AppObject {

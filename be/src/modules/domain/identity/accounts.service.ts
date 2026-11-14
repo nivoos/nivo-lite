@@ -186,6 +186,14 @@ export class IdentityAccountsService {
         return this.invites.deliver(email, redirectTo)
     }
 
+    /**
+     * Emails the invitation of a job exactly once under `key` (see `IdentityInviteService.deliverOnce`); a mail that cannot be sent is
+     * thrown for the job's runner to retry or park.
+     */
+    deliverInviteOnce(key: string, email: string, redirectTo: string): Promise<InviteSent> {
+        return this.invites.deliverOnce(key, email, redirectTo)
+    }
+
     private failureOf(cause: unknown): AccountAdminFailure {
         this.logger.error(IdentityAuthLogEvent.AccountAdminFailed, cause, { kind: "account-admin" })
         return { message: cause instanceof Error ? cause.message : "The account door failed." }

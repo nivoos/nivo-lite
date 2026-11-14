@@ -11,8 +11,6 @@ import { InjectEventBus, type EventBus } from "@modules/platform/event-bus"
 import { InjectIds, type Ids } from "@modules/platform/ids"
 import { KnowledgeQueue } from "@modules/queues/knowledge"
 import { KnowledgeSourcesError, KnowledgeSourcesErrorCode } from "./errors/knowledge-sources.error"
-import type { ProgressChange } from "./knowledge-progress.contracts"
-import { KnowledgeProgressService } from "./knowledge-progress.service"
 import {
     KNOWLEDGE_UPLOAD_BUCKET,
     KNOWLEDGE_UPLOAD_MIME,
@@ -23,6 +21,8 @@ import {
     type MaybeNote,
     type MaybeSource,
     type MaybeUploadedFile,
+    type NextStepWrite,
+    type ProgressChange,
     type ReindexInput,
     type SourceDetail,
     type SourceRef,
@@ -38,6 +38,7 @@ import { KnowledgeSourceEntity } from "./persistence/entities"
 import {
     areaOf,
     changesReaders,
+    columnsOf,
     genericSourceOf,
     metaChanges,
     moveOf,
@@ -105,7 +106,6 @@ export class KnowledgeSourcesService {
         @InjectEventBus() private readonly bus: EventBus,
         private readonly installations: InstallationRecordsService,
         private readonly quota: SourceQuotaService,
-        private readonly progress: KnowledgeProgressService,
         private readonly parts: SourcePartsService,
         @InjectIds() private readonly ids: Ids,
     ) {}
@@ -181,7 +181,6 @@ export class KnowledgeSourcesService {
                 await this.queue.enqueueIndex({ sourceId: row.id, workspaceId }, tx)
                 return { id: row.id }
             })
-            await this.progress.announce(workspaceId, ref.id)
             return ref
         } catch (error) {
             await this.quota.discardRefused(source.storagePath, error)
@@ -192,7 +191,7 @@ export class KnowledgeSourcesService {
     /** Puts a failed or credit-blocked source back on the queue; any other source is left as it is. */
     async retrySource(userId: string, workspaceId: string, sourceId: string): Promise<SourceRef> {
         await this.members.require(userId, workspaceId, MANAGERS)
-        const queued = await this.entityManager.transaction(async (tx) => {
+        await this.entityManager.transaction(async (tx) => {
             const requeued = await tx.update(
                 KnowledgeSourceEntity,
                 { id: sourceId, workspaceId, status: In(["failed", "blocked_credits"]) },
@@ -202,7 +201,6 @@ export class KnowledgeSourcesService {
             await this.queue.enqueueIndex({ sourceId, workspaceId }, tx, this.clock.now().getTime())
             return true
         })
-        if (queued) await this.progress.announce(workspaceId, sourceId)
         return { id: sourceId }
     }
 
@@ -242,8 +240,7 @@ export class KnowledgeSourcesService {
             await this.queue.enqueueIndex({ sourceId: input.sourceId, workspaceId }, tx, this.clock.now().getTime())
             return { replaced: file.replaced }
         })
-        if (queued !== null)
-            await this.quota.settleReplaced(queued.replaced, this.progress.announce(workspaceId, input.sourceId))
+        if (queued !== null) await this.quota.settleReplaced(queued.replaced)
         return { id: input.sourceId }
     }
 
@@ -342,9 +339,22 @@ export class KnowledgeSourcesService {
         throw new KnowledgeSourcesError({ code: KnowledgeSourcesErrorCode.UploadUnavailable })
     }
 
+    /** Stores the change on the source row; `within` writes what the next step needs in the same transaction. */
+    private async change(workspaceId: string, sourceId: string, change: ProgressChange, within?: NextStepWrite): Promise<void> {
+        const columns = { ...columnsOf(change), updatedAt: NOW }
+        if (within === undefined) {
+            await this.entityManager.update(KnowledgeSourceEntity, { id: sourceId, workspaceId }, columns)
+            return
+        }
+        await this.entityManager.transaction(async (tx) => {
+            await tx.update(KnowledgeSourceEntity, { id: sourceId, workspaceId }, columns)
+            await within(tx)
+        })
+    }
+
     /** The worker starts reading the source. */
     begin(workspaceId: string, sourceId: string): Promise<void> {
-        return this.progress.write(workspaceId, sourceId, {
+        return this.change(workspaceId, sourceId, {
             status: "reading",
             error: null,
             progress: 5,
@@ -371,22 +381,16 @@ export class KnowledgeSourcesService {
                 updatedAt: NOW,
             },
         )
-        await this.progress.announce(workspaceId, sourceId)
-    }
-
-    /** Moves the stage, count and progress bar of a source, at most about once a second; never fails the job. */
-    advance(workspaceId: string, sourceId: string, change: ProgressChange): Promise<void> {
-        return this.progress.count(workspaceId, sourceId, change)
     }
 
     /** Moves the source to a stage at once: a change of stage is never held back by the throttle. */
     enterStage(workspaceId: string, sourceId: string, change: ProgressChange): Promise<void> {
-        return this.progress.write(workspaceId, sourceId, change)
+        return this.change(workspaceId, sourceId, change)
     }
 
     /** Closes a source as failed with the stored code the front end shows its own text for. */
     fail(workspaceId: string, sourceId: string, note: string): Promise<void> {
-        return this.progress.write(workspaceId, sourceId, {
+        return this.change(workspaceId, sourceId, {
             status: "failed",
             error: note,
             stage: null,
@@ -400,7 +404,7 @@ export class KnowledgeSourcesService {
      * when one stands, and `knowledge_source_indexed` is published in the same transaction: the truths of the document are worked out
      * of it by the job that event queues, in a state of their own (`brain_extractions`), never by holding the document back.
      */
-    async finishIndexing(workspaceId: string, sourceId: string, note: MaybeNote, chunks: number): Promise<void> {
+    async finishIndexing(workspaceId: string, sourceId: string, note: MaybeNote, chunks: number, within?: NextStepWrite): Promise<void> {
         await this.entityManager.transaction(async (tx) => {
             const indexed = KnowledgeSourceIndexedEvent.create({
                 sourceId,
@@ -422,26 +426,19 @@ export class KnowledgeSourcesService {
                     updatedAt: NOW,
                 },
             )
+            if (within !== undefined) await within(tx)
         })
-        await this.progress.announce(workspaceId, sourceId)
     }
 
-    /** The passages are stored without vectors and the source waits for credits. */
-    blockIndexing(workspaceId: string, sourceId: string, note: StoredNote, chunks: number): Promise<void> {
-        return this.progress.write(workspaceId, sourceId, {
-            status: "blocked_credits",
-            error: note,
-            chunkCount: chunks,
-            progress: 80,
-            stage: null,
-            done: null,
-            total: null,
-        })
+    /** The passages are stored without vectors and the source waits for credits; `within` writes the next step's job in the same transaction. */
+    blockIndexing(workspaceId: string, sourceId: string, note: StoredNote, chunks: number, within?: NextStepWrite): Promise<void> {
+        const change = { status: "blocked_credits", error: note, chunkCount: chunks, progress: 80, stage: null, done: null, total: null } as const
+        return this.change(workspaceId, sourceId, change, within)
     }
 
     /** The source is ready, with a stored note when one stands (its truths could not be read, it is a duplicate). */
     ready(workspaceId: string, sourceId: string, note: MaybeNote): Promise<void> {
-        return this.progress.write(workspaceId, sourceId, {
+        return this.change(workspaceId, sourceId, {
             status: "ready",
             progress: 100,
             stage: null,
@@ -453,7 +450,7 @@ export class KnowledgeSourcesService {
 
     /** The passages and the truths of this text are complete: the source records the hash, so the same text is not worked on again. */
     settle(workspaceId: string, sourceId: string, content: string): Promise<void> {
-        return this.progress.write(workspaceId, sourceId, {
+        return this.change(workspaceId, sourceId, {
             status: "ready",
             progress: 100,
             stage: null,
@@ -465,7 +462,7 @@ export class KnowledgeSourcesService {
 
     /** The source already holds this text whole: it is ready again with no work done, with the note that stands, since a re-read cleared it. */
     keepIndexed(workspaceId: string, sourceId: string, note: MaybeNote): Promise<void> {
-        return this.progress.write(workspaceId, sourceId, {
+        return this.change(workspaceId, sourceId, {
             status: "ready",
             progress: 100,
             stage: null,

@@ -446,7 +446,11 @@ const deskFront = defineTemplateGraph({
     key: DESK_FRONT,
     title: { vi: "L\u1ec5 t\u00e2n (th\u1ebf gi\u1edbi)", en: "Front desk (world)" },
     input: deskInput,
-    triggers: [trigger(TRIGGER.zaloMessageReceived, { accounts: [PROVIDER.zaloOa] })],
+    // A person's mail is a line like a chat line (MAIL-IN rule MI-4), received on a mailbox account (kind smtp): the world's desk takes both.
+    triggers: [
+        trigger(TRIGGER.zaloMessageReceived, { accounts: [PROVIDER.zaloOa] }),
+        trigger(TRIGGER.mailMessageReceived, { accounts: [PROVIDER.smtp] }),
+    ],
     openTo: "any",
     start: "understand",
     nodes: {
@@ -475,7 +479,7 @@ const deskFront = defineTemplateGraph({
 export const DESK_AGENT_TEMPLATE: TemplateAgent = defineTemplateAgent({
     key: DESK_AGENT,
     label: { vi: "L\u1ec5 t\u00e2n th\u1ebf gi\u1edbi", en: "World desk" },
-    accounts: [PROVIDER.zaloOa],
+    accounts: [PROVIDER.zaloOa, PROVIDER.smtp],
     graphs: [deskFront],
     primary: DESK_FRONT,
 })

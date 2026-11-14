@@ -3,7 +3,7 @@ import type { JsonObject, JsonValue } from "@nivo-lite/agent-sdk/schema"
 import type { FailReason, NodeContext, ToolAnswer } from "@nivo-lite/agent-sdk/template"
 import { checkTemplateNode } from "@nivo-lite/agent-sdk/testing"
 import { salesAfterSaleNode } from "./care-after-sale.node"
-import { CARE_OPEN, ORDER_O1, SENT_VIA_ZALO } from "./care.examples"
+import { ORDER_O1, SENT_VIA_ZALO } from "./care.examples"
 import { answered, contextAnswer } from "../../../shared/nodes/tool-answers"
 import { saleLeadListOf } from "./care.reads"
 
@@ -85,7 +85,6 @@ describe("sales.after-sale", () => {
             [
                 { id: TOOL.orderGet, args: { orderId: "o1" }, answer: answered({ order: ORDER }) },
                 { id: TOOL.recordList, args: saleLeadListOf("c1"), answer: answered({ records: [{ id: "l1", values: {} }], next: null }) },
-                { id: TOOL.leadCareGet, args: { leadId: "l1" }, answer: answered(CARE_OPEN) },
                 { id: TOOL.contactGet, args: {}, answer: PROFILE },
                 { id: TOOL.customerMessageSend, args: { contactId: "c1", text: "C\u1ea3m \u01a1n ch\u1ecb!" }, answer: SENT_VIA_ZALO },
             ],

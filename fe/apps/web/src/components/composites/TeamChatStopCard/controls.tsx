@@ -89,6 +89,9 @@ const StopApprovalContent = (props: { readonly card: TeamChatStopCardView }) => 
     const approval = card.approval
     if (approval === null) return null
     const rows = [
+        ...(approval.subject === null
+            ? []
+            : [{ id: "subject", title: card.labels.subjectLabel, value: <Text>{approval.subject}</Text> }]),
         ...(approval.messageLines.length === 0
             ? []
             : [

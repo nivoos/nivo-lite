@@ -24,7 +24,53 @@ export interface ProviderAbility {
      * the provider is then known only from the conversation, and the tool's executor asks with it.
      */
     readonly channels?: ReadonlyArray<string>
+    /** What the customer channels of `channels` can carry and how they reach a person (rule SO-2): one declaration for all of them. */
+    readonly capabilities?: ChannelCapabilities
 }
+
+/**
+ * What one customer channel DECLARES of the one send (rule SO-2, concept customer-messages): the engine reads only this, never a channel's
+ * name. `subject`: "required" = every message carries a subject line (a send without one is refused `subject_required`), "none" = the
+ * channel has none (a subject given is not used). `replyWindowMs`: the time after the person's own last line on the route within which
+ * an agent's words may go (null: no window). `addressedBy`: "channel" = the person is reached by the channel's own id of them on ONE
+ * account (a Zalo user id of one OA); a person-level identity kind ("email") = the person's own address reaches them on EVERY account
+ * of the provider, so the account is the agent's binding (`pickAccountOf`), and a send may name the address itself. `threads` (MAIL-IN
+ * rule MI-5): true = a reply is threaded under the person's lines it answers (the engine hands their keys, `answers`), false = none.
+ */
+export interface ChannelCapabilities {
+    readonly subject: "required" | "none"
+    readonly replyWindowMs: number | null
+    readonly addressedBy: "channel" | "email"
+    readonly threads: boolean
+}
+
+/** A channel that declares nothing (NIVO's own website chat, any channel of no provider): no subject, no window, per-account ids. */
+export const DEFAULT_CHANNEL_CAPABILITIES: ChannelCapabilities = {
+    subject: "none",
+    replyWindowMs: null,
+    addressedBy: "channel",
+    threads: false,
+}
+
+/** Zalo's free reply window: an agent's words go only within 48 hours of the person's own last line (Zalo's rule, stated by Zalo). */
+export const ZALO_REPLY_WINDOW_MS: number = 48 * 3_600_000
+
+/** A chat channel's declaration: no subject, the given window, per-account ids. */
+const chatCapabilities = (replyWindowMs: number | null): ChannelCapabilities => ({
+    subject: "none",
+    replyWindowMs,
+    addressedBy: "channel",
+    threads: false,
+})
+
+/**
+ * Mail: every mail carries a subject; no window; the person's mail address reaches them through any of the workspace's mail accounts; a
+ * reply is threaded under the person's mails it answers (`In-Reply-To` / `References`).
+ */
+const MAIL_CAPABILITIES: ChannelCapabilities = { subject: "required", replyWindowMs: null, addressedBy: "email", threads: true }
+
+/** The reads of a mailbox's inbound half: an `imap` account's, or the half a mailbox `smtp` account holds (MAIL-IN rule MI-1). */
+const MAIL_READ: ProviderAbility = { id: "mail.read", scope: "read", tools: [TOOL.mailMessageList, TOOL.mailMessageGet] }
 
 /** One provider a workspace can connect, with the tools it serves (grouped for display). */
 export interface ProviderSpec {
@@ -46,11 +92,13 @@ export const PROVIDER_PARTED_TOOLS: ReadonlySet<string> = new Set([TOOL.connecti
 /** True for a tool answered in one part per provider (`PROVIDER_PARTED_TOOLS`). */
 export const isProviderParted = (tool: string): boolean => PROVIDER_PARTED_TOOLS.has(tool)
 
-const sendOn = (...channels: ReadonlyArray<string>): ProviderAbility => ({
+/** The one customer send on the provider's channels, with what those channels declare (rule SO-2). */
+const sendOn = (capabilities: ChannelCapabilities, ...channels: ReadonlyArray<string>): ProviderAbility => ({
     id: "customer.send",
     scope: "write",
     tools: [TOOL.customerMessageSend],
     channels,
+    capabilities,
 })
 
 /** The abilities of a domain registrar: every registrar has the same, over the generic domain purposes (`nivo.tool.domain.*`). */
@@ -79,7 +127,7 @@ const REGISTRAR_ABILITIES: ReadonlyArray<ProviderAbility> = [
  * a spec proves this catalogue holds every core tool on exactly its owners (the pseudo-provider `nivo` is never here: a tool listed here
  * is judged only by attachments). `casso`, a second bank feed, holds NIVO's inbox of received credits only: it holds NO payment request
  * (no `qr.create`) until its QR format is verified against Casso's documentation, so it is never a default receiving account and a
- * workspace with a SePay and a Casso account resolves the payment request to the SePay one; `smtp` holds the mail send only (no work action: a node that mails calls the mail tool under its own mode). `payos` is a provider a
+ * workspace with a SePay and a Casso account resolves the payment request to the SePay one; `smtp` serves the customer channel `email` of the one customer send (rule SO-1: no mail tool of its own). `payos` is a provider a
  * workspace connects that no tool reaches yet. `openapi` is an API
  * connection that pinned an OpenAPI document: its tools are the ones the installed plugins declare on its connectors
  * (`nivo.tool.<source key>.<method>.<path>`, or the platform purpose an operation serves), ONE ability per operation, so it has no ability
@@ -91,18 +139,18 @@ export const PROVIDER_CATALOGUE: ReadonlyArray<ProviderSpec> = [
     {
         provider: "zalo_oa",
         kind: "messaging",
-        abilities: [sendOn("zalo")],
+        abilities: [sendOn(chatCapabilities(ZALO_REPLY_WINDOW_MS), "zalo")],
     },
     {
         provider: "telegram",
         kind: "messaging",
-        abilities: [sendOn("telegram")],
+        abilities: [sendOn(chatCapabilities(null), "telegram")],
     },
     {
         provider: "meta",
         kind: "messaging",
         abilities: [
-            sendOn("facebook", "instagram"),
+            sendOn(chatCapabilities(null), "facebook", "instagram"),
             { id: "facebook.publish", scope: "write", tools: [TOOL.facebookPostPublish] },
             { id: "instagram.publish", scope: "write", tools: [TOOL.instagramMediaPublish] },
             { id: "instagram.read", scope: "read", tools: [TOOL.instagramMediaStatusGet] },
@@ -143,12 +191,14 @@ export const PROVIDER_CATALOGUE: ReadonlyArray<ProviderSpec> = [
     {
         provider: "smtp",
         kind: "mail",
-        abilities: [{ id: "email.send", scope: "write", tools: [TOOL.mailMessageSend] }],
+        // Mail is a CHANNEL of the one customer send (rule SO-1): a mailbox account is an entrance like an OA or a bot once it holds both
+        // halves (MAIL-IN rule MI-3); the inbound half it holds is read by the same mail reads as an `imap` account's (rule MI-1).
+        abilities: [sendOn(MAIL_CAPABILITIES, "email"), MAIL_READ],
     },
     {
         provider: "imap",
         kind: "mail",
-        abilities: [{ id: "mail.read", scope: "read", tools: [TOOL.mailMessageList, TOOL.mailMessageGet] }],
+        abilities: [MAIL_READ],
     },
     {
         provider: "google",
@@ -233,6 +283,26 @@ export type OptionalProviderKey = string | null
 export const providerOfChannel = (channel: string): OptionalProviderKey =>
     PROVIDER_CATALOGUE.find((spec) => spec.abilities.some((ability) => ability.channels?.includes(channel) === true))
         ?.provider ?? null
+
+/** What a customer channel declares of the one send (rule SO-2); the default for a channel of no provider (the website chat). */
+export const channelCapabilitiesOf = (channel: string): ChannelCapabilities =>
+    PROVIDER_CATALOGUE.flatMap((spec) => spec.abilities).find((ability) => ability.channels?.includes(channel) === true)
+        ?.capabilities ?? DEFAULT_CHANNEL_CAPABILITIES
+
+/** A customer channel that reaches a person by a person-level identity of theirs (`addressedBy` other than "channel"). */
+export interface PersonAddressedChannel {
+    /** The channel key. */
+    readonly channel: string
+    /** The kind of the person's identity that addresses them on it. */
+    readonly kind: Exclude<ChannelCapabilities["addressedBy"], "channel">
+}
+
+/** The customer channels addressed by a person-level identity (rule SO-2), in catalogue order. */
+export const personAddressedChannels = (): ReadonlyArray<PersonAddressedChannel> =>
+    PROVIDER_CATALOGUE.flatMap((spec) => spec.abilities).flatMap((ability) => {
+        const kind = ability.capabilities?.addressedBy
+        return kind === undefined || kind === "channel" ? [] : (ability.channels ?? []).map((channel) => ({ channel, kind }))
+    })
 
 /** One ability of one provider. */
 interface Held {
@@ -394,7 +464,7 @@ export interface RunAccountFacts {
 }
 
 /** Why one account was picked among the agent's accounts of one provider: it is the only one, or the first rule of the order that names one. */
-export type AccountPickedBy = "only" | "trigger" | "run" | "default"
+export type AccountPickedBy = "only" | "trigger" | "run" | "node" | "default"
 
 /** The account a call uses among the agent's attached accounts of ONE provider, or why none is. */
 export type AccountPick<A extends NamedAccount> =
@@ -405,15 +475,17 @@ export type AccountPick<A extends NamedAccount> =
 /**
  * THE ONE ORDER (generic, nivo-frame `rights`): which of an agent's attached accounts of ONE provider a step's call uses. None attached:
  * `none` (the kill switch). One attached: it, exactly as before (`only`). Several, the first rule that names one of them wins:
- * (1) the account the run's triggering event came in on (`run.triggerConnectionId`); (2) an account the run already used earlier
- * (`run.usedConnectionIds`, the most recent first); (3) the agent's DEFAULT account of the provider, the one the owner set
- * (`defaultConnectionId`); else `needs_pick` with the candidates (never a guess: the owner picks a default). A fact naming an account
- * that is not among the candidates names nothing. Pure.
+ * (1) the account the run's triggering event came in on (`run.triggerConnectionId`: an inbound line is answered where it was written);
+ * (2) an account the run already used earlier (`run.usedConnectionIds`, the most recent first); (3) the accounts the STEP's node
+ * settings chose, in their try order (`chosen`, the shop's setting on its copy of the graph); (4) the agent's DEFAULT account of the
+ * provider, the one the owner set (`defaultConnectionId`); else `needs_pick` with the candidates (never a guess: the owner picks a
+ * default or the step's accounts). A fact naming an account that is not among the candidates names nothing. Pure.
  */
 export const pickAccountOf = <A extends NamedAccount>(
     own: ReadonlyArray<A>,
     defaultConnectionId: string | null,
     run: RunAccountFacts = {},
+    chosen: ReadonlyArray<string> = [],
 ): AccountPick<A> => {
     const [only, ...more] = own
     if (only === undefined) return { kind: "none" }
@@ -425,6 +497,10 @@ export const pickAccountOf = <A extends NamedAccount>(
     for (const used of run.usedConnectionIds ?? []) {
         const byRun = named(used)
         if (byRun !== undefined) return { kind: "picked", account: byRun, by: "run" }
+    }
+    for (const set of chosen) {
+        const byNode = named(set)
+        if (byNode !== undefined) return { kind: "picked", account: byNode, by: "node" }
     }
     const byDefault = named(defaultConnectionId)
     if (byDefault !== undefined) return { kind: "picked", account: byDefault, by: "default" }
@@ -439,12 +515,19 @@ export interface PickNeeded {
     readonly connectionIds: ReadonlyArray<string>
 }
 
+/** The accounts a step's node settings chose, by provider (`chosenOf`); none chosen anywhere when absent. */
+export type ChosenOf = (provider: string) => ReadonlyArray<string>
+
+/** No account chosen on the step: every provider goes by the run and the agent's default. */
+const NONE_CHOSEN: ChosenOf = () => []
+
 /** The pick of each provider a node lists, in the node's order, each once. */
 const picksOf = <A extends NamedAccount>(
     providers: ReadonlyArray<string>,
     attached: ReadonlyArray<A>,
     defaultOf: (provider: string) => string | null,
     run: RunAccountFacts | undefined,
+    chosenOf: ChosenOf,
 ): ReadonlyArray<{ readonly provider: string; readonly pick: AccountPick<A> }> =>
     [...new Set(providers)].map((provider) => ({
         provider,
@@ -452,13 +535,14 @@ const picksOf = <A extends NamedAccount>(
             attached.filter((account) => account.provider === provider),
             defaultOf(provider),
             run,
+            chosenOf(provider),
         ),
     }))
 
 /**
  * THE BINDING (nivo-frame `rights`, `templates`): the accounts a node's call may act on, in the NODE'S order of providers. Each provider
  * the node lists binds the agent's ONE attached account of it; of several, the account `pickAccountOf` names (the run's trigger, then the
- * run's earlier calls, then the agent's default account of the provider, `defaultOf`), else none (never a guess: readiness names it
+ * run's earlier calls, then the step's chosen accounts, `chosenOf`, then the agent's default account of the provider, `defaultOf`), else none (never a guess: readiness names it
  * `needs_pick`, and `unpickedOf` the choice). A provider the agent has no account of binds nothing (the kill switch). Pure.
  */
 export const bindNodeProviders = <A extends NamedAccount>(
@@ -466,8 +550,9 @@ export const bindNodeProviders = <A extends NamedAccount>(
     attached: ReadonlyArray<A>,
     defaultOf: (provider: string) => string | null,
     run?: RunAccountFacts,
+    chosenOf: ChosenOf = NONE_CHOSEN,
 ): ReadonlyArray<A> =>
-    picksOf(providers, attached, defaultOf, run).flatMap(({ pick }) => (pick.kind === "picked" ? [pick.account] : []))
+    picksOf(providers, attached, defaultOf, run, chosenOf).flatMap(({ pick }) => (pick.kind === "picked" ? [pick.account] : []))
 
 /**
  * The providers of a node whose several attached accounts no rule of the order picks from (`bindNodeProviders` binds nothing for them),
@@ -478,8 +563,9 @@ export const unpickedOf = <A extends NamedAccount>(
     attached: ReadonlyArray<A>,
     defaultOf: (provider: string) => string | null,
     run?: RunAccountFacts,
+    chosenOf: ChosenOf = NONE_CHOSEN,
 ): ReadonlyArray<PickNeeded> =>
-    picksOf(providers, attached, defaultOf, run).flatMap(({ provider, pick }) =>
+    picksOf(providers, attached, defaultOf, run, chosenOf).flatMap(({ provider, pick }) =>
         pick.kind === "needs_pick" ? [{ provider, connectionIds: pick.candidates.map((account) => account.connectionId) }] : [],
     )
 

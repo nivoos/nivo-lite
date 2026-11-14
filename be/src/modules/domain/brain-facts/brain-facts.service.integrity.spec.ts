@@ -12,7 +12,7 @@ import { evaluatedValues } from "@tests/fixtures/builders/evaluated-calls.builde
 import { BrainFactsMaintenanceService } from "./brain-facts-maintenance.service"
 import { BrainFactsReadService } from "./brain-facts-read.service"
 import { BrainFactsService, MERGED_NOTE } from "./brain-facts.service"
-import type { FactsChangedHook } from "./brain-facts.service"
+import type { FactsChangedHook } from "./facts-changed-hook.contracts"
 import { InForceBoundService } from "./in-force-bound.service"
 import { BrainFactRelationsService } from "./brain-fact-relations.service"
 import { BrainFactsErrorCode } from "./errors/brain-facts.error"

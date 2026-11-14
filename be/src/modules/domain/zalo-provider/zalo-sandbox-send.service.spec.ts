@@ -109,6 +109,28 @@ describe("ZaloSandboxSendService", () => {
         await expect(service.send(CONNECTION, TARGET, USER, requestOf())).resolves.toMatchObject({ delivered: true })
     })
 
+    it("ZALO-SEND-5: throws the live port's not-sent answer for a used-up quota (nothing sent, the engine retries), distinct from refused and unknown", async () => {
+        const { sandbox, service } = setup()
+        await sandbox.setNextCase(ACCOUNT, "send", "ZALO-SEND-5")
+
+        await expect(service.send(CONNECTION, TARGET, USER, requestOf())).rejects.toMatchObject({
+            code: ChannelsErrorCode.SendUnavailable,
+            params: { reason: "zalo_quota" },
+        })
+        expect(await sandbox.calls(ACCOUNT, "send")).toHaveLength(1)
+    })
+
+    it("ZALO-SEND-6: throws what the live port throws while the token refresh is busy (the not-sent answer), sticky until another case is picked", async () => {
+        const { sandbox, service } = setup()
+        await sandbox.setNextCase(ACCOUNT, "send", "ZALO-SEND-6")
+
+        const busy = { code: ChannelsErrorCode.SendUnavailable, params: { reason: "zalo_refresh_busy" } }
+        await expect(service.send(CONNECTION, TARGET, USER, requestOf())).rejects.toMatchObject(busy)
+        await expect(service.send(CONNECTION, TARGET, USER, requestOf())).rejects.toMatchObject(busy)
+        await sandbox.setNextCase(ACCOUNT, "send", "ZALO-SEND-1")
+        await expect(service.send(CONNECTION, TARGET, USER, requestOf())).resolves.toMatchObject({ delivered: true })
+    })
+
     it("answers not connected for a person without a Zalo id, as the live route does", async () => {
         const { service } = setup()
 
@@ -152,7 +174,7 @@ describe("ZaloSandboxSendService", () => {
         const ids = ZALO_SEND_SANDBOX_CASES.map((one) => one.id)
 
         expect(new Set(ids).size).toBe(ids.length)
-        expect(ids).toEqual(["ZALO-SEND-1", "ZALO-SEND-2", "ZALO-SEND-3", "ZALO-SEND-4"])
+        expect(ids).toEqual(["ZALO-SEND-1", "ZALO-SEND-2", "ZALO-SEND-3", "ZALO-SEND-4", "ZALO-SEND-5", "ZALO-SEND-6"])
         expect(ZALO_SEND_SANDBOX_CASES.filter((one) => one.default === true).map((one) => one.id)).toEqual(["ZALO-SEND-1"])
         expect(ZALO_SEND_SANDBOX_CASES.every((one) => one.operation === "send")).toBe(true)
     })

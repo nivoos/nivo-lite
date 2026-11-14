@@ -6,6 +6,7 @@ import {
     PROBE_MODEL,
     PROBE_RUN as INPUT,
     armGraphNodeDoubles,
+    probeAskOf,
     readingPort,
     type GraphNodeDoubles,
 } from "@tests/fixtures/builders/graph-nodes.builder"
@@ -67,7 +68,7 @@ const buildWithLoop = async (nodes: ReadonlyArray<string>) => {
             { provide: GRAPH_NODE_AGENT_LOOPS, useValue: loops },
         ],
     }).compile()
-    return { host: moduleRef.get(GraphNodeHostService), ai, loops, registry }
+    return { host: moduleRef.get(GraphNodeHostService), ai, loops, registry, tools }
 }
 
 /** The host with the `AGENT_LOOP` flag naming `nodes` and no prebuilt loop bound. */
@@ -178,7 +179,25 @@ describe("GraphNodeHostService AGENT_LOOP", () => {
             { workspaceId: "ws-1", locale: "vi", model: PROBE_MODEL },
             { purpose: "core.probe:agent" },
         )
-        expect(loops.run).toHaveBeenCalledWith(loop, { toolChoice: "auto" }, {})
+        // The loop the host runs is the node's own, its `call` guarded by rule SO-4 (a decided stop ends the turn).
+        expect(loops.run).toHaveBeenCalledWith(expect.objectContaining({ purpose: "core.probe:agent" }), { toolChoice: "auto" }, {})
+    })
+
+    it("SO-4: once a call of the turn decided a stop, the loop's next call throws it: the native loop asks the model no further turn", async () => {
+        const { host, loops, tools } = await buildWithLoop(["core.probe"])
+        const ask = probeAskOf()
+        const seen: Array<NodeHostPorts> = []
+        // The node's own tool call raises a person's approval: the stop of this turn is decided.
+        tools.call.mockRejectedValue(ask)
+        await expect(
+            host.run({ ...INPUT, nodeId: "core.probe", replay: (ports) => (seen.push(ports), ports) }),
+        ).rejects.toBe(ask)
+        const inner = jest.fn(() => Promise.resolve({ ok: true as const, result: {} }))
+        const loop = mock<NodeAgentLoop>({ purpose: "core.probe:agent", reasoning: undefined, images: undefined, call: inner })
+        loops.run.mockImplementation((shown: NodeAgentLoop) => shown.call("core.look", {}))
+
+        await expect(seen[0]?.agent?.(loop)).rejects.toBe(ask)
+        expect(inner).not.toHaveBeenCalled()
     })
 })
 

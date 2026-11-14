@@ -19,8 +19,8 @@ export interface ProviderTriggerWords {
     readonly fired: (when: string, count: number) => string
     /** The time of a fire in the reader's language, from an ISO instant. */
     readonly when: (iso: string) => string
-    /** The word of a trigger's kind ("webhook" | "poll"); any other kind shows as given. */
-    readonly kind: (kind: string) => string
+    /** The "Receives via: webhook, poll" line of a trigger, from the ways it lists. */
+    readonly via: (via: ReadonlyArray<string>) => string
     /** "Never fired yet". */
     readonly neverFired: string
 }
@@ -34,18 +34,6 @@ const deciderOf = (state: ProviderTriggerState): ProviderTriggerDeciderView | nu
         agentId: state.deciderAgentId ?? null,
         options: state.deciderChoices.map((choice) => ({ id: choice.agentId, label: choice.name })),
     }
-}
-
-/** The two kinds' words. */
-export interface ProviderTriggerKindWords {
-    readonly webhook: string
-    readonly poll: string
-}
-
-/** The word of a trigger's kind: webhook and poll are worded, any other kind shows as given. */
-export const kindWordOf = (kind: string, words: ProviderTriggerKindWords): string => {
-    if (kind === "webhook") return words.webhook
-    return kind === "poll" ? words.poll : kind
 }
 
 /** The workflows a trigger wakes, from the account's rights read; none while that read has not answered. */
@@ -73,7 +61,8 @@ const rowOf = (
     title: registryWordsOf(state.summary, words.locale) ?? state.name,
     isOn: state.enabled,
     canCatchUp: state.canCatchUp,
-    kindLabel: words.kind(state.kind),
+    kindLabel: words.via(state.via),
+    withoutPollReason: state.withoutPoll === null ? null : registryWordsOf(state.withoutPoll.reason, words.locale),
     fired:
         state.lastFiredAt === null
             ? words.neverFired
@@ -103,6 +92,7 @@ export const PROVIDER_TRIGGER_CARD_PLACEHOLDER: ProviderTriggerCardView = {
             isOn: false,
             canCatchUp: true,
             kindLabel: "-",
+            withoutPollReason: null,
             fired: "-",
             workflows: [{ id: "-", name: "-", chip: "-", href: null }],
             decider: { kind: "choice", agentId: null, options: [] },

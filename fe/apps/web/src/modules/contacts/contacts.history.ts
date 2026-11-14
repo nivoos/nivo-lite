@@ -1,11 +1,16 @@
 import type { ContactMessagesQuery } from "@/modules/api"
 import type {
+    ContactHistoryFileView,
     ContactHistoryLineView,
     ContactHistoryTabView,
     ContactHistoryVoice,
     ContactHistoryWords,
 } from "@/modules/types"
 import { brandOf, type ContactDetailWire } from "./contacts.view"
+
+/** The name of a file: its own, else the fallback (a file with no name is named by what stands in for it). */
+const fileNameOf = (name: string | null | undefined, fallback: string): string =>
+    name === null || name === undefined || name === "" ? fallback : name
 
 /** One line of the conversation as the back end answers it. */
 export type ContactLineWire = ContactMessagesQuery["contactMessages"]["rows"][number]
@@ -82,20 +87,26 @@ export const historyLinesOf = (
             author: authorOf(line, voice, words),
             time: words.time(line.saidAt),
             text: line.text,
-            // A file the server could not keep (`url` null, `notKept` set) has nothing to open: it is left out until the history shows
-            // its "could not be fetched" state (fe owner, E-FIX9's need).
-            files: line.files.flatMap((file, index) =>
-                file.url === null
-                    ? []
-                    : [
-                          {
-                              id: `${line.id}:${index}`,
-                              name: file.name === null || file.name === "" ? (file.caption ?? file.url) : file.name,
-                              contentType: file.contentType,
-                              url: file.url,
-                          },
-                      ],
-            ),
+            // A file the server could not keep (`url` null, `notKept` the typed reason) has nothing to open: it is drawn as its tile in
+            // the "could not be fetched" state, with the reason in words.
+            files: line.files.map((file, index): ContactHistoryFileView => {
+                const id = `${line.id}:${index}`
+                if (file.url === null) {
+                    return {
+                        id,
+                        name: fileNameOf(file.name, file.caption ?? ""),
+                        contentType: file.contentType,
+                        url: null,
+                        note: words.notKept(file.notKept ?? null),
+                    }
+                }
+                return {
+                    id,
+                    name: fileNameOf(file.name, file.caption ?? file.url),
+                    contentType: file.contentType,
+                    url: file.url,
+                }
+            }),
             order,
             separator,
         }

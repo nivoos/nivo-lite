@@ -1,5 +1,5 @@
 import { Field, ID, InputType, Int } from "@nestjs/graphql"
-import { ArrayMaxSize, IsIn, IsInt, IsISO8601, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from "class-validator"
+import { ArrayMaxSize, IsBoolean, IsIn, IsInt, IsISO8601, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from "class-validator"
 import { NullAsAbsent } from "@modules/platform/graphql"
 
 @InputType()
@@ -255,4 +255,28 @@ export class ContactWorkInput {
     @Min(1)
     @Max(50)
     limit?: number
+}
+
+@InputType()
+/** A person's word on a contact's "do not contact": set it, or clear it (only a person clears it). */
+export class SetContactDoNotContactInput {
+    /** The contact. */
+    @Field(() => ID)
+    @IsUUID("4")
+    @MaxLength(36)
+    contactId!: string
+
+    /** True: the shop may not write to this person first. False: clears it. */
+    @Field(() => Boolean)
+    @IsBoolean()
+    doNotContact!: boolean
+
+    /** Why, in the person's words. */
+    @Field(() => String, { nullable: true })
+    @NullAsAbsent()
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    @MaxLength(300)
+    reason?: string
 }

@@ -380,3 +380,13 @@ export interface NodeRouteReach {
     /** The names of the step's declared routes whose every road ends at a call this workspace cannot start; none when all are open. */
     closedRoutesOf(turn: NodeTurn, step: NodeStepRef): Promise<ReadonlyArray<string>>
 }
+
+/**
+ * The workspace's policies for a turn's agent (L2 of every model call of its steps): the engine's pre-read of the brain tool an agent step
+ * may call itself (`nivo.tool.brain.policy.list`), in the same lens the turn's own tool calls read through, answered as that tool answers.
+ * One read serves every step of the same agent and lens for one cache window, so every step sees the same policies. Absent: no L2.
+ */
+export interface NodeWorkspacePolicies {
+    /** What `nivo.tool.brain.policy.list` answers for the turn's agent. */
+    policiesOf(turn: NodeTurn): Promise<unknown>
+}

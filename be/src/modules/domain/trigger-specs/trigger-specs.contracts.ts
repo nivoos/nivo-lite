@@ -7,10 +7,10 @@ import type { ZodType } from "zod"
  * `nivo.trigger.<purpose>`; a package names only the verb, its args and its providers in priority order. Per verb the engine says what
  * its args are, whether its event is a MESSAGE (the message itself rides in the run) or a data / provider event (ids and counts only),
  * and, per provider (or `engine` for the engine's own road), how the event is received, the road its wakes arrive on, which sources of
- * the @1 envelope carry it (a channel, the engine's roads, the provider triggers of `PROVIDER_TRIGGERS`), what it SUPPLIES, and how its
+ * the @1 envelope carry it (a channel, the engine's roads, the switch-bearing provider triggers: the `TriggerDeclaration`s that carry a `switch`), what it SUPPLIES, and how its
  * ONE normalised event key is formed. The registry is the one table of what a verb supplies per provider: an adapter of a channel or of
  * the engine's road writes its members here; an adapter whose sources are all provider triggers supplies what its provider declares
- * (`PROVIDER_TRIGGERS`, the provider's own catalogue). The SDK's `TRIGGER_SOURCES` is read only where a @1 document is checked.
+ * (its `TriggerDeclaration`s, whose `data` schema gives the members). The SDK's `TRIGGER_SOURCES` is read only where a @1 document is checked.
  */
 
 /** The pseudo-provider of the engine's own roads (the clock, a timer, the team chat, a workflow call, the website form). */
@@ -33,14 +33,9 @@ export type TriggerSupplyKind = "fixed" | "caller"
  * - `wake`: the wake's own key (the event reaches a workflow by exactly one road: a message id, `<triggerId>:<slot>`, `care:<task>:<at>`,
  *   `chat-tag:<msg>:<agent>`, a call key);
  * - `record`: `<prefix>:<the id the member holds>`, an id every adapter of the event carries (a bank credit: the `payment.transaction`
- *   record id, each bank feed's `transactionId`);
- * - `span`: a batch: `<prefix>:<connection>:<first id>..<last id>#<count>` over the ids the wake lists (the same batch is the same event;
- *   two batches sharing an id are two events: the provider's cursor, not the run key, keeps an id from coming twice).
+ *   record id, each bank feed's `transactionId`).
  */
-export type TriggerEventKeyRule =
-    | { readonly kind: "wake" }
-    | { readonly kind: "record"; readonly prefix: string; readonly member: string }
-    | { readonly kind: "span"; readonly prefix: string; readonly member: string }
+export type TriggerEventKeyRule = { readonly kind: "wake" } | { readonly kind: "record"; readonly prefix: string; readonly member: string }
 
 /** The provider trigger of today an adapter wraps: the PROVIDER's own event name, stored in `provider_trigger_switches.trigger_name`. */
 export interface WrappedProviderTrigger {

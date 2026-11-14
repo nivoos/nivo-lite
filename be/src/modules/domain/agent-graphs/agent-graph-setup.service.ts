@@ -3,7 +3,6 @@ import type { SetupApplicant, SetupApplier, SetupGraphPort } from "@modules/doma
 import { InstallationRecordsService } from "@modules/domain/module-installations"
 import { WorkspaceMemberSeatsService } from "@modules/domain/workspace-members"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
-import { AgentGraphContractSetupService } from "./agent-graph-contract-setup.service"
 import { AgentGraphPublishService } from "./agent-graph-publish.service"
 import { AgentGraphsLogEvent } from "./agent-graphs.log-events"
 import { AgentWorkflowInstallService } from "./agent-workflow-install.service"
@@ -21,7 +20,6 @@ export class AgentGraphSetupService implements SetupGraphPort {
         private readonly installations: InstallationRecordsService,
         private readonly publishing: AgentGraphPublishService,
         private readonly seats: WorkspaceMemberSeatsService,
-        private readonly contracts: AgentGraphContractSetupService,
         @Optional() private readonly workflows?: AgentWorkflowInstallService,
         @Optional() @InjectLogger() private readonly logger?: Logger,
     ) {}
@@ -73,10 +71,5 @@ export class AgentGraphSetupService implements SetupGraphPort {
             if (this.logger === undefined) throw cause
             this.logger.error(AgentGraphsLogEvent.WorkflowInstallFailed, cause, made)
         }
-    }
-
-    /** Proposes the contracts and gaps the applied setup calls for, for the owner to approve. */
-    proposeContracts(applier: SetupApplier): Promise<number> {
-        return this.contracts.proposeFor(applier)
     }
 }

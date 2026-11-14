@@ -1,5 +1,5 @@
 import { Injectable, Optional } from "@nestjs/common"
-import { ConnectionBindingsReadService } from "@modules/domain/connections"
+import { ConnectionBindingsReadService, halvesOf } from "@modules/domain/connections"
 import { WorkspaceMembersService, type WorkspaceRole } from "@modules/domain/workspace-members"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { ProviderTriggersError, ProviderTriggersErrorCode } from "./errors/provider-triggers.error"
@@ -14,7 +14,6 @@ import type {
     OptionalAgentId,
     ProviderTriggerAgentNames,
     ProviderTriggerCoreDeciders,
-    ProviderTriggerDeclaration,
     ProviderTriggerReceivers,
     TriggerChangeResult,
 } from "./provider-triggers.contracts"
@@ -24,8 +23,8 @@ import {
     InjectProviderTriggerReceivers,
 } from "./provider-triggers.decorators"
 import { ProviderTriggersLogEvent } from "./provider-triggers.log-events"
-import { triggersOf } from "./provider-triggers.policy"
 import { ProviderTriggersService } from "./provider-triggers.service"
+import { switchableOf, type SwitchedDeclaration } from "./trigger-declarations.policy"
 
 /** Who may turn a switch or bind a decider: the owner and the managers, as for every attachment of an agent to an account. */
 const CHANGERS: ReadonlyArray<WorkspaceRole> = ["owner", "manager"]
@@ -116,10 +115,11 @@ export class ProviderTriggerStatesService {
         if (account === null) {
             throw new ProviderTriggersError({ code: ProviderTriggersErrorCode.UnknownAccount, params: { connectionId } })
         }
-        const declared = triggersOf(account.provider)
+        // The account's own provider's triggers and those of every half it holds (a mailbox's inbound half: `imap`).
+        const declared = [account.provider, ...halvesOf(account)].flatMap((provider) => switchableOf(provider))
         const [switches, coreDeciders, attached] = await Promise.all([
             this.triggers.switchesOf(workspaceId, connectionId),
-            this.coreOf(account.provider, connectionId, declared),
+            this.coreOf(connectionId, declared),
             this.attachedOf(workspaceId, connectionId, declared),
         ])
         const cards = await (this.agents?.cardsOf(workspaceId, namedAgentsOf({ switches, coreDeciders, attached })) ?? [])
@@ -129,16 +129,15 @@ export class ProviderTriggerStatesService {
 
     /** The agent the provider's core path hands each decided trigger's events to on this account, by trigger name. */
     private async coreOf(
-        provider: string,
         connectionId: string,
-        declared: ReadonlyArray<ProviderTriggerDeclaration>,
+        declared: ReadonlyArray<SwitchedDeclaration>,
     ): Promise<Readonly<Record<string, OptionalAgentId>>> {
         const entries = await Promise.all(
             declared
-                .filter((declaration) => declaration.decided)
+                .filter((declaration) => declaration.switch.decided)
                 .map(async (declaration): Promise<readonly [string, OptionalAgentId]> => [
                     declaration.name,
-                    (await this.coreDeciders?.coreDeciderOf(provider, declaration.name, connectionId)) ?? null,
+                    (await this.coreDeciders?.coreDeciderOf(declaration.provider, declaration.name, connectionId)) ?? null,
                 ]),
         )
         return Object.fromEntries(entries)
@@ -148,9 +147,9 @@ export class ProviderTriggerStatesService {
     private async attachedOf(
         workspaceId: string,
         connectionId: string,
-        declared: ReadonlyArray<ProviderTriggerDeclaration>,
+        declared: ReadonlyArray<SwitchedDeclaration>,
     ): Promise<ReadonlyArray<string>> {
-        if (!declared.some((declaration) => declaration.decided)) return []
+        if (!declared.some((declaration) => declaration.switch.decided)) return []
         return (await this.receivers?.attachedTo(workspaceId, connectionId)) ?? []
     }
 }

@@ -1,11 +1,21 @@
-import { Alert, Avatar, Cluster, Badge, Button, DescriptionList, Stack, Text, Section, SurfaceCard } from "@starci/grammar/common"
+import {
+    Alert,
+    Avatar,
+    Cluster,
+    Badge,
+    Button,
+    DescriptionList,
+    Stack,
+    Text,
+    Section,
+    SurfaceCard,
+} from "@starci/grammar/common"
 import type { AgentGraphAnswerView, AgentGraphDetailView } from "@/modules/types"
 
-/** The seven answers of the selected node, and the commands that go with a branch. */
+/** The seven answers of the selected node (read only), and the command that opens the runs. */
 type AgentGraphDetailProps = {
     readonly view: AgentGraphDetailView
     readonly isLoading: boolean
-    readonly onEdit: (nodeKey: string) => void
     readonly onRuns: () => void
 }
 
@@ -103,16 +113,6 @@ export const AgentGraphDetail = (props: AgentGraphDetailProps) => (
                 description: <AnswerBody answer={answer} isLoading={props.isLoading === true} />,
             }))}
         />
-        {props.view.editLabel === "" ? null : (
-            <Button
-                intent="commit"
-                size="sm"
-                isLoading={props.isLoading === true}
-                onPress={() => props.onEdit(props.view.editNodeKey)}
-            >
-                {props.view.editLabel}
-            </Button>
-        )}
         {props.view.runsLabel === "" ? null : (
             <Button endArrow intent="neutral" size="sm" isLoading={props.isLoading === true} onPress={props.onRuns}>
                 {props.view.runsLabel}

@@ -1,3 +1,4 @@
+import { BrainPolicyStoreService } from "@modules/domain/brain"
 import { Test } from "@nestjs/testing"
 import { FakeClock, mock } from "@starci/jest-preset"
 import {
@@ -72,6 +73,7 @@ const build = async (scope: Scope = { module: "sales", installationId: null }) =
             { provide: AI, useValue: ai },
             { provide: BrainFactEmbeddingsService, useValue: vectors },
             { provide: UsageMeterService, useValue: mock<UsageMeterService>() },
+            { provide: BrainPolicyStoreService, useValue: mock<BrainPolicyStoreService>() },
         ],
     }).compile()
     return { brain: moduleRef.get(BrainNativeService), views, facts, changes }
@@ -178,7 +180,7 @@ describe("Owner order 2026-11-11 items 4 and 5: the value an agent reads, and wh
     it("marks the tools whose answers the audit keeps as the run's truth reads (item 4)", () => {
         const reading = BRAIN_MANIFEST.tools.filter((tool) => tool.readsTruths === true).map((tool) => tool.name)
 
-        expect(reading).toEqual(["search", "fact.list", "fact.get", "fact.related"])
+        expect(reading).toEqual(["search", "fact.list", "policy.list", "fact.get", "fact.related"])
     })
 })
 

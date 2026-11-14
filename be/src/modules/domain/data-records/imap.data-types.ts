@@ -27,15 +27,24 @@ export const IMAP_SUBJECT_MAX = 2000
 /** The longest header id (`Message-ID`, `In-Reply-To`) kept; a longer one is cut to it. */
 export const IMAP_HEADER_ID_MAX = 1000
 
+/** The most ids of a `References` header kept (the newest end of a long thread is what threads a reply). */
+export const IMAP_REFERENCES_MAX = 50
+
+/** The longest raw header text kept of `Auto-Submitted`, `Precedence` and `Return-Path`. */
+export const IMAP_HEADER_TEXT_MAX = 400
+
 /**
- * One mail of a mailbox as the IMAP sync read it (read-only: EXAMINE, BODY.PEEK), keyed by `<folder>:<uidvalidity>:<uid>`, kept for good.
- * Append: the sync reads each UID once (only UIDs above the folder's saved cursor), so a mail seen again is the same mail and the first
- * copy stands. `attachments` holds name / type / size of each file, and the text of a small XML file (an e-invoice) under `xml`.
+ * One mail of a mailbox as the IMAP poll read it (read-only: EXAMINE, BODY.PEEK), keyed by `<folder>:<uidvalidity>:<uid>`, kept for good.
+ * Append: the connection poll reads windows of time, and the intake's insert-or-nothing on this key IS the reconciliation (a mail read
+ * twice is one row; the first copy stands). `attachments` holds name / type / size of each file, and the text of a small XML file (an
+ * e-invoice) under `xml`. Version 2 (MAIL-IN): the thread keys (`references`) and the raw headers the standards define for mail no person
+ * wrote (`autoSubmitted`, `precedence`, `returnPath`), and `wakes`: a NEW row of a mailbox that is a customer entrance wakes the mail
+ * trigger (its translate reads the row; account-data rule 7).
  */
 export const imapMail: AccountDataTypeDef = defineAccountDataType({
     name: IMAP_MAIL_TYPE,
     provider: IMAP_PROVIDER,
-    version: 1,
+    version: 2,
     write: "append",
     fields: {
         externalId: { type: "text", required: true, maxLength: IMAP_MAIL_ID_MAX },
@@ -52,10 +61,14 @@ export const imapMail: AccountDataTypeDef = defineAccountDataType({
         attachments: { type: "json", required: true },
         messageId: { type: "text", required: false, maxLength: IMAP_HEADER_ID_MAX },
         inReplyTo: { type: "text", required: false, maxLength: IMAP_HEADER_ID_MAX },
+        references: { type: "json", required: false },
+        autoSubmitted: { type: "text", required: false, maxLength: IMAP_HEADER_TEXT_MAX },
+        precedence: { type: "text", required: false, maxLength: IMAP_HEADER_TEXT_MAX },
+        returnPath: { type: "text", required: false, maxLength: IMAP_HEADER_TEXT_MAX },
     },
     key: ["externalId"],
     occurredAt: "date",
-    wakes: false,
+    wakes: true,
     retention: "keep",
     indexes: [],
     secretFields: IMAP_SECRET_FIELDS,

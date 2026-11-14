@@ -293,6 +293,8 @@ describe("WorkspaceMailService delivery", () => {
             messageId: undefined,
             error,
             failure: "mail",
+            // SEND-ONE: the integration's typed code rides along, so the mail channel of the one send can class it (mailDeliveryOf).
+            ...(known ? { code: "MAIL_AUTH" } : {}),
         })
         expect(catalog.get).toHaveBeenCalledWith(error, {}, "vi")
         expect(log.record).toHaveBeenCalledWith(

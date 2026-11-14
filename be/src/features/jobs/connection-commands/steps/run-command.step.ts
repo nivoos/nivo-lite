@@ -16,6 +16,6 @@ export class RunCommandStep implements JobStep {
      */
     async run(job: ClaimedJob): Promise<void> {
         await this.claims.advance({ jobId: job.jobId, expectedFencingToken: job.fencingToken, step: "run" })
-        await this.commands.runPayload(job.payload)
+        await this.commands.runFromJob(job)
     }
 }

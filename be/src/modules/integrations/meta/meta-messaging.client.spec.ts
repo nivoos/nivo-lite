@@ -106,6 +106,7 @@ describe("MetaMessagingClient deliverMessage", () => {
             ok: false,
             reason: "rate_limited",
             detail: stringLike("sent 1 of"),
+            partsSent: 1,
         })
         await expect(client.deliverMessage(PAGE, "facebook", "P", "again", "standard")).resolves.toEqual({
             ok: false,

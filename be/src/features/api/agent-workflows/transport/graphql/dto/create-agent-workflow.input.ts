@@ -1,5 +1,5 @@
 import { Field, ID, InputType, Int } from "@nestjs/graphql"
-import { IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from "class-validator"
+import { IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from "class-validator"
 
 @InputType()
 /** What createAgentWorkflow takes. */
@@ -10,12 +10,12 @@ export class CreateAgentWorkflowInput {
     @MaxLength(36)
     installationId!: string
 
-    /** The template to copy; none makes a blank workflow. */
-    @Field(() => String, { nullable: true })
-    @IsOptional()
+    /** The template to copy: a workflow is always a template's copy. */
+    @Field(() => String)
     @IsString()
+    @MinLength(1)
     @MaxLength(80)
-    templateId?: string | null
+    templateId!: string
 
     /** The template version to copy; the newest when absent. */
     @Field(() => Int, { nullable: true })
@@ -24,13 +24,6 @@ export class CreateAgentWorkflowInput {
     @Min(1)
     @Max(100000)
     templateVersion?: number | null
-
-    /** The name of a blank workflow. */
-    @Field(() => String, { nullable: true })
-    @IsOptional()
-    @IsString()
-    @MaxLength(120)
-    name?: string | null
 
     /** The language of the names; Vietnamese unless en is named. */
     @Field(() => String, { nullable: true })

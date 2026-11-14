@@ -3,9 +3,12 @@ import { In, type EntityManager } from "typeorm"
 import { WorkspaceMembersService } from "@modules/domain/workspace-members"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { InjectQueueOutbox, type QueueOutbox } from "@modules/platform/queue"
-import { KNOWLEDGE_QUEUE, KnowledgeJob, knowledgeDedupeKey } from "@modules/queues/knowledge"
+import { RUN_BRAIN_COMMAND_JOB } from "@modules/queues/knowledge"
 import type { BrainCommandResult, MaybeCommand, MaybeCommandState } from "./brain-commands.contracts"
 import { BrainCommandEntity } from "./persistence/entities"
+
+/** The stored code of a command whose job was dead-lettered: the page says it did not run; a resume of the job opens it again. */
+export const BRAIN_COMMAND_FAILED = "BRAIN_COMMAND_FAILED"
 
 @Injectable()
 /** The commands people ask the back end to carry out: a worker takes one, and closes it with a result or a stored code. */
@@ -22,12 +25,11 @@ export class BrainCommandsService {
         return this.entityManager.transaction(async (tx) => {
             const inserted = await tx.insert(BrainCommandEntity, { workspaceId, requestedBy: userId, kind, payload })
             const id = inserted.identifiers.map((identifier) => String(identifier.id)).join("")
-            await this.outbox.write(
-                tx,
-                KNOWLEDGE_QUEUE,
-                { commandId: id, workspaceId },
-                { job: KnowledgeJob.BrainCommand, dedupeKey: knowledgeDedupeKey(KnowledgeJob.BrainCommand, id) },
-            )
+            const queued = { commandId: id, workspaceId }
+            await this.outbox.write(tx, RUN_BRAIN_COMMAND_JOB.queue, queued, {
+                job: RUN_BRAIN_COMMAND_JOB.name,
+                dedupeKey: RUN_BRAIN_COMMAND_JOB.onceKey(queued),
+            })
             return id
         })
     }
@@ -63,6 +65,18 @@ export class BrainCommandsService {
             { status: "running" },
         )
         return (taken.affected ?? 0) > 0
+    }
+
+    /**
+     * Opens a command the dead letter closed as failed (`BRAIN_COMMAND_FAILED`, written when its job parked) so the job a person handed
+     * back runs it: queued again, with no code and no finish time. A command a refusal closed (any other code) stays closed.
+     */
+    async reopen(workspaceId: string, id: string): Promise<void> {
+        await this.entityManager.update(
+            BrainCommandEntity,
+            { workspaceId, id, status: "failed", errorCode: BRAIN_COMMAND_FAILED },
+            { status: "queued", errorCode: null, finishedAt: null },
+        )
     }
 
     /** Closes the command as done with what it produced; no result is stored as the jsonb null, as it always was. */

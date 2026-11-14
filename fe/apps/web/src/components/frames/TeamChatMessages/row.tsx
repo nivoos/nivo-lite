@@ -2,10 +2,12 @@ import { ChatSystemLine } from "@/components/composites/ChatSystemLine"
 import { TeamChatAgentCard } from "@/components/composites/TeamChatAgentCard"
 import { TeamChatBackgroundStoppedCard } from "@/components/composites/TeamChatBackgroundStoppedCard"
 import { TeamChatBrainChangeCard } from "@/components/composites/TeamChatBrainChangeCard"
+import { TeamChatJobParkedCard } from "@/components/composites/TeamChatJobParkedCard"
 import { TeamChatBubble } from "@/components/composites/TeamChatBubble"
 import { TeamChatStopCard } from "@/components/composites/TeamChatStopCard"
 import type {
     TeamChatBrainChangeHandlers,
+    TeamChatJobParkedHandlers,
     TeamChatMessageRow,
     TeamChatMessagesCopy,
     TeamChatStopHandlers,
@@ -20,6 +22,7 @@ export interface MessageRowProps {
     readonly onDecide: (decisionId: string, verdict: "approved" | "refused") => void
     readonly stops: TeamChatStopHandlers | undefined
     readonly changes: TeamChatBrainChangeHandlers | undefined
+    readonly jobs: TeamChatJobParkedHandlers | undefined
     readonly onReact: ((messageId: string, emoji: string) => void) | undefined
     readonly onReply: ((messageId: string) => void) | undefined
     readonly onShare: ((messageId: string) => void) | undefined
@@ -29,6 +32,7 @@ export interface MessageRowProps {
 export const MessageRow = (props: MessageRowProps) => {
     const { row } = props
     if (row.backgroundStopped != null) return <TeamChatBackgroundStoppedCard card={row.backgroundStopped} />
+    if (row.jobParked != null) return <TeamChatJobParkedCard card={row.jobParked} jobs={props.jobs} />
     if (row.brainChange != null) {
         return (
             <TeamChatBrainChangeCard

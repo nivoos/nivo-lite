@@ -17,6 +17,10 @@ import { REALTIME_ERROR_KINDS, RealtimeModule, withConnection } from "@modules/p
 import { API_SCHEDULERS } from "./schedulers"
 import { platformErrorKinds, platformMessages } from "./platform-catalog"
 import { JobsModule } from "@modules/platform/jobs"
+import { DataCopiesModule } from "@modules/domain/data-copies"
+import { DataStoresModule } from "@modules/domain/data-stores"
+import { DataSeedModule } from "@modules/integrations/seed"
+import { EffectsModule } from "@modules/platform/effects"
 import { JobOpsModule } from "@modules/domain/job-ops"
 import { OBJECT_STORAGE_ERROR_KINDS, ObjectStorageModule } from "@modules/integrations/object-storage"
 import type { ApiOptions } from "../api.options"
@@ -98,7 +102,16 @@ export const platformModules = (options: ApiOptions): Array<DynamicModule> => [
     AppErrorsModule.register({ isGlobal: true }),
     ObjectStorageModule.register({ isGlobal: true, ...options.storage }),
     QueueModule.register({ isGlobal: true, schedulers: API_SCHEDULERS, ...options.queue }),
-    EventBusModule.register({ isGlobal: true, consumersEnabled: true }),
+    EventBusModule.register({ isGlobal: true, consumersEnabled: true, buildId: options.jobs.buildId }),
     JobsModule.register({ isGlobal: true, connection: PRIMARY_ENTITY_MANAGER, ...options.jobs }),
-    JobOpsModule.register({ isGlobal: true, alerts: options.jobsAlert }),
+    EffectsModule.register({
+        isGlobal: true,
+        connection: PRIMARY_ENTITY_MANAGER,
+        sealingKey: options.connectionSecrets.tokenKey,
+    }),
+    JobOpsModule.register({ isGlobal: true, alerts: options.jobsAlert, parkedCards: true }),
+    // The data standard: the git layer, the stores of the workspace's rows and files, and the scheduled backup of this environment (disabled with its reason when undeclared).
+    DataSeedModule.register({ isGlobal: true, ...options.seed }),
+    DataStoresModule.register({ isGlobal: true }),
+    DataCopiesModule.register({ isGlobal: true, backup: options.dataBackup }),
 ]

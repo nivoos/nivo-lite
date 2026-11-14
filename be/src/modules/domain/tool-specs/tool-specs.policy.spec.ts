@@ -33,7 +33,6 @@ import { DOMAIN_MANIFEST } from "@modules/domain/domain-tools/domain-tools.servi
 import { MEDIA_MANIFEST } from "@modules/domain/media-tools"
 import { LEDGER_MANIFEST } from "@modules/domain/native-tools/ledger-native.service"
 import { MAIL_MANIFEST } from "@modules/domain/native-tools/mail-native.service"
-import { MAIL_SEND_MANIFEST } from "@modules/domain/native-tools/mail-send-native.service"
 import { NATIVE_REFUSAL_CLASS } from "@modules/domain/native-tools/native-refusal.policy"
 import { NIVO_CONTEXT_CONNECTOR } from "@modules/domain/native-tools/nivo-native.service"
 import { PASSAGE_MANIFEST } from "@modules/domain/native-tools/passage-native.service"
@@ -51,11 +50,16 @@ import {
     PIN_REFUSALS,
     SEND_REFUSALS,
     TOOL_SPECS,
+    confirmArgsOf,
+    confirmByOf,
+    confirmReadsOf,
+    confirmedHappened,
     isEngineOwned,
     mutatesBySpec,
     ownersOfTool,
     ownsTool,
     repeatableBySpec,
+    staysInsideBySpec,
     toolSpecOf,
 } from "./tool-specs.policy"
 import { TestWorldError, TestWorldErrorCode } from "@tests/world/test-world.error"
@@ -118,7 +122,6 @@ const nativeManifests = (): ReadonlyArray<ToolManifest> => [
     BANK_MANIFEST,
     LEDGER_MANIFEST,
     MAIL_MANIFEST,
-    MAIL_SEND_MANIFEST,
     CONTACT_TOOLS_MANIFEST,
     DOMAIN_MANIFEST,
     INVOICE_MANIFEST,
@@ -253,7 +256,7 @@ describe("the engine's tool specs: one total record, agreeing tool by tool with 
         expect(ASKS_EXACTLY_WHEN_NOT_READ).toBe(true)
         const reads = CORE_TOOL_IDS.filter((id) => toolSpecOf(id)?.mutates === false)
         expect(reads).toContain(TOOL.contactGet)
-        expect(reads).not.toContain(TOOL.mailMessageSend)
+        expect(reads).not.toContain(TOOL.customerMessageSend)
     })
 
     it("serves the e-invoice issue as a PROVIDER tool of the e-invoice providers on one bound account, never a CRM's (owner ruling R57)", () => {
@@ -292,6 +295,73 @@ describe("the engine's tool specs: one total record, agreeing tool by tool with 
         expect(ownersOfTool("nivo.api.crm.shopcrm.post.orders.code.status")).toEqual(["crm.shopcrm"])
         expect(ownersOfTool("nivo.tool.nothing.here")).toEqual([])
         expect(ownersOfTool("nivo.api.openapi.info")).toEqual([])
+    })
+})
+
+describe("confirmBy: how a write's unknown outcome is confirmed (R81-3, QB-P3 rules I-3/I-4)", () => {
+    it("declares the renewal confirmed by the renewal check against the expiry read before it; no other tool declares one yet", () => {
+        expect(CORE_TOOL_IDS.filter((tool) => confirmByOf(tool) !== null)).toEqual([TOOL.domainRenewalCreate])
+        expect(confirmByOf(TOOL.domainRenewalCreate)).toEqual({
+            before: { tool: TOOL.domainGet, args: { name: { from: "args", member: "name" } } },
+            tool: TOOL.domainRenewalGet,
+            args: {
+                name: { from: "args", member: "name" },
+                expiresBefore: { from: "before", member: "expiresOn" },
+                reference: { from: "value", value: null },
+            },
+            happened: { member: "outcome", equals: "renewed" },
+        })
+        expect(confirmReadsOf(TOOL.domainRenewalCreate)).toEqual([TOOL.domainGet, TOOL.domainRenewalGet])
+        expect(confirmReadsOf(TOOL.customerMessageSend)).toEqual([])
+        expect(confirmByOf("nivo.tool.nothing.here")).toBeNull()
+    })
+
+    it("declares confirmBy only on a write that is not repeatable, and only reads the registry holds, of the write's own owners", () => {
+        for (const tool of CORE_TOOL_IDS) {
+            const confirm = confirmByOf(tool)
+            if (confirm === null) continue
+            expect(specOf(tool)).toMatchObject({ mutates: true, repeatable: false })
+            for (const read of confirmReadsOf(tool)) {
+                expect(mutatesBySpec(read)).toBe(false)
+                expect(ownersOfTool(read)).toEqual(ownersOfTool(tool))
+            }
+        }
+    })
+
+    it("fills the confirmation read's arguments from the write's arguments, the before read's answer and fixed values", () => {
+        const confirm = confirmByOf(TOOL.domainRenewalCreate)
+        if (confirm === null) throw new Error("renewal declares no confirmBy")
+        expect(confirmArgsOf(confirm, { name: "a.vn", years: 1 }, { name: "a.vn", expiresOn: "2026-12-14" })).toEqual({
+            name: "a.vn",
+            expiresBefore: "2026-12-14",
+            reference: null,
+        })
+        // The before read answered no expiry (or was never made): nothing can be confirmed.
+        expect(confirmArgsOf(confirm, { name: "a.vn", years: 1 }, { name: "a.vn", expiresOn: null })).toBeNull()
+        expect(confirmArgsOf(confirm, { name: "a.vn", years: 1 }, null)).toBeNull()
+        if (confirm.before === undefined) throw new Error("renewal declares no before read")
+        expect(confirmArgsOf(confirm.before, { name: "a.vn", years: 1 }, null)).toEqual({ name: "a.vn" })
+    })
+
+    it("says happened only when the declared member of the read's answer equals the declared value", () => {
+        const confirm = confirmByOf(TOOL.domainRenewalCreate)
+        if (confirm === null) throw new Error("renewal declares no confirmBy")
+        expect(confirmedHappened(confirm, { outcome: "renewed", expiresOn: "2027-12-14" })).toBe(true)
+        expect(confirmedHappened(confirm, { outcome: "pending" })).toBe(false)
+        expect(confirmedHappened(confirm, null)).toBe(false)
+        expect(confirmedHappened(confirm, ["renewed"])).toBe(false)
+    })
+})
+
+describe("staysInsideBySpec: which acts need no intent (QB-P3 rule I-2)", () => {
+    it("is true for a read and for NIVO's own writes, false for a provider's write and for an id no spec holds", () => {
+        expect(staysInsideBySpec(TOOL.domainRenewalGet)).toBe(true)
+        expect(staysInsideBySpec(TOOL.recordCreate)).toBe(true)
+        expect(staysInsideBySpec(TOOL.domainRenewalCreate)).toBe(false)
+        expect(staysInsideBySpec(TOOL.customerMessageSend)).toBe(false)
+        expect(staysInsideBySpec("nivo.api.crm.nivoweb.post.orders")).toBe(false)
+        expect(staysInsideBySpec("nivo.tool.test.money.move")).toBe(false)
+        expect(CORE_TOOL_IDS.filter((tool) => specOf(tool).mutates && staysInsideBySpec(tool)).every((tool) => isEngineOwned(tool))).toBe(true)
     })
 })
 

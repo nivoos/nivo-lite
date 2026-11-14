@@ -163,7 +163,7 @@
     "website": "nivo.trigger.website.message.received",
     "sepay": "nivo.trigger.payment.credit.received",
     "provider:sepay:transaction.received": "nivo.trigger.payment.credit.received",
-    "provider:imap:mail.received": "nivo.trigger.mail.message.received",
+    "provider:smtp:mail.received": "nivo.trigger.mail.message.received",
     "schedule": "nivo.trigger.clock.tick",
     "timer": "nivo.trigger.timer.due",
     "chats-group": "nivo.trigger.chat.message.received",

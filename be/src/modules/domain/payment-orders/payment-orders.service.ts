@@ -2,7 +2,6 @@ import { Injectable } from "@nestjs/common"
 import { In, MoreThan, type EntityManager } from "typeorm"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectPrimaryEntityManager, returnedRows, rowShape } from "@modules/platform/database"
-import { newOrderCode } from "./order-code.policy"
 import { PaymentOrdersError, PaymentOrdersErrorCode } from "./errors/payment-orders.error"
 import type { NewOrder, OpenOrderQuery, OrderLookup, PaymentOrder } from "./payment-orders.contracts"
 import { toPaymentOrder } from "./payment-orders.mapper"
@@ -17,8 +16,8 @@ const IDS_LIMIT = 500
 /** The row an insert answers with `RETURNING id`, to the transaction that won the order code. */
 const isWrittenId = rowShape({ id: "string" })
 
-/** How many order codes are drawn before giving up on a collision streak. */
-const CODE_ATTEMPTS = 5
+/** The expression that gives an order its code: the database draws the next code of the sequence in the insert statement itself. */
+const NEXT_ORDER_CODE = (): string => "public.next_payment_order_code()"
 
 @Injectable()
 /** The payment orders: the only writer of public.payment_orders. Settlement happens in SQL when the transfer arrives. */
@@ -68,33 +67,41 @@ export class PaymentOrdersService {
         return row === null ? null : toPaymentOrder(row)
     }
 
-    /** Writes a pending payment order, drawing a new order code when the drawn one is taken. */
+    /**
+     * Writes a pending payment order. The order code is drawn by the database inside this one INSERT (`next_payment_order_code()`: the
+     * next value of a sequence spread over the code space, so two orders never draw the same code: there is no collision to retry). An
+     * order made for a request is made ONCE: the request id is a unique key, so a second call for the same request (a re-run after a
+     * crash) writes nothing and answers the order the first call made.
+     */
     async create(order: NewOrder): Promise<PaymentOrder> {
-        const attempt = async (left: number): Promise<PaymentOrder> => {
-            if (left === 0) throw new PaymentOrdersError({ code: PaymentOrdersErrorCode.CodeExhausted })
-            const inserted = await this.entityManager
-                .createQueryBuilder(PaymentOrderEntity, "p")
-                .insert()
-                .values({
-                    workspaceId: order.workspaceId,
-                    createdBy: order.userId,
-                    planCode: order.planCode,
-                    amountVnd: order.amountVnd,
-                    orderCode: newOrderCode(),
-                    kind: order.kind,
-                    packCode: order.packCode,
-                    detail: order.detail,
-                })
-                .orUpdate(["order_code"], ["order_code"], { skipUpdateIfNoValuesChanged: true })
-                .returning("id")
-                .execute()
-            const [written] = returnedRows(inserted.raw, isWrittenId)
-            if (written === undefined) return attempt(left - 1)
-            return toPaymentOrder(
-                await this.entityManager.findOneOrFail(PaymentOrderEntity, { where: { id: written.id } }),
-            )
-        }
-        return await attempt(CODE_ATTEMPTS)
+        const inserted = await this.entityManager
+            .createQueryBuilder(PaymentOrderEntity, "p")
+            .insert()
+            .values({
+                workspaceId: order.workspaceId,
+                createdBy: order.userId,
+                planCode: order.planCode,
+                amountVnd: order.amountVnd,
+                orderCode: NEXT_ORDER_CODE,
+                kind: order.kind,
+                packCode: order.packCode,
+                detail: order.detail,
+                requestId: order.requestId ?? null,
+            })
+            .orIgnore()
+            .returning("id")
+            .execute()
+        const [written] = returnedRows(inserted.raw, isWrittenId)
+        const row = await this.writtenOrder(written?.id, order.requestId)
+        if (row === null) throw new PaymentOrdersError({ code: PaymentOrdersErrorCode.NotCreated })
+        return toPaymentOrder(row)
+    }
+
+    /** The order the insert wrote, or, when it wrote nothing, the order the request already made; null when neither exists. */
+    private writtenOrder(id: string | undefined, requestId: string | undefined): Promise<PaymentOrderEntity | null> {
+        if (id !== undefined) return this.entityManager.findOne(PaymentOrderEntity, { where: { id } })
+        if (requestId === undefined) return Promise.resolve(null)
+        return this.entityManager.findOne(PaymentOrderEntity, { where: { requestId } })
     }
 
     /** The pending, unexpired top-up order that already asks for exactly this pack and amount, so a double click shows one QR. */

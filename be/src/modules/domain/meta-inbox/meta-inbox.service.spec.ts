@@ -15,7 +15,7 @@ import {
 import { fakeTransaction, mock, mockEntityManager, recordingQueueOutbox } from "@starci/jest-preset"
 import { isTransactionManager } from "@starci/jest-preset/entity-manager"
 import { Test } from "@nestjs/testing"
-import { AccountDataIntakeService, AccountDataReadService, type AccountWrite, type PendingRow } from "@modules/domain/account-data"
+import { AccountDataAdmissionsService, AccountDataIntakeService, AccountDataReadService, type AccountWrite, type PendingRow } from "@modules/domain/account-data"
 import { ConnectionsService } from "@modules/domain/connections"
 import { InboundEventsService } from "@modules/domain/inbound-events"
 import { ProviderTriggersService, type DeliverResult } from "@modules/domain/provider-triggers"
@@ -29,6 +29,7 @@ import type { MetaClient, MetaEvent } from "@modules/integrations/meta"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { QUEUE_OUTBOX } from "@modules/platform/queue"
 import { MetaInboxErrorCode } from "./errors/meta-inbox.error"
+import type { ClaimedJob } from "@modules/platform/jobs"
 import { META_INBOUND_QUEUE, META_DELIVERY_QUEUE } from "./meta-inbox.contracts"
 import type { MetaInboundJob } from "./meta-inbox.contracts"
 import { MetaInboxService } from "./meta-inbox.service"
@@ -60,7 +61,7 @@ const writtenOf = (key: string, isNew = true): AccountWrite => ({
 const objectLike = (shape: Record<string, unknown>): unknown => expect.objectContaining(shape)
 
 /** What the ONE delivery answers: the event delivered, and taken by a registered graph unless `untaken`. */
-const deliveredOf = (untaken = 0): DeliverResult => ({ status: "delivered", events: 1, dropped: 0, woken: [], repeats: 0, untaken, held: 0 })
+const deliveredOf = (untaken = 0): DeliverResult => ({ status: "delivered", events: 1, dropped: 0, sameFact: 0, woken: [], repeats: 0, untaken, held: 0 })
 
 const build = async (events: ReadonlyArray<MetaEvent> = [], pending: PendingRow | null = pendingOf()) => {
     const tx = fakeTransaction(mockEntityManager({}))
@@ -87,12 +88,14 @@ const build = async (events: ReadonlyArray<MetaEvent> = [], pending: PendingRow 
     intake.lockPending.mockResolvedValue(pending)
     intake.complete.mockResolvedValue(undefined)
     const logger = mock<Logger>()
+    const admissions = new AccountDataAdmissionsService()
     const moduleRef = await Test.createTestingModule({
         providers: [
             MetaInboxService,
             { provide: MetaReceiptPolicy, useValue: meta },
             { provide: PRIMARY_ENTITY_MANAGER, useValue: tx.em },
             { provide: AccountDataIntakeService, useValue: intake },
+            { provide: AccountDataAdmissionsService, useValue: admissions },
             { provide: QUEUE_OUTBOX, useValue: outbox },
             { provide: ConnectionsService, useValue: connections },
             { provide: ProviderTriggersService, useValue: triggers },
@@ -104,9 +107,13 @@ const build = async (events: ReadonlyArray<MetaEvent> = [], pending: PendingRow 
             { provide: LOGGER, useValue: logger },
         ],
     }).compile()
+    const service = moduleRef.get(MetaInboxService)
+    // The module registers this at boot: the door's tail is the type's admission.
+    admissions.register("meta.event", (manager, row) => service.admitEvent(manager, row))
     return {
+        admissions,
         intake,
-        service: moduleRef.get(MetaInboxService),
+        service,
         tx,
         meta,
         connections,
@@ -141,7 +148,7 @@ describe("MetaInboxService receipt", () => {
             ["dm:message-1", "dm:message-2"].map((key) => [
                 META_DELIVERY_QUEUE,
                 { deliveryId: `${OWNER.id}:${key}` },
-                { dedupeKey: `meta-delivery:${OWNER.id}:${key}` },
+                { job: "meta-delivery", dedupeKey: `meta-delivery:${OWNER.id}:${key}` },
             ]),
         )
         expect(connections.recordEvent).not.toHaveBeenCalled()
@@ -152,6 +159,23 @@ describe("MetaInboxService receipt", () => {
         const refusal = objectLike({ code: MetaInboxErrorCode.DeliveryInvalid })
         await expect(service.accept(rawBody, signature)).rejects.toEqual(refusal)
         expect([intake.write.mock.calls, outbox.jobs, tx.outcomes]).toEqual([[], [], ["rollback"]])
+    })
+
+    it("hands only a NEW row to the type's admission, with the account, the key and the value written", async () => {
+        const { service, admissions, intake } = await build([event()])
+        const admit = jest.spyOn(admissions, "admit")
+        await service.accept(RAW_BODY, SIGNATURE)
+        expect(admit).toHaveBeenCalledWith(expect.anything(), {
+            id: "row-1",
+            type: "meta.event",
+            key: "dm:message-1",
+            owner: ACCOUNT,
+            value: { eventKey: "dm:message-1", raw: event() },
+        })
+        intake.write.mockResolvedValueOnce(writtenOf("dm:message-1", false))
+        admit.mockClear()
+        await service.accept(RAW_BODY, SIGNATURE)
+        expect(admit).not.toHaveBeenCalled()
     })
 
     it("queues nothing for a redelivery or a connection nobody holds any more", async () => {
@@ -204,7 +228,7 @@ describe("MetaInboxService consumer", () => {
         ])
         const job: MetaInboundJob = { connectionId: OWNER.id, workspaceId: OWNER.workspaceId, event: event() }
         expect(write.mock.calls).toEqual([
-            [manager, META_INBOUND_QUEUE, job, { dedupeKey: `meta_inbound:${OWNER.id}:dm:message-1` }],
+            [manager, META_INBOUND_QUEUE, job, { job: "meta_inbound", dedupeKey: `meta_inbound:${OWNER.id}:dm:message-1` }],
         ])
         expect(intake.write.mock.calls).toEqual([
             [
@@ -350,12 +374,14 @@ describe("MetaInboxService deliver", () => {
         expect(tx.em.transaction).not.toHaveBeenCalled()
     })
 
-    it("delivers the event a claimed job payload carries, and leaves any other payload alone", async () => {
-        const { service, triggers } = await build()
+    it("delivers the event a claimed job payload carries, logs how it ended, and refuses any other payload as an input failure", async () => {
+        const { service, triggers, logger } = await build()
+        const claimed = (payload: object): ClaimedJob => ({ jobId: "job-1", kind: "meta_inbound", fencingToken: 1, currentStep: null, payload })
 
-        await service.deliverPayload({ connectionId: "connection-1", workspaceId: "workspace-1", event: event() })
-        await service.deliverPayload({ connectionId: "connection-1" })
+        await service.deliverPayload(claimed({ connectionId: "connection-1", workspaceId: "workspace-1", event: event() }))
+        await expect(service.deliverPayload(claimed({ connectionId: "connection-1" }))).rejects.toMatchObject({ params: { failureClass: "input" } })
 
+        expect(logger.info).toHaveBeenCalledWith(MetaInboxLogEvent.Outcome, expect.objectContaining({ outcome: "delivered" }))
         expect(triggers.deliver).toHaveBeenCalledTimes(1)
         expect(triggers.deliver.mock.calls[0]?.[0].events[0]?.event).toMatchObject({
             id: "dm:message-1",
@@ -413,8 +439,9 @@ describe("MetaInboxService deliver", () => {
         await expect(service.deliver(job)).resolves.toBe("account_removed")
         await expect(service.deliver(job)).resolves.toBe("switched_off")
 
-        expect(logger.warn).toHaveBeenCalledTimes(1)
+        expect(logger.warn).toHaveBeenCalledTimes(2)
         expect(logger.warn).toHaveBeenCalledWith(MetaInboxLogEvent.AccountRemoved, expect.objectContaining({ refusal: "disconnected" }))
+        expect(logger.warn).toHaveBeenCalledWith(MetaInboxLogEvent.SwitchedOff, expect.objectContaining({ connectionId: "connection-1" }))
         expect(inboundEvents.keepUnrouted).not.toHaveBeenCalled()
     })
 

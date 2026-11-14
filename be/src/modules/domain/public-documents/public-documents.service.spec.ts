@@ -350,7 +350,6 @@ describe("PublicDocumentsService approve", () => {
         )
         expect(published.publish).not.toHaveBeenCalled()
         expect(published.replace).not.toHaveBeenCalled()
-        expect(published.announce).not.toHaveBeenCalled()
 
         expect(tx.em.update).toHaveBeenCalledWith(
             PublicDocumentSourceEntity,
@@ -441,7 +440,6 @@ describe("PublicDocumentsService publication rollback", () => {
         expect(tx.rollbacks).toBe(1)
         expect(tx.commits).toBe(0)
         expect(published.publish).toHaveBeenCalledWith(WS, "u1", "d1", expect.anything(), expect.anything())
-        expect(published.announce).not.toHaveBeenCalled()
         expect(tx.em.findOne).toHaveBeenCalledWith(PublicDocumentEntity, {
             where: { id: "d1", workspaceId: WS },
             lock: { mode: "pessimistic_write" },
@@ -474,7 +472,6 @@ describe("PublicDocumentsService reviewed revision", () => {
         expect(tx.em.update).not.toHaveBeenCalled()
         expect(published.publish).not.toHaveBeenCalled()
         expect(published.replace).not.toHaveBeenCalled()
-        expect(published.announce).not.toHaveBeenCalled()
     })
 })
 

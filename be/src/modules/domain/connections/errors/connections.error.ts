@@ -16,6 +16,8 @@ export enum ConnectionsErrorCode {
     ConnectorNotFound = "CONNECTIONS_CONNECTOR_NOT_FOUND",
     /** A console command named an unknown kind or carried an input that does not fit it. */
     CommandInvalid = "CONNECTIONS_COMMAND_INVALID",
+    /** A console command could not be completed after its tries: the person who submitted it may submit it again. */
+    CommandStopped = "CONNECTIONS_COMMAND_STOPPED",
 }
 
 /** How each connections code travels. */
@@ -27,6 +29,7 @@ export const CONNECTIONS_ERROR_KINDS: Record<ConnectionsErrorCode, ErrorKind> = 
     [ConnectionsErrorCode.KeyInvalid]: "internal",
     [ConnectionsErrorCode.ConnectorNotFound]: "not-found",
     [ConnectionsErrorCode.CommandInvalid]: "invalid",
+    [ConnectionsErrorCode.CommandStopped]: "unavailable",
 }
 
 /** The one error class of the connections capability. */

@@ -13,6 +13,7 @@ import type { ReactionView, ReplyView } from "./team-chat-reaction.contracts"
 import { stopCardViewOf, stopReplyUsersOf } from "./stop-card.policy"
 import { brainChangeCardViewOf, storedBrainChangeOf } from "./brain-change-card.policy"
 import { backgroundStoppedCardViewOf } from "./background-stop-card.policy"
+import { jobParkedCardViewOf } from "./job-parked-card.policy"
 import { isNivoRoomKey, isReadOnlyRoom } from "./team-chat.policy"
 import type { BrainChangeCost, BrainChangeViewerRole } from "./brain-change-card.contracts"
 
@@ -127,6 +128,7 @@ export const messageViewOf = (message: ChatRoomMessageEntity, context: MessageVi
             context.brainChangeCosts,
         ),
         backgroundStopped: backgroundStoppedCardViewOf(message.ref?.agent_message ?? null),
+        jobParked: jobParkedCardViewOf(message.ref?.agent_message ?? null),
     }
 }
 

@@ -68,7 +68,8 @@ describe("rights per connected account on a thread", () => {
         const runId = (await customerWrites(process, "Shop mo cua may gio?")).runId ?? ""
 
         expect(db.lines).toEqual([])
-        expect(JSON.stringify(db.model.askedOf(ANSWER).at(1)?.request.input)).toContain("channel_no_access")
+        // What the call came to rides in the next turn's appended part (`turns`), never in the input, which stays the same every turn.
+        expect(JSON.stringify(db.model.askedOf(ANSWER).at(1)?.request.turns)).toContain("channel_no_access")
         expect((await process.threads.stateOf(refOf(runId)))?.status).toBe("stopped")
         expect((await stopsOf(process, runId)).map((stop) => [stop.stepKey, stop.kind, stop.state])).toEqual([
             ["answer", "ai_report", "open"],

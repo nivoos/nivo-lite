@@ -20,7 +20,6 @@ import { AgentDirectoryService, AgentOwnershipService, AgentsModule } from "@mod
 import {
     AI_GENERATIONS_ERROR_KINDS,
     AI_GENERATIONS_MESSAGES,
-    AI_GENERATIONS_POLL_MS,
     AiGenerationsModule,
 } from "@modules/domain/ai-generations"
 import { WorkItemsActivityService, WorkItemsModule } from "@modules/domain/work-items"
@@ -66,11 +65,7 @@ export const agentsModules = (options: ApiOptions): Array<DynamicModule> => [
         ports: { agents: AgentDirectoryService, managers: AgentOwnershipService },
     }),
     AgentInstancesModule.register({ isGlobal: true }),
-    AiGenerationsModule.register({
-        isGlobal: true,
-        usage: UsageGateService,
-        pollMs: AI_GENERATIONS_POLL_MS,
-    }),
+    AiGenerationsModule.register({ isGlobal: true, usage: UsageGateService }),
     ToolCallLogModule.register({ isGlobal: true }),
     ...authorityStoreModules(),
 ]

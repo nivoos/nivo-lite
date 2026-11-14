@@ -74,7 +74,7 @@ export const connectionFactsOf = (c: Connection, t: RowTranslate, bankName: (cod
     }
 }
 
-/** The one visible action of a row: what the connection's state asks for next, or null when nothing does. */
+/** The one visible action of a row (a mailbox has no Sync now: its poll is the connection poll): what the connection's state asks for next, or null when nothing does. */
 export const primaryOf = (c: Connection, canManage: boolean, busy: RowBusy, t: RowTranslate): RowPrimary | null => {
     const settled = c.status !== "disconnected" && c.status !== "pending"
     const broken = c.status === "error"
@@ -95,7 +95,7 @@ export const primaryOf = (c: Connection, canManage: boolean, busy: RowBusy, t: R
     if ((settled || c.status === "pending") && (c.provider === "telegram" || reconnects)) {
         return { id: "check", label: t("check"), intent: "neutral", isPending: busy === "check" }
     }
-    if (canManage && settled && isDataConnector(c.provider) && c.provider !== "csv_import") {
+    if (canManage && settled && isDataConnector(c.provider) && c.provider !== "csv_import" && c.provider !== "imap") {
         return { id: "sync", label: t("syncNow"), intent: "neutral", isPending: busy === "sync" }
     }
     if ((settled || c.status === "pending") && c.provider === "webhook") {

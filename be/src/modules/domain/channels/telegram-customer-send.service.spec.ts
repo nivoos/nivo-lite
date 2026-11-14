@@ -59,6 +59,30 @@ describe("TelegramCustomerSendService (the live Telegram send behind the port)",
         expect(pictures.send).not.toHaveBeenCalled()
     })
 
+    it("answers Telegram's too-many-requests (error_code 429) as the port's not-sent answer with the wait asked, sending no pictures; a 5xx stays unknown", async () => {
+        const { service, telegram, pictures } = build()
+
+        telegram.sendMessage.mockRejectedValueOnce(
+            new TelegramError({ code: TelegramErrorCode.Rejected, params: { method: "sendMessage", reason: "Too Many Requests", status: 429, errorCode: 429, retryAfter: 7 } }),
+        )
+        await expect(service.send(ACCOUNT, TARGET, "555", REQUEST)).rejects.toMatchObject({
+            code: ChannelsErrorCode.SendUnavailable,
+            params: { reason: "telegram_rate_limited", retryAfterSeconds: 7 },
+        })
+        telegram.sendMessage.mockRejectedValueOnce(
+            new TelegramError({ code: TelegramErrorCode.Rejected, params: { method: "sendMessage", reason: "Too Many Requests", errorCode: 429 } }),
+        )
+        await expect(service.send(ACCOUNT, TARGET, "555", REQUEST)).rejects.toMatchObject({
+            code: ChannelsErrorCode.SendUnavailable,
+            params: { reason: "telegram_rate_limited" },
+        })
+        telegram.sendMessage.mockRejectedValueOnce(
+            new TelegramError({ code: TelegramErrorCode.Unavailable, params: { method: "sendMessage", reason: "502", status: 502 } }),
+        )
+        await expect(service.send(ACCOUNT, TARGET, "555", REQUEST)).resolves.toEqual({ delivered: false, failure: null, outcome: "ambiguous" })
+        expect(pictures.send).not.toHaveBeenCalled()
+    })
+
     it("sends a staff text through the workspace's bot on the connection, and throws when the bot is gone", async () => {
         const { service, secrets, telegram } = build()
         const message = { workspaceId: "ws-1", connectionId: "c-1", provider: "telegram", recipientId: "777", text: "Shift" } as const

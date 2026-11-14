@@ -603,3 +603,40 @@ describe("ZaloConnectService", () => {
         })
     })
 })
+
+describe("ZaloConnectService finishFromJob", () => {
+    const payload = { workspaceId: "ws-1", state: "c-1.nonce-1", code: "code-1", oaId: "oa-9" }
+
+    it("completes the authorization the job carries, then starts reading the name of the connection the state names", async () => {
+        const { service, credentials, zalo } = await build()
+        credentials.completeFromJob.mockResolvedValue(undefined)
+
+        await expect(service.finishFromJob(payload)).resolves.toBeUndefined()
+        await flush()
+
+        expect(credentials.completeFromJob.mock.calls).toEqual([[payload]])
+        expect(credentials.accessToken.mock.calls).toEqual([["c-1"]])
+        expect(zalo.oaProfile).toHaveBeenCalledTimes(1)
+    })
+
+    it("reads no name when the completion fails: the failure is thrown for the runner", async () => {
+        const { service, credentials, zalo } = await build()
+        const failure = new Error("db down")
+        credentials.completeFromJob.mockRejectedValue(failure)
+
+        await expect(service.finishFromJob(payload)).rejects.toBe(failure)
+        await flush()
+
+        expect(zalo.oaProfile).not.toHaveBeenCalled()
+    })
+
+    it("reads no name for a payload that is not an authorization", async () => {
+        const { service, credentials, zalo } = await build()
+        credentials.completeFromJob.mockResolvedValue(undefined)
+
+        await service.finishFromJob({ other: true })
+        await flush()
+
+        expect(zalo.oaProfile).not.toHaveBeenCalled()
+    })
+})

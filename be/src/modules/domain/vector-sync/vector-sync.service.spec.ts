@@ -6,6 +6,9 @@ import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { LOGGER, type Logger } from "@modules/platform/logging"
 import { VectorSyncQueue } from "@modules/queues/vector-sync"
 import { FakeEmbedder, FakeRowSource, FakeVectorIndex, TEST_MODEL, vectorRowOf } from "@tests/fixtures/builders/vector-sync.builder"
+import { chainProviders, claimedJob } from "@tests/fixtures/builders/knowledge-chain.builder"
+import { classifyFailure } from "@modules/platform/queue"
+import { VectorSyncErrorCode } from "./errors/vector-sync.error"
 import { VECTOR_EMBEDDER, VECTOR_ROW_SOURCES } from "./vector-sync.decorators"
 import { VectorSyncService } from "./vector-sync.service"
 
@@ -21,6 +24,7 @@ interface PassageOver extends Partial<Omit<VectorRow, "mirror">> {
 
 /** Builds the sync service in a testing module over the scripted index, row sources, embedder, queue and clock. */
 const build = async () => {
+    const chain = chainProviders()
     const index = new FakeVectorIndex()
     const sources = { passage: new FakeRowSource(), truth: new FakeRowSource(), base: new FakeRowSource() }
     const embedder = new FakeEmbedder()
@@ -31,6 +35,7 @@ const build = async () => {
     const clock = new FakeClock(NOW)
     const moduleRef = await Test.createTestingModule({
         providers: [
+            ...chain.providers,
             VectorSyncService,
             { provide: VECTOR_INDEX, useValue: index },
             { provide: VECTOR_ROW_SOURCES, useValue: sources },
@@ -41,7 +46,7 @@ const build = async () => {
             { provide: CLOCK, useValue: clock },
         ],
     }).compile()
-    return { service: moduleRef.get(VectorSyncService), index, sources, embedder, queue, logger, em, transaction }
+    return { service: moduleRef.get(VectorSyncService), chain, index, sources, embedder, queue, logger, em, transaction }
 }
 
 /** A passage row of a document. */
@@ -89,20 +94,20 @@ const registerEventCases = () => {
     it("document replaced or deleted: the points of passages that are gone are removed, the kept ones are untouched", async () => {
         const { service, index, sources } = await build()
         sources.passage.put(passage("p1", "doc"), passage("p2", "doc"), passage("p3", "doc"), passage("x1", "other"))
-        await service.sync({ kind: "passage", workspaceId: WS, sourceId: "doc", at: AT })
-        await service.sync({ kind: "passage", workspaceId: WS, sourceId: "other", at: AT })
+        await service.sync(claimedJob({ kind: "passage", workspaceId: WS, sourceId: "doc", at: AT }))
+        await service.sync(claimedJob({ kind: "passage", workspaceId: WS, sourceId: "other", at: AT }))
         expect(index.points.passage.size).toBe(4)
 
         // The document is read again: p2 is gone, p4 is new.
         sources.passage.rows.delete("p2")
         sources.passage.put(passage("p4", "doc"))
-        const replaced = await service.sync({ kind: "passage", workspaceId: WS, sourceId: "doc", at: AT + 1 })
+        const replaced = await service.sync(claimedJob({ kind: "passage", workspaceId: WS, sourceId: "doc", at: AT + 1 }))
         expect(replaced).toMatchObject({ removed: 1, embedded: 1, unchanged: 2 })
         expect([...index.points.passage.keys()].toSorted()).toEqual(["p1", "p3", "p4", "x1"])
 
         // The document is deleted: no row is left, every point of it goes; the other document keeps its point.
         for (const id of ["p1", "p3", "p4"]) sources.passage.rows.delete(id)
-        const deleted = await service.sync({ kind: "passage", workspaceId: WS, sourceId: "doc", at: AT + 2 })
+        const deleted = await service.sync(claimedJob({ kind: "passage", workspaceId: WS, sourceId: "doc", at: AT + 2 }))
         expect(deleted).toMatchObject({ removed: 3 })
         expect([...index.points.passage.keys()]).toEqual(["x1"])
     })
@@ -110,18 +115,18 @@ const registerEventCases = () => {
     it("passage readiness or audience changed: only the flags are rewritten, in one call per group, with no embedding", async () => {
         const { service, index, sources, embedder } = await build()
         sources.passage.put(passage("p1", "doc"), passage("p2", "doc"))
-        await service.sync({ kind: "passage", workspaceId: WS, sourceId: "doc", at: AT })
+        await service.sync(claimedJob({ kind: "passage", workspaceId: WS, sourceId: "doc", at: AT }))
         const calls = embedder.calls
 
         // The critic releases the document to customers; then the document is switched to internal.
         sources.passage.put(passage("p1", "doc", { mirror: { customerReady: true } }), passage("p2", "doc", { mirror: { customerReady: true } }))
-        const released = await service.sync({ kind: "passage", workspaceId: WS, sourceId: "doc", at: AT + 1 })
+        const released = await service.sync(claimedJob({ kind: "passage", workspaceId: WS, sourceId: "doc", at: AT + 1 }))
         expect(released).toMatchObject({ marked: 2, embedded: 0, given: 0 })
         expect(index.calls.mark).toBe(1)
         expect(index.payloadOf("passage", "p1")).toMatchObject({ customerReady: true, isPublic: true, textHash: "hash-p1", model: TEST_MODEL })
 
         sources.passage.put(passage("p1", "doc", { mirror: { isPublic: false } }))
-        await service.sync({ kind: "passage", workspaceId: WS, ids: ["p1"], at: AT + 2 })
+        await service.sync(claimedJob({ kind: "passage", workspaceId: WS, ids: ["p1"], at: AT + 2 }))
         expect(index.payloadOf("passage", "p1")).toMatchObject({ isPublic: false, customerReady: false })
         expect(index.points.passage.get("p1")?.vector).toEqual(["text of p1".length, 1])
         expect(embedder.calls).toBe(calls)
@@ -136,29 +141,29 @@ const registerTruthEventCases = () => {
 
         // A proposal is filed: it has a point, not in force (looked up as a candidate only).
         sources.truth.put(truth({ mirror: { ...truth({}).mirror, inForce: false } }))
-        await service.sync({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT })
+        await service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT }))
         expect(index.payloadOf("truth", "t1")).toMatchObject({ inForce: false, customerReady: false })
 
         // Put in force, public: in force and customer-ready.
         sources.truth.put(truth({ stamped: true, stampedModel: TEST_MODEL, mirror: { ...truth({}).mirror, isPublic: true, customerReady: true } }))
-        await expect(service.sync({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT + 1 })).resolves.toMatchObject({ marked: 1 })
+        await expect(service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT + 1 }))).resolves.toMatchObject({ marked: 1 })
         expect(index.payloadOf("truth", "t1")).toMatchObject({ inForce: true, isPublic: true, customerReady: true })
 
         // Reach switched to internal (the "known to customers" switch off).
         sources.truth.put(truth({ stamped: true, stampedModel: TEST_MODEL }))
-        await service.sync({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT + 2 })
+        await service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT + 2 }))
         expect(index.payloadOf("truth", "t1")).toMatchObject({ isPublic: false, customerReady: false })
 
         // Superseded, retired or expired: the row stays in Postgres and wants no point.
         sources.truth.put(truth({ wanted: false }))
-        await expect(service.sync({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT + 3 })).resolves.toMatchObject({ removed: 1 })
+        await expect(service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT + 3 }))).resolves.toMatchObject({ removed: 1 })
         expect(index.points.truth.size).toBe(0)
 
         // The row itself is gone (a deleted workspace's cascade, a hard delete): the point goes too.
         sources.truth.put(truth({}))
-        await service.sync({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT + 4 })
+        await service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT + 4 }))
         sources.truth.rows.delete("t1")
-        await expect(service.sync({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT + 5 })).resolves.toMatchObject({ removed: 1 })
+        await expect(service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT + 5 }))).resolves.toMatchObject({ removed: 1 })
         expect(index.points.truth.size).toBe(0)
     })
 
@@ -185,18 +190,18 @@ const registerKindCases = () => {
         })
         sources.base.put(item)
 
-        await expect(service.sync({ kind: "base", workspaceId: PLATFORM_TENANT, ids: ["k1"], at: AT })).resolves.toMatchObject({ embedded: 1 })
+        await expect(service.sync(claimedJob({ kind: "base", workspaceId: PLATFORM_TENANT, ids: ["k1"], at: AT }))).resolves.toMatchObject({ embedded: 1 })
         expect(index.payloadOf("base", "k1")).toMatchObject({ workspaceId: PLATFORM_TENANT, model: TEST_MODEL, textHash: "hash-k1" })
         expect(sources.base.rows.get("k1")).toMatchObject({ stamped: true })
         expect(embedder.calls).toBe(1)
 
         // A workspace's job naming the item's id finds no row of its own tenant and removes nothing.
-        await expect(service.sync({ kind: "base", workspaceId: WS, ids: ["k1"], at: AT })).resolves.toMatchObject({ removed: 0 })
+        await expect(service.sync(claimedJob({ kind: "base", workspaceId: WS, ids: ["k1"], at: AT }))).resolves.toMatchObject({ removed: 0 })
         expect(index.points.base.has("k1")).toBe(true)
 
         // The item is removed from the folder: its point goes.
         sources.base.rows.delete("k1")
-        await expect(service.sync({ kind: "base", workspaceId: PLATFORM_TENANT, ids: ["k1"], at: AT + 1 })).resolves.toMatchObject({ removed: 1 })
+        await expect(service.sync(claimedJob({ kind: "base", workspaceId: PLATFORM_TENANT, ids: ["k1"], at: AT + 1 }))).resolves.toMatchObject({ removed: 1 })
         expect(index.points.base.size).toBe(0)
     })
 }
@@ -205,7 +210,7 @@ const registerIdempotenceCases = () => {
     it("replaying a job writes nothing: no upsert, no embedding, no stamp", async () => {
         const { service, index, sources, embedder } = await build()
         sources.truth.put(vectorRowOf("t1", WS), vectorRowOf("t2", WS))
-        const job = { kind: "truth" as const, workspaceId: WS, ids: ["t1", "t2"], at: AT }
+        const job = claimedJob({ kind: "truth" as const, workspaceId: WS, ids: ["t1", "t2"], at: AT })
 
         await expect(service.sync(job)).resolves.toMatchObject({ embedded: 2, embedCalls: 1 })
         const after = { upsert: index.calls.upsert, embed: embedder.calls, stamp: sources.truth.calls.stamp }
@@ -220,7 +225,7 @@ const registerIdempotenceCases = () => {
         sources.passage.put(passage("p1", "doc"))
         await service.accept("passage", WS, new Map([["p1", [9, 9]]]))
 
-        await expect(service.sync({ kind: "passage", workspaceId: WS, ids: ["p1"], at: AT })).resolves.toMatchObject({ unchanged: 1 })
+        await expect(service.sync(claimedJob({ kind: "passage", workspaceId: WS, ids: ["p1"], at: AT }))).resolves.toMatchObject({ unchanged: 1 })
         expect(index.points.passage.get("p1")?.vector).toEqual([9, 9])
         expect(embedder.calls).toBe(0)
     })
@@ -228,35 +233,36 @@ const registerIdempotenceCases = () => {
     it("a point keyed by row id + text hash + model: another model or another text is written again, the same is not", async () => {
         const { service, index, sources } = await build()
         sources.truth.put(vectorRowOf("t1", WS))
-        await service.sync({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT })
+        await service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT }))
 
         const held = index.points.truth.get("t1")
         expect(held).toBeDefined()
         if (held === undefined) return
         index.points.truth.set("t1", { ...held, payload: { ...held.payload, model: "old-model@1536" } })
-        await expect(service.sync({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT + 1 })).resolves.toMatchObject({ embedded: 1 })
+        await expect(service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT + 1 }))).resolves.toMatchObject({ embedded: 1 })
         expect(index.payloadOf("truth", "t1")?.model).toBe(TEST_MODEL)
 
         index.points.truth.set("t1", { ...held, payload: { ...held.payload, textHash: "stale" } })
-        await expect(service.sync({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT + 2 })).resolves.toMatchObject({ embedded: 1 })
+        await expect(service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT + 2 }))).resolves.toMatchObject({ embedded: 1 })
         expect(index.payloadOf("truth", "t1")?.textHash).toBe("hash-t1")
     })
 
     it("never touches a point of another workspace", async () => {
         const { service, index, sources } = await build()
         sources.truth.put(vectorRowOf("t9", OTHER))
-        await service.sync({ kind: "truth", workspaceId: OTHER, ids: ["t9"], at: AT })
+        await service.sync(claimedJob({ kind: "truth", workspaceId: OTHER, ids: ["t9"], at: AT }))
 
         // A job of WS that names the other workspace's row id finds no row of its own and removes nothing.
-        await expect(service.sync({ kind: "truth", workspaceId: WS, ids: ["t9"], at: AT })).resolves.toMatchObject({ removed: 0 })
+        await expect(service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t9"], at: AT }))).resolves.toMatchObject({ removed: 0 })
         expect(index.points.truth.has("t9")).toBe(true)
     })
 
-    it("drops a payload of another shape", async () => {
-        const { service, logger, index } = await build()
-        await expect(service.sync({ kind: "passage", workspaceId: WS })).resolves.toMatchObject({ embedded: 0 })
-        await expect(service.sync({ kind: "truth", workspaceId: WS, sourceId: "doc", at: AT })).resolves.toMatchObject({ embedded: 0 })
-        expect(logger.warn).toHaveBeenCalledTimes(2)
+    it("refuses a payload of another shape with a typed error, touching nothing", async () => {
+        const { service, index } = await build()
+        await expect(service.sync(claimedJob({ kind: "passage", workspaceId: WS }))).rejects.toMatchObject({ code: VectorSyncErrorCode.PayloadInvalid })
+        await expect(service.sync(claimedJob({ kind: "truth", workspaceId: WS, sourceId: "doc", at: AT }))).rejects.toMatchObject({
+            code: VectorSyncErrorCode.PayloadInvalid,
+        })
         expect(index.calls).toEqual({})
     })
 }
@@ -269,11 +275,11 @@ const registerVectorCases = () => {
         // The writer hands over t1's vector: given, no call.
         await expect(service.accept("truth", WS, new Map([["t1", [3, 4]]]))).resolves.toMatchObject({ given: 1, embedCalls: 0 })
         // t2 says the same line: adopted from t1's point; t3 has no donor: embedded.
-        const done = await service.sync({ kind: "truth", workspaceId: WS, ids: ["t2", "t3"], at: AT })
+        const done = await service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t2", "t3"], at: AT }))
 
         expect(done).toMatchObject({ adopted: 1, embedded: 1, embedCalls: 1 })
         expect(Object.keys(done).toSorted()).toEqual(
-            ["adopted", "embedCalls", "embedded", "failed", "given", "marked", "removed", "unchanged", "waiting"].toSorted(),
+            ["adopted", "embedCalls", "embedded", "given", "marked", "removed", "unchanged", "waiting"].toSorted(),
         )
         expect(index.points.truth.get("t2")?.vector).toEqual([3, 4])
         expect(embedder.calls).toBe(1)
@@ -282,7 +288,7 @@ const registerVectorCases = () => {
     it("adopts the vector of an identical line's point: one index read, no embedding call", async () => {
         const { service, index, sources, embedder } = await build()
         sources.truth.put(vectorRowOf("t1", WS, { textHash: "same-line" }))
-        await service.sync({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT })
+        await service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT }))
         const calls = embedder.calls
 
         // A new version keeps its value (a new reach): a new row, the same line.
@@ -305,38 +311,62 @@ const registerVectorCases = () => {
         sources.truth.put(vectorRowOf("t1", WS))
         embedder.answer = "blocked"
 
-        await expect(service.sync({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT })).resolves.toMatchObject({ waiting: 1, failed: 0 })
+        await expect(service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT }))).resolves.toMatchObject({ waiting: 1 })
         expect(index.points.truth.size).toBe(0)
         expect(sources.truth.rows.get("t1")?.stamped).toBe(false)
 
         embedder.answer = "vectors"
-        await expect(service.sync({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT + 1 })).resolves.toMatchObject({ embedded: 1 })
+        await expect(service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT + 1 }))).resolves.toMatchObject({ embedded: 1 })
     })
 
-    it("a failed embedding call writes no point and stamps nothing; an index that is down fails the job so the queue retries", async () => {
+    it("a failed embedding call THROWS the transient the runner retries; the batches already written and stamped stay, and the retry embeds only what is left", async () => {
         const { service, index, sources, embedder } = await build()
         sources.truth.put(vectorRowOf("t1", WS))
         embedder.answer = "failed"
-        await expect(service.sync({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT })).resolves.toMatchObject({ failed: 1 })
+        const thrown = await service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT })).catch((cause: unknown) => cause)
+        expect(thrown).toMatchObject({ code: VectorSyncErrorCode.EmbeddingUnavailable })
+        expect(classifyFailure(thrown)).toBe("transient")
         expect(sources.truth.rows.get("t1")?.stamped).toBe(false)
+        expect(index.points.truth.size).toBe(0)
 
-        index.down = true
-        await expect(service.sync({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT })).rejects.toThrow()
+        embedder.answer = "vectors"
+        await expect(service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT }))).resolves.toMatchObject({ embedded: 1 })
+        expect(sources.truth.rows.get("t1")?.stamped).toBe(true)
     })
 
-    it("a hand-over the index refuses never fails the writer, stamps nothing, and the queued job repairs it", async () => {
-        const { service, index, sources, queue, logger } = await build()
+    it("an index that is down throws out of the job (the runner retries it on its ladder) and stamps nothing; when it is back the same job finishes", async () => {
+        const { service, index, sources } = await build()
+        sources.truth.put(vectorRowOf("t1", WS))
+        index.down = true
+
+        await expect(service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT }))).rejects.toThrow()
+        expect(sources.truth.rows.get("t1")?.stamped).toBe(false)
+
+        index.down = false
+        await expect(service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t1"], at: AT }))).resolves.toMatchObject({ embedded: 1 })
+    })
+
+    it("a hand-over the index refuses THROWS out of the writer's job, stamps nothing, and the sync job queued first repairs it", async () => {
+        const { service, index, sources, queue } = await build()
         sources.passage.put(passage("p1", "doc"))
         index.down = true
 
-        await expect(service.accept("passage", WS, new Map([["p1", [1, 1]]]))).resolves.toMatchObject({ failed: 1 })
+        await expect(service.accept("passage", WS, new Map([["p1", [1, 1]]]))).rejects.toThrow()
         expect(queue.enqueueSync).toHaveBeenCalledTimes(1)
-        expect(logger.error).toHaveBeenCalledTimes(1)
         expect(sources.passage.rows.get("p1")?.stamped).toBe(false)
 
         index.down = false
-        await expect(service.sync({ kind: "passage", workspaceId: WS, ids: ["p1"], at: AT })).resolves.toMatchObject({ embedded: 1 })
+        await expect(service.sync(claimedJob({ kind: "passage", workspaceId: WS, ids: ["p1"], at: AT }))).resolves.toMatchObject({ embedded: 1 })
         expect(sources.passage.rows.get("p1")?.stamped).toBe(true)
+    })
+
+    it("keys the embedding call and the index write of a job by the job, the kind and the first row, so a settled batch of a resume is not made twice", async () => {
+        const { service, chain, sources } = await build()
+        sources.truth.put(vectorRowOf("t1", WS), vectorRowOf("t2", WS))
+
+        await service.sync(claimedJob({ kind: "truth", workspaceId: WS, ids: ["t1", "t2"], at: AT }))
+
+        expect(chain.ledger.keys()).toEqual(["job-1:embed:truth:t1", "job-1:upsert:truth:t1"])
     })
 }
 

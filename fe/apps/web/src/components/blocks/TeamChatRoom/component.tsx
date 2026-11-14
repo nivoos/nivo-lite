@@ -56,6 +56,7 @@ const ThreadContent = (room: TeamChatRoomBaseProps) => (
                     onDecide={room.on.decide}
                     stops={{ ...room.props.stops, onAction: room.on.stop }}
                     changes={{ ...room.props.changes, onAction: room.on.change }}
+                    jobs={{ ...room.props.jobs, onAction: room.on.job }}
                     onReact={room.on.react}
                     onReply={room.on.reply}
                     onShare={room.on.share}
@@ -94,6 +95,7 @@ const PinnedDrawer = (room: TeamChatRoomBaseProps) => (
                     onDecide={room.on.decide}
                     stops={{ ...room.props.stops, onAction: room.on.stop }}
                     changes={{ ...room.props.changes, onAction: room.on.change }}
+                    jobs={{ ...room.props.jobs, onAction: room.on.job }}
                     onReact={room.on.react}
                     onReply={room.on.reply}
                     onShare={room.on.share}

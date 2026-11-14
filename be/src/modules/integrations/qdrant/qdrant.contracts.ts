@@ -1,3 +1,5 @@
+import type { OutsideReads } from "@modules/platform/effects"
+
 /**
  * What a vector point is of: a kind of Postgres row that declares it is embedded. One collection each: a passage of a workspace's
  * document, a truth of a workspace's truth graph, an item of the platform's base knowledge (tenant `PLATFORM_TENANT`).
@@ -117,7 +119,7 @@ export type VectorHealth = "ok" | "down"
  * the row id). The index answers ids and scores only; the caller reads the rows from Postgres, in its own lens, and drops what
  * Postgres no longer serves, so a lagging index can never leak.
  */
-export interface VectorIndex {
+export interface VectorIndex extends OutsideReads<"search" | "count" | "stamps" | "stampsOf" | "vectorsOf" | "health" | "probe"> {
     /** Stores points in place of the points of the same ids; idempotent. */
     upsert(kind: VectorKind, points: ReadonlyArray<VectorPoint>): Promise<void>
     /** Removes the points of these row ids of one workspace; an id that has no point is nothing to remove. */

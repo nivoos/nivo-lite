@@ -1,10 +1,10 @@
-import type { ChatMessageFile } from "@/modules/types"
-import { Grid, Link, Stack } from "@starci/grammar/common"
+import type { ChatMessageFile, ContactHistoryFileView, ContactHistoryUnreadFileView } from "@/modules/types"
+import { Grid, Link, Stack, Text } from "@starci/grammar/common"
 import { CHAT_ALBUM_CLASS_NAME, CHAT_IMAGE_CLASS_NAME } from "./classNames"
 
 /** What {@link ChatMessageFiles} draws. */
 interface ChatMessageFilesProps {
-    readonly files: ReadonlyArray<ChatMessageFile>
+    readonly files: ReadonlyArray<ChatMessageFile | ContactHistoryFileView>
 }
 
 /** One picture of a thread as a destination: it is shown and opens in full. A lone picture (a photo, a payment QR) keeps its own shape; an album's pictures are squares. */
@@ -27,13 +27,32 @@ const PictureLink = (props: PictureLinkProps) => (
     />
 )
 
+/** The file an unread tile draws. */
+interface UnreadFileProps {
+    readonly file: ContactHistoryUnreadFileView
+}
+
+/** A file the shop could not keep: its name and, under it in 12 muted text, why it could not be fetched. Nothing to open. */
+const UnreadFile = (props: UnreadFileProps) => (
+    <Stack gap="identity">
+        <Text as="span" size="sm">
+            {props.file.name}
+        </Text>
+        <Text as="span" size="xs" tone="muted">
+            {props.file.note}
+        </Text>
+    </Stack>
+)
+
 /**
  * The files under a chat bubble or agent card: one picture (a photo, a payment QR) is shown whole and opens in full, two or more
  * pictures are an album in a two-column grid, any other file is a link.
  */
 export const ChatMessageFiles = (props: ChatMessageFilesProps) => {
-    const pictures = props.files.filter((file) => file.contentType.startsWith("image/"))
-    const others = props.files.filter((file) => !file.contentType.startsWith("image/"))
+    const unread = props.files.filter((file): file is ContactHistoryUnreadFileView => file.url === null)
+    const kept = props.files.filter((file): file is ChatMessageFile => file.url !== null)
+    const pictures = kept.filter((file) => file.contentType.startsWith("image/"))
+    const others = kept.filter((file) => !file.contentType.startsWith("image/"))
     const isAlbum = pictures.length > 1
     const albumOrPictures = isAlbum ? (
         <div className={CHAT_ALBUM_CLASS_NAME}>
@@ -53,6 +72,9 @@ export const ChatMessageFiles = (props: ChatMessageFilesProps) => {
     return (
         <Stack gap="inline">
             {albumOrPictures}
+            {unread.map((file) => (
+                <UnreadFile key={file.id} file={file} />
+            ))}
             {others.map((file) => (
                 <Link key={file.id} href={file.url} kind="external">
                     {file.name}

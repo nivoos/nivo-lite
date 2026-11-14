@@ -21,11 +21,10 @@ import { InjectSeedAgents, InjectWorkspaceSeedOptions } from "./workspace-seed.d
 import type { WorkspaceSeedOptions } from "./workspace-seed.options"
 import type { SeedAgentRecords } from "./workspace-seed.port"
 
-/** The workspace a seed run writes into, its owner and the nodes the graphs may use. */
+/** The workspace a seed run writes into and its owner. */
 interface SeedSeat {
     readonly workspaceId: string
     readonly ownerId: string
-    readonly installed: NodeIndex
 }
 
 /** The language the agents and installations seeded here are named in, as the module catalogue names them. */
@@ -103,20 +102,20 @@ export class GraphSeedService {
      * roster seed installs into), in order; a refused graph stops the run. Answers what each module came to.
      */
     async seedInto(workspaceId: string, entries: ReadonlyArray<GraphSeedEntry>): Promise<ReadonlyArray<SeededModule>> {
-        const installed = this.installedNodes()
+        this.installedNodes()
         const ownerId = await this.ownerOf(workspaceId)
         // An installation names its module by foreign key: on an empty database the catalogue is not mirrored yet.
         await this.modules.sync()
         const seeded: Array<SeededModule> = []
         await eachInOrder(entries, async (entry) => {
-            seeded.push(await this.seedGraph({ workspaceId, ownerId, installed }, entry))
+            seeded.push(await this.seedGraph({ workspaceId, ownerId }, entry))
         })
         return seeded
     }
 
     /** Seeds one graph into its module's agent: the rights first, then the activation and the published graph. */
     private async seedGraph(seat: SeedSeat, entry: GraphSeedEntry): Promise<SeededModule> {
-        const { workspaceId, ownerId, installed } = seat
+        const { workspaceId, ownerId } = seat
         const { spec } = entry
         const module = await this.modules.find(spec.moduleKey)
         await this.requireOpen(workspaceId, module.key)
@@ -139,7 +138,6 @@ export class GraphSeedService {
             agentId,
             installationId: installation.id,
             flow: spec,
-            installed,
         })
         const bound = await this.bindConnections(workspaceId, ownerId, module.key, agentId)
         this.options.print(

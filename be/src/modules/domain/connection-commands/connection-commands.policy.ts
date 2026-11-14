@@ -156,6 +156,27 @@ export const COMMANDS: Readonly<Record<string, Runner>> = {
     "meta.check": (s, a, i) => s.meta.check(a, connectionOf(i), i.repair === true),
 }
 
+/**
+ * The kinds whose act reaches a provider (a bot or webhook registered, probed or removed, a test event sent, a page subscribed, a bank
+ * webhook confirmed): each runs as ONE effect, keyed by the job, so the act is recorded as an intent before it is made. The rest read or
+ * write NIVO's own rows and need no ledger.
+ */
+const PROVIDER_KINDS: ReadonlySet<string> = new Set([
+    "connection.first-event",
+    "connection.check",
+    "connection.disconnect",
+    "connection.delete",
+    "telegram.connect",
+    "money.update",
+    "money.provider-keys",
+    "webhook.test",
+    "meta.page",
+    "meta.check",
+])
+
+/** True when the kind's act reaches a provider. */
+export const reachesProvider = (kind: string): boolean => PROVIDER_KINDS.has(kind)
+
 /** Runs one command as the actor; an unknown kind or a field that does not fit is refused as invalid, and a capability answering nothing answers `true`. */
 export const runCommand = async (
     services: CommandServices,

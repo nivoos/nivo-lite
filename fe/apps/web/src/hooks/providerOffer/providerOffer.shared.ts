@@ -18,11 +18,10 @@ export interface ProviderOfferWords {
     readonly groupReturns: string
     readonly groupPayload: string
     readonly freshness: Readonly<Record<string, string>>
-    readonly batchingEach: string
-    readonly batchingList: (maxEvents: number) => string
-    readonly batchingListOpen: string
-    readonly recoveryYes: string
-    readonly recoveryNo: string
+    /** The words of the four ways an event reaches NIVO (`webhook`, `poll`, `clock`, `internal`). */
+    readonly ways: Readonly<Record<string, string>>
+    /** "Receives via: {ways}". */
+    readonly receivedVia: (ways: string) => string
     /** The closed map of the JSON type names the API returns (`string`, `integer`, `null`, `id`, `choice`...) to words. */
     readonly types: Readonly<Record<string, string>>
     /** The closed map of the JSON formats the API returns (`uuid`, `date-time`...) to words. */
@@ -160,28 +159,30 @@ const lineOf = (operation: Tool["operation"]): string | null => {
     return method === null ? null : `${method} ${operation?.path ?? ""}`.trim()
 }
 
-/** The batching line of a trigger: each event alone, or a list with its open or bounded size. */
-const batchingOf = (words: ProviderOfferWords, batching: Trigger["batching"]): string => {
-    if (batching.mode === "each") return words.batchingEach
-    return batching.maxEvents === null ? words.batchingListOpen : words.batchingList(batching.maxEvents)
+/** The "Receives via: webhook, poll" line of a trigger: each way in words (an unknown way shows as given), from the trigger's own list. */
+/** The words the "Receives via" line needs. */
+export interface ViaWords {
+    readonly ways: Readonly<Record<string, string>>
+    readonly receivedVia: (ways: string) => string
 }
 
-/** Level 3: the events a workflow subscribes to, with the batching and recovery line the drawing puts under the table. */
+export const viaLineOf = (words: ViaWords, via: ReadonlyArray<string>): string => words.receivedVia(via.map((way) => words.ways[way] ?? way).join(", "))
+
+/** Level 3: the events a workflow subscribes to, with the ways each arrives and, for one with no poll, the reason line under the table. */
 export const triggerEntriesOf = (
     offer: ProviderOffer,
     words: ProviderOfferWords,
     locale: string,
 ): ReadonlyArray<ProviderDocEntryView> =>
     offer.triggers.map((trigger: Trigger) => {
-        const batching = batchingOf(words, trigger.batching)
         return {
             id: trigger.name,
             name: trigger.name,
-            kindLabel: kindOf(words.kinds, trigger.kind),
+            kindLabel: viaLineOf(words, trigger.via),
             summary: registryWordsOf(trigger.summary, locale),
             fact: null,
             groups: groupsOf(words, locale, [{ id: "payload", label: words.groupPayload, members: trigger.payload }]),
-            note: `${batching} ${trigger.recovery === "none" ? words.recoveryNo : words.recoveryYes}`,
+            note: trigger.withoutPoll === null ? null : registryWordsOf(trigger.withoutPoll.reason, locale),
             marks: [],
             line: null,
             stateNote: null,

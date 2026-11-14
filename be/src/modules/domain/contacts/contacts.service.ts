@@ -3,6 +3,8 @@ import { Inject, Injectable, Optional } from "@nestjs/common"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import type {
     ChannelPersonKey,
+    ConsentChange,
+    ConsentOutcome,
     Contact,
     ContactActor,
     ContactFacts,
@@ -10,10 +12,12 @@ import type {
     ContactSuggestion,
     ContactWithIdentities,
     IdentityInput,
+    IdentityMatch,
     MergeAsk,
     MergeReason,
     NormalIdentity,
     OptionalContact,
+    OptionalContactConsent,
     OptionalContactId,
     OptionalContactsCursor,
     OptionalExternalIdentity,
@@ -192,6 +196,45 @@ export class ContactsService {
         }
     }
 
+    /**
+     * The contact a person-level ADDRESS a step names stands for (rule SO-3: a send addressed by a mail address), met like the pipeline
+     * meets a subject: the contact holding it proven, else the oldest contact holding it as a claim, else a NEW contact with it as a claim
+     * learned by a step (never a proof: it merges nothing, contacts rule 3). Idempotent as `meetChannel`. `make` false only looks
+     * (a check that writes nothing): null when no contact holds it. `name`: what a new contact is called (the name an inbound mail's sender
+     * gives), never a change of a contact that exists. Throws `CONTACTS_IDENTITY_INVALID` for an address that is no address.
+     */
+    async meetAddress(
+        workspaceId: string,
+        kind: "email" | "phone",
+        value: string,
+        make: boolean,
+        name: string | null = null,
+    ): Promise<OptionalContactId> {
+        const identity = normalIdentityOf({ kind, value })
+        if (identity === null) throw new ContactsError({ code: ContactsErrorCode.IdentityInvalid })
+        const holderOf = (matches: ReadonlyArray<IdentityMatch>): OptionalContactId => {
+            const proven = matches.find((match) => match.verified)
+            if (proven !== undefined) return proven.contactId
+            const [oldest] = matches.toSorted((left, right) => left.contactCreatedAt.localeCompare(right.contactCreatedAt))
+            return oldest?.contactId ?? null
+        }
+        if (!make) return holderOf(await this.store.transaction((tx) => tx.matchesOf(workspaceId, [identity])))
+        const meet = (): Promise<string> =>
+            this.store.transaction(async (tx) => {
+                const held = holderOf(await tx.matchesOf(workspaceId, [identity]))
+                if (held !== null) return held
+                const made = await tx.insertContact(workspaceId, name === null ? null : nameOf(name))
+                await tx.putIdentity(workspaceId, made.id, identity, "step", null)
+                return made.id
+            })
+        try {
+            return await meet()
+        } catch (cause) {
+            if (!isTransientConflict(cause)) throw cause
+            return await meet()
+        }
+    }
+
     /** The contact that holds a channel's own id of a person, or null when no contact does. One exact lookup. */
     async contactOfChannel(workspaceId: string, person: ChannelPersonKey): Promise<OptionalContactId> {
         const identity = normalIdentityOf({ kind: "channel", provider: person.channel, account: person.account, value: person.userId })
@@ -291,6 +334,44 @@ export class ContactsService {
                 by,
             })
             return { kind: "updated", contactId: contact.id }
+        })
+    }
+
+    /**
+     * The consent fact of a contact (merged ids answer their survivor's), or null for a contact that is missing or deleted. The customer
+     * send reads it before a message the shop STARTS; an answer on the person's own route never reads it.
+     */
+    consentOf(workspaceId: string, contactId: string): Promise<OptionalContactConsent> {
+        return this.store.transaction(async (tx) => {
+            const contact = await this.activeIn(tx, workspaceId, contactId)
+            if (contact === null) return null
+            return (await tx.consentsOf(workspaceId, [contact.id])).get(contact.id) ?? null
+        })
+    }
+
+    /**
+     * Sets or clears the contact's "do not contact" fact (GRAPH-CLEAN rule): a person on the contact page sets or clears it; a node step's
+     * call of the engine's contact tool may only SET it (the person asked to stop); a clear by anyone but a person is refused
+     * `cleared_only_by_person`. The same value again writes nothing (`unchanged`). Audited (`consent_changed`) with who and why.
+     */
+    setConsent(workspaceId: string, contactId: string, change: ConsentChange, by: ContactActor): Promise<ConsentOutcome> {
+        return this.store.transaction(async (tx) => {
+            if (by.kind === "channel" || (!change.doNotContact && by.kind !== "member"))
+                return { kind: "refused", reason: "cleared_only_by_person" }
+            const contact = await this.activeIn(tx, workspaceId, contactId)
+            if (contact === null) return { kind: "refused", reason: "contact_missing" }
+            const held = (await tx.consentsOf(workspaceId, [contact.id])).get(contact.id)
+            if (held !== undefined && held.doNotContact === change.doNotContact)
+                return { kind: "unchanged", contactId: contact.id, consent: held }
+            const consent = { doNotContact: change.doNotContact, at: this.clock.now().toISOString(), by, reason: change.reason }
+            await tx.setConsent(workspaceId, contact.id, consent)
+            await tx.insertEvent(workspaceId, {
+                contactId: contact.id,
+                action: "consent_changed",
+                detail: { doNotContact: change.doNotContact, reason: change.reason !== null },
+                by,
+            })
+            return { kind: "set", contactId: contact.id, consent }
         })
     }
 
@@ -508,12 +589,20 @@ export class ContactsService {
                 tags: tagsOf([...survivor.tags, ...loser.tags]),
                 ...(survivor.displayName === null && loser.displayName !== null ? { displayName: loser.displayName } : {}),
             })
+            await this.keepRefusal(tx, workspaceId, survivor.id, loser.id)
             await tx.insertMerge(workspaceId, loser.id, survivor.id, reason, approvalOf(by))
             await tx.updateContact(workspaceId, loser.id, { state: "merged" })
             await tx.insertEvent(workspaceId, { contactId: survivor.id, action: "merged", detail: { from: loser.id, reason }, by })
         })
         await this.memory?.rekey(workspaceId, from, into)
         return { kind: "merged", contactId: into, reason }
+    }
+
+    /** A merge keeps a person's "do not contact": when the contact that goes holds it and the survivor does not, the survivor takes it as it was set. */
+    private async keepRefusal(tx: ContactsTx, workspaceId: string, survivor: string, loser: string): Promise<void> {
+        const held = await tx.consentsOf(workspaceId, [survivor, loser])
+        const lost = held.get(loser)
+        if (lost?.doNotContact === true && held.get(survivor)?.doNotContact !== true) await tx.setConsent(workspaceId, survivor, lost)
     }
 
     private async currentIn(tx: ContactsTx, workspaceId: string, contactId: string): Promise<OptionalContactId> {

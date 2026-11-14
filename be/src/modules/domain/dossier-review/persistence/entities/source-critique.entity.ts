@@ -21,9 +21,9 @@ export class SourceCritiqueEntity extends UuidAbstractEntity {
     reason!: "model" | "credits" | "facts_unread" | "budget" | null
 
     /**
-     * The RUNS of this critique in a row that ended not done without progress (D-V-1; the table checks 0..3): kept by a claim and by
-     * the upkeep tick's resume, started again by a new request and by any progress. At `CRITIC_CAPS.runs` the critique is given up
-     * (`isGivenUp`). Before 2026-11-12 it held the tries of the model in the last call.
+     * The count of runs in a row without progress (D-V-1; the table checks 0..3). NOTHING COUNTS RUNS ANY MORE (the review job's ladder
+     * and dead letter judge a failure): a new request writes 0 and it stays 0. The column and its API field go with the next schema
+     * wave (a migration and the page's query), not before.
      */
     @Column({ name: "attempts", type: "smallint", default: () => "0" })
     attempts!: number

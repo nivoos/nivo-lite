@@ -200,7 +200,6 @@ export class SetupChatService {
             contextVersionId: created.id,
         }
         await this.graph.publish(applier)
-        await this.graph.proposeContracts(applier)
         await this.readiness.settle(workspaceId, installation.id)
         if (installation.agentId !== null) {
             await this.writeAgentTexts(

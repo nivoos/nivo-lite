@@ -20,7 +20,12 @@ const fixtures = () => {
             createThing: { status: 201, body: { status: "open" }, keeps: { collection: "things", keyField: "id" } },
             getThing: { status: 200, body: { id: "none", status: "unknown" }, readsBack: { collection: "things", keyParam: "id" } },
             listThings: { status: 200, body: { items: [{ id: "T-0", status: "open" }] }, listsBack: { collection: "things", listField: "items" } },
-            priceList: { status: 200, body: [{ code: "P1", price: 100 }] },
+            priceList: {
+                status: 200,
+                body: [{ code: "P1", price: 100 }],
+                refused: { status: 404, body: { code: "price_not_found" } },
+                failed: { status: 502, body: { code: "upstream" } },
+            },
         },
     })
     return registry
@@ -80,11 +85,22 @@ describe("OpenApiSandboxReachService", () => {
         })
     })
 
+    it("OPENAPI-2 / -3: an operation whose fixture declares its own refusal and failure answers with them, an operation that declares none with the plain 422 / 503", async () => {
+        const { service, sandbox } = setup()
+        await sandbox.setNextCase(ACCOUNT, OPENAPI_CALL_OPERATION, OPENAPI_SANDBOX_CASE.refused)
+        const refused = await service.call(ACCOUNT, callOf("priceList"))
+        expect([refused.status, bodyOf(refused.text)]).toEqual([404, { code: "price_not_found" }])
+        await sandbox.setNextCase(ACCOUNT, OPENAPI_CALL_OPERATION, OPENAPI_SANDBOX_CASE.failed)
+        const failed = await service.call(ACCOUNT, callOf("priceList"))
+        expect([failed.status, bodyOf(failed.text)]).toEqual([502, { code: "upstream" }])
+        expect((await service.call(ACCOUNT, callOf("getThing", { id: "T-9" }))).status).toBe(503)
+    })
+
     it("OPENAPI-2: the system refuses (422) and nothing is kept; sticky until the default is picked again", async () => {
         const { service, sandbox } = setup()
         await sandbox.setNextCase(ACCOUNT, OPENAPI_CALL_OPERATION, OPENAPI_SANDBOX_CASE.refused)
         expect((await service.call(ACCOUNT, callOf("createThing", { body: { id: "T-1" } }))).status).toBe(422)
-        expect((await service.call(ACCOUNT, callOf("priceList"))).status).toBe(422)
+        expect((await service.call(ACCOUNT, callOf("getThing", { id: "T-1" }))).status).toBe(422)
         await sandbox.setNextCase(ACCOUNT, OPENAPI_CALL_OPERATION, OPENAPI_SANDBOX_CASE.answered)
         expect(bodyOf((await service.call(ACCOUNT, callOf("getThing", { id: "T-1" }))).text)).toEqual({ id: "none", status: "unknown" })
     })

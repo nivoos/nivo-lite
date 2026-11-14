@@ -18,7 +18,7 @@ describe("the team chat's trigger", () => {
         expect([trigger.provider, trigger.verb, trigger.via, trigger.key]).toEqual([
             PROVIDER.nivo,
             TRIGGER.chatMessageReceived,
-            "internal",
+            ["internal"],
             { by: "data", member: "threadId" },
         ])
     })

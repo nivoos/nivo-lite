@@ -4,94 +4,13 @@ import type { KeptFile } from "./trigger-delivery.policy"
 import type { CanonicalEvent, TriggerDeclaration } from "./trigger-declaration.contracts"
 
 /*
- * LEVEL 3 OF A PROVIDER: ITS TRIGGERS. A provider has three levels over its connection: an API the interface calls, tools an agent
- * calls through the gateway, and triggers its own background work (a webhook handler, a poll) emits. A trigger is declared in code by
- * the provider (`PROVIDER_TRIGGERS`): its name, how it is emitted, the typed payload (ids and counts only, never a customer's words),
- * how events are grouped into runs and how a missed event is recovered. Each account has a switch per trigger, OFF until the owner
- * turns it on; an account whose switch is off does no work. A workflow registers on a trigger through a trigger source of kind
- * `provider`; the one emit point `ProviderTriggersService.fire` hands an event to the agents that are attached to the account and have
- * an active workflow registered: ONE of them decides (books money, answers), every other one is told (a notice) and may only act on
- * the records of its own system.
+ * LEVEL 3 OF A PROVIDER: ITS TRIGGERS. A trigger is declared in code by its source as a `TriggerDeclaration` (trigger-declaration.contracts.ts:
+ * the one shape: every way it is received, its words, its account switch, its pure translate); this file holds what the delivery, the
+ * owner's switches and the registry reads say around it: the delivery's input and result, the switch's views and the readers the app binds.
  */
-
-/** A label in the owner's two languages. */
-export interface TriggerWords {
-    /** Vietnamese. */
-    readonly vi: string
-    /** English. */
-    readonly en: string
-}
-
-/** The type of one payload field. A payload holds ids, counts and closed choices: there is no free text type. */
-export type TriggerFieldType = "id" | "integer" | "choice"
-
-/** One field of a trigger's payload, with what it means for the documentation the interface renders. */
-export interface TriggerField {
-    /** The name, as a workflow reads it (`trigger.<name>`) and a filter names it. */
-    readonly name: string
-    /** Its type. */
-    readonly type: TriggerFieldType
-    /** The closed values of a `choice`. */
-    readonly of?: ReadonlyArray<string> | undefined
-    /** What it means, in the owner's two languages. */
-    readonly description: TriggerWords
-    /** True when a workflow's filter may compare it (a closed choice); an id or a count is never filtered on here. */
-    readonly filterable: boolean
-}
-
-/** How the events of one emission are grouped into runs for a registered workflow. */
-export type TriggerBatching =
-    /** One run per event; the payload fields are the run's params. */
-    | { readonly mode: "each" }
-    /** One run per emission, in groups of at most `maxEvents`; the run's params are `eventIds` and `count`. */
-    | { readonly mode: "list"; readonly maxEvents: number }
-
-/** How an event that was not handed over is recovered: the reader's own cursor, the provider's reconcile pass, or nothing. */
-export type TriggerRecovery = "cursor" | "reconcile" | "none"
-
-/** One trigger a provider declares. */
-export interface ProviderTriggerDeclaration {
-    /** The provider key (`sepay`, `imap`). */
-    readonly provider: string
-    /** The name inside the provider (`transaction.received`). */
-    readonly name: string
-    /** How the provider's background work learns of it. */
-    readonly kind: "webhook" | "poll"
-    /** What it is, in the owner's two languages. */
-    readonly description: TriggerWords
-    /** The payload of one event. */
-    readonly payload: ReadonlyArray<TriggerField>
-    /** How events are grouped into runs. */
-    readonly batching: TriggerBatching
-    /** How a missed event is recovered. */
-    readonly recovery: TriggerRecovery
-    /** The payload field whose value is the id of the record the run is about, with that record's kind (`bank-transaction`). */
-    readonly subject?: { readonly kind: string; readonly field: string } | undefined
-    /** True when one agent decides on the event (money, an answer to a customer) and every other one is only told. */
-    readonly decided: boolean
-    /**
-     * True when the switch is ON for an account no person ever switched: the trigger only reports the completion of work NIVO itself
-     * requested (a compose provider's `render.completed`, concept triggers rule 6a), so it opens no new inbound stream. A switch a person
-     * set (on or off) wins over it. Absent: off until the owner turns it on.
-     */
-    readonly onByDefault?: boolean | undefined
-}
-
-/** One event a provider emits: its stable id at the provider, when it happened, and its payload. */
-export interface ProviderEvent {
-    /** The provider's own id of the event: what makes a repeat a no-op. */
-    readonly id: string
-    /** When it happened, when the provider says. */
-    readonly occurredAt?: Date | null | undefined
-    /** The payload, as the declaration types it. */
-    readonly payload: Readonly<Record<string, unknown>>
-}
 
 /** An agent id, or null where there is none. */
 export type OptionalAgentId = string | null
-
-/** A trigger declaration, or null where the provider declares none of that name. */
-export type OptionalTriggerDeclaration = ProviderTriggerDeclaration | null
 
 /** The plain data a trigger's wake hands a run: the params, the trigger, the account and the agent's part. */
 export interface WakeContext {
@@ -219,6 +138,11 @@ export type DeliverResult =
           readonly events: number
           /** Events left out: an id that is no id, data its schema refuses, older than the switch's start point. */
           readonly dropped: number
+          /**
+           * Events that report a fact an earlier row of the workspace already reported (the declaration's `factKey`, owner R97): not handed
+           * on, kept as their raw row with `same_fact_of`, counted here and logged once each; never silent.
+           */
+          readonly sameFact: number
           /** One entry per wake written. */
           readonly woken: ReadonlyArray<{ readonly agentId: string; readonly workflowId: string; readonly eventId: string; readonly wakeId: string }>
           /** Wakes that existed already: the same event delivered twice. */

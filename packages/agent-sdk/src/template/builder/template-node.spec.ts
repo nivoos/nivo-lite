@@ -353,7 +353,7 @@ describe("typed refusals and JSON inputs (checked by tsc)", () => {
         const answer: ToolAnswerOf<typeof TOOL.agentTag> = toolDeclined()
         const confirm: ToolRefusal<typeof TOOL.agentTag> = "conversation_mismatch"
         const readNever: [DeclinedOf<typeof TOOL.contactGet>] extends [never] ? true : false = true
-        const writeAsks: DeclinedOf<typeof TOOL.mailMessageSend> = toolDeclined()
+        const writeAsks: DeclinedOf<typeof TOOL.invoiceCreate> = toolDeclined()
         // @ts-expect-error -- `declined` is no refusal code of a tool: it is the answer's own member
         const notARefusal: ToolRefusal<typeof TOOL.customerMessageSend> = "declined"
         expect(answer.ok ? "done" : answer.declined === true ? "declined" : "other").toBe("declined")

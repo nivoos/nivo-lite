@@ -17,17 +17,6 @@ export interface NodeRightsCopy {
         readonly columnStep: string
         readonly moreOperations: (count: number) => string
     }
-    /** B: the node panel. */
-    readonly panel: {
-        readonly title: (step: string) => string
-        readonly subtitle: string
-        readonly addProvider: string
-        readonly addHint: (count: number) => string
-        readonly remove: string
-        readonly effectiveTitle: string
-        readonly effectiveHint: string
-        readonly effectiveNotAttached: string
-    }
     /** D: provider › rights. */
     readonly provider: {
         readonly filterAll: string
@@ -55,16 +44,6 @@ export const useNodeRightsCopy = (): NodeRightsCopy => {
             columnMode: t("columnMode"),
             columnStep: t("columnStep"),
             moreOperations: (count) => t("moreOperations", { count }),
-        },
-        panel: {
-            title: (step) => t("panelTitle", { step }),
-            subtitle: t("panelSubtitle"),
-            addProvider: t("panelAddProvider"),
-            addHint: (count) => t("panelAddHint", { count }),
-            remove: t("panelRemove"),
-            effectiveTitle: t("effectiveTitle"),
-            effectiveHint: t("effectiveHint"),
-            effectiveNotAttached: t("effectiveNotAttached"),
         },
         provider: {
             filterAll: t("filterAll"),

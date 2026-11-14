@@ -225,11 +225,11 @@ describe("postAsAgent", () => {
 })
 
 describe("the tag trigger", () => {
-    it("hands a message that mentions an agent to the work core once, with the room and the message, and not a retried one", async () => {
+    it("writes the route job of a stored message once, in the message's own transaction, with the room and the message, and none for a retried send", async () => {
         const identity = await seed()
         const { workspaceId, ownerId, agentId } = identity
         const recorder = world.resolve(TeamChatTagRecorder)
-        recorder.handed.length = 0
+        recorder.routed.length = 0
         recorder.allowed = [agentId]
         const room = valueOf(
             await chat().createRoom(workspaceId, ownerId, {
@@ -249,15 +249,10 @@ describe("the tag trigger", () => {
             })
         const sent = valueOf(await send())
         valueOf(await send())
-        expect(recorder.handed).toEqual([
-            {
-                workspaceId,
-                tag: { userId: ownerId, agentId, roomId: room.id, messageId: sent.id, text: "@Bot quote two lanterns" },
-            },
-        ])
+        expect(recorder.routed).toEqual([{ workspaceId, userId: ownerId, roomId: room.id, messageId: sent.id }])
     })
 
-    it("hands nothing over for a message that mentions only people", async () => {
+    it("hands no tag over from the send itself: the tag is the route job's, which runs after the message is stored", async () => {
         const identity = await seed()
         const recorder = world.resolve(TeamChatTagRecorder)
         recorder.handed.length = 0

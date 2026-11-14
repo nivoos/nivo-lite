@@ -18,15 +18,21 @@ const NOT_CONNECTED: DeliveryResult = { delivered: false, failure: "zalo_not_con
 /** The live receipt of an access token Zalo rejects again after a refresh. */
 const TOKEN_REFUSED: DeliveryResult = { delivered: false, failure: "zalo_token", outcome: "rejected" }
 
+/**
+ * The live port's answer for an OA whose message quota is used up, and for a token refresh another worker is making: the port's one
+ * channel-neutral not-sent answer (`CHANNELS_SEND_UNAVAILABLE` with Zalo's word); nothing was sent and the engine tries again later.
+ */
+const notSent = (reason: string): ChannelsError => new ChannelsError({ code: ChannelsErrorCode.SendUnavailable, params: { reason } })
+
 /** The live receipt of a call Zalo never answered: no numeric Zalo error, so the outcome is unknown. */
 const TIMED_OUT: DeliveryResult = { delivered: false, failure: "zalo_error", outcome: "ambiguous" }
 
 @Injectable()
 /**
- * The sandbox twin of the Zalo customer send (`ZALO-SEND-1` .. `4`): it records the send and never reaches Zalo. A person whose last line
+ * The sandbox twin of the Zalo customer send (`ZALO-SEND-1` .. `6`): it records the send and never reaches Zalo. A person whose last line
  * (sandbox state `last-line`, kept by the inbound cases) is older than 48 hours before the request's moment is refused with the live
  * window receipt, whatever case the account picked; a person who never wrote is open, as live. Otherwise the account's next case
- * answers: delivered (default), the window refusal, a rejected token or an unknown outcome. There is no ZNS fallback in the sandbox: a
+ * answers: delivered (default), the window refusal, a rejected token, an unknown outcome, or one of the two NOT SENT answers the engine retries (the live port's thrown `CHANNELS_SEND_UNAVAILABLE`, kind unavailable, with Zalo's word `zalo_quota` or `zalo_refresh_busy`). There is no ZNS fallback in the sandbox: a
  * refused send that carries a renewal notice says `zns_not_configured`, as a live OA without a template does.
  *
  * It is also the sandbox of the other channel calls of a Zalo account: the customer's name (the profile cases `ZALO-4` / `ZALO-5`, the same
@@ -58,6 +64,8 @@ export class ZaloSandboxSendService implements CustomerSendPort {
                     if (closed || state.nextCase === "ZALO-SEND-2") return this.refused(request)
                     if (state.nextCase === "ZALO-SEND-3") return TOKEN_REFUSED
                     if (state.nextCase === "ZALO-SEND-4") return TIMED_OUT
+                    if (state.nextCase === "ZALO-SEND-5") throw notSent("zalo_quota")
+                    if (state.nextCase === "ZALO-SEND-6") throw notSent("zalo_refresh_busy")
                     return DELIVERED
                 },
             },

@@ -30,6 +30,11 @@ export const TELEGRAM_SEND_SANDBOX_CASES: ReadonlyArray<SandboxCase> = [
         label: "The send times out: Telegram never answers, so the outcome is unknown (ambiguous receipt)",
         operation: TELEGRAM_SEND_OPERATION,
     },
+    {
+        id: "TELEGRAM-SEND-4",
+        label: "The send is NOT SENT: Telegram answers too many requests (error_code 429, retry_after 30): the port's not-sent answer CHANNELS_SEND_UNAVAILABLE, so the engine retries later",
+        operation: TELEGRAM_SEND_OPERATION,
+    },
 ]
 
 /**

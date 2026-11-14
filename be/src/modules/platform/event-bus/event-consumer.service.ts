@@ -2,8 +2,10 @@ import { Injectable, Optional, type BeforeApplicationShutdown, type OnApplicatio
 import type { EntityManager } from "typeorm"
 import { InjectCqrsReadiness, type CqrsReadinessService } from "@modules/platform/cqrs"
 import { callDbFunction, InjectPrimaryEntityManager } from "@modules/platform/database"
+import { InjectJobDeadLetters, type JobDeadLettersService } from "@modules/platform/jobs"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { eachInOrder } from "@modules/platform/primitives"
+import { classifyFailure, workspaceOf } from "@modules/platform/queue"
 import {
     DEFAULT_MAX_DELIVERIES,
     type BaseEvent,
@@ -43,6 +45,30 @@ const correlationOf = (message: unknown, eventId: string): string | null => {
     return isCorrelationId(metadata.correlationId) ? metadata.correlationId : null
 }
 
+/** The workspace an envelope's payload names (a uuid), or undefined: the person to tell is that workspace's founder. */
+const workspaceOfEnvelope = (message: unknown): string | undefined => {
+    if (typeof message !== "object" || message === null || !("payload" in message)) return undefined
+    const { payload } = message
+    return typeof payload === "object" && payload !== null ? (workspaceOf(payload) ?? undefined) : undefined
+}
+
+/** The code a failure carries (a domain error's code, a system error's code), or a stand-in when it names none: the reason of the item. */
+const reasonOfFailure = (cause: unknown): string => {
+    const code = typeof cause === "object" && cause !== null && "code" in cause ? cause.code : undefined
+    if (typeof code === "string" && code !== "") return code.slice(0, 200)
+    return (cause instanceof Error ? cause.message : String(cause)).slice(0, 200)
+}
+
+/** Why a delivery was buried, as the item of a person and the dead-letter row read it: the class of the failure and its reason. */
+interface Burial {
+    /** The class `classifyFailure` gave the failure; `transient` for a delivery whose tries ran out. */
+    readonly failureClass: "transient" | "input" | "code" | "config"
+    /** The dead-letter row's reason: `malformed`, `max-deliveries`, or the class of a failure no retry can fix. */
+    readonly reason: string
+    /** The code or message of the failure, or the reason again when no failure is known (the tries ran out in earlier deliveries). */
+    readonly detail: string
+}
+
 /** True for a usable business dedupe key. */
 const isDedupeKey = (value: unknown): value is string =>
     typeof value === "string" && value.trim().length > 0 && value.length <= 256
@@ -66,6 +92,7 @@ export class EventConsumerService implements EventConsumerRegistry, OnApplicatio
         @InjectEventBusOptions() private readonly options: EventBusOptions,
         @InjectLogger() private readonly logger: Logger,
         @Optional() @InjectCqrsReadiness() private readonly cqrs?: CqrsReadinessService,
+        @Optional() @InjectJobDeadLetters() private readonly deadLetters?: JobDeadLettersService,
     ) {}
 
     /** Adds one static subscription; the registry is filled by the reactors' own modules before bootstrap. */
@@ -75,6 +102,11 @@ export class EventConsumerService implements EventConsumerRegistry, OnApplicatio
         options: EventSubscriptionOptions = {},
     ): void {
         this.subscriptions.push({ queue, consumer, maxDeliveries: options.maxDeliveries ?? DEFAULT_MAX_DELIVERIES })
+    }
+
+    /** The consumer queues subscribed in this app, in the order they subscribed. */
+    queues(): ReadonlyArray<string> {
+        return this.subscriptions.map((subscription) => subscription.queue)
     }
 
     /**
@@ -166,10 +198,14 @@ export class EventConsumerService implements EventConsumerRegistry, OnApplicatio
         const event = this.parse(subscription, message)
         const correlationId = event === null ? null : correlationOf(message.message, event.eventId)
         if (event === null || correlationId === null || !isDedupeKey(event.payload.dedupeKey)) {
-            return this.dead(subscription, message, "malformed", null)
+            return this.dead(subscription, message, null, { failureClass: "code", reason: "malformed", detail: "malformed" })
         }
         if (message.readCt > subscription.maxDeliveries) {
-            return this.dead(subscription, message, "max-deliveries", event.eventName)
+            return this.dead(subscription, message, event, {
+                failureClass: "transient",
+                reason: "max-deliveries",
+                detail: "max-deliveries",
+            })
         }
         try {
             await subscription.consumer.handle({
@@ -186,23 +222,32 @@ export class EventConsumerService implements EventConsumerRegistry, OnApplicatio
                 event: event.eventName,
                 attempt: message.readCt,
             })
-            return
+            // The ONE classifier judges the failure. A transient one is left to reappear after the visibility timeout, bounded by the
+            // subscription's deliveries; any other class cannot be fixed by another delivery, so it is buried at once with its item.
+            const failureClass = classifyFailure(cause)
+            if (failureClass === "transient") return
+            return this.dead(subscription, message, event, { failureClass, reason: failureClass, detail: reasonOfFailure(cause) })
         }
         await callDbFunction(this.entityManager, "public.event_bus_archive", [subscription.queue, message.msgId])
     }
 
-    /** Moves the message to `<queue>__dead` and archives the original, in one call. */
+    /**
+     * Moves the message to `<queue>__dead` and archives the original, in one call, then raises the ONE item of the burial through the
+     * dead-letter road jobs use (`flowKind` = the consumer's queue, the id `event:<queue>:<event id>`), so a person is told once per
+     * buried event and can send it back (`EventBus.requeue`). A message nobody could parse names no workspace: the item becomes an app
+     * error the operator reads. An item that cannot be raised is logged; the message stays in the dead-letter queue.
+     */
     private async dead(
         subscription: EventSubscription,
         message: EventMessage,
-        reason: string,
-        eventName: string | null,
+        event: BaseEvent | null,
+        burial: Burial,
     ): Promise<void> {
         this.logger.warn(EventBusLogEvent.DeliveryDead, {
             consumer: subscription.queue,
-            event: eventName,
+            event: event?.eventName ?? null,
             msgId: message.msgId,
-            reason,
+            reason: burial.reason,
             attempt: message.readCt,
         })
         await callDbFunction(this.entityManager, "public.event_bus_bury", [
@@ -210,7 +255,24 @@ export class EventConsumerService implements EventConsumerRegistry, OnApplicatio
             message.msgId,
             message.readCt,
             JSON.stringify(message.message),
-            reason,
+            burial.reason,
         ])
+        const identity = event?.eventId ?? message.msgId
+        await this.deadLetters
+            ?.raise({
+                kind: "flow-parked",
+                jobId: `event:${subscription.queue}:${identity}`,
+                workspaceId: workspaceOfEnvelope(message.message),
+                flowKind: subscription.queue,
+                failureClass: burial.failureClass,
+                reason: burial.detail,
+                episode: 0,
+                correlationId: identity,
+                build: this.options.buildId ?? "unknown",
+                action: "resume",
+            })
+            .catch((cause: unknown) => {
+                this.logger.error(EventBusLogEvent.DeadLetterNotRaised, cause, { consumer: subscription.queue, msgId: message.msgId })
+            })
     }
 }

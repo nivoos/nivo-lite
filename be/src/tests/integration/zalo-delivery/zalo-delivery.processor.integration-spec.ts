@@ -32,7 +32,7 @@ describe("ZaloDeliveryProcessor", () => {
             expectedFencingToken: 3,
             step: "zalo-delivery",
         })
-        expect(inbox.processRecordedDelivery).toHaveBeenCalledWith(job.payload)
+        expect(inbox.processRecordedDelivery).toHaveBeenCalledWith(job.payload, job)
         expect((await zaloDeliveryState(world, message.deliveryId)).receipts[0]?.processed_at).toEqual(expect.any(Date))
         expect(await jobSnapshot(world.db.primary, jobKey)).toMatchObject({
             current_step: "zalo-delivery",
@@ -41,10 +41,10 @@ describe("ZaloDeliveryProcessor", () => {
     })
 
     it.each([{}, { deliveryId: "" }, { deliveryId: "   " }, { deliveryId: 1 }])(
-        "discards invalid references before any claim or effect: %p",
+        "refuses an invalid reference as an input failure before any claim or effect: %p",
         async (payload) => {
             const { processor, inbox, claims, job } = await build(world)
-            await processor.process({ ...job, payload })
+            await expect(processor.process({ ...job, payload })).rejects.toMatchObject({ params: { failureClass: "input" } })
             expect(claims.advance).not.toHaveBeenCalled()
             expect(inbox.processRecordedDelivery).not.toHaveBeenCalled()
         },
@@ -76,9 +76,9 @@ describe("ZaloInboxService receipts in the account", () => {
         const { service, message } = zaloPublicationBuilder(world)
         const [connection = ""] = message.deliveryId.split(":")
         await persistZaloAccount(world, connection)
-        await service.acceptZaloDelivery(ZALO_PROOF_BODY, connection)
+        await service.acceptZaloDelivery(ZALO_PROOF_BODY, connection, "proven")
         const first = await zaloDeliveryState(world, message.deliveryId)
-        await service.acceptZaloDelivery(ZALO_PROOF_BODY, connection)
+        await service.acceptZaloDelivery(ZALO_PROOF_BODY, connection, "proven")
         expect(first.receipts).toHaveLength(1)
         expect(first.receipts[0]?.payload).toEqual({
             eventId: "m-1",

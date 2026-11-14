@@ -1,72 +1,62 @@
 import { Injectable } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
-import { AccountDataIntakeService, scopedDeliveryIdOf } from "@modules/domain/account-data"
+import { AccountDataAdmissionsService, AccountDataIntakeService, scopedDeliveryIdOf } from "@modules/domain/account-data"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
-import type {
-    FeedReceiptPayload,
-    BankFeedInboxReceiptLookup,
-    BankFeedProvider,
-    PendingBankFeedInboxReceipt,
-} from "./bank-feed-inbox.contracts"
-import { deliveryTypeOf, feedDeliveryRowsOf, feedReceiptOf } from "./bank-feed.normalise.policy"
+import type { BankFeedProvider, BankMovementLookup, IncomingCredit, PendingBankMovement } from "./bank-feed-inbox.contracts"
 import { BankFeedInboxLogEvent } from "./bank-feed-inbox.log-events"
+import { feedTransactionRowsOf, transactionTypeOf, type BankMovementSource } from "./bank-feed.normalise.policy"
 
 @Injectable()
 /**
- * Owns durable receipts while participating in the caller's atomic consuming transaction: each receipt is one `<provider>.delivery` row of
- * the account of its connection, keyed by the delivery id without the connection (its unique key is the dedupe), pending until its
- * consumer completes it.
+ * Keeps the movements a bank door's webhook delivers as `<provider>.transaction` rows of the account of their connection, keyed by the
+ * provider's own transaction id (its unique key is the dedupe: a webhook and the poll of one movement are one row), each NEW row admitted
+ * in the same transaction (its job marks the account fed and hands the movement to its trigger), and consumes the pending row.
  */
 export class BankFeedReceiptService {
     constructor(
         private readonly intake: AccountDataIntakeService,
+        private readonly admissions: AccountDataAdmissionsService,
         @InjectLogger() private readonly logger: Logger,
     ) {}
 
-    /** Writes a delivery once using the caller's transaction; answers true only when this call wrote it. A connection nobody holds keeps nothing. */
-    async claim(
+    /** Keeps each movement once in the caller's transaction and admits the new ones; answers how many were new. A connection nobody holds keeps nothing. */
+    async keep(
         manager: EntityManager,
-        provider: BankFeedProvider,
-        deliveryId: string,
-        payload: FeedReceiptPayload,
-    ): Promise<boolean> {
-        const scoped = scopedDeliveryIdOf(deliveryId)
-        if (scoped === null) return this.unknown(provider, payload.connection)
-        const written = await this.intake.write(
-            manager,
-            payload.connection,
-            feedDeliveryRowsOf(provider, scoped.externalId, payload),
-        )
-        if (written.owner === null) return this.unknown(provider, payload.connection)
-        return written.rows.some((row) => row.type === deliveryTypeOf(provider) && row.isNew)
+        door: BankFeedProvider,
+        connection: string,
+        credits: ReadonlyArray<IncomingCredit>,
+        source: BankMovementSource,
+    ): Promise<number> {
+        const rows = feedTransactionRowsOf(door, credits, source)
+        const written = await this.intake.write(manager, connection, rows)
+        if (written.owner === null) return this.unknown(door, connection)
+        let fresh = 0
+        for (const [index, kept] of written.rows.entries()) {
+            const input = rows[index]
+            if (!kept.isNew || input === undefined) continue
+            await this.admissions.admit(manager, { id: kept.id, type: kept.type, key: kept.key, owner: written.owner, value: input.value })
+            fresh += 1
+        }
+        return fresh
     }
 
-    /** Locks a pending delivery until its consumption and completion commit together; undefined when it is absent or already complete. */
-    async lock(
-        manager: EntityManager,
-        provider: BankFeedProvider,
-        deliveryId: string,
-    ): Promise<BankFeedInboxReceiptLookup> {
+    /** Locks a pending movement until its consumption and completion commit together; undefined when it is absent or already complete. */
+    async lock(manager: EntityManager, door: BankFeedProvider, deliveryId: string): Promise<BankMovementLookup> {
         const scoped = scopedDeliveryIdOf(deliveryId)
         if (scoped === null) return undefined
-        const row = await this.intake.lockPending(
-            manager,
-            deliveryTypeOf(provider),
-            scoped.connectionId,
-            scoped.externalId,
-        )
+        const row = await this.intake.lockPending(manager, transactionTypeOf(door), scoped.connectionId, scoped.externalId)
         if (row === null) return undefined
-        return { payload: feedReceiptOf(row.owner.connectionId, row.value), owner: row.owner, row }
+        return { value: row.value, owner: row.owner, row }
     }
 
-    /** Completes the locked delivery in the caller's transaction. */
-    complete(manager: EntityManager, receipt: PendingBankFeedInboxReceipt): Promise<void> {
-        return this.intake.complete(manager, receipt.row)
+    /** Completes the locked movement in the caller's transaction. */
+    complete(manager: EntityManager, movement: PendingBankMovement): Promise<void> {
+        return this.intake.complete(manager, movement.row)
     }
 
-    /** Logs a delivery whose connection nobody holds; it is not kept. */
-    private unknown(provider: BankFeedProvider, connection: string): boolean {
-        this.logger.warn(BankFeedInboxLogEvent.UnknownConnection, { provider, connection })
-        return false
+    /** Logs a movement whose connection nobody holds; it is not kept. */
+    private unknown(door: BankFeedProvider, connection: string): number {
+        this.logger.warn(BankFeedInboxLogEvent.UnknownConnection, { provider: door, connection })
+        return 0
     }
 }

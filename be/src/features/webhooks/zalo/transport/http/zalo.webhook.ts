@@ -9,8 +9,8 @@ import { ConnectionRequest } from "./dto/connection.request"
 
 @Controller("api/connections/zalo")
 /**
- * POST /api/connections/zalo/<connectionId>, the signed intake door of one Zalo OA. The mac made with the OA secret key of the connection is proven first;
- * the verified event goes to one domain intake that claims its inbox row and queues its consumer in one transaction, then tells the poll schedule the webhook delivers. Zalo retries anything but a 200.
+ * POST /api/connections/zalo/<connectionId>, the signed intake door of one Zalo OA. The delivery's proof is decided first (a live account: the mac
+ * made with its OA secret key; a sandbox account: its sandbox key); the event and that verdict go to one domain intake that claims its inbox row and queues its consumer in one transaction, then tells the poll schedule the webhook delivers. Zalo retries anything but a 200.
  */
 export class ZaloWebhook {
     constructor(
@@ -29,7 +29,7 @@ export class ZaloWebhook {
         @Headers("x-zevent-signature") mac?: string,
         @Headers(SANDBOX_KEY_HEADER) sandboxKey?: string,
     ): Promise<void> {
-        await this.signature.verify({
+        const proof = await this.signature.verify({
             provider: "zalo",
             scope: route.connectionId,
             rawBody: request.rawBody,
@@ -37,6 +37,6 @@ export class ZaloWebhook {
             timestamp: undefined,
             sandboxKey,
         })
-        await this.deliveries.accept(request.rawBody, route.connectionId)
+        await this.deliveries.accept(request.rawBody, route.connectionId, proof)
     }
 }

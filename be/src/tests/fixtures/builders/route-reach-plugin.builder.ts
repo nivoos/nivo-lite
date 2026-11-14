@@ -129,7 +129,8 @@ export const tellNode = defineTemplateNode({
     output: tellOutput,
     run: async (given, ctx) => {
         const answer = await ctx.tools.call(TOOL.customerMessageSend, { routeId: given.routeId, text: given.text })
-        return answer.ok ? { told: true, reason: null } : { told: false, reason: answer.refusal }
+        if (answer.ok) return { told: true, reason: null }
+        return { told: false, reason: answer.declined === true ? "declined" : answer.refusal }
     },
     examples: [
         {

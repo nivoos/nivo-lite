@@ -43,7 +43,7 @@ const world = () => {
     const { sandbox, store } = sandboxServiceOf(SANDBOX, LIVE)
     const guard = new SandboxWebhookKeyService(store, { enabled: true }, connections)
     const proofs = mock<WebhookProofRegistry>()
-    proofs.verify.mockResolvedValue(undefined)
+    proofs.verify.mockResolvedValue("proven")
     const tx = fakeTransaction(mockEntityManager())
     // The claim answers a new row the first time a key is seen and nothing after (the account keeps a delivery once).
     const seen = new Set<string>()
@@ -113,7 +113,7 @@ describe("generic webhook sandbox cases on the real generic controller (R62)", (
 
         expect(sent.deliveries.map((one) => one.status)).toEqual([202, 202])
         expect(claimed()).toHaveLength(2)
-        expect(new Set(claimed().map((one) => one.value.deliveryId)).size).toBe(1)
+        expect(new Set(claimed().map((one) => Reflect.get(one.value, "deliveryId"))).size).toBe(1)
         expect(queue.enqueueDeliver).toHaveBeenCalledTimes(1)
     })
 
@@ -133,7 +133,7 @@ describe("generic webhook sandbox cases on the real generic controller (R62)", (
         await doors.send(ACTOR, SANDBOX.id, "WEBHOOK-4", ASKED)
         await doors.send(ACTOR, SANDBOX.id, "WEBHOOK-4", ASKED)
 
-        const ids = claimed().map((one) => String(one.value.deliveryId))
+        const ids = claimed().map((one) => String(Reflect.get(one.value, "deliveryId")))
         expect(ids).toHaveLength(2)
         expect(ids.every((id) => /^[0-9a-f]{64}$/u.test(id))).toBe(true)
         expect(new Set(ids).size).toBe(2)

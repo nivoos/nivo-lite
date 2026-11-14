@@ -4,6 +4,7 @@ import {
     approvalDecisionKind,
     coreAgentMessageKinds,
     defineAgentMessageKind,
+    jobParkedKind,
     packageKindRefusalOf,
     reportFactsPayload,
     workflowStoppedKind,
@@ -44,9 +45,27 @@ describe("team chat contracts", () => {
         expect(workflowStoppedKind.actions).toEqual({ approve: false, edit: "none", reject: false })
     })
 
-    it("registers the engine's brain.change, background.stopped and chain.stopped as core kinds", () => {
+    it("registers the engine's brain.change, background.stopped, job.parked and chain.stopped as core kinds", () => {
         const ids = coreAgentMessageKinds.map((kind) => kind.id)
-        expect(ids).toEqual(expect.arrayContaining(["brain.change", "background.stopped", "chain.stopped"]))
+        expect(ids).toEqual(expect.arrayContaining(["brain.change", "background.stopped", "job.parked", "chain.stopped"]))
+    })
+
+    it("job.parked is a read-only card that holds codes only: a uuid, the job name, a class, the reason, an episode and the time", () => {
+        expect(jobParkedKind.actions).toEqual({ approve: false, edit: "none", reject: false })
+        const card = {
+            version: 1,
+            jobId: "3f2b8c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e",
+            job: "index-knowledge-source",
+            failureClass: "input",
+            reason: "KNOWLEDGE_SOURCE_UNREADABLE",
+            episode: 0,
+            since: "2026-11-14T10:00:00.000Z",
+        }
+        expect(jobParkedKind.payload.safeParse(card).success).toBe(true)
+        expect(jobParkedKind.payload.safeParse({ ...card, jobId: "not-a-uuid" }).success).toBe(false)
+        expect(jobParkedKind.payload.safeParse({ ...card, failureClass: "other" }).success).toBe(false)
+        expect(jobParkedKind.payload.safeParse({ ...card, episode: -1 }).success).toBe(false)
+        expect(jobParkedKind.payload.safeParse({ ...card, job: "x".repeat(121) }).success).toBe(false)
     })
 
     it("a report with facts keeps a technical fact apart and refuses a value that is too long", () => {

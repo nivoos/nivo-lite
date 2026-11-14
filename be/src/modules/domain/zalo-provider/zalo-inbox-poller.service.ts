@@ -7,72 +7,51 @@ import {
     type PollWindow,
 } from "@modules/domain/connection-poll"
 import type { ConnectionRecord } from "@modules/domain/connections"
-import type { MessageInboxPoller } from "@modules/domain/provider-registry"
 import { InjectZalo, ZaloError, ZaloErrorCode, type ZaloChatMessage, type ZaloClient } from "@modules/integrations/zalo"
-import { InjectClock, type Clock } from "@modules/platform/clock"
 import { eachInOrder } from "@modules/platform/primitives"
 import { InjectZaloAccessTokens, type ZaloAccessTokens } from "./zalo-access-tokens.port"
-import { InjectZaloProviderOptions } from "./zalo-provider.decorators"
-import type { ZaloProviderOptions } from "./zalo-provider.options"
 import { ZALO_PLAN_LACKS_READING_NOTICE } from "./messages/zalo-provider.messages"
-import {
-    ZALO_POLL_MAX_PAGES,
-    ZALO_POLL_PAGE_SIZE,
-    isStaleMessage,
-    pollRulesOf,
-    type ZaloPollRules,
-} from "./zalo-poll.policy"
+import { ZALO_POLL_MAX_PAGES, ZALO_POLL_PAGE_SIZE } from "./zalo-poll.policy"
 
 /** The number Zalo answers when the OA tier package does not include the feature ("The OA needs to upgrade OA Tier Package to use this feature"). */
 const PLAN_LACKS_FEATURE = -224
 
+/** One message of a chat list as the provider's reader answers it (the sandbox twin answers the same shape). */
+export type ZaloListedMessage = ZaloChatMessage
+
 /** Reads one page of a chat list from an offset. */
 type ChatReader = (offset: number) => Promise<ReadonlyArray<ZaloChatMessage>>
-
-/** One customer text the poll read back, with whether it is too old for an agent to answer (past the reply window or the stale age). */
-export interface PolledZaloItem extends ZaloChatMessage {
-    /** True when the message goes to the owner and no agent answers it. */
-    readonly stale: boolean
-}
 
 @Injectable()
 /**
  * Reads the customer messages of a Zalo OA connection with its access token: the recent chats name the conversations that moved inside the window,
  * then each conversation is read newest first. Answers what the customers wrote as one page (Zalo lists ten rows per call, so the walk over the
- * calls is bounded here, and every call takes a token of the connection's bucket), each text message marked stale or not. It stores nothing:
- * the intake keeps each one as the event the webhook would have made of it (the poll is the message trigger's reconcile, one trigger).
+ * calls is bounded here, and every call takes a token of the connection's bucket). It reads the provider only: no clock, no write; the
+ * receiver that wraps it makes each text the `zalo_oa.event` row the webhook would have kept, and the admission judges what is too old.
  */
-export class ZaloInboxPollerService implements MessageInboxPoller<PolledZaloItem> {
+export class ZaloInboxPollerService {
     readonly provider = "zalo_oa"
     /**
      * Zalo publishes no rate for the OA open API: until it does, one OA gets two calls a second, a burst of four and two connections reading at once,
      * which is gentler than the 400 ms pause the first version slept between calls.
      */
     readonly limits: PollLimits = { ratePerSecond: 2, burst: 4, concurrency: 2 }
-    private readonly rules: ZaloPollRules
 
     constructor(
-        @InjectClock() private readonly clock: Clock,
         @InjectZalo() private readonly zalo: ZaloClient,
-        @InjectZaloProviderOptions() options: ZaloProviderOptions,
         @InjectZaloAccessTokens() private readonly tokens: ZaloAccessTokens,
         private readonly limiter: PollLimiterService,
-    ) {
-        this.rules = pollRulesOf(options)
-    }
+    ) {}
 
     /** Reads the window; a connection without a usable credential or an access token is left out, not failed. */
-    async fetch(connection: ConnectionRecord, window: PollWindow): Promise<PollPage<PolledZaloItem>> {
+    async fetch(connection: ConnectionRecord, window: PollWindow): Promise<PollPage<ZaloChatMessage>> {
         const access = await this.tokens.tokenOf(connection.id)
         if (access.kind === "skipped") return { kind: "skipped", reason: access.reason }
         const written = await this.writtenIn(access.token, connection.id, window)
         const times = written.map((message) => message.sentAt)
-        const now = this.clock.now().getTime()
         return {
             kind: "page",
-            items: written
-                .filter((message) => message.kind === "text" && message.text.trim() !== "")
-                .map((message) => ({ ...message, stale: isStaleMessage(message.sentAt, now, this.rules) })),
+            items: written.filter((message) => message.kind === "text" && message.text.trim() !== ""),
             fetched: written.length,
             oldestAt: written.length === 0 ? undefined : new Date(Math.min(...times)),
             newestAt: written.length === 0 ? undefined : new Date(Math.max(...times)),

@@ -32,6 +32,7 @@ export type DefinitionErrorCode =
     | "SOURCE_RESERVED"
     | "RECORD_QUERY_OTHER_AGENT"
     | "SERVICE_MODULE_MISMATCH"
+    | "PROVIDER_SANDBOX_INVALID"
 
 /**
  * Thrown at module load by `defineBlock`, `defineRead`, `defineAction`, `defineNode`, `defineEffect`, `definePort`, `defineService`, `defineServiceContract`, `defineModule`, `listRead`, `countsRead`, `defineInstallation`, `definePlugin` and `defineDataKind`, so a bad

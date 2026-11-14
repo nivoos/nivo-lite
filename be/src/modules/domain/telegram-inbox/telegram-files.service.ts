@@ -4,6 +4,7 @@ import type { TelegramFileAddress } from "./telegram-inbox.contracts"
 import type { TelegramMessageFile } from "./telegram-message.trigger"
 import { InjectTelegram, type TelegramClient } from "@modules/integrations/telegram"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
+import { classifyFailure } from "@modules/platform/queue"
 import { TelegramInboxLogEvent } from "./telegram-inbox.log-events"
 
 /** The largest file a bot may download (Bot API `getFile`: "bots can download files of up to 20MB in size"). */
@@ -12,8 +13,9 @@ export const TELEGRAM_DOWNLOAD_MAX_BYTES: number = 20 * 1024 * 1024
 @Injectable()
 /**
  * Turns the file ids of a Telegram message into the addresses the shop reads them from once (Bot API `getFile`, with the bot of the
- * connection the update came in on). Never throws: a file Telegram will not give, one too large for a bot, or a connection whose bot
- * cannot be opened stays on the line without an address, so a step is told a picture came that nobody saw. The address carries the bot
+ * connection the update came in on). A file Telegram will not give for good (a refusal), one too large for a bot, or a connection whose bot
+ * cannot be opened stays on the line without an address, so a step is told a picture came that nobody saw. A call that failed on the way or
+ * on a busy Telegram THROWS (the delivery job runner retries it on its ladder, then dead-letters it with one item). The address carries the bot
  * token and only goes to the guarded file fetch, which keeps the bytes under the shop's own path.
  */
 export class TelegramFilesService {
@@ -52,6 +54,7 @@ export class TelegramFilesService {
                 this.logger.warn(TelegramInboxLogEvent.FileNotAddressed, { connectionId, reason: "no_file_path" })
             return { ...unaddressed, url }
         } catch (cause) {
+            if (classifyFailure(cause) === "transient") throw cause
             this.logger.warn(TelegramInboxLogEvent.FileNotAddressed, {
                 connectionId,
                 reason: cause instanceof Error ? cause.name : "unknown",

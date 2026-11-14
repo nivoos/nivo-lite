@@ -1,21 +1,17 @@
 import {
-    receipt,
     receiptCasesOf,
     tx1,
     incoming,
     feedDelivery,
 } from "@tests/fixtures/builders/bank-feed-receipts.builder"
-import { createHash } from "node:crypto"
 import { Test } from "@nestjs/testing"
-import { fakeTransaction, mock, mockEntityManager, recordingQueueOutbox } from "@starci/jest-preset"
+import { fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
 import { isTransactionManager } from "@starci/jest-preset/entity-manager"
 import { BankFeedReceiptService } from "@modules/domain/bank-feed-inbox"
 import { SepayConnectionService } from "@modules/domain/channel-connections"
 import { FeedWebhookRegistryService } from "@modules/domain/provider-registry"
 import { SepayFeedWebhookService } from "@modules/domain/sepay-provider"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
-import { QUEUE_OUTBOX } from "@modules/platform/queue"
-import { BANK_FEED_DELIVERY_QUEUE } from "@modules/queues/bank-feed-delivery"
 import { BankFeedReceiptsService } from "./bank-feed-receipts.service"
 import type { BankFeedProvider } from "./billing.contracts"
 import { BillingError, BillingErrorCode } from "./errors/billing.error"
@@ -42,12 +38,9 @@ const cases = receiptCasesOf(tx1, incoming).map((receiptCase) =>
 )
 const build = async () => {
     const tx = fakeTransaction(mockEntityManager())
-    const outbox = recordingQueueOutbox()
-    const write = jest.spyOn(outbox, "write")
     const proof = mock<PaymentProofService>()
     const feedInbox = mock<BankFeedReceiptService>()
-    feedInbox.claim.mockResolvedValue(true)
-    feedInbox.lock.mockResolvedValue(receipt)
+    feedInbox.keep.mockResolvedValue(1)
     const sepayPage = mock<SepayConnectionService>()
     sepayPage.traceIntake.mockImplementation((_feed, _raw, intake) => intake())
     sepayPage.traceRefusal.mockResolvedValue(undefined)
@@ -58,12 +51,11 @@ const build = async () => {
             { provide: PRIMARY_ENTITY_MANAGER, useValue: tx.em },
             { provide: PaymentProofService, useValue: proof },
             { provide: BankFeedReceiptService, useValue: feedInbox },
-            { provide: QUEUE_OUTBOX, useValue: outbox },
         ],
     }).compile()
     const webhooks = moduleRef.get(FeedWebhookRegistryService)
     webhooks.register(new SepayFeedWebhookService(sepayPage, webhooks))
-    return { feed: moduleRef.get(BankFeedReceiptsService), tx, outbox, write, proof, feedInbox, sepayPage }
+    return { feed: moduleRef.get(BankFeedReceiptsService), tx, proof, feedInbox, sepayPage }
 }
 const acceptReceipt = (feed: BankFeedReceiptsService, provider: BankFeedProvider, body: object) => {
     if (provider === "casso") return feed.acceptCassoDelivery(raw(body), "conn-1")
@@ -71,31 +63,25 @@ const acceptReceipt = (feed: BankFeedReceiptsService, provider: BankFeedProvider
     return feed.acceptFeedDelivery(raw(body), "conn-1", "sepay")
 }
 describe("BankFeedReceiptsService provider receipt intake", () => {
-    it.each(cases)("claims and queues $provider without booking", async ({ provider, body, deliveryId, credits }) => {
-        const { feed, feedInbox, write, tx } = await build()
+    it.each(cases)("keeps the $provider movement in one transaction, as a webhook row, without booking", async ({ provider, body, credits }) => {
+        const { feed, feedInbox, tx } = await build()
         await acceptReceipt(feed, provider, body)
-        const manager = feedInbox.claim.mock.calls[0]?.[0]
+        const manager = feedInbox.keep.mock.calls[0]?.[0]
         expect(isTransactionManager(manager)).toBe(true)
-        expect(feedInbox.claim).toHaveBeenCalledWith(manager, provider, deliveryId, { connection: "conn-1", credits })
-        expect(write).toHaveBeenCalledWith(
-            manager,
-            BANK_FEED_DELIVERY_QUEUE,
-            { provider, deliveryId },
-            { dedupeKey: `bank-feed-delivery:${provider}:${deliveryId}` },
-        )
+        expect(feedInbox.keep).toHaveBeenCalledWith(manager, provider, "conn-1", credits, "webhook")
+        expect(tx.commits).toBe(1)
         expect(tx.em.query).not.toHaveBeenCalled()
         expect(tx.em.createQueryBuilder).not.toHaveBeenCalled()
     })
-    it.each(cases)("acknowledges duplicate $provider receipts", async ({ provider, body }) => {
-        const { feed, feedInbox, outbox, tx } = await build()
-        feedInbox.claim.mockResolvedValue(false)
+    it.each(cases)("acknowledges duplicate $provider deliveries (the inbox keeps nothing new)", async ({ provider, body }) => {
+        const { feed, feedInbox, tx } = await build()
+        feedInbox.keep.mockResolvedValue(0)
         await acceptReceipt(feed, provider, body)
-        expect(outbox.jobs).toEqual([])
         expect(tx.commits).toBe(1)
     })
-    it.each(cases)("rolls back failed $provider publication", async ({ provider, body }) => {
-        const { feed, outbox, tx } = await build()
-        outbox.failNext("write", refusal)
+    it.each(cases)("rolls back a failed $provider keep or admission", async ({ provider, body }) => {
+        const { feed, feedInbox, tx } = await build()
+        feedInbox.keep.mockRejectedValue(refusal)
         await expect(acceptReceipt(feed, provider, body)).rejects.toBe(refusal)
         expect(tx.rollbacks).toBe(1)
     })
@@ -109,20 +95,20 @@ describe("BankFeedReceiptsService provider receipt intake", () => {
         await feed.acceptFeedDelivery(raw({ ...incoming, transferType: "out", transferAmount: 0 }), "conn-1", "sepay")
         await feed.acceptFeedDelivery(raw({ ...incoming, transferAmount: 0 }), "conn-1", "sepay")
         await feed.acceptFeedDelivery(raw({ ...incoming, transferAmount: "lots" }), "conn-1", "sepay")
-        expect(feedInbox.claim).not.toHaveBeenCalled()
+        expect(feedInbox.keep).not.toHaveBeenCalled()
         expect(tx.outcomes).toEqual([])
     })
     it("acknowledges a SePay test ping without an id and settles nothing", async () => {
         const { feed, tx, feedInbox } = await build()
         await expect(feed.acceptFeedDelivery(raw({}), "conn-1", "sepay")).resolves.toBeUndefined()
-        expect(feedInbox.claim).not.toHaveBeenCalled()
+        expect(feedInbox.keep).not.toHaveBeenCalled()
         expect(tx.outcomes).toEqual([])
     })
     it("refuses a money delivery without a usable id and a delivery for a provider that registered no webhook", async () => {
         const { feed, feedInbox } = await build()
         await expect(feed.acceptFeedDelivery(raw({ ...incoming, id: 1.5 }), "conn-1", "sepay")).rejects.toEqual(refusal)
         await expect(feed.acceptFeedDelivery(raw(incoming), "conn-1", "unknown")).rejects.toEqual(refusal)
-        expect(feedInbox.claim).not.toHaveBeenCalled()
+        expect(feedInbox.keep).not.toHaveBeenCalled()
     })
     it("leaves a refused key of a provider with no webhook unremembered", async () => {
         const { feed, proof, sepayPage } = await build()
@@ -173,10 +159,11 @@ describe("BankFeedReceiptsService bank facts", () => {
         const row = { ...tx1, tid: "FT20322ABCD", bank_sub_acc_id: "0123456789", when: "2020-11-17 18:46:56" }
         const body = raw({ error: 0, data: [row] })
         await feed.acceptCassoDelivery(body, "conn-1")
-        const deliveryId = `conn-1:${createHash("sha256").update(body).digest("hex")}`
-        expect(feedInbox.claim).toHaveBeenCalledWith(expect.anything(), "casso", deliveryId, {
-            connection: "conn-1",
-            credits: [
+        expect(feedInbox.keep).toHaveBeenCalledWith(
+            expect.anything(),
+            "casso",
+            "conn-1",
+            [
                 {
                     amount: 150000,
                     content: "NIVO8F3K2",
@@ -187,7 +174,8 @@ describe("BankFeedReceiptsService bank facts", () => {
                     occurredAt: "2020-11-17T11:46:56.000Z",
                 },
             ],
-        })
+            "webhook",
+        )
     })
     it("passes the bank's facts of a paid payOS order, keyed as before", async () => {
         const { feed, feedInbox } = await build()
@@ -198,9 +186,11 @@ describe("BankFeedReceiptsService bank facts", () => {
             transactionDateTime: "2023-02-04 18:25:00",
         }
         await feed.acceptPayosDelivery(raw({ code: "00", data }), "conn-1")
-        expect(feedInbox.claim).toHaveBeenCalledWith(expect.anything(), "payos", "conn-1:payos:FT1", {
-            connection: "conn-1",
-            credits: [
+        expect(feedInbox.keep).toHaveBeenCalledWith(
+            expect.anything(),
+            "payos",
+            "conn-1",
+            [
                 {
                     amount: 10,
                     content: "",
@@ -211,35 +201,42 @@ describe("BankFeedReceiptsService bank facts", () => {
                     occurredAt: "2023-02-04T11:25:00.000Z",
                 },
             ],
-        })
+            "webhook",
+        )
     })
     it("passes no bank member for a payOS order known only by its order code", async () => {
         const { feed, feedInbox } = await build()
         await feed.acceptPayosDelivery(raw({ code: "00", data: { orderCode: 7, amount: 10 } }), "conn-1")
-        expect(feedInbox.claim).toHaveBeenCalledWith(expect.anything(), "payos", "conn-1:payos:7", {
-            connection: "conn-1",
-            credits: [{ amount: 10, content: "", eventId: "payos:7", fallbackBankName: "payOS" }],
-        })
+        expect(feedInbox.keep).toHaveBeenCalledWith(
+            expect.anything(),
+            "payos",
+            "conn-1",
+            [{ amount: 10, content: "", eventId: "payos:7", fallbackBankName: "payOS" }],
+            "webhook",
+        )
     })
     it("passes the SePay referenceCode of a delivery as the bank's reference", async () => {
         const { feed, feedInbox } = await build()
         await feed.acceptFeedDelivery(raw({ ...incoming, referenceCode: "FT321" }), "conn-1", "sepay")
-        expect(feedInbox.claim).toHaveBeenCalledWith(
+        expect(feedInbox.keep).toHaveBeenCalledWith(
             expect.anything(),
             "sepay-feed",
-            "conn-1:sepay:321",
-            objectLike({ credits: [objectLike({ eventId: "sepay:321", bankRef: "FT321" })] }),
+            "conn-1",
+            [objectLike({ eventId: "sepay:321", bankRef: "FT321" })],
+            "webhook",
         )
     })
 })
 describe("BankFeedReceiptsService debits", () => {
     const outgoing = { ...incoming, id: 654, transferType: "out", transferAmount: 45000.4, content: "Pay supplier" }
-    it("claims a SePay transfer out as a debit receipt", async () => {
+    it("keeps a SePay transfer out as a debit movement", async () => {
         const { feed, feedInbox } = await build()
         await feed.acceptFeedDelivery(raw(outgoing), "conn-1", "sepay")
-        expect(feedInbox.claim).toHaveBeenCalledWith(expect.anything(), "sepay-feed", "conn-1:sepay:654", {
-            connection: "conn-1",
-            credits: [
+        expect(feedInbox.keep).toHaveBeenCalledWith(
+            expect.anything(),
+            "sepay-feed",
+            "conn-1",
+            [
                 {
                     amount: 45000.4,
                     content: "Pay supplier",
@@ -248,36 +245,8 @@ describe("BankFeedReceiptsService debits", () => {
                     direction: "debit",
                 },
             ],
-        })
-    })
-})
-describe("BankFeedReceiptsService polled credits", () => {
-    const polled = { amount: 5000, content: "BUI NGUYEN DINH", eventId: "sepay:95958515", fallbackBankName: "MBBank" }
-    it("claims a polled transaction under the webhook key, tagged as a poll, and queues it once", async () => {
-        const { feed, feedInbox, write } = await build()
-        await expect(feed.acceptPolledCredit("conn-1", "sepay-feed", "conn-1:sepay:95958515", polled)).resolves.toBe(
-            true,
+            "webhook",
         )
-        const manager = feedInbox.claim.mock.calls[0]?.[0]
-        expect(feedInbox.claim).toHaveBeenCalledWith(manager, "sepay-feed", "conn-1:sepay:95958515", {
-            connection: "conn-1",
-            credits: [polled],
-            source: "poll",
-        })
-        expect(write).toHaveBeenCalledWith(
-            manager,
-            BANK_FEED_DELIVERY_QUEUE,
-            { provider: "sepay-feed", deliveryId: "conn-1:sepay:95958515" },
-            { dedupeKey: "bank-feed-delivery:sepay-feed:conn-1:sepay:95958515" },
-        )
-    })
-    it("records nothing when the webhook already delivered the transaction", async () => {
-        const { feed, feedInbox, outbox } = await build()
-        feedInbox.claim.mockResolvedValue(false)
-        await expect(feed.acceptPolledCredit("conn-1", "sepay-feed", "conn-1:sepay:95958515", polled)).resolves.toBe(
-            false,
-        )
-        expect(outbox.jobs).toEqual([])
     })
 })
 describe("BankFeedReceiptsService SePay content fallback", () => {
@@ -292,13 +261,12 @@ describe("BankFeedReceiptsService SePay content fallback", () => {
             "conn-1",
             "sepay",
         )
-        expect(feedInbox.claim).toHaveBeenCalledWith(
+        expect(feedInbox.keep).toHaveBeenCalledWith(
             expect.anything(),
             "sepay-feed",
-            "conn-1:sepay:7",
-            objectLike({
-                credits: [objectLike({ content: expected, eventId: "sepay:7", fallbackBankName: "SePay" })],
-            }),
+            "conn-1",
+            [objectLike({ content: expected, eventId: "sepay:7", fallbackBankName: "SePay" })],
+            "webhook",
         )
     })
 })

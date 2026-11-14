@@ -104,6 +104,7 @@ const build = async (seeding: boolean) => {
             status: "delivered",
             events: 1,
             dropped: 0,
+            sameFact: 0,
             woken: [{ agentId: request.agentId ?? "", workflowId: "w-1", eventId: request.events[0]?.event.id ?? "", wakeId: "wake-1" }],
             repeats: 0,
             untaken: 0,

@@ -44,6 +44,8 @@ import { InboundEventsModule } from "@modules/domain/inbound-events"
 import { ClockModule } from "@modules/platform/clock"
 import { IdsModule } from "@modules/platform/ids"
 import { DatabaseModule } from "@modules/platform/database"
+import { SeedStandardGitModule } from "@modules/domain/seed-standard-git"
+import { DataSeedModule } from "@modules/integrations/seed"
 import { PRIMARY_ENTITIES } from "@modules/platform/database/entities"
 import { appPgTypes } from "@modules/integrations/data-sources"
 import { EventBusModule } from "@modules/platform/event-bus"
@@ -119,6 +121,9 @@ export const cliModules = (options: CliAppOptions): Array<DynamicModule | Type> 
         print: printConsoleLine,
         ...options.workspaceSeed,
     }),
+    // The seed standard seam (the harness data standard's git layer): without it `seed-standard apply` stops with WORKSPACE_SEED_DRIVER_MISSING.
+    DataSeedModule.register({ isGlobal: true, ...options.seed }),
+    SeedStandardGitModule.register({ isGlobal: true }),
     ...entityEngineStoreModules(options),
     AgentGraphsModule.register({ isGlobal: true, storeOnly: true }),
     WorkspaceCleanupModule.register({ isGlobal: true, accounts: IDENTITY_ACCOUNTS, print: printConsoleLine }),

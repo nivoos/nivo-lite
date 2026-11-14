@@ -83,7 +83,7 @@ const build = async () => {
 
 it("declares the retry budget of every job", async () => {
     const subject = await build()
-    expect({ attempts: subject.ATTEMPTS, backoffMs: subject.BACKOFF_MS }).toEqual({ attempts: 4, backoffMs: 5000 })
+    expect({ attempts: subject.ATTEMPTS, backoffMs: subject.BACKOFF_MS }).toEqual({ attempts: 6, backoffMs: 5000 })
     expect([subject.KEEP_COMPLETED_SECONDS, subject.KEEP_FAILED_SECONDS, subject.REDIS_DEADLINE_MS]).toEqual([
         3600, 604800, 5000,
     ])

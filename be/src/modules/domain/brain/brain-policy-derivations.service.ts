@@ -49,12 +49,10 @@ export interface PolicyDerivationState {
 /** The state of a workspace's pass, or null when none was ever asked for. */
 export type MaybePolicyDerivationState = PolicyDerivationState | null
 
-/** The start of a pass: when it started and the tries that failed in a row before it. */
+/** The start of a pass: when it started. */
 export interface PolicyPassStart {
     /** When the pass started. */
     readonly startedAt: Date
-    /** Tries that failed in a row before it. */
-    readonly attempts: number
 }
 
 /** How a pass that left nothing to judge ended: the state is idle, or a change came during it and one more pass is queued. */
@@ -108,18 +106,26 @@ export class BrainPolicyDerivationsService implements OnModuleInit, FactsChanged
      * The facts store's announcement: what is in force changed in a workspace. Never throws. While a pass given up on its model is
      * recent (`FAILED_COOLDOWN_MS`) a change does not ask again (its cause stands); the tab's door always does.
      */
-    async factsChanged(workspaceId: string): Promise<void> {
+    async factsChanged(workspaceId: string, _changedIds: ReadonlyArray<string> = [], tx?: EntityManager): Promise<void> {
+        // Inside a job's finishing transaction the request is written in it (the state row and the pass's job commit with the job's own
+        // writes) and a failure throws, so the job is retried; told after a plain write it is logged, the write already stands.
+        if (tx !== undefined) return this.askedUnlessCooling(workspaceId, tx)
         try {
-            const row = await this.entityManager.findOne(BrainPolicyDerivationEntity, { where: { workspaceId } })
-            const cooling =
-                row?.status === "failed" &&
-                row.error === "model" &&
-                this.clock.now().getTime() - row.updatedAt.getTime() < FAILED_COOLDOWN_MS
-            if (cooling) return
-            await this.request(workspaceId)
+            await this.askedUnlessCooling(workspaceId)
         } catch (cause) {
             this.logger.error(PolicyDeriveLogEvent.RequestFailed, cause, { workspaceId })
         }
+    }
+
+    /** Asks for a pass unless one given up on its model is recent. */
+    private async askedUnlessCooling(workspaceId: string, tx?: EntityManager): Promise<void> {
+        const row = await (tx ?? this.entityManager).findOne(BrainPolicyDerivationEntity, { where: { workspaceId } })
+        const cooling =
+            row?.status === "failed" &&
+            row.error === "model" &&
+            this.clock.now().getTime() - row.updatedAt.getTime() < FAILED_COOLDOWN_MS
+        if (cooling) return
+        await this.request(workspaceId, tx)
     }
 
     /** The state of the workspace's pass, or null when none was ever asked for. */
@@ -129,11 +135,11 @@ export class BrainPolicyDerivationsService implements OnModuleInit, FactsChanged
     }
 
     /**
-     * Asks for a pass. One that waits or runs (and is not lost) only learns the time of this request: a waiting pass has not read the
+     * Asks for a pass (in the caller's transaction when it hands one over: a job's finishing transaction). One that waits or runs (and is not lost) only learns the time of this request: a waiting pass has not read the
      * facts yet, a running one runs once more when it ends. Otherwise the state becomes `queued` and the job is written with it.
      */
-    request(workspaceId: string): Promise<PolicyDeriveRequested> {
-        return this.entityManager.transaction(async (tx) => {
+    request(workspaceId: string, within?: EntityManager): Promise<PolicyDeriveRequested> {
+        const ask = async (tx: EntityManager): Promise<PolicyDeriveRequested> => {
             const now = this.clock.now()
             const row = await tx.findOne(BrainPolicyDerivationEntity, { where: { workspaceId } })
             const since = row?.status === "running" ? (row.startedAt ?? row.requestedAt) : row?.requestedAt
@@ -148,7 +154,8 @@ export class BrainPolicyDerivationsService implements OnModuleInit, FactsChanged
             }
             await this.queued(tx, workspaceId, now)
             return "queued"
-        })
+        }
+        return within === undefined ? this.entityManager.transaction(ask) : ask(within)
     }
 
     /** The door of the tab (derive again, or retry after a failure): an owner or a manager asks for a pass of their workspace. */
@@ -189,14 +196,15 @@ export class BrainPolicyDerivationsService implements OnModuleInit, FactsChanged
         return queued
     }
 
-    /** A pass starts: the state is `running` from now; answers the tries that failed in a row before it. */
+    /** A pass starts: the state is `running` from now (a state the dead letter left as `failed` is taken up again here); answers when it started. */
     async started(workspaceId: string): Promise<PolicyPassStart> {
         const startedAt = this.clock.now()
-        await this.entityManager.upsert(BrainPolicyDerivationEntity, { workspaceId, status: "running", startedAt }, [
-            "workspaceId",
-        ])
-        const row = await this.entityManager.findOne(BrainPolicyDerivationEntity, { where: { workspaceId } })
-        return { startedAt, attempts: row?.attempts ?? 0 }
+        await this.entityManager.upsert(
+            BrainPolicyDerivationEntity,
+            { workspaceId, status: "running", startedAt, error: null },
+            ["workspaceId"],
+        )
+        return { startedAt }
     }
 
     /**
@@ -213,7 +221,7 @@ export class BrainPolicyDerivationsService implements OnModuleInit, FactsChanged
             await tx.update(
                 BrainPolicyDerivationEntity,
                 { workspaceId },
-                { status: "idle", derivedAt: this.clock.now(), attempts: 0, error: null },
+                { status: "idle", derivedAt: this.clock.now(), error: null },
             )
             return "idle"
         })
@@ -224,49 +232,38 @@ export class BrainPolicyDerivationsService implements OnModuleInit, FactsChanged
         await this.entityManager.transaction((tx) => this.queued(tx, workspaceId, this.clock.now()))
     }
 
-    /** A try failed and the queue will run the pass again: the count is kept. */
-    async retrying(workspaceId: string, attempts: number): Promise<void> {
-        await this.entityManager.update(BrainPolicyDerivationEntity, { workspaceId }, { attempts, error: "model" })
+    /**
+     * A pass is WAITING for credits (a business wait, not a failure): the tab shows it, and NIVO tells the founder in /chat with its
+     * common "background work stopped" card, ONCE per episode. The episode is the last pass that ENDED WELL (`derivedAt`; never one: one
+     * episode): every wait until a pass succeeds again is the same episode (D-BR-2 (e)). Only the api composes the team chat; without it
+     * (mcp, cli: they never run a pass) nothing is posted.
+     */
+    async waitingForCredits(workspaceId: string): Promise<void> {
+        await this.entityManager.update(BrainPolicyDerivationEntity, { workspaceId }, { status: "failed", error: "credits" })
+        if (this.notices === undefined) return
+        const row = await this.entityManager.findOne(BrainPolicyDerivationEntity, { where: { workspaceId } })
+        if (row === null) return
+        const posted = await this.notices.postBackgroundStopped(workspaceId, {
+            work: "brain.policies.derive",
+            reason: "credits",
+            episode: row.derivedAt ?? NEVER_DERIVED,
+        })
+        this.logger.info(PolicyDeriveLogEvent.StopReported, { workspaceId, reason: "credits", posted })
     }
 
     /**
-     * A pass was given up: the tab shows it, the next change or the door asks again, and NIVO tells the founder in /chat with its common
-     * "background work stopped" card, ONCE per failure episode. The episode is the last pass that ENDED WELL (`derivedAt`; never one: one
-     * episode): every failure until a pass succeeds again is the same episode, whatever new requests or fact changes came between (D-BR-2
-     * (e): six cards for one standing cause), so only a failure after a success posts again. Only the api composes the team chat; without it (mcp, cli: they never run a pass) nothing is posted.
-     * The report never fails the state write.
+     * The derive job was dead-lettered: the state is `failed` (cause `model`), so the tab shows it and a change of the facts does not ask
+     * again for a while (`FAILED_COOLDOWN_MS`; the tab's door always does). The ONE item for a person is the runner's, not posted here.
      */
-    async failed(workspaceId: string, error: BrainPolicyDerivationError, attempts?: number): Promise<void> {
-        await this.entityManager.update(
-            BrainPolicyDerivationEntity,
-            { workspaceId },
-            { status: "failed", error, ...(attempts === undefined ? {} : { attempts }) },
-        )
-        await this.reportStopped(workspaceId, error)
-    }
-
-    /** Tells the founder the pass of this episode stopped; logged, never thrown. */
-    private async reportStopped(workspaceId: string, reason: BrainPolicyDerivationError): Promise<void> {
-        if (this.notices === undefined) return
-        try {
-            const row = await this.entityManager.findOne(BrainPolicyDerivationEntity, { where: { workspaceId } })
-            if (row === null) return
-            const posted = await this.notices.postBackgroundStopped(workspaceId, {
-                work: "brain.policies.derive",
-                reason,
-                episode: row.derivedAt ?? NEVER_DERIVED,
-            })
-            this.logger.info(PolicyDeriveLogEvent.StopReported, { workspaceId, reason, posted })
-        } catch (cause) {
-            this.logger.error(PolicyDeriveLogEvent.StopReportFailed, cause, { workspaceId })
-        }
+    async stopped(workspaceId: string): Promise<void> {
+        await this.entityManager.update(BrainPolicyDerivationEntity, { workspaceId }, { status: "failed", error: "model" })
     }
 
     /** Writes the state `queued` and its job in one transaction; `requestedAt` keeps the time of the change that asked. */
     private async queued(tx: EntityManager, workspaceId: string, now: Date, requestedAt: Date = now): Promise<void> {
         await tx.upsert(
             BrainPolicyDerivationEntity,
-            { workspaceId, status: "queued", requestedAt, attempts: 0, error: null },
+            { workspaceId, status: "queued", requestedAt, error: null },
             ["workspaceId"],
         )
         await this.queue.enqueuePolicyDerive({ workspaceId }, tx, now.getTime())

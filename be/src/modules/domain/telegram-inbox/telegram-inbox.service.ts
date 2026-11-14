@@ -1,19 +1,26 @@
 import { InjectQueueOutbox, type QueueOutbox } from "@modules/platform/queue"
+import { DELIVER_TELEGRAM_JOB } from "@modules/queues/telegram-delivery"
 import {
     type TelegramDeliveryRecorded,
     type TelegramMessageRead,
     type TelegramRawDelivery,
-    TELEGRAM_DELIVERY_QUEUE,
 } from "./telegram-inbox.contracts"
 import { Injectable } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
-import { AccountDataIntakeService, scopedDeliveryIdOf, type PendingRow } from "@modules/domain/account-data"
+import {
+    AccountDataAdmissionsService,
+    AccountDataIntakeService,
+    scopedDeliveryIdOf,
+    type AdmittedRow,
+    type PendingRow,
+} from "@modules/domain/account-data"
 import { CustomerFilesService } from "@modules/domain/chat-files"
 import { ConnectionsService } from "@modules/domain/connections"
 import { InboundEventsService } from "@modules/domain/inbound-events"
 import { ProviderTriggersService, type CanonicalEvent } from "@modules/domain/provider-triggers"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
+import type { ClaimedJob } from "@modules/platform/jobs"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { telegramUpdate } from "./telegram.data-types"
 import { telegramMessageRowsOf, telegramUpdateRowsOf } from "./telegram.normalise.policy"
@@ -51,6 +58,7 @@ export class TelegramInboxService {
         @InjectQueueOutbox() private readonly outbox: QueueOutbox,
         private readonly files: TelegramFilesService,
         private readonly intake: AccountDataIntakeService,
+        private readonly admissions: AccountDataAdmissionsService,
         @InjectClock() private readonly clock: Clock,
         @InjectLogger() private readonly logger: Logger,
         private readonly connections: ConnectionsService,
@@ -74,25 +82,40 @@ export class TelegramInboxService {
             }
             const update = written.rows.find((row) => row.type === telegramUpdate.name)
             if (update?.isNew !== true) return
-            const deliveryId = `${connection}:${update.key}`
-            const message: TelegramDeliveryRecorded = { deliveryId }
-            await this.outbox.write(manager, TELEGRAM_DELIVERY_QUEUE, message, {
-                dedupeKey: `${TELEGRAM_DELIVERY_QUEUE}:${deliveryId}`,
+            await this.admissions.admit(manager, {
+                id: update.id,
+                type: update.type,
+                key: update.key,
+                owner: written.owner,
+                value: first?.value ?? {},
             })
         })
     }
 
     /**
-     * Processes a committed update atomically: delivers its message (translate, verify, keep the pictures, deliver), keeps the message and
-     * the person beside it and completes the update; a throw leaves the update pending for the queue's retry, which delivers the same event id.
+     * The ADMISSION of a new `telegram.update` row (the door's tail, account-data rule 7): queues its consumer in the transaction that wrote
+     * the row. The one road after the intake: no other way receives a Telegram update (a bot with a webhook set cannot be polled).
      */
-    processRecordedDelivery(message: TelegramDeliveryRecorded): Promise<void> {
+    admitUpdate(manager: EntityManager, row: AdmittedRow): Promise<void> {
+        const message: TelegramDeliveryRecorded = { deliveryId: `${row.owner.connectionId}:${row.key}` }
+        return this.outbox.write(manager, DELIVER_TELEGRAM_JOB.queue, message, {
+            job: DELIVER_TELEGRAM_JOB.name,
+            dedupeKey: DELIVER_TELEGRAM_JOB.onceKey(message),
+        })
+    }
+
+    /**
+     * Processes a committed update atomically: delivers its message (translate, verify, keep the pictures, deliver), keeps the message and
+     * the person beside it and completes the update; a throw leaves the update pending for the job runner (retry on its ladder, then one dead
+     * letter), and a retry delivers the same event id; the files kept the first time come from the effects ledger (`job` keys them).
+     */
+    processRecordedDelivery(message: TelegramDeliveryRecorded, job: ClaimedJob): Promise<void> {
         return this.entityManager.transaction(async (manager) => {
             const scoped = scopedDeliveryIdOf(message.deliveryId)
             if (scoped === null) return
             const pending = await this.intake.lockPending(manager, telegramUpdate.name, scoped.connectionId, scoped.externalId)
             if (pending === null) return
-            const read = await this.deliverMessage(manager, pending)
+            const read = await this.deliverMessage(manager, pending, job)
             if (read !== null) {
                 await this.intake.write(manager, scoped.connectionId, telegramMessageRowsOf(pending.value.raw, read, this.clock.now()))
             }
@@ -104,7 +127,7 @@ export class TelegramInboxService {
      * The message of a stored update, handed to the ONE delivery function; null (nothing kept beside it) for an update the chat does not
      * answer. A message no registered graph takes stays kept raw and is kept for the owner, as a message with no front door was.
      */
-    private async deliverMessage(manager: EntityManager, pending: PendingRow): Promise<TelegramMessageRead | null> {
+    private async deliverMessage(manager: EntityManager, pending: PendingRow, job: ClaimedJob): Promise<TelegramMessageRead | null> {
         const connectionId = pending.owner.connectionId
         const row = TELEGRAM_MESSAGE_WEBHOOK.raw.safeParse(pending.value)
         const event = row.success ? TELEGRAM_MESSAGE_WEBHOOK.translate(row.data, { connectionId }) : null
@@ -120,7 +143,7 @@ export class TelegramInboxService {
             manager,
         )
         const addresses = await this.files.addressesOf(connectionId, event.data.attachments)
-        const kept = await this.customerFiles.keep(workspaceId, event.data.messageKey, addresses)
+        const kept = await this.customerFiles.keep(job, workspaceId, event.data.messageKey, addresses)
         const delivered = await this.triggers.deliver(
             {
                 workspaceId,

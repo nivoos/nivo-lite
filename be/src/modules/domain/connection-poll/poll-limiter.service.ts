@@ -1,14 +1,10 @@
 import { Injectable } from "@nestjs/common"
 import { InjectClock, type Clock } from "@modules/platform/clock"
-import { InjectTimer, type Timer } from "@modules/platform/retry"
 import { InjectConnectionPollOptions, InjectPollLimiterStore } from "./connection-poll.decorators"
 import type { PollLimits } from "./connection-poll.contracts"
 import { ConnectionPollError, ConnectionPollErrorCode } from "./errors/connection-poll.error"
 import type { OptionalPollSlot, PollLimiterStore } from "./poll-limiter.contracts"
 import type { ConnectionPollOptions } from "./connection-poll.options"
-
-/** How many times a call waits for its token before the poll gives up for now. */
-const MAX_WAITS = 3
 
 @Injectable()
 /**
@@ -19,7 +15,6 @@ const MAX_WAITS = 3
 export class PollLimiterService {
     constructor(
         @InjectClock() private readonly clock: Clock,
-        @InjectTimer() private readonly timer: Timer,
         @InjectPollLimiterStore() private readonly store: PollLimiterStore,
         @InjectConnectionPollOptions() private readonly options: ConnectionPollOptions,
     ) {}
@@ -38,22 +33,13 @@ export class PollLimiterService {
     }
 
     /**
-     * Passes when the connection's bucket holds a token, waiting for one when it comes within the inline wait. A wait that is longer, or a bucket that
-     * stays empty, ends the poll with a `Deferred` error that names the wait, so the scheduler plans the connection again after it.
+     * Passes when the connection's bucket holds a token. A bucket with none ends the poll with a `Deferred` error that names the wait the
+     * provider's declared limit asks for, so the scheduler plans the connection again after it (the declared schedule, never a wait inside
+     * the poll: nothing here sleeps or tries again).
      */
-    pass(provider: string, connectionId: string, limits: PollLimits): Promise<void> {
-        return this.passAfter(provider, connectionId, limits, 0)
-    }
-
-    private async passAfter(provider: string, connectionId: string, limits: PollLimits, waits: number): Promise<void> {
+    async pass(provider: string, connectionId: string, limits: PollLimits): Promise<void> {
         const answer = await this.store.take(`${provider}:${connectionId}`, limits, this.clock.now().getTime())
         if (answer.allowed) return
-        if (answer.waitMs > this.options.schedule.maxInlineWaitMs || waits >= MAX_WAITS) {
-            throw new ConnectionPollError({ code: ConnectionPollErrorCode.Deferred, params: { waitMs: answer.waitMs } })
-        }
-        await new Promise<void>((resolve) => {
-            this.timer.schedule(resolve, answer.waitMs)
-        })
-        await this.passAfter(provider, connectionId, limits, waits + 1)
+        throw new ConnectionPollError({ code: ConnectionPollErrorCode.Deferred, params: { waitMs: answer.waitMs } })
     }
 }

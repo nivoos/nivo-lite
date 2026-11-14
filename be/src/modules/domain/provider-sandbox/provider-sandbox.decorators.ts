@@ -29,3 +29,9 @@ export const SANDBOX_LOOPBACK_PORT: unique symbol = Symbol("domain.provider-sand
 
 /** Injects the loopback port. Parameter type: number | undefined. */
 export const InjectSandboxLoopbackPort = (): TypedParameterDecorator<number | undefined> => injector<number | undefined>(SANDBOX_LOOPBACK_PORT)
+
+/** Token of the web origin (the options' `webOrigin`). */
+export const SANDBOX_WEB_ORIGIN: unique symbol = Symbol("domain.provider-sandbox.web-origin")
+
+/** Injects the web origin. Parameter type: string | undefined. */
+export const InjectSandboxWebOrigin = (): TypedParameterDecorator<string | undefined> => injector<string | undefined>(SANDBOX_WEB_ORIGIN)

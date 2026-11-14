@@ -1,7 +1,9 @@
 import { Command, CommandRunner } from "nest-commander"
 import { CloseJobsCli } from "./subs/close.cli"
+import { EventsJobsCli } from "./subs/events.cli"
 import { FailedJobsCli } from "./subs/failed.cli"
 import { OpenJobsCli } from "./subs/open.cli"
+import { RequeueEventJobsCli } from "./subs/requeue-event.cli"
 import { RetryJobsCli } from "./subs/retry.cli"
 import { RetryFailedJobsCli } from "./subs/retry-failed.cli"
 import { StatsJobsCli } from "./subs/stats.cli"
@@ -20,6 +22,8 @@ import { WatchdogJobsCli } from "./subs/watchdog.cli"
         WatchdogJobsCli,
         TickJobsCli,
         CloseJobsCli,
+        EventsJobsCli,
+        RequeueEventJobsCli,
     ],
 })
 /** `cli jobs`: the operator commands for background jobs. */

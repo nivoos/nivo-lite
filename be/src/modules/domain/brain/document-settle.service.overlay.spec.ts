@@ -1,11 +1,12 @@
 import { Test } from "@nestjs/testing"
-import { mock } from "@starci/jest-preset"
+import { fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
 import { DOC_SOURCE, DOC_WS, docSourceOf } from "@tests/fixtures/builders/document-facts.builder"
 import { BrainExtractionsService } from "@modules/domain/brain-extractions"
 import { BrainFactsReadService, BrainFactsService } from "@modules/domain/brain-facts"
 import type { FactRecord } from "@modules/domain/brain-facts"
 import { PublicDocumentsService } from "@modules/domain/public-documents"
 import { WorkspaceMembersService } from "@modules/domain/workspace-members"
+import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
 import { CritiqueDecisionsService } from "@modules/domain/dossier-review"
@@ -33,6 +34,7 @@ const BOUND = objectLike({ truths: TRUTH_CEILING.truths, bytes: TRUTH_CEILING.by
 
 const build = async (waiting: ReadonlyArray<FactRecord>, critique: PassageCritique = reviewed, bare = false) => {
     const logger = mock<Logger>()
+    const tx = fakeTransaction(mockEntityManager({}))
     const facts = mock<BrainFactsService>()
     const reads = mock<BrainFactsReadService>()
     const extractions = mock<BrainExtractionsService>()
@@ -48,6 +50,7 @@ const build = async (waiting: ReadonlyArray<FactRecord>, critique: PassageCritiq
         providers: [
             DocumentSettleService,
             { provide: LOGGER, useValue: logger },
+            { provide: PRIMARY_ENTITY_MANAGER, useValue: tx.em },
             { provide: BrainFactsService, useValue: facts },
             { provide: BrainFactsReadService, useValue: reads },
             { provide: BrainExtractionsService, useValue: extractions },
@@ -76,7 +79,7 @@ describe("DocumentSettleService: the parts of a file settle independently; a con
         await expect(t.service.settle(founderDoc, [], STATE)).resolves.toBeNull()
 
         expect(t.facts.applyUnannounced).toHaveBeenCalledWith(WS, "f1", "Founder", stringLike(`direct:${SOURCE}`), BOUND)
-        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ status: "running", counts: objectLike({ factsApplied: 1 }) }))
+        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ status: "running", counts: objectLike({ factsApplied: 1 }) }), expect.anything())
 
         // Part two settles later on its own, with its own truth under another key.
         const two = await build([proposalOf({ id: "f5", subjectKey: "gio-mo-cua", evidence: [{ kind: "document", ref: PART_TWO, label: "Doc (2/2)", sourceId: PART_TWO, chunkHash: "hash-z" }] })])
@@ -103,8 +106,8 @@ describe("DocumentSettleService: the parts of a file settle independently; a con
 
         expect(one.facts.applyUnannounced).not.toHaveBeenCalled()
         expect(two.facts.applyUnannounced).not.toHaveBeenCalled()
-        expect(one.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 1 }) }))
-        expect(two.extractions.save).toHaveBeenCalledWith(WS, PART_TWO, objectLike({ counts: objectLike({ factsAsked: 1 }) }))
+        expect(one.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 1 }) }), expect.anything())
+        expect(two.extractions.save).toHaveBeenCalledWith(WS, PART_TWO, objectLike({ counts: objectLike({ factsAsked: 1 }) }), expect.anything())
     })
 
 
@@ -126,7 +129,7 @@ describe("DocumentSettleService: the parts of a file settle independently; a con
 
         expect(t.reads.ofSources).toHaveBeenCalledWith(WS, [PART_TWO], ["proposed"], 2000)
         expect(t.facts.applyUnannounced).not.toHaveBeenCalled()
-        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 1 }) }))
+        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 1 }) }), expect.anything())
     })
 
 })
@@ -176,7 +179,7 @@ describe("DocumentSettleService: a stated window is an overlay, a document updat
         await expect(t.service.settle(founderDoc, [], STATE)).resolves.toBeNull()
 
         expect(t.facts.applyUnannounced).toHaveBeenCalledWith(WS, "w1", "Founder", stringLike(`direct:${SOURCE}`), BOUND)
-        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsApplied: 1, factsAsked: 0 }) }))
+        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsApplied: 1, factsAsked: 0 }) }), expect.anything())
     })
 
 
@@ -204,7 +207,7 @@ describe("DocumentSettleService: a stated window is an overlay, a document updat
         onKey(overlap, [], [windowOf({ conflictWith: null }), other])
         await overlap.service.settle(founderDoc, [], STATE)
         expect(overlap.facts.applyUnannounced).not.toHaveBeenCalled()
-        expect(overlap.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 1 }) }))
+        expect(overlap.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 1 }) }), expect.anything())
 
         // Two windows that do not overlap (Tet, then 30/4) both apply.
         const later = windowOf({ id: "w3", value: "60.000", valueNumber: 60_000, validFrom: "2027-04-29T17:00:00.000Z", validTo: "2027-05-01T17:00:00.000Z", conflictWith: null })
@@ -241,7 +244,7 @@ describe("DocumentSettleService: the founder's edit wins over what a document sa
             // after the founder's correction disagrees with HIS value).
             expect(t.facts.reject).not.toHaveBeenCalled()
             expect(t.facts.mergeDuplicate).not.toHaveBeenCalled()
-            expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 1 }) }))
+            expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 1 }) }), expect.anything())
         }
     })
 
@@ -283,7 +286,7 @@ describe("DocumentSettleService: whose document it is (the one place)", () => {
         await t.service.settle(docSourceOf({ createdBy: "founder", status: "ready", visibility: "public" }), [], STATE)
 
         expect(t.facts.applyUnannounced).not.toHaveBeenCalled()
-        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsWaiting: 1 }) }))
+        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsWaiting: 1 }) }), expect.anything())
     })
 
     it("a document nobody stands behind (a sync, an API key) keeps its truths as proposals", async () => {
@@ -316,7 +319,7 @@ describe("DocumentSettleService: before a truth goes in force by itself (TRIAGE-
         await t.service.settle(founderDoc, [], STATE)
 
         expect(t.facts.applyUnannounced).not.toHaveBeenCalled()
-        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 1 }) }))
+        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 1 }) }), expect.anything())
     })
 
     it("a window whose year the passage never wrote goes in force: no date question is asked any more (D2)", async () => {
@@ -339,7 +342,7 @@ describe("DocumentSettleService: contradictions across documents and no silent r
 
         expect(t.reads.kinOf).toHaveBeenCalledWith(WS, { keys: [], ids: ["f1"] })
         expect(t.facts.applyUnannounced).not.toHaveBeenCalled()
-        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 1 }) }))
+        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 1 }) }), expect.anything())
     })
 
     it("names the OTHER documents whose waiting truths this critique names, in an open point or an answer the founder gave", async () => {
@@ -377,7 +380,7 @@ describe("DocumentSettleService: contradictions across documents and no silent r
 
         expect(t.facts.mergeDuplicate).not.toHaveBeenCalled()
         expect(t.facts.applyUnannounced).not.toHaveBeenCalled()
-        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 1 }) }))
+        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 1 }) }), expect.anything())
     })
 
     it("the same key with another value WAITING from another document: asked, nothing in force", async () => {
@@ -388,6 +391,6 @@ describe("DocumentSettleService: contradictions across documents and no silent r
         await t.service.settle(founderDoc, [], STATE)
 
         expect(t.facts.applyUnannounced).not.toHaveBeenCalled()
-        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 1 }) }))
+        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 1 }) }), expect.anything())
     })
 })

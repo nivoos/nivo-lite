@@ -32,12 +32,22 @@ export interface ThreadFact {
     readonly at: string
     /** The pictures and files sent with the line, or absent when none. */
     readonly files?: ReadonlyArray<ThreadFile> | undefined
+    /** The line's position in the conversation's stream (decimal text), as the engine's read answers it; absent from an older engine. */
+    readonly seq?: string | undefined
+    /**
+     * Whether a run already CONSUMED this line (the engine's stream cursor, rule QB-P5 C-4: a step read it and ended), set by `threadRowsOf`
+     * on the person's lines when the read names a cursor; absent when it names none (no run consumed the conversation yet).
+     */
+    readonly consumed?: boolean | undefined
 }
 
 /** The members of a conversation read's answer a step reads: the lines, newest first. */
 const threadAnswer = z.object({
+    /** The engine's stream cursor of the conversation (decimal text), or null / absent while no run consumed it. */
+    consumedSeq: z.string().max(MAX_ID).nullable().optional(),
     facts: z.array(
         z.looseObject({
+            seq: z.string().max(MAX_ID).optional(),
             role: z.string().max(MAX_ID),
             text: z.string(),
             at: z.string().max(MAX_ID),
@@ -62,18 +72,40 @@ export const threadLinesOf = (facts: ReadonlyArray<ThreadFact>): ReadonlyArray<s
         .slice(-THREAD_LINES_MAX)
         .map((fact) => `${fact.role === "user" ? "customer" : "shop"}: ${fact.text.trim().slice(0, LINE_MAX)}`)
 
+/** True when the decimal text `left` is a greater stream position than `right` (non-negative integers). */
+const seqAfter = (left: string, right: string): boolean => {
+    const [a, b] = [left.replace(/^0+(?=\d)/u, ""), right.replace(/^0+(?=\d)/u, "")]
+    return a.length === b.length ? a > b : a.length > b.length
+}
+
 /**
- * What the person said since the shop last spoke: the person's lines after the shop's last line, oldest first, each with its words and its
- * files (a line with only a picture included). This, not the one event that woke the step, is what a step that judges or answers the
- * person reads: several lines may have arrived (a burst, lines held while the run was busy) and the engine wakes the step ONCE for them
- * (R73). A format step only: the role is a field of the record, compared exactly, never a word of the text.
+ * The person's lines marked against the engine's stream cursor (rule QB-P5 C-4): each line with a position is `consumed` when it is at or
+ * before the cursor. Unchanged when the read names no cursor (no run consumed the conversation yet) or a line has no position.
+ */
+export const withCursorOf = (facts: ReadonlyArray<ThreadFact>, consumedSeq: string | null | undefined): ReadonlyArray<ThreadFact> =>
+    consumedSeq === null || consumedSeq === undefined
+        ? facts
+        : facts.map((fact) =>
+              fact.role !== "user" || fact.seq === undefined ? fact : { ...fact, consumed: !seqAfter(fact.seq, consumedSeq) },
+          )
+
+/** True for a line of the person with words or files. */
+const isSaid = (fact: ThreadFact): boolean => fact.role === "user" && (fact.text.trim() !== "" || (fact.files ?? []).length > 0)
+
+/**
+ * What the person said that no run consumed yet, oldest first, each with its words and its files (a line with only a picture included).
+ * With the engine's stream cursor (the read names one: `threadRowsOf` marks each line `consumed`): the person's lines AFTER the cursor,
+ * whatever the shop said between them (a line a run read and handled without replying is never unread again, owner defect O-R6-2). With no
+ * cursor (no run consumed the conversation yet, or an older engine): the person's lines after the shop's last line. This, not the one
+ * event that woke the step, is what a step that judges or answers the person reads: several lines may have arrived (a burst, lines held
+ * while the run was busy) and the engine wakes the step ONCE for them (R73, a `stream` marker). A format step only: the role and the
+ * position are fields of the record, compared exactly, never a word of the text.
  */
 export const unreadLinesOf = (facts: ReadonlyArray<ThreadFact>): ReadonlyArray<ThreadFact> => {
     const ordered = facts.toSorted((left, right) => left.at.localeCompare(right.at))
+    if (ordered.some((fact) => fact.consumed !== undefined)) return ordered.filter((fact) => isSaid(fact) && fact.consumed === false)
     const lastShop = ordered.map((fact) => fact.role).lastIndexOf("agent")
-    return ordered
-        .slice(lastShop + 1)
-        .filter((fact) => fact.role === "user" && (fact.text.trim() !== "" || (fact.files ?? []).length > 0))
+    return ordered.slice(lastShop + 1).filter((fact) => isSaid(fact))
 }
 
 /** The words of the unread lines (`unreadLinesOf`), one line each, oldest first; empty when they carry none (pictures only, or nothing unread). */
@@ -99,6 +131,11 @@ export interface ThreadWindow {
     readonly limit?: number | undefined
     /** The chatbot's chat window (`startedAt`): after a Telegram `/start` the model is never handed the earlier visit. */
     readonly since?: string | null | undefined
+    /**
+     * True for a read of what the person said that the step takes as its own to handle (`unreadLinesOf` and its kin): the engine counts the
+     * lines it hands out as consumed once the step ends (its stream cursor, rule QB-P5 C-4). Absent: a read for context, which consumes nothing.
+     */
+    readonly consume?: boolean | undefined
 }
 
 /**
@@ -111,9 +148,14 @@ export const threadRowsOf = async (context: NodeContext, window: ThreadWindow = 
     const read = valueOrCannot(
         context,
         TOOL.conversationMessageList,
-        await context.tools.call(TOOL.conversationMessageList, { limit: window.limit ?? MESSAGE_READ_LIMIT, ...(since === null ? {} : { since }) }),
+        await context.tools.call(TOOL.conversationMessageList, {
+            limit: window.limit ?? MESSAGE_READ_LIMIT,
+            ...(since === null ? {} : { since }),
+            ...(window.consume === true ? { consume: true } : {}),
+        }),
     )
-    return threadAnswer.parse(read).facts
+    const answer = threadAnswer.parse(read)
+    return withCursorOf(answer.facts, answer.consumedSeq)
 }
 
 /** The recent thread of the conversation the run serves, as the lines the model is shown. */

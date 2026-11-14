@@ -1,0 +1,7 @@
+{
+  "schema": "nivo/seed-standard@1",
+  "name": "blocks-core-seed-standard",
+  "repository": "https://github.com/starci183/blocks-core-seed-standard",
+  "commit": "8a22269ed25139d93bca27b1b44b3845c40877a5",
+  "completeness": "ext:seed-standards"
+}

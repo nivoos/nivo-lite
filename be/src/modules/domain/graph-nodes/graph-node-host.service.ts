@@ -24,6 +24,7 @@ import { withPicturesNotSeen } from "@modules/domain/chat-files"
 import { WorkspaceTimeZoneService } from "@modules/domain/workspace-settings"
 import { DEFAULT_TIME_ZONE } from "@nivo-lite/agent-sdk/port"
 import { InjectClock, type Clock } from "@modules/platform/clock"
+import { classifyFailure } from "@modules/platform/queue/queue-failure.policy"
 import { EffectOutcomeUnknownError, GraphNodesError, GraphNodesErrorCode, isOutcomeUnknownCode } from "./errors/graph-nodes.error"
 import { coreModelOf, declaredModelOf, declaredWorkOf } from "./node-model.policy"
 import { GraphNodeEffectsService } from "./graph-node-effects.service"
@@ -34,6 +35,7 @@ import {
     InjectGraphNodeAgentLoops,
     InjectGraphNodeModel,
     InjectGraphNodeRoutes,
+    InjectGraphNodeWorkspacePolicies,
     InjectGraphNodeToolDoor,
     InjectGraphNodesOptions,
 } from "./graph-nodes.decorators"
@@ -42,6 +44,7 @@ import type {
     NodeModelDoor,
     NodeModelScope,
     NodeRouteReach,
+    NodeWorkspacePolicies,
     NodeRunInput,
     NodeSubjectResolver,
     NodeToolAnswer,
@@ -57,15 +60,22 @@ import { conditionBranchOf } from "./template-condition.policy"
 import { runDayOf, runIdOfKey, runItemOf, splitTemplateBindings } from "./template-run.policy"
 import { missOfAnswer, withMiss, type HostedNodeRun, type StepMiss } from "./step-misses.policy"
 import { failureAfterWrites, writesNotedOf } from "./node-writes.policy"
+import { workspacePoliciesTextOf } from "./workspace-policies.policy"
 
 /** The ledger entry that holds a template node's run step instant (`ctx.run.at`): written once per run step, read on every re-run. */
-/** What stops a node whatever it does with the throw: a call that waits for a person's approval, or a call whose outcome nobody knows. */
-type StopsTheNode = GraphNodesError | EffectOutcomeUnknownError
+/**
+ * What stops a node whatever it does with the throw: a call that waits for a person's approval, a call whose outcome nobody knows, or a
+ * call that failed for now (the runner's one classifier reads it `transient`: the step parks on the retry ladder, rule QB-SEND / Q-2).
+ */
+type StopsTheNode = GraphNodesError | EffectOutcomeUnknownError | Error
 
 const STEP_INSTANT = "engine.step-instant"
 
 /** The ledger entry that holds a template node's run step day (`ctx.run.day`): fixed with the instant, so a re-run never moves it. */
 const STEP_DAY = "engine.step-day"
+
+/** The call the workspace's policies (L2) are kept under in a run's turn record, so a restart of the visit replays the same L2. */
+const WORKSPACE_POLICIES_CALL = "workspace-policies"
 
 /** The refusal of an `AGENT_LOOP` flag the app cannot honour, naming what is wrong. */
 const flagInvalid = (name: string): GraphNodesError =>
@@ -160,6 +170,7 @@ export class GraphNodeHostService implements OnModuleInit {
         @Optional() @InjectGraphNodeAgentLoops() private readonly agentLoops?: NodeAgentLoops,
         @Optional() private readonly zones?: WorkspaceTimeZoneService,
         @Optional() @InjectGraphNodeRoutes() private readonly routes?: NodeRouteReach,
+        @Optional() @InjectGraphNodeWorkspacePolicies() private readonly workspacePolicies?: NodeWorkspacePolicies,
     ) {}
 
     /**
@@ -208,7 +219,7 @@ export class GraphNodeHostService implements OnModuleInit {
             step: input.step,
             approved: input.approved ?? NONE_APPROVED,
         })
-        const ports = this.takesTurns(input.nodeId) ? { ...own, agent: this.agentOf(scope, input.record) } : own
+        const ports = this.takesTurns(input.nodeId) ? { ...own, agent: this.agentOf(scope, input.record, asks) } : own
         // Every model call of the node is booked to its step and agent (owner: "the model and the credits on every node"); a step blocks-core
         // declares a chat turn is booked as one, to the message it answers.
         const work = nodeWorkOf(input.key, turn.agentId, declaredWorkOf(input.nodeId), input.input)
@@ -225,8 +236,9 @@ export class GraphNodeHostService implements OnModuleInit {
                     tools: installed.tools,
                     key: input.key,
                 },
-                // Rule Q-2 / R79: the answered non-repeatable writes of this run, so a failure after one is an unknown outcome.
-                writesNotedOf(input.replay === undefined ? ports : input.replay(ports), wrote),
+                // Rule Q-2 / R79: the answered non-repeatable writes of this run, so a failure after one is an unknown outcome. L2 of the
+                // node's model calls: the workspace's policies (no door call: the engine's own read, outside the step's calls).
+                { ...writesNotedOf(input.replay === undefined ? ports : input.replay(ports), wrote), policies: this.policiesOf(turn, input.record) },
             ),
         ).catch((cause: unknown) => {
             throw asks[0] ?? failureAfterWrites(cause, wrote)
@@ -264,7 +276,7 @@ export class GraphNodeHostService implements OnModuleInit {
             approved: input.approved ?? NONE_APPROVED,
             road,
         })
-        const withAgent = this.takesTurns(input.nodeId) ? { ...own, agent: this.agentOf(scope, input.record) } : own
+        const withAgent = this.takesTurns(input.nodeId) ? { ...own, agent: this.agentOf(scope, input.record, asks) } : own
         const ports = writesNotedOf(input.replay === undefined ? withAgent : input.replay(withAgent), wrote)
         const bound = splitTemplateBindings(node, input.params, input.input)
         const at = await this.stepInstantOf(turn.workspaceId, input.key)
@@ -307,6 +319,8 @@ export class GraphNodeHostService implements OnModuleInit {
                     model: ports.model,
                     now: ports.now,
                     ...(ports.agent === undefined ? {} : { agent: ports.agent }),
+                    // L2 of the agent's model calls: the workspace's policies (no door call: the engine's own read, outside the step's calls).
+                    policies: this.policiesOf(turn, input.record),
                 },
             ),
         ).catch((cause: unknown) => {
@@ -405,7 +419,7 @@ export class GraphNodeHostService implements OnModuleInit {
     /**
      * A structured answer of the model for the engine itself (the AI core's one decision on a step that could not complete), on the
      * same metered path as a node's calls and parsed by the schema, under the policy of the turn's agent like every call of that agent
-     * (the agent's craft, its tool set and the shop's values go in front of the instructions, in the order every call of the agent
+     * (the agent's craft and its tool set go in front of the instructions, in the order every call of the agent
      * has them, so the call shares their cached prefix). It reads and decides only: no port, effect or tool is reachable from
      * it, so nothing it answers acts on the world. `stepKey` is the run step it decides on, which its call is booked to.
      */
@@ -465,6 +479,24 @@ export class GraphNodeHostService implements OnModuleInit {
         return step === undefined ? this.tokens.mint(turn) : this.tokens.mint(turn, step)
     }
 
+    /**
+     * The `policies` port of a node run: L2 of its model calls, the workspace's policies for the turn's agent as the bound reader serves
+     * them, rendered by `workspacePoliciesTextOf`; "" in an app that binds no reader. The SDK asks it once per node run and only when the
+     * node calls the model. It is no tool call of the step: nothing counts it against the step's turns or calls. PINNED for the run: with
+     * the run's turn record (`record`) the text is kept there like a model turn, so a restart of the same visit replays the very L2 its
+     * recorded turns were asked with (never a newer one the reader's window would serve), and its turns replay byte for byte.
+     */
+    private policiesOf(turn: NodeTurn, record: NodeTurnRecord | undefined): () => Promise<string> {
+        const { workspacePolicies } = this
+        if (workspacePolicies === undefined) return () => Promise.resolve("")
+        const read = async (): Promise<string> => workspacePoliciesTextOf(await workspacePolicies.policiesOf(turn))
+        if (record === undefined) return read
+        return async () => {
+            const kept = await record(WORKSPACE_POLICIES_CALL, read)
+            return typeof kept === "string" ? kept : ""
+        }
+    }
+
     /** True for a node the `AGENT_LOOP` flag names, in an app where the loop is bound: its agent's turns are the host's loop's. */
     private takesTurns(nodeId: string): boolean {
         return this.agentLoops !== undefined && (this.options?.agentLoop?.nodes ?? []).includes(nodeId)
@@ -474,13 +506,28 @@ export class GraphNodeHostService implements OnModuleInit {
      * The `agent` port of a flagged node: the host's own loop (native tool calling) takes the model's turns, on the model object the
      * model door makes for the step, with the step's pictures already inlined and each model turn kept by `record` when the engine
      * gave one. Everything a turn DOES still goes through the runner's closures of `loop` (`call`, `done`, `confused`), so the door,
-     * the rights per connected account, the send guard and the effect ledger are exactly those of the JSON loop.
+     * the rights per connected account, the send guard and the effect ledger are exactly those of the JSON loop. Rule SO-4: a call that
+     * decided a stop (`asks`) ends the turn right after it: the call closure throws the stop, which leaves the loop as thrown, so the
+     * model is asked no further turn.
      */
-    private agentOf(scope: NodeModelScope, record: NodeTurnRecord | undefined): NonNullable<NodeHostPorts["agent"]> {
-        return async (loop) => {
+    private agentOf(
+        scope: NodeModelScope,
+        record: NodeTurnRecord | undefined,
+        asks: ReadonlyArray<StopsTheNode>,
+    ): NonNullable<NodeHostPorts["agent"]> {
+        return async (asked) => {
             const { agentLoops, ai } = this
             if (agentLoops === undefined || ai.nodeAgentTurns === undefined)
                 throw flagInvalid("no agent loop is bound in this app")
+            const loop: NodeAgentLoop = {
+                ...asked,
+                call: async (name, args) => {
+                    stopDecided(asks)
+                    const answer = await asked.call(name, args)
+                    stopDecided(asks)
+                    return answer
+                },
+            }
             const shown = await this.shownOf(scope, loop)
             const model: unknown = ai.nodeAgentTurns(scope, {
                 purpose: loop.purpose,
@@ -523,6 +570,9 @@ export class GraphNodeHostService implements OnModuleInit {
             // A call whose outcome nobody knows (R74, item 6) stops the node too, whatever it does with the throw: an agent loop would
             // read it as a refused turn and go on as if nothing had left. The step then stops for a person (`OUTCOME_UNKNOWN`).
             if (cause instanceof EffectOutcomeUnknownError) asks.push(cause)
+            // A call that failed FOR NOW (rule QB-SEND / Q-2: the one classifier reads it transient, e.g. a channel's "not sent, try
+            // later") stops the node too: an agent loop would read it as a refused turn and try again itself; the runner parks the step.
+            else if (cause instanceof Error && classifyFailure(cause) === "transient") asks.push(cause)
             throw cause
         }
         return answer.catch(async (cause: unknown) => {
@@ -614,11 +664,27 @@ export class GraphNodeHostService implements OnModuleInit {
                     throw new GraphNodesError({ code: GraphNodesErrorCode.PortMissing, params: { kind: "tool-runner" } })
                 })
             },
+            // Rule SO-4: once a call of this turn decided a stop, no further model call is made: the stop is thrown instead.
             model: {
-                text: (ask) => this.ai.nodeText(scope, ask),
-                json: async (schema, ask) => fittedAnswerOf(schema, await this.ai.nodeJson(scope, ask, schema)),
+                text: async (ask) => {
+                    stopDecided(asks)
+                    return this.ai.nodeText(scope, ask)
+                },
+                json: async (schema, ask) => {
+                    stopDecided(asks)
+                    return fittedAnswerOf(schema, await this.ai.nodeJson(scope, ask, schema))
+                },
             },
             now: () => this.clock.now(),
         }
     }
+}
+
+/**
+ * Rule SO-4 (A DECIDED STOP ENDS THE TURN): throws the first stop a call of the node's turn decided (an approval ask, an outcome nobody
+ * knows, a failure for now), so nothing after it asks the model again; returns when none was decided.
+ */
+const stopDecided = (asks: ReadonlyArray<StopsTheNode>): void => {
+    const [decided] = asks
+    if (decided !== undefined) throw decided
 }

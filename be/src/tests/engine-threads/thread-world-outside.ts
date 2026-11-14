@@ -367,6 +367,8 @@ export interface Account {
     readonly id: string
     /** Its provider. */
     readonly provider: ConnectionProvider
+    /** Its public facts, when a world names some (a mailbox account's inbound half, MAIL-IN rule MI-1); absent = none. */
+    readonly meta?: Readonly<Record<string, string>> | undefined
 }
 
 /** The rights of the shop: its connected accounts, the agent's attachments per account, the owner's named default accounts. */
@@ -541,7 +543,7 @@ const toolCallOf = async (rights: Rights, call: NodeToolCall, store?: Outside["s
     const read =
         store === undefined
             ? null
-            : worldReadOf(store, call.tool, call.args, leadOfTurn(store, turnOfToken(call.token)), contactOfTurn(store, turnOfToken(call.token)), chat, turnOfToken(call.token), now())
+            : worldReadOf(store, call.tool, call.args, leadOfTurn(store, turnOfToken(call.token)), contactOfTurn(store, turnOfToken(call.token)), chat, turnOfToken(call.token), now(), call.key)
     if (read !== null) return doorAnswerOf(read)
     return structuredClone(call.tool === TOOL.brainChangePropose ? FILED : SEARCH)
 }

@@ -3,6 +3,8 @@ import { TOOL } from "@nivo-lite/agent-sdk/names"
 import type { NodeRow, NodeTurn } from "@modules/domain/graph-nodes"
 import { doorRefusalOf } from "@tests/fixtures/builders/served-tools.builder"
 import { chatRecordCall, chatThreadOf, type ChatWorld } from "./thread-world-chat"
+import { newestHeardSeqOf } from "@modules/domain/customer-routes/stream-cursor.policy"
+import { WS } from "./thread-world-records"
 
 // The READ TOOLS of the worlds (after the flip of 2026-11-12, the template nodes read through tools, no more through the data ports):
 // each answers from the world's store in the shape the real source answers (the sales module's `PLUGIN_TOOLS` service in
@@ -188,6 +190,7 @@ export const worldReadOf = (
     chat?: ChatWorld,
     turn: NodeTurn | null = null,
     now: string = AS_OF,
+    callKey: string | null = null,
 ): WorldRead | null => {
     const limit = limitOf(args)
     // What the REAL door and gateway do to a locked context read before any executor (ruling R51 item 1): the lock, the run's subject
@@ -204,7 +207,15 @@ export const worldReadOf = (
     if (tool === TOOL.conversationMessageList && chat !== undefined) {
         // The chatbot's thread: its own posted lines merged with what the other agents told the person (the delivery ledger, customer-messages rule 8).
         const facts = chatThreadOf(chat, turn?.conversationId ?? null, contactId, limit)
-        return answer({ notice: NOTICE, source: "nivo.conversation", asOf: AS_OF, facts })
+        const route = turn?.conversationId ?? null
+        // The stream cursor (rule QB-P5 C-4), in a world that opts in: the route's cursor, and this step call's CONSUMING read (`consume`)
+        // noted as pending until the step ends (the engine's `CustomerMessageNativeService` over `StreamCursorService`, on the world's memory rows).
+        if (chat.cursor === null || route === null) return answer({ notice: NOTICE, source: "nivo.conversation", asOf: AS_OF, facts })
+        const consumedSeq = chat.cursor.rows.get(route)?.consumed ?? null
+        const newest = newestHeardSeqOf(facts.flatMap((fact) => (fact.role === "user" && fact.seq !== undefined ? [{ direction: "from_person" as const, seq: fact.seq }] : [])))
+        const consuming = typeof args === "object" && args !== null && Reflect.get(args, "consume") === true
+        if (newest !== null && callKey !== null && consuming) void chat.cursor.noteRead(WS, route, callKey, newest)
+        return answer({ notice: NOTICE, source: "nivo.conversation", asOf: AS_OF, consumedSeq, facts })
     }
     if (tool === TOOL.conversationMessageList) {
         const facts = newestFirst(

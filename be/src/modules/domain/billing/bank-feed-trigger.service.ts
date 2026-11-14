@@ -1,71 +1,61 @@
 import { Injectable, Optional } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
-import type { AccountDataInput, AccountOwner, AccountWrite } from "@modules/domain/account-data"
+import type { AccountOwner } from "@modules/domain/account-data"
 import { bankTransactionTriggerFor } from "@modules/domain/bank-feed-inbox"
 import { ConnectionBindingsReadService } from "@modules/domain/connections"
-import {
-    ProviderTriggersLogEvent,
-    ProviderTriggersService,
-    TRANSACTION_RECEIVED,
-    type DeliveredEvent,
-} from "@modules/domain/provider-triggers"
-import { InjectLogger, type Logger } from "@modules/platform/logging"
+import { ProviderTriggersService } from "@modules/domain/provider-triggers"
+
+/** The movement the delivery job hands on: the row it consumed. */
+export interface AdmittedMovement {
+    /** The row's type (`sepay.transaction`). */
+    readonly type: string
+    /** The row id. */
+    readonly id: string
+    /** The value as stored. */
+    readonly value: Readonly<Record<string, unknown>>
+}
 
 @Injectable()
 /**
- * THE BANK FEED'S ENTRY to the one event pipeline (concept triggers rule 13): each movement a delivery kept as a NEW `<provider>.transaction`
- * row of the account (the INBOX: the provider's transaction id is the row's key, so a webhook and the reconcile poll of one movement are one
- * row) is translated by its feed's pure trigger declaration and handed to the ONE delivery function, which applies the account's switch.
- * An account in the provider's test environment hands on nothing. It runs inside a savepoint of the delivery's transaction and never
- * throws: a failure here leaves the kept rows of the delivery as they are.
+ * THE BANK FEED'S ENTRY to the one event pipeline (concept triggers rule 13): a movement admitted as a NEW `<provider>.transaction` row of
+ * the account (the INBOX: the provider's transaction id is the row's key, so a webhook and the poll of one movement are one row) is
+ * translated by its feed's pure trigger declaration and handed to the ONE delivery function, which applies the account's switch and the
+ * declaration's fact key. An account in the provider's test environment hands on nothing. It runs in the delivery's own transaction and
+ * catches nothing: a failure to write the wake fails the delivery job (the transaction rolls back, the row stays pending, the runner
+ * retries on its ladder and then dead-letters with one item), so a movement is never kept with its wake lost.
  */
 export class BankFeedTriggerService {
     constructor(
-        @InjectLogger() private readonly logger: Logger,
         private readonly connections: ConnectionBindingsReadService,
         @Optional() private readonly triggers?: ProviderTriggersService,
     ) {}
 
-    /** Hands on the new movements of one delivery; `rows` are the transaction rows written, `written` what the intake answered for them, in order. */
-    async emit(
-        tx: EntityManager,
-        owner: AccountOwner,
-        rows: ReadonlyArray<AccountDataInput>,
-        written: AccountWrite,
-    ): Promise<void> {
+    /** Hands on the one admitted movement; `row` is the transaction row (its type, its id and its value as stored). */
+    async emit(tx: EntityManager, owner: AccountOwner, row: AdmittedMovement): Promise<void> {
         const { triggers } = this
         const declaration = bankTransactionTriggerFor(owner.provider)
         if (triggers === undefined || declaration === null) return
-        try {
-            const state = await this.connections.stateOf(owner.connectionId, tx)
-            if (state?.environment === "test") return
-            const events = rows.flatMap((row, index): ReadonlyArray<DeliveredEvent> => {
-                const kept = written.rows[index]
-                const value = declaration.raw.safeParse(row.value)
-                if (kept?.isNew !== true || !value.success) return []
-                const event = declaration.translate(value.data, { connectionId: owner.connectionId })
-                if (event === null) return []
-                return [
+        const state = await this.connections.stateOf(owner.connectionId, tx)
+        if (state?.environment === "test") return
+        const value = declaration.raw.safeParse(row.value)
+        if (!value.success) return
+        const event = declaration.translate(value.data, { connectionId: owner.connectionId })
+        if (event === null) return
+        await triggers.deliver(
+            {
+                workspaceId: owner.workspaceId,
+                declaration,
+                connectionId: owner.connectionId,
+                agentId: null,
+                events: [
                     {
                         event,
-                        raw: { type: kept.type, id: kept.id },
+                        raw: { type: row.type, id: row.id },
                         ...(event.data.at === undefined ? {} : { occurredAt: event.data.at }),
                     },
-                ]
-            })
-            if (events.length === 0) return
-            await tx.transaction((inner) =>
-                triggers.deliver(
-                    { workspaceId: owner.workspaceId, declaration, connectionId: owner.connectionId, agentId: null, events },
-                    inner,
-                ),
-            )
-        } catch (cause) {
-            this.logger.error(ProviderTriggersLogEvent.EmitFailed, cause, {
-                workspaceId: owner.workspaceId,
-                connectionId: owner.connectionId,
-                trigger: TRANSACTION_RECEIVED,
-            })
-        }
+                ],
+            },
+            tx,
+        )
     }
 }

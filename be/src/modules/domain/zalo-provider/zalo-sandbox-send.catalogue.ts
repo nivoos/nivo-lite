@@ -33,6 +33,16 @@ export const ZALO_SEND_SANDBOX_CASES: ReadonlyArray<SandboxCase> = [
         label: "The send times out: Zalo never answers, so the outcome is unknown (ambiguous)",
         operation: ZALO_SEND_OPERATION,
     },
+    {
+        id: "ZALO-SEND-5",
+        label: "The send is NOT SENT: Zalo says the OA's message quota is used up (zalo_quota): the port's not-sent answer CHANNELS_SEND_UNAVAILABLE, nothing went out, so the engine retries later",
+        operation: ZALO_SEND_OPERATION,
+    },
+    {
+        id: "ZALO-SEND-6",
+        label: "The send is NOT SENT: another worker is refreshing the OA's access token (zalo_refresh_busy): the port's not-sent answer CHANNELS_SEND_UNAVAILABLE, thrown so the engine retries",
+        operation: ZALO_SEND_OPERATION,
+    },
 ]
 
 /**

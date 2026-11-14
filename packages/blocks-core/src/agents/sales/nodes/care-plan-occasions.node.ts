@@ -62,7 +62,7 @@ export const salesCarePlanOccasionsNode: TemplateNode<typeof input, typeof outpu
     run: async (given, context) => {
         if (given.leadId === null) return { leadId: null, armed: 0, declined: false }
         const facts = await careFactsOf(context, given.leadId)
-        if (facts === null || facts.optedOut) return { leadId: given.leadId, armed: 0, declined: false }
+        if (facts === null) return { leadId: given.leadId, armed: 0, declined: false }
         const ahead = facts.occasions.flatMap((occasion) => {
             const standing = occasionStandingOf(occasion, context.run.at, context.params.occasionLeadDays)
             return standing.kind === "later" && schedulable(standing.writeAt, context.run.at)
@@ -104,30 +104,12 @@ export const salesCarePlanOccasionsNode: TemplateNode<typeof input, typeof outpu
             output: { leadId: "l1", armed: 1, declined: false },
         },
         {
-            name: "a customer who asked to be left alone gets no reminder armed",
+            name: "a care read it cannot read stops the step: never taken for no dates",
             params: {},
             at: EXAMPLE_AT,
             input: { leadId: "l1" },
             tools: [
-                {
-                    id: TOOL.leadCareGet,
-                    args: { leadId: "l1" },
-                    answer: answered({
-                        ...CARE_OPEN,
-                        optedOut: true,
-                        occasions: [{ occasionId: "occ-1", label: "birthday", month: 2, day: 1, year: null }],
-                    }),
-                },
-            ],
-            output: { leadId: "l1", armed: 0, declined: false },
-        },
-        {
-            name: "a care read it cannot read stops the step: never taken for an opt-out or for no dates",
-            params: {},
-            at: EXAMPLE_AT,
-            input: { leadId: "l1" },
-            tools: [
-                { id: TOOL.leadCareGet, args: { leadId: "l1" }, answer: answered({ leadId: "l1", optedOut: "maybe" }) },
+                { id: TOOL.leadCareGet, args: { leadId: "l1" }, answer: answered({ leadId: "l1", occasions: "maybe" }) },
             ],
             failure: { kind: "cannot", why: "nivo.tool.lead.care.get answered a shape care cannot read" },
         },

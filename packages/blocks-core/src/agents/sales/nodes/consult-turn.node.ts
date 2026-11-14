@@ -547,7 +547,7 @@ export const salesConsultTurnNode: TemplateNode<typeof input, typeof output> = d
         const known = given.contactId !== null
         // The thread is the engine's conversation of the run's route (R26), from the visit's start: both directions, pictures included.
         const { since, latest, draft: previousDraft, ...words } = given
-        const rows = await threadRowsOf(context, { since })
+        const rows = await threadRowsOf(context, { since, consume: true })
         // What the turn answers is EVERY line the person wrote since the shop last spoke (the thread), not only the line that woke the
         // round: several lines may come in one wake (R73). The woken line (`latest`, else the hand-off's words) stands only when the
         // thread holds no unread words (pictures only, or a thread the read could not see yet).

@@ -22,6 +22,7 @@ import type { Logger } from "@modules/platform/logging"
 import { KnowledgeQueue } from "@modules/queues/knowledge"
 import { TRUTH_CRITIQUE_GATE } from "./direct-apply.policy"
 import type { TruthCritiqueGate } from "./direct-apply.policy"
+import { chainProviders, claimedJob } from "@tests/fixtures/builders/knowledge-chain.builder"
 import { DocumentFactsService } from "./document-facts.service"
 import { DocumentRelationsService } from "./document-relations.service"
 import { DocumentReviewService } from "./document-review.service"
@@ -56,6 +57,7 @@ const build = async (
     passages: Array<TruthPassage>,
     source = docSourceOf({ status: "ready", visibility: "internal", title: SO_TAY_VI, createdBy: "founder" }),
 ) => {
+    const chain = chainProviders()
     const world: FactsWorld = { passages, row: null, waiting: [], critique: { state: "none", reviewed: new Set(), held: new Set(), confirmedBy: new Map() } }
     const ai = mock<AiService>()
     const logger = mock<Logger>()
@@ -79,9 +81,12 @@ const build = async (
     const parts = mock<DocumentPartsService>()
     const queue = mock<KnowledgeQueue>()
     const tx = fakeTransaction(mockEntityManager())
+    extractions.parked.mockResolvedValue([])
+    criticService.stopped.mockResolvedValue([])
     scriptFactsWorld({ ai, facts, reads, extractions, indexing, sources, chunks, usage, vectors, nature, members, ceiling, notices, critic, parts, queue }, world, source)
     const moduleRef = await Test.createTestingModule({
         providers: [
+            ...chain.providers,
             DocumentFactsService, DocumentTruthStagesService, DocumentSettleService, ModelJsonService,
             { provide: CLOCK, useValue: new FakeClock(new Date("2026-11-11T04:00:00.000Z")) },
             { provide: AI, useValue: ai }, { provide: LOGGER, useValue: logger }, { provide: PRIMARY_ENTITY_MANAGER, useValue: tx.em },
@@ -101,14 +106,14 @@ const build = async (
         ],
     }).compile()
     const service = moduleRef.get(DocumentFactsService)
-    return { service, world, source, ai, indexing, gaps, facts, reads, extractions, sources, chunks, usage, reviews, links, vectors, ceiling, notices, critic, criticService, parts, queue, logger, ...factsRunnersOf(service, ai, world) }
+    return { service, chain, world, source, ai, indexing, gaps, facts, reads, extractions, sources, chunks, usage, reviews, links, vectors, ceiling, notices, critic, criticService, parts, queue, logger, ...factsRunnersOf(service, ai, world) }
 }
 
 describe("DocumentFactsService: the pipeline", () => {
     it("triages every passage, reads truths only from the rule passages, files them as proposals and settles them AT ONCE: the critic is asked, never waited for", async () => {
         const t = await build(documentOf(3, 21))
 
-        await expect(t.service.run(PAYLOAD)).resolves.toBe("done")
+        await expect(t.service.run(claimedJob(PAYLOAD))).resolves.toBe("done")
 
         // 24 passages: two triage calls of twelve; three rule passages: ONE reading call of up to four.
         expect(t.callsTo(TRIAGE_PROMPT)).toBe(2)
@@ -136,13 +141,12 @@ describe("DocumentFactsService: the pipeline", () => {
         })
         // The document was ready (searchable) before this job and stays so: the job never moves its status.
         expect(t.sources.enterStage).not.toHaveBeenCalled()
-        expect(t.sources.advance).not.toHaveBeenCalled()
     })
 
     it("each truth names the passage it was read from and carries a quote cut by the code", async () => {
         const t = await build(documentOf(1, 0))
 
-        await t.service.run(PAYLOAD)
+        await t.service.run(claimedJob(PAYLOAD))
 
         expect(t.facts.propose).toHaveBeenCalledWith(
             WS,
@@ -166,7 +170,7 @@ describe("DocumentFactsService: the pipeline", () => {
     it("every model call is checked against the credit pool first and booked to the document as brain work", async () => {
         const t = await build(documentOf(1, 11))
 
-        await t.service.run(PAYLOAD)
+        await t.service.run(claimedJob(PAYLOAD))
 
         expect(t.usage.blockedBy).toHaveBeenCalledTimes(2)
         expect(t.usage.blockedBy).toHaveBeenCalledWith(WS, "brain", false)
@@ -225,11 +229,11 @@ describe("DocumentFactsService: the size of the work", () => {
         // 44 rule passages: eleven reading calls, one more than a job's ten.
         const t = await build(documentOf(44, 0))
 
-        await expect(t.service.run(PAYLOAD)).resolves.toBe("continued")
+        await expect(t.service.run(claimedJob(PAYLOAD))).resolves.toBe("continued")
         expect(t.callsTo(SYSTEM_PROMPT)).toBe(10)
         expect(t.queue.enqueueFactsNext).toHaveBeenCalledTimes(1)
 
-        await expect(t.service.run(PAYLOAD)).resolves.toBe("done")
+        await expect(t.service.run(claimedJob(PAYLOAD))).resolves.toBe("done")
         // Triage is not asked again and no passage is read twice.
         expect(t.callsTo(TRIAGE_PROMPT)).toBe(Math.ceil(44 / TRIAGE_BATCH))
         expect(t.callsTo(SYSTEM_PROMPT)).toBe(11)
@@ -243,7 +247,7 @@ describe("DocumentFactsService: what the reading skips and what it never sends",
         const text = [ruleText(0), planted].join("\n")
         const t = await build([passageOf(0, text)])
 
-        await expect(t.service.run(PAYLOAD)).resolves.toBe("done")
+        await expect(t.service.run(claimedJob(PAYLOAD))).resolves.toBe("done")
 
         const shown = t.ai.chat.mock.calls.map(([request]) => request.messages[1]?.content ?? "").join("\n")
         expect(shown).toContain(ruleText(0))
@@ -272,7 +276,7 @@ describe("DocumentFactsService: what the reading skips and what it never sends",
             ].join("\n")
         const t = await build(Array.from({ length: 60 }, (_, index) => passageOf(index, table(index))))
 
-        await expect(t.service.run(PAYLOAD)).resolves.toBe("done")
+        await expect(t.service.run(claimedJob(PAYLOAD))).resolves.toBe("done")
 
         expect(t.ai.chat).not.toHaveBeenCalled()
         expect(
@@ -287,7 +291,7 @@ describe("DocumentFactsService: a document uploaded again", () => {
     it("judges and reads only the passages that changed", async () => {
         const first = documentOf(3, 9)
         const t = await build(first)
-        await expect(t.service.run(PAYLOAD)).resolves.toBe("done")
+        await expect(t.service.run(claimedJob(PAYLOAD))).resolves.toBe("done")
         expect(t.world.row?.status).toBe("done")
         const before = {
             triage: t.callsTo(TRIAGE_PROMPT),
@@ -308,7 +312,7 @@ describe("DocumentFactsService: a document uploaded again", () => {
         const again = await build(t.world.passages, v2)
         again.world.row = t.world.row
 
-        await expect(again.service.run(PAYLOAD)).resolves.toBe("done")
+        await expect(again.service.run(claimedJob(PAYLOAD))).resolves.toBe("done")
 
         expect(again.callsTo(TRIAGE_PROMPT)).toBe(1)
         expect(passagesIn(again.ai.chat.mock.calls[0]?.[0].messages[1]?.content ?? "")).toEqual([changed.text])
@@ -329,10 +333,10 @@ describe("DocumentFactsService: a document uploaded again", () => {
 
     it("does no work for a text whose reading is done and whose passages are all of the current versions", async () => {
         const t = await build(documentOf(2, 2))
-        await t.service.run(PAYLOAD)
+        await t.service.run(claimedJob(PAYLOAD))
         t.ai.chat.mockClear()
 
-        await expect(t.service.run(PAYLOAD)).resolves.toBe("skipped")
+        await expect(t.service.run(claimedJob(PAYLOAD))).resolves.toBe("skipped")
         expect(t.ai.chat).not.toHaveBeenCalled()
     })
 })
@@ -341,7 +345,7 @@ describe("DocumentFactsService: what goes in force", () => {
     it("the founder's document: its truths go in force as soon as its reading ends, announced ONCE", async () => {
         const t = await build(documentOf(3, 1))
 
-        await expect(t.service.run(PAYLOAD)).resolves.toBe("done")
+        await expect(t.service.run(claimedJob(PAYLOAD))).resolves.toBe("done")
 
         expect(t.facts.applyUnannounced).toHaveBeenCalledTimes(3)
         expect(t.facts.applyUnannounced).toHaveBeenCalledWith(
@@ -368,7 +372,7 @@ describe("DocumentFactsService: what goes in force", () => {
     ])("D3: a %s's document goes in force directly, decided by that member; the critic is still asked", async (createdBy, name) => {
         const t = await build(documentOf(3, 1), docSourceOf({ status: "ready", visibility: "internal", createdBy }))
 
-        await expect(t.service.run(PAYLOAD)).resolves.toBe("done")
+        await expect(t.service.run(claimedJob(PAYLOAD))).resolves.toBe("done")
 
         expect(t.facts.applyUnannounced).toHaveBeenCalledTimes(3)
         expect(t.facts.applyUnannounced).toHaveBeenCalledWith(WS, stringLike("f-"), name, stringLike(`put in by ${createdBy} ${name}`), BOUND)
@@ -381,7 +385,7 @@ describe("DocumentFactsService: what goes in force", () => {
         for (const createdBy of [null, "left-the-team"]) {
             const t = await build(documentOf(1, 0), docSourceOf({ status: "ready", createdBy }))
 
-            await expect(t.service.run(PAYLOAD)).resolves.toBe("done")
+            await expect(t.service.run(claimedJob(PAYLOAD))).resolves.toBe("done")
             expect(t.facts.applyUnannounced).not.toHaveBeenCalled()
             expect(t.critic.truthGateOf).not.toHaveBeenCalled()
             expect(t.world.row).toMatchObject({ status: "done", counts: { factsApplied: 0, factsWaiting: 1 } })
@@ -390,7 +394,7 @@ describe("DocumentFactsService: what goes in force", () => {
 
     it("a critique that never ran holds nothing; a later change of the critic's word settles the document again, and what is in force stays", async () => {
         const t = await build(documentOf(2, 0))
-        await expect(t.service.run(PAYLOAD)).resolves.toBe("done")
+        await expect(t.service.run(claimedJob(PAYLOAD))).resolves.toBe("done")
         expect(t.facts.applyUnannounced).toHaveBeenCalledTimes(2)
 
         // The critique ends later with a point: the document settles again; nothing waits any more, nothing more is written.

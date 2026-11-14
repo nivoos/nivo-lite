@@ -1,5 +1,6 @@
 export { WorkspaceSettingsModule } from "./workspace-settings.module"
 export { WorkspaceSettingsAccessService } from "./workspace-settings-access.service"
+export { WorkspaceSettingsService } from "./workspace-settings.service"
 export { WorkspaceThemeAccessService } from "./workspace-theme-access.service"
 export { WorkspaceTimeZoneService } from "./workspace-time-zone.service"
 export type {

@@ -1,5 +1,5 @@
 import { Injectable, Optional } from "@nestjs/common"
-import { ArrayContains, ArrayOverlap, In, IsNull, LessThan, Like, type EntityManager } from "typeorm"
+import { ArrayContains, ArrayOverlap, In, IsNull, LessThan, Like, MoreThanOrEqual, type EntityManager } from "typeorm"
 import { BrainExtractionsService } from "@modules/domain/brain-extractions"
 import { BrainFactsReadService, type FactRecord } from "@modules/domain/brain-facts"
 import { UsageMeterService } from "@modules/domain/knowledge"
@@ -13,9 +13,12 @@ import { KnowledgeSourcesReadService } from "@modules/domain/knowledge-sources"
 import { VectorSyncService } from "@modules/domain/vector-sync"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
+import { InjectEffects, onceAnswered, type Effects } from "@modules/platform/effects"
+import type { ClaimedJob } from "@modules/platform/jobs"
 import { InjectMessageCatalog, type MessageCatalog } from "@modules/platform/i18n"
 import { InjectLogger, type Logger, withWorkScope } from "@modules/platform/logging"
 import { eachInOrder } from "@modules/platform/primitives"
+import { CRITIC_MODEL_EFFECT } from "@modules/queues/knowledge"
 import {
     CRITIC_CAPS,
     CRITIC_RULE_PREFIX,
@@ -27,9 +30,8 @@ import {
     type CritiqueInput,
     type CritiqueRunEnd,
     type OptionalCritiqueInput,
+    type OptionalSince,
     type NotDoneReason,
-    isGivenUp,
-    runsAfter,
     takesAnotherTurn,
 } from "./document-critic.contracts"
 import { buildCritique, guardCritique, narrowerWindow, type BuiltCritique } from "./document-critic-model.policy"
@@ -55,6 +57,7 @@ import { namedTruths } from "./document-critic-text.policy"
 import { CritiqueScopeService } from "./critique-scope.service"
 import { truthGateOf, type CritiqueChangedHook, type CritiqueTruthGate } from "./critique-truth-gate.policy"
 import { DossierReviewLogEvent } from "./dossier-review.log-events"
+import { DossierReviewError, DossierReviewErrorCode } from "./errors/dossier-review.error"
 import { DossierFindingEntity, SourceCritiqueEntity } from "./persistence/entities"
 
 /** How long a running critique may stay silent before a new request takes it back. */
@@ -67,31 +70,21 @@ const FACTS_MAX = 2000
 const CRITIQUE_WORK = "document_critique"
 
 /**
- * How a critique is asked for. A NEW request (a reading ended, a founder's answer, a person's "read again") starts its count of runs
- * without progress again; a RESUME (the upkeep tick going on after credits, the bound of calls or the model stopped it) keeps that
- * count and moves only a critique that is not given up (`CRITIC_CAPS.runs`).
+ * How a critique is asked for. A NEW request (a reading ended, a founder's answer, a person's "read again") makes the critique wait
+ * again; a RESUME (the upkeep tick going on after credits or the bound of calls stopped it) moves only a critique that stopped for one
+ * of those typed reasons.
  */
 export interface CritiqueRequest {
     /** True for a resume by the upkeep tick; absent or false for a new request. */
     readonly resume?: boolean
 }
 
-/** What the run count of a critique reads of its row before a run, to tell afterwards whether the run moved it on. */
-interface RunStart {
-    /** Runs in a row without progress before this one. */
-    readonly attempts: number
-    /** Passages reviewed before it. */
-    readonly reviewed: number
-}
-
-/** How the passages of one run ended, as its count of runs reads them. */
+/** How the passages of one run ended, as the end of the critique reads them. */
 interface RunOutcome {
     /** Why the critique is not done, or null when it is. */
     readonly reason: NotDoneReason | null
     /** True when a passage was newly reviewed (the run's only progress). */
     readonly progressed: boolean
-    /** Passages still waiting for review. */
-    readonly waiting: number
 }
 
 /** What a run's row is ended with. */
@@ -100,8 +93,6 @@ interface CountedEnd {
     readonly state: "done" | "not_done" | "waiting"
     /** Why it is not done; null when done or waiting. */
     readonly reason: NotDoneReason | null
-    /** Its runs in a row without progress (`brain_source_critiques.attempts`). */
-    readonly attempts: number
 }
 
 /** What one critique did. */
@@ -123,8 +114,9 @@ interface ModelPart {
     readonly answer: CritiqueAnswer | null
     /** The bundle the answer is about: the call's own, or a narrower one when an answer over the whole window was cut. */
     readonly built: BuiltCritique
+    /** Model calls paid for (an unreadable or a cut answer is paid). */
     readonly calls: number
-    readonly tries: number
+    /** Why there is no answer: the empty credit pool (no call made); null when there is one. */
     readonly reason: NotDoneReason | null
 }
 
@@ -143,8 +135,6 @@ interface CritiqueRun {
     readonly reviewed: ReadonlySet<string>
     /** Model calls made. */
     readonly calls: number
-    /** Tries of the last call. */
-    readonly tries: number
     /** Prompt tokens of the answers. */
     readonly promptTokens: number
     /** Model points kept. */
@@ -199,8 +189,9 @@ export interface StoppedCritique {
  *   of truths, naming both, with the two values to pick from;
  * - text ADDRESSED TO AN AI, a security flag, from the passage critic model over the passages no finished critique read (the whole
  *   document on the first upload, only the changed passages later): one call reads at most 16,000 characters / 120 passages and
- *   calls again for the rest, each call with three tries at most, bounded by `callsPerCritique` per run and `CRITIC_CAPS.runs` runs
- *   without progress; a run's progress is the passages it newly reviewed. Any other kind the model gives is dropped.
+ *   calls again for the rest, bounded by `callsPerCritique` per run; a run's progress is the passages it newly reviewed. A model that
+ *   does not answer is a typed failure (the review job's ladder and dead letter decide), never a count of tries here. Any other kind
+ *   the model gives is dropped.
  * It never changes a fact and never judges whether a line is right. Its points live in `dossier_findings` (no dossier, rule key
  * `shop.<kind>`). The customer gate (`regate`) serves a passage once the security read reviewed it and no open HOLDING point
  * (`holdingPoint`) quotes it; the truths work reads the same holding points (`truthGateOf`) and is told when they change
@@ -222,6 +213,7 @@ export class DocumentCriticService {
         private readonly sources: KnowledgeSourcesReadService,
         private readonly usage: UsageMeterService,
         private readonly scope: CritiqueScopeService,
+        @InjectEffects() private readonly effects: Effects,
         @Optional() private readonly vectorSync?: VectorSyncService,
     ) {}
 
@@ -286,42 +278,29 @@ export class DocumentCriticService {
 
     /**
      * The facts of a document were read (or given up on): its critique waits for the review run; a founder's earlier release ends. The
-     * row then counts the passages that wait for review. `{ resume: true }` (the upkeep tick) keeps the count of runs without progress
-     * and moves only a critique that may go on (`resume`). Answers whether the critique now waits (or will, after its running one).
+     * row then counts the passages that wait for review. `{ resume: true }` (the upkeep tick) moves only a critique that stopped for a
+     * typed reason it may go on from (`resume`). Answers whether the critique now waits (or will, after its running one).
      */
-    async request(workspaceId: string, sourceId: string, how: CritiqueRequest = {}): Promise<boolean> {
-        if (how.resume !== true) await this.ask(workspaceId, sourceId)
-        else if (!(await this.resume(workspaceId, sourceId))) return false
-        await this.recount(workspaceId, sourceId)
+    async request(workspaceId: string, sourceId: string, how: CritiqueRequest = {}, manager: EntityManager = this.entityManager): Promise<boolean> {
+        if (how.resume !== true) await this.ask(workspaceId, sourceId, manager)
+        else if (!(await this.resume(workspaceId, sourceId, manager))) return false
+        await this.recount(workspaceId, sourceId, manager)
         return true
     }
 
     /**
-     * True when the critique of a document is GIVEN UP (`isGivenUp`: not done after `CRITIC_CAPS.runs` runs in a row without progress):
-     * nothing asks for it again by itself; its unreviewed passages stay withheld from customers. False when the document has no
-     * critique.
-     */
-    async givenUp(workspaceId: string, sourceId: string): Promise<boolean> {
-        const row = await this.entityManager.findOne(SourceCritiqueEntity, {
-            select: { id: true, state: true, attempts: true },
-            where: { workspaceId, sourceId },
-        })
-        return row !== null && isGivenUp(row)
-    }
-
-    /**
      * The critiques that STOPPED and may go on (the upkeep tick resumes them: no reading waits for a critique any more, so nothing
-     * else would): not done for credits, the bound of calls or the model, not given up; and the ones whose worker went silent. The
+     * else would): not done for credits or the bound of calls; and the ones whose worker went silent. A critique the model could not
+     * read (`model`) is NOT resumed by the tick: its job is a dead letter and a person's resume hands it back (`retryFailed`). The
      * longest-stopped first, at most `limit`. Ids and states only.
      */
     async stopped(limit: number): Promise<ReadonlyArray<StoppedCritique>> {
-        const counts = Array.from({ length: CRITIC_CAPS.runs }, (_, count) => count)
         const silentBefore = new Date(this.clock.now().getTime() - STALE_RUNNING_MS)
         const rows = await this.entityManager.find(SourceCritiqueEntity, {
             select: { id: true, workspaceId: true, sourceId: true },
             where: [
-                { state: "not_done", reason: In(["credits", "budget", "model"]), attempts: In(counts) },
-                { state: "running", attempts: In(counts), startedAt: LessThan(silentBefore) },
+                { state: "not_done", reason: In(["credits", "budget"]) },
+                { state: "running", startedAt: LessThan(silentBefore) },
             ],
             order: { finishedAt: "ASC" },
             take: limit,
@@ -338,9 +317,9 @@ export class DocumentCriticService {
      * Counts the passages of a document no finished critique reviewed (`waiting_passages`); never throws (the count is shown, the gate
      * does not depend on it).
      */
-    private async recount(workspaceId: string, sourceId: string): Promise<void> {
+    private async recount(workspaceId: string, sourceId: string, manager: EntityManager): Promise<void> {
         try {
-            const row = await this.entityManager.findOne(SourceCritiqueEntity, {
+            const row = await manager.findOne(SourceCritiqueEntity, {
                 select: { id: true, reviewedHashes: true },
                 where: { workspaceId, sourceId },
             })
@@ -354,7 +333,7 @@ export class DocumentCriticService {
             }))
             const exempt = await this.scope.exemptOf(workspaceId, sourceId, passages)
             const waiting = passages.filter((one) => !reviewed.has(one.hash) && !exempt.has(one.hash)).length
-            await this.entityManager.update(
+            await manager.update(
                 SourceCritiqueEntity,
                 { workspaceId, sourceId },
                 { waitingPassages: waiting },
@@ -365,60 +344,78 @@ export class DocumentCriticService {
     }
 
     /**
-     * A RESUME by the upkeep tick: a critique that is not done and not given up waits again with its count of runs kept; one whose
-     * worker went silent for 15 minutes (crash, restart) is taken back the same way, counted as a run without progress (it wrote no
-     * end), so a run that dies every time is given up too. Answers whether it now waits; anything else (done, waiting, running,
-     * given up, no critique) is left as it is.
+     * A RESUME by the upkeep tick: a critique that is not done for credits or the bound of calls waits again; one whose worker went
+     * silent for 15 minutes (crash, restart) is taken back the same way. Answers whether it now waits; anything else (done, waiting,
+     * running, no critique) is left as it is.
      */
-    private async resume(workspaceId: string, sourceId: string): Promise<boolean> {
-        const row = await this.entityManager.findOne(SourceCritiqueEntity, {
-            select: { id: true, state: true, attempts: true, startedAt: true },
+    private async resume(workspaceId: string, sourceId: string, manager: EntityManager): Promise<boolean> {
+        const row = await manager.findOne(SourceCritiqueEntity, {
+            select: { id: true, state: true, startedAt: true },
             where: { workspaceId, sourceId },
         })
-        if (row === null || row.attempts >= CRITIC_CAPS.runs) return false
-        const counts = Array.from({ length: CRITIC_CAPS.runs }, (_, count) => count)
+        if (row === null) return false
         const again = { state: "waiting" as const, reason: null, requestedAt: this.clock.now() }
         if (row.state === "not_done") {
-            const moved = await this.entityManager.update(
+            const moved = await manager.update(
                 SourceCritiqueEntity,
-                { workspaceId, sourceId, state: "not_done", attempts: In(counts) },
+                { workspaceId, sourceId, state: "not_done", reason: In(["credits", "budget"]) },
                 again,
             )
             return (moved.affected ?? 0) > 0
         }
         if (row.state !== "running") return false
-        const silent = await this.entityManager.update(
+        const silent = await manager.update(
             SourceCritiqueEntity,
             {
                 workspaceId,
                 sourceId,
                 state: "running",
-                attempts: row.attempts,
                 startedAt: LessThan(new Date(this.clock.now().getTime() - STALE_RUNNING_MS)),
             },
-            { ...again, attempts: Math.min(row.attempts + 1, CRITIC_CAPS.runs) },
+            again,
         )
         return (silent.affected ?? 0) > 0
     }
 
+    /**
+     * Hands back the critiques the model could not read (`not_done` / `model`, the typed state a failed critique leaves): they wait
+     * again. Called by the review job at its start: a job run again by the ladder takes back the ones that failed since this run began
+     * (`since`: its start), a job a person handed back after its dead letter takes back every one of the workspace (`since` null).
+     * Answers how many wait again.
+     */
+    async retryFailed(workspaceId: string, since: OptionalSince): Promise<number> {
+        const moved = await this.entityManager.update(
+            SourceCritiqueEntity,
+            {
+                workspaceId,
+                state: "not_done",
+                reason: "model",
+                ...(since === null ? {} : { finishedAt: MoreThanOrEqual(since) }),
+            },
+            { state: "waiting", reason: null, requestedAt: this.clock.now() },
+        )
+        return moved.affected ?? 0
+    }
+
     /** Writes a NEW request of a critique: it waits (or will, after its running one), its count of runs without progress starts again. */
-    private async ask(workspaceId: string, sourceId: string): Promise<void> {
+    private async ask(workspaceId: string, sourceId: string, manager: EntityManager): Promise<void> {
         const asked = {
             state: "waiting" as const,
             reason: null,
+            // The column of the count of runs without progress (D-V-1) is kept at 0: nothing counts runs any more, the job's ladder judges.
             attempts: 0,
             requestedAt: this.clock.now(),
             releasedBy: null,
             releasedAt: null,
         }
-        const moved = await this.entityManager.update(
+        const moved = await manager.update(
             SourceCritiqueEntity,
             { workspaceId, sourceId, state: In(["waiting", "done", "not_done"]) },
             asked,
         )
         if ((moved.affected ?? 0) > 0) return
         // A critique whose worker went silent (crash, restart) for 15 minutes is taken back: it waits again.
-        const stale = await this.entityManager.update(
+        const stale = await manager.update(
             SourceCritiqueEntity,
             {
                 workspaceId,
@@ -429,16 +426,16 @@ export class DocumentCriticService {
             asked,
         )
         if ((stale.affected ?? 0) > 0) return
-        if (await this.entityManager.exists(SourceCritiqueEntity, { where: { workspaceId, sourceId } })) {
+        if (await manager.exists(SourceCritiqueEntity, { where: { workspaceId, sourceId } })) {
             // A critique is running: it ends, then this new version waits for the next run (`end`, its count started again).
-            await this.entityManager.update(
+            await manager.update(
                 SourceCritiqueEntity,
                 { workspaceId, sourceId },
                 { requestedAt: this.clock.now() },
             )
             return
         }
-        await this.entityManager
+        await manager
             .createQueryBuilder()
             .insert()
             .into(SourceCritiqueEntity)
@@ -448,99 +445,72 @@ export class DocumentCriticService {
     }
 
     /**
-     * Carries out the waiting critiques of a workspace, the longest-waiting first, at most `CRITIC_CAPS.perRun` per run; never throws.
-     * Answers how many ran. A critique that ended a slice of its work with progress (`takesAnotherTurn`) waits again BEHIND the others
-     * (asked now), so one long document never holds the turn of the workspace's other documents (D-V-3); the runner's follow-up run
-     * carries on with it.
+     * Carries out the waiting critiques of a workspace, the longest-waiting first, at most `CRITIC_CAPS.perRun` per run. Answers how
+     * many ran. A critique that ended a slice of its work with progress (`takesAnotherTurn`) waits again BEHIND the others (asked now),
+     * so one long document never holds the turn of the workspace's other documents (D-V-3); the runner's follow-up run carries on with
+     * it. A failure is thrown (the run is a job the runner judges); the critique that failed is left in its typed state first.
      */
-    async runWaiting(workspaceId: string): Promise<number> {
-        try {
-            const waiting = await this.entityManager.find(SourceCritiqueEntity, {
-                select: { id: true, sourceId: true },
-                where: { workspaceId, state: "waiting" },
-                order: { requestedAt: "ASC" },
-                take: CRITIC_CAPS.perRun,
-            })
-            let ran = 0
-            await eachInOrder(waiting, async (row) => {
-                // One document that fails never ends the batch (D-N-3): the others of the workspace are still critiqued.
-                try {
-                    const outcome = await this.critique(workspaceId, row.sourceId)
-                    if (outcome.state !== "skipped") ran += 1
-                } catch (cause) {
-                    this.logger.error(DossierReviewLogEvent.CritiqueFailed, cause, { sourceId: row.sourceId })
-                }
-            })
-            return ran
-        } catch (cause) {
-            this.logger.error(DossierReviewLogEvent.CritiqueFailed, cause, { workspaceId })
-            return 0
-        }
+    async runWaiting(workspaceId: string, job: ClaimedJob): Promise<number> {
+        const waiting = await this.entityManager.find(SourceCritiqueEntity, {
+            select: { id: true, sourceId: true },
+            where: { workspaceId, state: "waiting" },
+            order: { requestedAt: "ASC" },
+            take: CRITIC_CAPS.perRun,
+        })
+        const count = { ran: 0 }
+        await eachInOrder(waiting, async (row) => {
+            const outcome = await this.critique(workspaceId, row.sourceId, job)
+            if (outcome.state !== "skipped") count.ran += 1
+        })
+        return count.ran
     }
 
     /**
-     * One critique of one document; a failure leaves it `not_done` (reason model) and is logged, never thrown. Only a WAITING critique
-     * is taken (D-N-3): a critique another run just ended (`done`, `not_done`) is that run's, not this one's. Taking it again made
-     * the model read the document twice, and a `not_done` row taken with its reason still on it broke the table's check
-     * (`not_done` if and only if a reason) and ended the whole run. Asking again goes through `request`, which makes it wait.
+     * One critique of one document. Only a WAITING critique is taken (D-N-3): a critique another run just ended (`done`, `not_done`) is
+     * that run's, not this one's. Asking again goes through `request`, which makes it wait. A failure leaves the critique `not_done`
+     * (`model`: the typed state of a critique the model could not read, handed back by `retryFailed`) and is thrown for the runner.
      */
-    async critique(workspaceId: string, sourceId: string): Promise<CritiqueOutcome> {
+    async critique(workspaceId: string, sourceId: string, job: ClaimedJob): Promise<CritiqueOutcome> {
         if (!(await this.claim(workspaceId, sourceId))) return SKIPPED
-        const start = await this.startOf(workspaceId, sourceId)
+        const reviewed = await this.reviewedCount(workspaceId, sourceId)
         try {
             // Booked per stage of the document's AI work: the critique's own kind (the document's cost keeps read and critique apart)
             // with the step key `critique`, beside the reading's `triage`, `extract`, `relations`, `judge`, `index`.
             return await withWorkScope({ kind: CRITIQUE_WORK, ref: `source:${sourceId}`, stepKey: "critique" }, () =>
-                this.carryOut(workspaceId, sourceId, start),
+                this.carryOut(workspaceId, sourceId, reviewed, job),
             )
         } catch (cause) {
-            this.logger.error(DossierReviewLogEvent.CritiqueFailed, cause, { sourceId })
-            await this.giveUp(workspaceId, sourceId, start)
-            return { state: "not_done", reason: "model", calls: 0, found: 0 }
+            await this.failed(workspaceId, sourceId)
+            throw cause
         }
     }
 
-    /** What the row of a claimed critique says before its run (nothing reviewed and no mark when it cannot be read). */
-    private async startOf(workspaceId: string, sourceId: string): Promise<RunStart> {
+    /** How many passages the row says were reviewed before a run (0 when it cannot be read). */
+    private async reviewedCount(workspaceId: string, sourceId: string): Promise<number> {
         const row = await this.entityManager.findOne(SourceCritiqueEntity, { where: { workspaceId, sourceId } })
-        return { attempts: row?.attempts ?? 0, reviewed: row?.reviewedHashes.length ?? 0 }
+        return row?.reviewedHashes.length ?? 0
     }
 
-    /**
-     * Takes a waiting critique: it runs, with no reason of an earlier end on it. Its count of runs without progress is KEPT (only a new
-     * request starts it again). False when none waits or the write failed.
-     */
+    /** Takes a waiting critique: it runs, with no reason of an earlier end on it. False when none waits. */
     private async claim(workspaceId: string, sourceId: string): Promise<boolean> {
-        try {
-            const claimed = await this.entityManager.update(
-                SourceCritiqueEntity,
-                { workspaceId, sourceId, state: "waiting" },
-                { state: "running", reason: null, startedAt: this.clock.now() },
-            )
-            return (claimed.affected ?? 0) > 0
-        } catch (cause) {
-            this.logger.error(DossierReviewLogEvent.CritiqueFailed, cause, { sourceId })
-            return false
-        }
+        const claimed = await this.entityManager.update(
+            SourceCritiqueEntity,
+            { workspaceId, sourceId, state: "waiting" },
+            { state: "running", reason: null, startedAt: this.clock.now() },
+        )
+        return (claimed.affected ?? 0) > 0
     }
 
     /**
-     * Ends a critique that failed unexpectedly as not done (`model`), counted like any run: one more run without progress unless its
-     * finished calls stored reviewed passages before it failed. A failure of that write is logged, never thrown (a
-     * running row that stays silent is taken back by the next request, or by a resume that counts it).
+     * Leaves a critique that failed in its typed state: `not_done` for the model, what its finished calls stored stays (the next run reads
+     * only the passages still unread), the passages it did review are served, and the truths work is told, as for any end. The failure
+     * itself is thrown by the caller.
      */
-    private async giveUp(workspaceId: string, sourceId: string, start: RunStart): Promise<void> {
-        try {
-            const now = await this.startOf(workspaceId, sourceId)
-            const progressed = now.reviewed > start.reviewed
-            const attempts = runsAfter(start.attempts, { state: "not_done", reason: "model", progressed, exhausted: false })
-            await this.end(workspaceId, sourceId, { state: "not_done", reason: "model", attempts })
-            if (attempts >= CRITIC_CAPS.runs) this.logger.warn(DossierReviewLogEvent.CritiqueGivenUp, { sourceId, runs: attempts })
-            // A failed run ends like any other: the truths work is told.
-            await this.changed(workspaceId, sourceId)
-        } catch (cause) {
-            this.logger.error(DossierReviewLogEvent.CritiqueFailed, cause, { sourceId })
-        }
+    private async failed(workspaceId: string, sourceId: string): Promise<void> {
+        await this.recount(workspaceId, sourceId, this.entityManager)
+        await this.end(workspaceId, sourceId, { state: "not_done", reason: "model" })
+        await this.regate(workspaceId, sourceId)
+        await this.changed(workspaceId, sourceId)
     }
 
     /** What a critique reads about a document; null when the document is gone. */
@@ -642,7 +612,7 @@ export class DocumentCriticService {
         )
     }
 
-    private async carryOut(workspaceId: string, sourceId: string, start: RunStart): Promise<CritiqueOutcome> {
+    private async carryOut(workspaceId: string, sourceId: string, reviewedBefore: number, job: ClaimedJob): Promise<CritiqueOutcome> {
         const row = await this.entityManager.findOne(SourceCritiqueEntity, { where: { workspaceId, sourceId } })
         const stored = await this.inputOf(workspaceId, sourceId, row?.reviewedHashes ?? [])
         if (stored === null) return SKIPPED
@@ -655,8 +625,8 @@ export class DocumentCriticService {
         if (ruled.capped.length > 0) this.logger.info(DossierReviewLogEvent.CritiqueCapped, { sourceId, capped: ruled.capped })
         const factsUnread = reading !== null && (reading.status === "failed" || reading.status === "blocked_credits")
         const run: CritiqueRun = factsUnread
-            ? { reviewed: input.reviewed, calls: 0, tries: 0, promptTokens: 0, found: 0, reason: "facts_unread" }
-            : await this.callsOver(input, rules, stored.reviewed.size === 0)
+            ? { reviewed: input.reviewed, calls: 0, promptTokens: 0, found: 0, reason: "facts_unread" }
+            : await this.callsOver(input, rules, stored.reviewed.size === 0, job)
         // The rule points always stand; a call that read passages already wrote its own points with them.
         if (run.reviewed === input.reviewed) await this.persist(input, rules, new Set())
         const present = new Set(input.passages.map((passage) => passage.hash))
@@ -666,16 +636,14 @@ export class DocumentCriticService {
             (hash) => present.has(hash) && (!exempt.has(hash) || stored.reviewed.has(hash)),
         )
         const waiting = input.passages.filter((passage) => !run.reviewed.has(passage.hash)).length
-        const counted = this.counted(sourceId, start, {
+        const counted = this.counted(sourceId, waiting, {
             reason: run.reason,
-            progressed: run.reviewed.size > input.reviewed.size,
-            waiting,
+            progressed: run.reviewed.size > input.reviewed.size || reviewed.length > reviewedBefore,
         })
         const { state, reason } = counted
         await this.end(workspaceId, sourceId, {
             state,
             reason,
-            attempts: counted.attempts,
             ...(state === "waiting" ? { requestedAt: this.clock.now() } : {}),
             reviewedHashes: reviewed,
             waitingPassages: waiting,
@@ -688,41 +656,34 @@ export class DocumentCriticService {
     }
 
     /**
-     * THE COUNT OF RUNS of a run that ended (D-V-1): a run that reviewed no new passage counts one more, so a critique that cannot
-     * progress is given up after `CRITIC_CAPS.runs` runs however often it is resumed (logged); a slice of work with progress waits
-     * again, behind the workspace's others (D-V-3), with no reason on it. Answers the state, reason and count the row is ended with.
+     * What a run that ended leaves of the critique: done when every changed passage was reviewed, a slice of work with progress waits
+     * again behind the workspace's others (D-V-3) with no reason on it, and any other end is `not_done` with its typed reason (credits,
+     * the bound of calls, the facts not read). Answers the state and reason the row is ended with.
      */
-    private counted(sourceId: string, start: RunStart, run: RunOutcome): CountedEnd {
-        const { reason, waiting } = run
+    private counted(sourceId: string, waiting: number, run: RunOutcome): CountedEnd {
         const ended: CritiqueRunEnd = {
-            state: reason === null ? "done" : "not_done",
-            reason,
+            state: run.reason === null ? "done" : "not_done",
+            reason: run.reason,
             progressed: run.progressed,
-            exhausted: waiting === 0,
         }
-        const attempts = runsAfter(start.attempts, ended)
         if (takesAnotherTurn(ended)) {
             this.logger.info(DossierReviewLogEvent.CritiqueTurnGiven, { sourceId, waiting })
-            return { state: "waiting", reason: null, attempts }
+            return { state: "waiting", reason: null }
         }
-        if (ended.state === "not_done") {
-            this.logger.warn(DossierReviewLogEvent.CritiqueNotDone, { sourceId, reason, waiting, runs: attempts })
-            if (attempts >= CRITIC_CAPS.runs) this.logger.warn(DossierReviewLogEvent.CritiqueGivenUp, { sourceId, runs: attempts, waiting })
-        }
-        return { state: ended.state, reason, attempts }
+        if (ended.state === "not_done") this.logger.warn(DossierReviewLogEvent.CritiqueNotDone, { sourceId, reason: run.reason, waiting })
+        return { state: ended.state, reason: run.reason }
     }
 
     /**
      * The model part of one critique: a call over the next changed passages (at most `changedChars` / `passages`), its points written at
-     * once, then the next call over the rest, until no changed passage is left (`done`), a call fails after its tries (`model`), the
-     * credit pool is empty (`credits`), or the technical bound of calls is reached (`budget`, the waiting passages are counted). The
-     * running row's `startedAt` is renewed before each call, so a long critique is never taken back as silent.
+     * once, then the next call over the rest, until no changed passage is left (`done`), the credit pool is empty (`credits`), or the
+     * technical bound of calls is reached (`budget`, the waiting passages are counted). A model that does not answer throws (see
+     * `askModel`). The running row's `startedAt` is renewed before each call, so a long critique is never taken back as silent.
      */
-    private callsOver(input: CritiqueInput, rules: ReadonlyArray<CriticPoint>, first: boolean): Promise<CritiqueRun> {
-        return this.callFrom(input, rules, first, 0, {
+    private callsOver(input: CritiqueInput, rules: ReadonlyArray<CriticPoint>, first: boolean, job: ClaimedJob): Promise<CritiqueRun> {
+        return this.callFrom(input, rules, first, 0, job, {
             reviewed: input.reviewed,
             calls: 0,
-            tries: 0,
             promptTokens: 0,
             found: 0,
             reason: null,
@@ -735,6 +696,7 @@ export class DocumentCriticService {
         rules: ReadonlyArray<CriticPoint>,
         first: boolean,
         call: number,
+        job: ClaimedJob,
         run: CritiqueRun,
     ): Promise<CritiqueRun> {
         const now: CritiqueInput = { ...input, reviewed: run.reviewed }
@@ -746,9 +708,9 @@ export class DocumentCriticService {
             { workspaceId: input.workspaceId, sourceId: input.sourceId, state: "running" },
             { startedAt: this.clock.now() },
         )
-        const part = await this.askModel(now, first, built)
-        const asked = { ...run, calls: run.calls + part.calls, tries: part.tries }
-        if (part.answer === null) return { ...asked, reason: part.reason ?? "model" }
+        const part = await this.askModel(now, first, built, job)
+        const asked = { ...run, calls: run.calls + part.calls }
+        if (part.answer === null) return { ...asked, reason: part.reason ?? "credits" }
         const refused = part.answer.refused ?? []
         if (refused.length > 0) {
             // A point that did not fit the shape of a point was left out; the other points of the answer stand (D-N-2).
@@ -767,7 +729,7 @@ export class DocumentCriticService {
         // The points of this call are written before the next call.
         await this.persist(now, [...rules, ...kept], part.built.changed)
         await this.keepReviewed(input, part.built.changed)
-        return this.callFrom(input, rules, first, call + 1, {
+        return this.callFrom(input, rules, first, call + 1, job, {
             ...asked,
             promptTokens: asked.promptTokens + (part.answer.promptTokens ?? 0),
             found: asked.found + kept.length,
@@ -776,36 +738,37 @@ export class DocumentCriticService {
     }
 
     /**
-     * One model call, up to three tries in total (the owner's AI-error rule), each try only while the credit pool allows it. A try is
-     * never the one before it sent again in the hope of another answer (D-N-2: three identical tries gave three identical refusals):
-     * - the model did not answer (`unavailable`: a timeout, a provider error): the same call again, the failure was not the prompt's;
-     * - its answer was not the JSON object asked for (`unreadable`): ONE more try that tells it so; unreadable again ends the tries;
-     * - its answer was cut at the token cap (`cut`): the next try reads half the passages, so its answer is shorter; a single
-     *   passage whose answer is cut ends the tries (the passages left unread are counted as waiting).
+     * One model call over a bundle, asked as the ONE outside effect it is (key `<jobId>:critique:<document>:<first passage>:<how>`: the
+     * passage the call starts at and whether it is the first ask or the one that tells the model its answer was unreadable). The credit
+     * pool is checked first (a typed end: nothing is called). What it comes to is never a value to count: an answer is returned; a model
+     * that did not answer (a timeout, a provider error) throws the transient `ModelUnavailable` (the job's ladder decides); an answer
+     * that was not the JSON asked for is asked ONCE more with that said (a second ask shaped by the first answer, never the first one
+     * sent again); an answer cut at the token cap is asked over half the passages; when neither can be asked another way the same prompt
+     * would only get the same answer, and `ModelRefused` (a dead letter with one item) is thrown.
      */
-    private askModel(input: CritiqueInput, first: boolean, whole: BuiltCritique): Promise<ModelPart> {
+    private askModel(input: CritiqueInput, first: boolean, whole: BuiltCritique, job: ClaimedJob): Promise<ModelPart> {
         const narrower: Narrower = (built) => {
             const window = narrowerWindow(built)
             return window === null ? null : buildCritique(input, first, window)
         }
-        return this.tryFrom(input.workspaceId, { built: whole, after: undefined }, narrower, 1, 0)
+        return this.askFrom(input.workspaceId, input.sourceId, { built: whole, after: undefined }, narrower, job, 0)
     }
 
-    /** The try number `tries` of a model call (`calls` answers were paid for before it), then the next one when this one failed. */
-    private async tryFrom(workspaceId: string, plan: TryPlan, narrower: Narrower, tries: number, calls: number): Promise<ModelPart> {
-        if (await this.usage.blockedBy(workspaceId, "brain", false))
-            return { answer: null, built: plan.built, calls, tries: tries - 1, reason: "credits" }
-        const outcome = await this.model.critique(plan.built.bundle, plan.after)
-        const paid = outcome.ok || outcome.reason !== "unavailable" ? calls + 1 : calls
-        if (outcome.ok) return { answer: outcome.answer, built: plan.built, calls: paid, tries, reason: null }
-        const next = tries >= CRITIC_CAPS.tries ? null : this.nextTry(outcome.reason, plan, narrower)
-        if (next === null) return { answer: null, built: plan.built, calls: paid, tries, reason: "model" }
-        return this.tryFrom(workspaceId, next, narrower, tries + 1, paid)
+    /** One ask of a model call, then the next ask the answer calls for (`calls` answers were paid for before it). */
+    private async askFrom(workspaceId: string, sourceId: string, plan: TryPlan, narrower: Narrower, job: ClaimedJob, calls: number): Promise<ModelPart> {
+        if (await this.usage.blockedBy(workspaceId, "brain", false)) return { answer: null, built: plan.built, calls, reason: "credits" }
+        const start = [...plan.built.changed][0] ?? ""
+        const key = `${job.jobId}:critique:${sourceId}:${start}:${plan.after ?? "first"}:${String(plan.built.bundle.changed.length)}`
+        const outcome = await onceAnswered(this.effects, key, CRITIC_MODEL_EFFECT, () => this.model.critique(plan.built.bundle, plan.after))
+        if (outcome.ok) return { answer: outcome.answer, built: plan.built, calls: calls + 1, reason: null }
+        if (outcome.reason === "unavailable") throw new DossierReviewError({ code: DossierReviewErrorCode.ModelUnavailable })
+        const next = this.nextTry(outcome.reason, plan, narrower)
+        if (next === null) throw new DossierReviewError({ code: DossierReviewErrorCode.ModelRefused })
+        return this.askFrom(workspaceId, sourceId, next, narrower, job, calls + 1)
     }
 
-    /** What the try after a failed one sends, or null when another try would only be the same call again. */
-    private nextTry(reason: CritiqueFailure, plan: TryPlan, narrower: Narrower): TryPlan | null {
-        if (reason === "unavailable") return plan
+    /** What the ask after an answer that was no answer sends, or null when another ask would only be the same call again. */
+    private nextTry(reason: Exclude<CritiqueFailure, "unavailable">, plan: TryPlan, narrower: Narrower): TryPlan | null {
         if (reason === "unreadable") return plan.after === "unreadable" ? null : { built: plan.built, after: "unreadable" }
         const built = narrower(plan.built)
         return built === null ? null : { built, after: undefined }

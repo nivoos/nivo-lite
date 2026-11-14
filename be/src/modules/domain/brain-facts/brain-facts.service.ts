@@ -55,6 +55,7 @@ import {
     nextVersion,
     scheduleChanges,
 } from "./fact-write.policy"
+import type { FactsChangedHook } from "./facts-changed-hook.contracts"
 import { BrainFactRelationsService } from "./brain-fact-relations.service"
 import { InForceBoundService } from "./in-force-bound.service"
 import type { InForceBound } from "./in-force.policy"
@@ -190,21 +191,6 @@ const noteOrNull = (note: string | undefined): string | null => {
     return trimmed === undefined || trimmed === "" ? null : trimmed
 }
 
-/**
- * Who listens to the facts store: the derived policy layer (PO2) and the vectors of the facts in force (`FactEmbeddingsService`: a
- * value that comes in force gets its vector here, whatever door wrote it). It is told AFTER a write committed that what is in force in
- * a workspace changed: a value applied (or scheduled), retired, taken over at its start, expired, or given another reach. It must never
- * throw: the write already stands, and the listener records its own failure.
- */
-export interface FactsChangedHook {
-    /**
-     * What is in force changed in the workspace; `changedIds` are the facts the write produced (the value now in force or scheduled, the
-     * retired one, the next version of a new reach, the values that took over at their start), so a listener whose work is per fact
-     * (the vectors) touches only those, and one that compares the whole workspace (the policy layer) may ignore them.
-     */
-    factsChanged(workspaceId: string, changedIds: ReadonlyArray<string>): Promise<void>
-}
-
 @Injectable()
 /**
  * The facts of a workspace. Exactly one ACTIVE fact per subject, attribute and scope: applying a new value supersedes the old one,
@@ -237,8 +223,13 @@ export class BrainFactsService {
      * Tells every listener, after the write, one after the other; answers whether one was told. A listener that fails all the same
      * never fails the write nor the next listener: it logs its own failure, and its next pass compares the whole workspace.
      */
-    private async announce(workspaceId: string, changedIds: ReadonlyArray<string>): Promise<boolean> {
+    private async announce(workspaceId: string, changedIds: ReadonlyArray<string>, tx?: EntityManager): Promise<boolean> {
         const ids = [...new Set(changedIds)]
+        if (tx !== undefined) {
+            // Inside the caller's transaction nothing is swallowed: a listener that cannot write what it owes fails the whole commit.
+            await eachInOrder(this.changeHooks, (hook) => hook.factsChanged(workspaceId, ids, tx))
+            return this.changeHooks.length > 0
+        }
         await eachInOrder(this.changeHooks, (hook) =>
             Promise.resolve()
                 .then(() => hook.factsChanged(workspaceId, ids))
@@ -259,10 +250,11 @@ export class BrainFactsService {
 
     /**
      * Tells every listener ONCE that these facts changed: the closing call of a caller that applied many facts with `applyUnannounced`
-     * (the bulk apply of a document), so N facts are one announcement, never N. Nothing for no fact.
+     * (the bulk apply of a document), so N facts are one announcement, never N. Nothing for no fact. With `tx` the listeners write what
+     * they owe in that transaction (a job's finishing transaction) and a failure of one throws.
      */
-    async announceChanged(workspaceId: string, changedIds: ReadonlyArray<string>): Promise<void> {
-        if (changedIds.length > 0) await this.announce(workspaceId, changedIds)
+    async announceChanged(workspaceId: string, changedIds: ReadonlyArray<string>, tx?: EntityManager): Promise<void> {
+        if (changedIds.length > 0) await this.announce(workspaceId, changedIds, tx)
     }
 
     /** One fact of the workspace. */

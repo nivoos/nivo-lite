@@ -366,7 +366,8 @@ describe("the defineNode road is unchanged by R3", () => {
     it("declined: the step runs again, the same call asks again and is the step's trouble (tool_approval_refused) for the AI core", async () => {
         const db = threadDbOf()
         db.rights.asks?.add(TOOL.brainChangePropose)
-        db.model.script(CHAT, proposes, { done: { answer: "Da ghi nhan." } })
+        // Rule SO-4: the call that asks for approval ends the turn: the model is asked no further turn before the person decides.
+        db.model.script(CHAT, proposes)
         const process = await processOf(db)
         const woken = await startThread(process, {
             flow: chatFlow,

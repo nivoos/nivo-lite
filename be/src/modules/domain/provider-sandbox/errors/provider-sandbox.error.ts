@@ -18,6 +18,8 @@ export enum ProviderSandboxErrorCode {
     RunNotWaiting = "PROVIDER_SANDBOX_RUN_NOT_WAITING",
     /** A sandbox account was asked for a provider that ships no sandbox (`provider`). */
     ProviderUnknown = "PROVIDER_SANDBOX_PROVIDER_UNKNOWN",
+    /** No sandbox account of the workspace holds a pay link of that id (`linkId`). */
+    PayLinkUnknown = "PROVIDER_SANDBOX_PAY_LINK_UNKNOWN",
 }
 
 /** How each provider-sandbox code travels. */
@@ -30,6 +32,7 @@ export const PROVIDER_SANDBOX_ERROR_KINDS: Record<ProviderSandboxErrorCode, Erro
     [ProviderSandboxErrorCode.InputInvalid]: "invalid",
     [ProviderSandboxErrorCode.RunNotWaiting]: "conflict",
     [ProviderSandboxErrorCode.ProviderUnknown]: "invalid",
+    [ProviderSandboxErrorCode.PayLinkUnknown]: "not-found",
 }
 
 /** The one error class of the provider-sandbox capability. */

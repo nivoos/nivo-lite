@@ -17,13 +17,9 @@ export type AgentGraphT = ReturnType<typeof useTranslations<"agentGraph">>
 /** What the builders of the views know about the person and the language. */
 export interface AgentGraphContext {
     readonly t: AgentGraphT
-    /** Owners and managers edit the graph. */
-    readonly canEdit: boolean
-    /** Only the owner may add what widens the agent's reach. */
-    readonly isOwner: boolean
     /** Writes an amount in dong as an owner says it: "5 million". */
     readonly amount: (vnd: number) => string
-    /** Where the checklist of the agent stands: the other half of what "Publish and run" does. */
+    /** Where the checklist of the agent stands. */
     readonly setup: AgentGraphSetupState
     /** The names of the channels the agent is connected to. */
     readonly channels: ReadonlyArray<string>
@@ -33,16 +29,12 @@ export interface AgentGraphContext {
     readonly lifecycleLabel: string
 }
 
-/** The checklist of the setup as the one publish action sees it. */
+/** The checklist of the setup as the status line reads it. */
 export interface AgentGraphSetupState {
     /** Every item is confirmed. */
     readonly isReady: boolean
-    /** The checklist differs from the version the agent runs on. */
-    readonly isChanged: boolean
     /** How many items are not confirmed yet. */
     readonly missing: number
-    /** The checklist is being applied. */
-    readonly isApplying: boolean
 }
 
 /** The word of a node kind: the lane it sits in. */

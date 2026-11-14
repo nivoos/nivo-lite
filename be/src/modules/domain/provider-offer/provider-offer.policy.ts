@@ -9,7 +9,7 @@ import {
     type ToolsAccountFacts,
 } from "@modules/domain/openapi-tools"
 import type { ApiVerb, CoreApiVerb } from "@nivo-lite/agent-sdk/names"
-import type { ProviderTriggerDeclaration } from "@modules/domain/provider-triggers"
+import { triggerMembersOf, type TriggerDeclaration, type TriggerMember } from "@modules/domain/provider-triggers"
 import type { InterfaceProviderRead } from "@modules/domain/workbench-door"
 import { isRecord } from "@modules/platform/primitives"
 import type {
@@ -223,32 +223,35 @@ export const offeredToolOf = (source: ToolSource): OfferedTool => {
     }
 }
 
-/** One payload field of a trigger, as the catalogue declares it. */
-type TriggerField = ProviderTriggerDeclaration["payload"][number]
+/** One member of a trigger's data: its type and closed values from the data schema, its words from the declaration's `words.members`. */
+const dataMemberOf = (declaration: TriggerDeclaration, member: TriggerMember): OfferedMember => {
+    const words = declaration.words.members?.[member.name]
+    return {
+        name: member.name,
+        type: member.type,
+        format: null,
+        required: member.required,
+        choices: member.choices,
+        label: words === undefined ? null : { vi: words.vi, en: words.en },
+        description: null,
+        filterable: member.choices.length > 0,
+    }
+}
 
-/** One payload member of a trigger. */
-const payloadMemberOf = (field: TriggerField): OfferedMember => ({
-    name: field.name,
-    type: field.type,
-    format: null,
-    required: true,
-    choices: field.of ?? [],
-    label: { vi: field.description.vi, en: field.description.en },
-    description: null,
-    filterable: field.filterable,
-})
-
-/** The triggers of level 3, as the provider declares them. */
-export const offeredTriggersOf = (declared: ReadonlyArray<ProviderTriggerDeclaration>): ReadonlyArray<OfferedTrigger> =>
+/** The triggers of level 3, as the provider declares them (`TriggerDeclaration`): the members of the data are derived from its schema. */
+export const offeredTriggersOf = (declared: ReadonlyArray<TriggerDeclaration>): ReadonlyArray<OfferedTrigger> =>
     declared.map((declaration) => ({
         name: declaration.name,
-        kind: declaration.kind,
-        summary: { vi: declaration.description.vi, en: declaration.description.en },
-        payload: declaration.payload.map((field) => payloadMemberOf(field)),
-        batching:
-            declaration.batching.mode === "list"
-                ? { mode: "list", maxEvents: declaration.batching.maxEvents }
-                : { mode: "each", maxEvents: null },
-        recovery: declaration.recovery,
-        decided: declaration.decided,
+        via: declaration.via,
+        withoutPoll:
+            declaration.withoutPoll === undefined
+                ? null
+                : {
+                      reason: { vi: declaration.withoutPoll.reason.vi, en: declaration.withoutPoll.reason.en },
+                      source: declaration.withoutPoll.source,
+                  },
+        title: { vi: declaration.words.title.vi, en: declaration.words.title.en },
+        summary: { vi: declaration.words.summary.vi, en: declaration.words.summary.en },
+        payload: triggerMembersOf(declaration.data).map((member) => dataMemberOf(declaration, member)),
+        decided: declaration.switch?.decided === true,
     }))

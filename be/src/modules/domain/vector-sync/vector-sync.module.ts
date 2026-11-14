@@ -5,7 +5,6 @@ import { NivoVectorRowsService } from "@modules/domain/nivo-knowledge"
 import { VectorSyncQueueModule } from "@modules/queues/vector-sync"
 import { VectorReconcileService } from "./vector-reconcile.service"
 import {
-    VECTOR_DRIFT_REPORTER,
     VECTOR_EMBEDDER,
     VECTOR_ROW_SOURCES,
     type VectorRowSources,
@@ -38,9 +37,6 @@ export class VectorSyncModule extends ConfigurableModuleClass {
                     inject: [PassageVectorRowsService, FactVectorRowsService, NivoVectorRowsService],
                 },
                 { provide: VECTOR_EMBEDDER, useExisting: options.embedder },
-                options.driftReporter === undefined
-                    ? { provide: VECTOR_DRIFT_REPORTER, useValue: null }
-                    : { provide: VECTOR_DRIFT_REPORTER, useExisting: options.driftReporter },
                 VectorSyncService,
                 VectorReconcileService,
             ],

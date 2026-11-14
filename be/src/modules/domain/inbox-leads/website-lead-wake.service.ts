@@ -9,8 +9,8 @@ import { WEBSITE_FORM_TRIGGER } from "./website-form.trigger"
 
 @Injectable()
 /**
- * THE WEBSITE FORM'S ENTRY to the one event pipeline (concept triggers rule 13): an accepted form, already stored as one input and its
- * claims linked, is translated by the form's pure trigger declaration and handed to the ONE delivery function for the site's owning agent
+ * THE WEBSITE FORM'S ENTRY to the one event pipeline (concept triggers rule 13): an accepted form, already stored as one input (the job
+ * `website-form.deliver` met the contact and linked its claims, then calls this), is translated by the form's pure trigger declaration and handed to the ONE delivery function for the site's owning agent
  * (the site is the account of the visitor's identity). Nothing here writes a record of the agent or sends a message: the agent's graph
  * does what it decides. A repeat of the same form is the same event id, which the delivery keeps to one wake.
  */

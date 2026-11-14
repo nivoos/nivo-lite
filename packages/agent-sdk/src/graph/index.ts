@@ -202,5 +202,5 @@ export type {
     ViewLocale,
     WordLookup,
 } from "./view"
-export type { QueuedEvent, TriggerKeyPath, TriggerScope, TriggerSubject } from "./trigger-event"
-export { TRIGGER_KEY_MEMBERS, isTriggerKeyPath } from "./trigger-event"
+export type { QueuedEvent, TriggerCombine, TriggerKeyPath, TriggerScope, TriggerSubject } from "./trigger-event"
+export { DEFAULT_TRIGGER_COMBINE, TRIGGER_COMBINE_MODES, TRIGGER_KEY_MEMBERS, isTriggerCombine, isTriggerKeyPath } from "./trigger-event"

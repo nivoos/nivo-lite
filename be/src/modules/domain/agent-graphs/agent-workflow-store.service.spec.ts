@@ -2,9 +2,7 @@ import { Test } from "@nestjs/testing"
 import { AGENT_WORKFLOWS, AGENT_WORKFLOW_VERSIONS, workflowRecordOfRow, workflowVersionRecordOfRow } from "@tests/fixtures/builders/engine-core-tables.builder"
 import { mock, mockEntityManager } from "@starci/jest-preset"
 import type { MockEntityManager } from "@starci/jest-preset"
-import type { GraphSpec } from "@nivo-lite/agent-sdk/graph"
 import type { WorkflowTemplate } from "@nivo-lite/agent-sdk/template"
-import { TOOL } from "@nivo-lite/agent-sdk/names"
 import { GraphNodeRegistryService } from "@modules/domain/graph-nodes"
 import { INSTALLED } from "@modules/domain/installed-plugins"
 import { AccountAttachmentsService, NodeAccountConsentsService } from "@modules/domain/tool-grants"
@@ -23,7 +21,7 @@ import { AgentWorkflowsService } from "./agent-workflows.service"
 import type { WorkflowRecord, WorkflowVersionRecord } from "./agent-workflows.contracts"
 import { SCOPE } from "@tests/fixtures/builders/agent-graph-records.builder"
 import { ownerEdited, templateGraph, templateNewest } from "@tests/fixtures/builders/agent-workflows.builder"
-import { RIGHTS_FLOW, rightsIndexOf } from "@tests/fixtures/builders/agent-rights.builder"
+import { rightsIndexOf } from "@tests/fixtures/builders/agent-rights.builder"
 import { AgentGraphsErrorCode } from "./errors/agent-graphs.error"
 import { noRights } from "./policies/node-rights-gate.policy"
 import { snapshotHashOf } from "./policies/workflow-view.policy"
@@ -187,7 +185,6 @@ describe("AgentWorkflowStoreService: the primary workflow and the agent graph pu
     })
 })
 
-const SEND = TOOL.customerMessageSend
 const BOSS = { kind: "owner" as const, memberId: "member-1", role: "owner" as const }
 const DINH = { kind: "owner" as const, memberId: "member-2", role: "manager" as const }
 
@@ -196,29 +193,6 @@ const attachedOf = (books: boolean): ReadonlyArray<ProviderAttachmentView> => [
     { agentId: "agent-1", connectionId: "c-zalo", provider: "zalo_oa" },
     ...(books ? [{ agentId: "agent-1", connectionId: "c-books", provider: "google" }] : []),
 ]
-
-/**
- * The rights flow (an `@1` flow of spec-own steps, which the owner may edit; a template graph is edited only in its package) with its
- * `tell` step asking the send in another mode.
- */
-const tellAsks = (mode: "auto" | "ask"): GraphSpec => ({
-    ...RIGHTS_FLOW,
-    nodes: RIGHTS_FLOW.nodes.map((node) =>
-        node.key === "tell"
-            ? { ...node, accounts: [{ kind: "messaging", provider: null, connectionId: null, operations: { [SEND]: mode } }] }
-            : node,
-    ),
-})
-
-/** The node of `WIDER` that asks for more: a second customer line, the send on any messaging account. */
-const TELL_AGAIN = "tell-again"
-
-/** The rights flow with one more step that sends: a version that asks one entry more than the rights flow. */
-const WIDER: GraphSpec = (() => {
-    const [tell, book] = RIGHTS_FLOW.nodes
-    if (tell === undefined || book === undefined) return RIGHTS_FLOW
-    return { ...RIGHTS_FLOW, nodes: [{ ...tell, next: TELL_AGAIN }, { ...tell, key: TELL_AGAIN, next: book.key }, book] }
-})()
 
 const RECONCILE = "webbooks.invoice"
 /** The reconcile template's version as the installation ships it today. */
@@ -335,13 +309,6 @@ const reconcileOf = (world: GateWorld, version: number | null = null) =>
         "vi",
     )
 
-/** A workflow that runs the OWNER's own flow: made blank (version 1), then the rights flow published by the owner (version 2). */
-const ownFlowOf = async (world: GateWorld) => {
-    const made = await world.workflows.createBlank("ws-1", "agent-1", { name: "Doi soat", moduleKey: "webbooks" }, BOSS, "vi")
-    await world.workflows.publish("ws-1", made.id, RIGHTS_FLOW, BOSS, 1, "")
-    return made
-}
-
 // nivo-frame `rights`: the publish / install rights GATE is REMOVED. A node's mode is declared in its version (editing it is publishing
 // a version), the attachments say which accounts; no road asks the owner for rights or writes a grant row. Every road keeps its
 // versions and its status.
@@ -354,39 +321,6 @@ describe("AgentWorkflowStoreService: no rights gate on the roads that make a ver
         expect(versionsOf(world).filter((version) => version.workflowId === made.id).map((version) => version.number)).toEqual([1])
         expect(world.grants).toEqual([])
         expect(world.consents.transaction).not.toHaveBeenCalled()
-    })
-
-    it("publish: a version that lists MORE (one more step that sends) passes for a manager, with no row", async () => {
-        const world = await buildGateWorld()
-        const made = await ownFlowOf(world)
-
-        const version = await world.workflows.publish("ws-1", made.id, WIDER, DINH, 2, "")
-
-        expect(version.number).toBe(3)
-        expect(world.grants).toEqual([])
-    })
-
-    it("publish: a step moved from ask to auto, and back, passes for a manager", async () => {
-        const world = await buildGateWorld()
-        const made = await ownFlowOf(world)
-
-        await world.workflows.publish("ws-1", made.id, tellAsks("ask"), DINH, 2, "")
-        const back = await world.workflows.publish("ws-1", made.id, tellAsks("auto"), DINH, 3, "")
-
-        expect(back.number).toBe(4)
-        expect(world.grants).toEqual([])
-    })
-
-    it("rollback: going back to a version that lists more passes for a manager", async () => {
-        const world = await buildGateWorld()
-        const made = await ownFlowOf(world)
-        await world.workflows.publish("ws-1", made.id, WIDER, BOSS, 2, "")
-        await world.workflows.publish("ws-1", made.id, RIGHTS_FLOW, DINH, 3, "")
-
-        const version = await world.workflows.rollback("ws-1", made.id, 3, DINH, 4, "")
-
-        expect(version.number).toBe(5)
-        expect(world.grants).toEqual([])
     })
 
     it("accept template: the shipped version, whose steps list providers, is accepted by a manager with no row", async () => {

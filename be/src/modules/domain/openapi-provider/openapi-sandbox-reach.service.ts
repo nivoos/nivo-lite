@@ -42,7 +42,7 @@ const answerOf = (status: number, body: unknown): OpenApiReachAnswer => ({ statu
  * answers every call of every pinned operation GENERICALLY (R75: it knows operation ids, collections and fields as the package's data,
  * never a system's noun). The account's next case of `call` picks the outcome (R62; `OPENAPI-1` by default): the package's fixture of
  * the operation (a write that `keeps` is remembered per account and read back by a later `readsBack` / `listsBack` read), a refusal
- * (422), a failure (503), or an applied write whose answer is lost (kept, then 504). An operation the package shipped no fixture for is
+ * (the package's own 4xx answer of the operation, else a plain 422), a failure (its own 5xx answer, else a plain 503), or an applied write whose answer is lost (kept, then 504). An operation the package shipped no fixture for is
  * refused `PROVIDER_SANDBOX_CASE_UNKNOWN` (`<connector>:<operationId>`): the gap is the package's, never a guessed answer. One logged
  * call per request.
  */
@@ -84,10 +84,16 @@ export class OpenApiSandboxReachService implements OpenApiReachPort {
                 key: call.operationId,
                 answer: async (state) => {
                     if (state.nextCase === OPENAPI_SANDBOX_CASE.refused) {
-                        return answerOf(OPENAPI_SANDBOX_REFUSAL_STATUS, { message: "refused by the sandbox case OPENAPI-2" })
+                        const own = this.fixtures.of(account.connector)?.operations[call.operationId]?.refused
+                        return own !== undefined
+                            ? answerOf(own.status, own.body)
+                            : answerOf(OPENAPI_SANDBOX_REFUSAL_STATUS, { message: "refused by the sandbox case OPENAPI-2" })
                     }
                     if (state.nextCase === OPENAPI_SANDBOX_CASE.failed) {
-                        return answerOf(OPENAPI_SANDBOX_FAILURE_STATUS, { message: "failed by the sandbox case OPENAPI-3" })
+                        const own = this.fixtures.of(account.connector)?.operations[call.operationId]?.failed
+                        return own !== undefined
+                            ? answerOf(own.status, own.body)
+                            : answerOf(OPENAPI_SANDBOX_FAILURE_STATUS, { message: "failed by the sandbox case OPENAPI-3" })
                     }
                     const fixture = this.fixtureOf(account.connector, call.operationId)
                     const answer = await this.answered(fixture, call, state)

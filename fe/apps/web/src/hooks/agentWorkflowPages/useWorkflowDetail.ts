@@ -8,7 +8,7 @@ import { useWorkflowSteps, type WorkflowSteps } from "@/hooks/workflowSteps"
 import { paramLabelOf } from "@/modules/plugin-registry"
 import { useWorkflowId } from "./useWorkflowId"
 import { overviewOf } from "@/modules/agentWorkflowPages"
-import { graphOfSpec, specOf, stepsLocaleOf } from "@/modules/workflowSteps"
+import { graphOfSpec, originOf, specOf, stepsLocaleOf } from "@/modules/workflowSteps"
 import type { DataSlot, WorkflowDetailView, WorkflowOverviewView, WorkflowStatus } from "@/modules/types"
 
 /** Everything the page of one workflow draws: the workflow, its overview, its map and drawer, its runs. */
@@ -28,11 +28,7 @@ export interface WorkflowDetail {
 }
 
 /** The page of one workflow of an agent: its read, its overview, the map with its step drawer, and the runs narrowed to it. */
-export const useWorkflowDetail = (
-    module: string,
-    installationId: string,
-    key: string,
-): WorkflowDetail => {
+export const useWorkflowDetail = (module: string, installationId: string, key: string): WorkflowDetail => {
     const t = useTranslations("agentWorkflowPages")
     const locale = stepsLocaleOf(useLocale())
     const workflowId = useWorkflowId(installationId, key)
@@ -55,19 +51,32 @@ export const useWorkflowDetail = (
     const steps = useWorkflowSteps({
         installationId,
         graph: workflows.graphJson,
+        nodeSettings: workflows.nodeSettings,
         workflow: selected === undefined ? null : { id: selected.id, latestNumber: selected.latestNumber },
         onSaved: workflows.refresh,
     })
     const spec = useMemo(() => specOf(workflows.graphJson), [workflows.graphJson])
+    const templateId = selected?.templateId ?? null
+    const templateName = selected?.templateName ?? null
+    const templateVersion = selected?.templateVersion ?? null
     const overview = useMemo(
-        () =>
-            overviewOf(
+        () => ({
+            ...overviewOf(
                 spec,
                 graphOfSpec(spec, locale),
                 (word, values) => t(word, values),
                 (name) => paramLabelOf(name, locale),
             ),
-        [spec, locale, t],
+            origin: originOf({ templateId, templateName, templateVersion }, locale, {
+                title: t("originTitle"),
+                templateLabel: t("originTemplate"),
+                packageLabel: t("originPackage"),
+                versionLabel: t("originVersion"),
+                versionText: (version) => t("originVersionText", { version }),
+                note: t("originNote"),
+            }),
+        }),
+        [spec, locale, t, templateId, templateName, templateVersion],
     )
     return {
         detail: workflows.detail,

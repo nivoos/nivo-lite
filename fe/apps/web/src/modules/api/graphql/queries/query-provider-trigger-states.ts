@@ -16,7 +16,14 @@ const query1: Document = gql`
         providerTriggerStates(input: $input) {
             connectionId
             name
-            kind
+            via
+            withoutPoll {
+                source
+                reason {
+                    vi
+                    en
+                }
+            }
             summary {
                 vi
                 en

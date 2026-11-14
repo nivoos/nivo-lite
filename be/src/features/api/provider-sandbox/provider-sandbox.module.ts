@@ -11,6 +11,7 @@ import { SandboxCasesHandler } from "./application/sandbox-cases.handler"
 import { SandboxKeyHandler } from "./application/sandbox-key.handler"
 import { SandboxLatestRequestHandler } from "./application/sandbox-latest-request.handler"
 import { SandboxNextCasesHandler } from "./application/sandbox-next-cases.handler"
+import { SandboxPayLinkHandler } from "./application/sandbox-pay-link.handler"
 import { SandboxProvidersHandler } from "./application/sandbox-providers.handler"
 import { SandboxWaitingRunsHandler } from "./application/sandbox-waiting-runs.handler"
 import { SandboxAttachmentsService } from "./application/sandbox-attachments.service"
@@ -27,6 +28,7 @@ import { ConfigurableModuleClass } from "./provider-sandbox.module-definition"
         SandboxCasesHandler,
         SandboxLatestRequestHandler,
         SandboxNextCasesHandler,
+        SandboxPayLinkHandler,
         SandboxCallsHandler,
         SandboxKeyHandler,
         SandboxWaitingRunsHandler,

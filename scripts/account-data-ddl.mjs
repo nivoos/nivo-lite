@@ -217,6 +217,22 @@ const selfTest = () => {
 /** A forward migration of account data types written after the baseline reset (one per batch of NEW types). */
 const FORWARD = /^\d{14}_account-data-types-[a-z0-9-]+\.sql$/u
 
+/**
+ * The altering parts of a committed DDL text (MAIL-IN, BE-PERSISTENCE-19: a declared type that CHANGED gets a hand-written expand-only
+ * migration): each `-- alter_partition public.<name>: <why>` header up to the next one, by partition name, the header line left out. Its
+ * statements are appended to the partition's block, so the block the declaration renders is the create block plus every alter part in
+ * stamp order.
+ */
+const altersOf = (text) => {
+    const out = []
+    const parts = text.replace(/\r/gu, "").split(/(?=^-- alter_partition public\.)/mu)
+    for (const part of parts) {
+        const name = part.match(/^-- alter_partition public\.([a-z0-9_]+):/u)?.[1]
+        if (name) out.push({ name, lines: part.slice(part.indexOf("\n") + 1).trimEnd() })
+    }
+    return out
+}
+
 /** The partition blocks of a committed DDL text, by partition name (a block = its `-- create_partition` line up to the next one). */
 const blocksOf = (text) => {
     const out = new Map()
@@ -240,6 +256,12 @@ const afterReset = (plan) => {
     const committed = new Map()
     for (const [where, text] of [[held.where, held.text], ...forward.map((f) => [`db/migrations/${f}`, fs.readFileSync(`db/migrations/${f}`, "utf8")])])
         for (const [name, block] of blocksOf(text)) committed.set(name, committed.has(name) ? { block: null, where: `${committed.get(name).where} AND ${where}` } : { block, where })
+    for (const f of forward)
+        for (const { name, lines } of altersOf(fs.readFileSync(`db/migrations/${f}`, "utf8"))) {
+            const held = committed.get(name)
+            if (held === undefined || held.block === null) committed.set(name, { block: null, where: `db/migrations/${f} alters a partition no migration creates` })
+            else committed.set(name, { block: `${held.block}\n${lines}`, where: `${held.where} + db/migrations/${f}` })
+        }
     const missing = []
     const problems = []
     for (const entry of plan.partitions) {

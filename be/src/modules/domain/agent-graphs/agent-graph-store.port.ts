@@ -4,12 +4,6 @@ import type {
     GraphInsert,
     GraphPatch,
     GraphRecord,
-    GraphSourceRecord,
-    ProposalInsert,
-    ProposalPatch,
-    ProposalRecord,
-    ProposalStatusFilter,
-    SourceInsert,
     VersionInsert,
     VersionRecord,
 } from "./agent-graphs-records.contracts"
@@ -18,8 +12,7 @@ import type {
 export type GraphLookup = { readonly agentId: string } | { readonly installationId: string }
 
 /**
- * The graphs of the agents and what hangs off them (public.agent_graphs, agent_graph_versions, agent_graph_sources,
- * agent_graph_proposals). Every member runs in the transaction of the `ScopedTx` it is given, on the workspace it
+ * The graphs of the agents and what hangs off them (public.agent_graphs, agent_graph_versions). Every member runs in the transaction of the `ScopedTx` it is given, on the workspace it
  * names, and never opens one. A write under a fence answers null when the row moved on (nothing written).
  */
 export interface AgentGraphStore {
@@ -37,23 +30,6 @@ export interface AgentGraphStore {
     versions(tx: ScopedTx, agentId: string, limit: number): Promise<ReadonlyArray<VersionRecord>>
     /** Writes a version; null when the agent holds its number already. */
     addVersion(tx: ScopedTx, version: VersionInsert): Promise<VersionRecord | null>
-    /** Indexes one source of a version; false when the version holds that source already. */
-    insertSource(tx: ScopedTx, source: SourceInsert): Promise<boolean>
-    /** At most `limit` sources of one kind among these versions, in the order of the versions. */
-    sources(
-        tx: ScopedTx,
-        kind: string,
-        versionIds: ReadonlyArray<string>,
-        limit: number,
-    ): Promise<ReadonlyArray<GraphSourceRecord>>
-    /** One proposal, or null. */
-    proposal(tx: ScopedTx, id: string): Promise<ProposalRecord | null>
-    /** The proposals of the agent in these statuses (of one kind when named): newest first, or by status when `byStatus`; at most `limit`. */
-    proposals(tx: ScopedTx, filter: ProposalStatusFilter, limit: number): Promise<ReadonlyArray<ProposalRecord>>
-    /** Writes a proposal once per agent and cause: true when this call wrote it. */
-    raiseProposal(tx: ScopedTx, proposal: ProposalInsert): Promise<boolean>
-    /** Writes members of a proposal at the fence read. */
-    patchProposal(tx: ScopedTx, id: string, fence: string, patch: ProposalPatch): Promise<ProposalRecord | null>
 }
 
 /** The injection token of the graph store. */

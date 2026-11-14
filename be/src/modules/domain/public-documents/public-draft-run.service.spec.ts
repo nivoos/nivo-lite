@@ -1,10 +1,12 @@
 import { Test } from "@nestjs/testing"
+import { In } from "typeorm"
 import { fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
 import type { MockEntityManager } from "@starci/jest-preset"
 import { UsageMeterService } from "@modules/domain/knowledge"
 import { KnowledgeSourcesReadService } from "@modules/domain/knowledge-sources"
 import type { SourceDocument } from "@modules/domain/knowledge-sources"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
+import { claimedAiJob } from "@tests/fixtures/builders/brain-ai-effects.builder"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
 import {
@@ -15,7 +17,7 @@ import {
     publicDraftingAnswers,
 } from "@tests/fixtures/builders/public-documents.builder"
 import { MAX_SHOWN_CHARS } from "./draft-sources.policy"
-import { PublicDocumentsErrorCode } from "./errors/public-documents.error"
+import { PublicDocumentsError, PublicDocumentsErrorCode } from "./errors/public-documents.error"
 import { InternalReaderService } from "./internal-reader.service"
 import { PublicDocumentEntity, PublicDocumentSourceEntity } from "./persistence/entities"
 import { PublicDraftRunService } from "./public-draft-run.service"
@@ -23,6 +25,9 @@ import { PublicDraftWriterService } from "./public-draft-writer.service"
 
 const codes = PublicDocumentsErrorCode
 const payload = { documentId: "d1", workspaceId: WS, draftRevision: 0 }
+
+/** The claimed job of the draft: its id keys the model call (`job-1:draft`). */
+const JOB = claimedAiJob(payload, { kind: "public.draft" })
 
 /** A document NIVO is drafting for the owner, with a note and no text yet. */
 const rowOf = (changes: Parameters<typeof documentRow>[0] = {}) =>
@@ -80,19 +85,22 @@ describe("PublicDraftRunService an owner's draft from the public area", () => {
         const { run, reader, writer } = await build(tx.em, [docOf("s1", REPAIR), docOf("s2", "Wheel truing in one day.")])
         writer.write.mockResolvedValue({ answers: true, body: ` ${REPAIRED} ` })
 
-        await expect(run.generate(payload)).resolves.toBe("done")
+        await expect(run.generate(JOB)).resolves.toBe("done")
 
         expect(writer.write).toHaveBeenCalledTimes(1)
-        expect(writer.write).toHaveBeenCalledWith({
-            workspaceId: WS,
-            title: "Frequent questions",
-            question: null,
-            instructions: "Keep it short",
-            sources: [
-                { sourceId: "s1", title: "Document s1", text: REPAIR, cut: false },
-                { sourceId: "s2", title: "Document s2", text: "Wheel truing in one day.", cut: false },
-            ],
-        })
+        expect(writer.write).toHaveBeenCalledWith(
+            {
+                workspaceId: WS,
+                title: "Frequent questions",
+                question: null,
+                instructions: "Keep it short",
+                sources: [
+                    { sourceId: "s1", title: "Document s1", text: REPAIR, cut: false },
+                    { sourceId: "s2", title: "Document s2", text: "Wheel truing in one day.", cut: false },
+                ],
+            },
+            "job-1:draft",
+        )
         expect(tx.em.update).toHaveBeenCalledWith(
             PublicDocumentEntity,
             { id: "d1", workspaceId: WS, status: "drafting", draftRevision: 0 },
@@ -112,7 +120,7 @@ describe("PublicDraftRunService an owner's draft from the public area", () => {
         const { run, writer } = await build(tx.em, [docOf("s1", REPAIR)])
         writer.write.mockResolvedValue({ answers: true, body: REPAIRED })
 
-        await run.generate(payload)
+        await run.generate(JOB)
 
         expect(tx.em.update).toHaveBeenCalledWith(
             PublicDocumentEntity,
@@ -127,7 +135,7 @@ describe("PublicDraftRunService an owner's draft from the public area", () => {
         const { run, writer, logger } = await build(tx.em, [docOf("s1", long), docOf("s2", REPAIR)])
         writer.write.mockResolvedValue({ answers: true, body: REPAIRED })
 
-        await run.generate(payload)
+        await run.generate(JOB)
 
         const [brief] = writer.write.mock.calls[0] ?? []
         expect(brief?.sources[0]?.cut).toBe(true)
@@ -146,7 +154,7 @@ describe("PublicDraftRunService the area of an owner's draft", () => {
         const tx = drafting(rowOf(), [sourceRow("s1"), sourceRow("s2")])
         const { run, sources, writer } = await build(tx.em, [docOf("s1", REPAIR), docOf("s2", "Staff rota", visibility)])
 
-        await expect(run.generate(payload)).resolves.toBe("done")
+        await expect(run.generate(JOB)).resolves.toBe("done")
 
         expect(tx.em.update.mock.calls).toEqual([stopped(codes.SourceInternal)])
         expect(sources.textOf).not.toHaveBeenCalled()
@@ -158,7 +166,7 @@ describe("PublicDraftRunService the area of an owner's draft", () => {
         const { run, sources, writer } = await build(tx.em, [docOf("s1", REPAIR)])
         sources.textOf.mockResolvedValue(docOf("s1", REPAIR, "internal"))
 
-        await run.generate(payload)
+        await run.generate(JOB)
 
         expect(tx.em.update.mock.calls).toEqual([stopped(codes.SourceNotReady)])
         expect(writer.write).not.toHaveBeenCalled()
@@ -172,7 +180,7 @@ describe("PublicDraftRunService the area of an owner's draft", () => {
         const tx = drafting(rowOf(), [sourceRow("s1")])
         const { run, writer } = await build(tx.em, shelf)
 
-        await run.generate(payload)
+        await run.generate(JOB)
 
         expect(tx.em.update.mock.calls).toEqual([stopped(codes.SourceNotReady)])
         expect(writer.write).not.toHaveBeenCalled()
@@ -182,21 +190,22 @@ describe("PublicDraftRunService the area of an owner's draft", () => {
         const tx = drafting(rowOf({ publishedBody: "in use" }), [sourceRow("s1")])
         const { run } = await build(tx.em, [docOf("s1", REPAIR, "internal")])
 
-        await run.generate(payload)
+        await run.generate(JOB)
 
         expect(tx.em.update).toHaveBeenCalledWith(...stopped(codes.SourceInternal, "published"))
     })
 })
 
 describe("PublicDraftRunService an owner's draft that stops", () => {
-    it("stops when the model gave no readable answer, and writes nothing of the sources", async () => {
+    it("throws what the model failed with (the job's ladder judges it) and writes nothing of the sources", async () => {
         const tx = drafting(rowOf(), [sourceRow("s1")])
         const { run, writer } = await build(tx.em, [docOf("s1", REPAIR)])
-        writer.write.mockResolvedValue(null)
+        const outage = new PublicDocumentsError({ code: codes.DraftUnavailable })
+        writer.write.mockRejectedValue(outage)
 
-        await run.generate(payload)
+        await expect(run.generate(JOB)).rejects.toBe(outage)
 
-        expect(tx.em.update.mock.calls).toEqual([stopped(codes.DraftUnavailable)])
+        expect(tx.em.update).not.toHaveBeenCalled()
         expect(tx.em.insert).not.toHaveBeenCalled()
     })
 
@@ -209,7 +218,7 @@ describe("PublicDraftRunService an owner's draft that stops", () => {
         const { run, writer } = await build(tx.em, [docOf("s1", REPAIR)])
         writer.write.mockResolvedValue(answer)
 
-        await run.generate(payload)
+        await run.generate(JOB)
 
         expect(tx.em.update.mock.calls).toEqual([stopped(codes.NothingLeft)])
     })
@@ -218,7 +227,7 @@ describe("PublicDraftRunService an owner's draft that stops", () => {
         const tx = drafting(rowOf(), [sourceRow("s1")])
         const { run, writer } = await build(tx.em, [docOf("s1", " \n ")])
 
-        await run.generate(payload)
+        await run.generate(JOB)
 
         expect(tx.em.update.mock.calls).toEqual([stopped(codes.NothingLeft)])
         expect(writer.write).not.toHaveBeenCalled()
@@ -229,7 +238,7 @@ describe("PublicDraftRunService an owner's draft that stops", () => {
         const { run, usage, sources, writer } = await build(tx.em, [docOf("s1", REPAIR)])
         usage.blockedBy.mockResolvedValue(true)
 
-        await run.generate(payload)
+        await run.generate(JOB)
 
         expect(tx.em.update).toHaveBeenCalledWith(...stopped("blocked_credits"))
         expect(sources.statesOf).not.toHaveBeenCalled()
@@ -238,17 +247,33 @@ describe("PublicDraftRunService an owner's draft that stops", () => {
 })
 
 describe("PublicDraftRunService a job to leave alone", () => {
-    it("skips a payload that is not a draft job", async () => {
+    it("refuses a payload that is not a draft job with a typed error (the job's declaration refuses it before this)", async () => {
         const { run } = await build(mockEntityManager())
 
-        await expect(run.generate({ nothing: true })).resolves.toBe("skipped")
+        await expect(run.generate(claimedAiJob({ nothing: true }))).rejects.toMatchObject({ code: codes.PayloadInvalid })
+    })
+
+    it("opens the row its dead letter closed when the job is handed back by a person, then drafts it", async () => {
+        const tx = drafting(rowOf(), [sourceRow("s1")])
+        const { run, writer } = await build(tx.em, [docOf("s1", REPAIR)])
+        writer.write.mockResolvedValue({ answers: true, body: REPAIRED })
+
+        await expect(run.generate(claimedAiJob(payload, { kind: "public.draft", resumeCount: 1 }))).resolves.toBe("done")
+
+        expect(tx.em.update).toHaveBeenNthCalledWith(
+            1,
+            PublicDocumentEntity,
+            { id: "d1", workspaceId: WS, status: In(["failed", "published"]), draftRevision: 0, failureCode: codes.DraftUnavailable },
+            { status: "drafting", failureCode: null },
+        )
+        expect(writer.write).toHaveBeenCalledTimes(1)
     })
 
     it.each([null, rowOf({ status: "draft" }), rowOf({ status: "published" })])("skips %j", async (row) => {
         const em = mockEntityManager({ findOne: [PublicDocumentEntity, row] })
         const { run, sources } = await build(em)
 
-        await expect(run.generate(payload)).resolves.toBe("skipped")
+        await expect(run.generate(JOB)).resolves.toBe("skipped")
         expect(sources.statesOf).not.toHaveBeenCalled()
     })
 })
@@ -266,21 +291,17 @@ describe("PublicDraftRunService fail", () => {
         expect(em.update).toHaveBeenCalledWith(...stopped(codes.DraftUnavailable))
     })
 
-    it("drops a proposal the job gave up on, since nobody asked for it", async () => {
+    it("marks a proposal the job gave up on failed too: nothing is deleted, the typed row is there to read", async () => {
         const em = mockEntityManager({
             findOne: [PublicDocumentEntity, rowOf({ gapId: "g1" })],
-            delete: [PublicDocumentEntity, { affected: 1 }],
+            update: [PublicDocumentEntity, { affected: 1 }],
         })
         const { run } = await build(em)
 
         await run.fail(payload)
 
-        expect(em.delete).toHaveBeenCalledWith(PublicDocumentEntity, {
-            id: "d1",
-            workspaceId: WS,
-            status: "drafting",
-            draftRevision: 0,
-        })
+        expect(em.update).toHaveBeenCalledWith(...stopped(codes.DraftUnavailable))
+        expect(em.delete).not.toHaveBeenCalled()
     })
 
     it("leaves a row that is not drafting, and a payload that is not a draft job", async () => {
@@ -300,7 +321,7 @@ describe("PublicDraftRunService revision fence", () => {
         const em = mockEntityManager({ findOne: [PublicDocumentEntity, rowOf({ draftRevision: 1 })] })
         const { run, sources, writer } = await build(em)
 
-        await expect(run.generate(payload)).resolves.toBe("skipped")
+        await expect(run.generate(JOB)).resolves.toBe("skipped")
 
         expect(sources.statesOf).not.toHaveBeenCalled()
         expect(writer.write).not.toHaveBeenCalled()
@@ -319,7 +340,7 @@ describe("PublicDraftRunService revision fence", () => {
                 generatedMaps: [],
             })
 
-            await run.generate(payload)
+            await run.generate(JOB)
 
             expect(tx.em.update).toHaveBeenCalledTimes(1)
             expect(tx.em.update).toHaveBeenCalledWith(

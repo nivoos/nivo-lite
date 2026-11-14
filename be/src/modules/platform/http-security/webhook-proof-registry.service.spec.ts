@@ -42,9 +42,17 @@ describe("WebhookProofRegistryService", () => {
         registry.add({ provider: "zalo", prove })
         const request = { scope: "c1", rawBody: undefined, signature: "mac", timestamp: undefined }
 
-        await expect(registry.verify("zalo", request)).resolves.toBeUndefined()
+        await expect(registry.verify("zalo", request)).resolves.toBe("proven")
 
         expect(prove.mock.calls).toEqual([[request]])
+    })
+
+    it("carries an unproven acknowledgement as the verdict `unproven`, never as proven and never refused", async () => {
+        const { registry, logger } = await build()
+        registry.add({ provider: "zalo", prove: () => Promise.resolve("unproven") })
+
+        await expect(registry.verify("zalo", { scope: "c1", rawBody: undefined, signature: undefined, timestamp: undefined })).resolves.toBe("unproven")
+        expect(logger.warn).not.toHaveBeenCalled()
     })
 
     it("refuses a delivery rejected by the registered proof with the existing error code", async () => {

@@ -1,5 +1,11 @@
 export { parseObjectStorageConfig } from "./object-storage.config"
-export { STORAGE_ASSETS, STORAGE_FILES, STORAGE_OBJECTS } from "./object-storage.decorators"
+export {
+    InjectStorageFiles,
+    InjectStorageObjects,
+    STORAGE_ASSETS,
+    STORAGE_FILES,
+    STORAGE_OBJECTS,
+} from "./object-storage.decorators"
 export type { StorageAssetsPort, StorageFilesPort, StorageObjectsPort } from "./object-storage.port"
 export type { RecordFileSpot } from "./object-storage-files.policy"
 export { isRecordFileKeyOf, isStagedKeyOf, recordFileKeyOf, stagedKeyOf } from "./object-storage-files.policy"
@@ -8,3 +14,4 @@ export { uploadContentTypeOf } from "./object-storage.policy"
 export { StorageBootstrapService } from "./object-storage-bootstrap.service"
 export { ObjectStorageModule } from "./object-storage.module"
 export { storedAvatarAddress } from "./object-storage-avatar.policy"
+export { OBJECT_STORAGE_ERROR_CODES } from "@starci/object-storage"

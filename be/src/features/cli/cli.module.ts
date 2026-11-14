@@ -22,6 +22,8 @@ import { SeedModulesModule } from "./seed-modules/seed-modules.module"
 import { SeedEnterpriseModule } from "./seed-enterprise/seed-enterprise.module"
 import { SeedChatModule } from "./seed-chat/seed-chat.module"
 import { SeedRecordsModule } from "./seed-records/seed-records.module"
+import { SeedSetModule } from "./seed-set/seed-set.module"
+import { SeedStandardModule } from "./seed-standard/seed-standard.module"
 import { SeedTestAccountsModule } from "./seed-test-accounts/seed-test-accounts.module"
 import { SeedWorkspaceModule } from "./seed-workspace/seed-workspace.module"
 import { StorageCliModule } from "./storage/storage.module"
@@ -50,6 +52,8 @@ import { ToolsCliModule } from "./tools/tools.module"
         SeedModulesModule.register({}),
         SeedEnterpriseModule.register({}),
         SeedRecordsModule.register({}),
+        SeedSetModule.register({}),
+        SeedStandardModule.register({}),
         SeedChatModule.register({}),
         SeedTestAccountsModule.register({}),
         SeedWorkspaceModule.register({}),

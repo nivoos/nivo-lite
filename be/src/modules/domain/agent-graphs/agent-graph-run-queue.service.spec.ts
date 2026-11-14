@@ -39,6 +39,7 @@ const memoryLedger = (): NodeEffectStore & { readonly rows: Map<string, StoredEf
         byKey: (_ws, key) => Promise.resolve(rows.get(key) ?? null),
         ofStep: () => Promise.resolve([]),
         resettle: () => Promise.resolve(false),
+        release: () => Promise.resolve(false),
         insert: (_ws, effect: EffectInsert) => {
             if (rows.has(effect.effectKey)) return Promise.resolve(false)
             rows.set(effect.effectKey, { ...effect, undoneAt: null, createdAt: "2026-11-14T03:00:00.000Z" })

@@ -42,6 +42,8 @@ interface Verdict {
     readonly messageId?: string
     readonly error?: string
     readonly failure?: SendEmailFailure
+    /** The mail integration's typed code of a failure (`MailErrorCode`), when the server answered one. */
+    readonly code?: string
 }
 
 @Injectable()
@@ -106,13 +108,18 @@ export class WorkspaceMailService {
             if (port === undefined) {
                 return await this.done(input, to, "no_smtp", "none", { failure: "no_smtp", error: this.text("no_smtp") })
             }
-            const sent = await port.send(account, config, { to, message: this.messageOf(input, files) })
+            const sent = await port.send(account, config, {
+                to,
+                message: this.messageOf(input, files),
+                ...(input.thread === undefined ? {} : { thread: input.thread }),
+            })
             return await this.done(input, to, "sent", "workspace", { connectionId, messageId: sent.messageId })
         } catch (cause) {
             return this.done(input, to, "failed", "workspace", {
                 connectionId,
                 failure: "mail",
                 error: this.mailText(cause),
+                ...(cause instanceof MailError ? { code: cause.code } : {}),
             })
         }
     }
@@ -191,6 +198,7 @@ export class WorkspaceMailService {
             messageId: verdict.messageId,
             error: verdict.error,
             failure: verdict.failure,
+            ...(verdict.code === undefined ? {} : { code: verdict.code }),
         }
     }
 

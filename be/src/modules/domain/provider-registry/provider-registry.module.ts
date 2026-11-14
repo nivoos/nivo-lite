@@ -1,14 +1,13 @@
 import { Module, type DynamicModule } from "@nestjs/common"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./provider-registry.module-definition"
 import {
-    BankFeedPollerRegistryService,
     BankTransactionsRegistryService,
     ChannelProfileRegistryService,
     DomainRegistrarRegistryService,
     FeedWebhookRegistryService,
     LedgerRegistryService,
-    MessageInboxPollerRegistryService,
     PaymentInstructionRegistryService,
+    PollReceiverRegistryService,
 } from "./provider-registries.service"
 import { PURPOSE_REGISTRIES } from "./media-registries.service"
 import { CalendarRegistryService } from "./calendar-registry.service"
@@ -26,12 +25,11 @@ export class ProviderRegistryModule extends ConfigurableModuleClass {
     static register(options: typeof OPTIONS_TYPE): DynamicModule {
         const base = super.register(options)
         const registries = [
-            BankFeedPollerRegistryService,
             PaymentInstructionRegistryService,
             BankTransactionsRegistryService,
             FeedWebhookRegistryService,
             LedgerRegistryService,
-            MessageInboxPollerRegistryService,
+            PollReceiverRegistryService,
             ...PURPOSE_REGISTRIES,
             CalendarRegistryService,
             PaymentLinkRegistryService,

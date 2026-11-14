@@ -40,8 +40,12 @@ export class BrainLearningService {
         @InjectClock() private readonly clock: Clock,
     ) {}
 
-    /** Turns one agent's recent corrections into regression cases and proposed lessons. */
-    async mine(userId: string, workspaceId: string, module: string): Promise<MineResult> {
+    /**
+     * Turns one agent's recent corrections into regression cases and proposed lessons. `effectKey` (`<jobId>:lessons`, from the command's
+     * job) keys the model call, so a command run again after a crash takes the first answer and never asks, or bills, twice. A model that
+     * gave no text is the command's typed result (`model_unavailable`: the page says so and the member asks again), not a failure.
+     */
+    async mine(userId: string, workspaceId: string, module: string, effectKey?: string): Promise<MineResult> {
         await this.members.require(userId, workspaceId, MANAGERS)
         const since = new Date(this.clock.now().getTime() - WINDOW_DAYS * 86_400_000)
         const list = await this.corrections.recent(workspaceId, module, since, MAX_CORRECTIONS)
@@ -68,6 +72,7 @@ export class BrainLearningService {
             module: "other",
             responseFormat: "json",
             timeoutMs: LEARN_TIMEOUT_MS,
+            effectKey,
             messages: [
                 { role: "system", content: LEARN_SYSTEM },
                 { role: "user", content: prompt },

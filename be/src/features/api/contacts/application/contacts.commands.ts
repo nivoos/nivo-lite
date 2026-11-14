@@ -10,6 +10,7 @@ import type {
     UnlinkContactIdentityRequest,
     UpdateContactRequest,
 } from "@modules/domain/contacts"
+import type { SetContactConsentRequest, SetContactConsentView } from "./contact-consent.contracts"
 
 /** `nivo.api.nivo.contact.update`: the display name and / or the tags. */
 export class UpdateContactCommand extends Command<ContactView> {
@@ -49,6 +50,13 @@ export class ForgetContactMemoryCommand extends Command<ReadonlyArray<string>> {
 /** `nivo.api.nivo.contact.delete`: the owner deletes a contact softly (R31). */
 export class DeleteContactCommand extends Command<boolean> {
     constructor(readonly params: ExecuteParams<DeleteContactRequest>) {
+        super()
+    }
+}
+
+/** A person sets or clears the contact's "do not contact" (the only road that clears it). */
+export class SetContactConsentCommand extends Command<SetContactConsentView> {
+    constructor(readonly params: ExecuteParams<SetContactConsentRequest>) {
         super()
     }
 }

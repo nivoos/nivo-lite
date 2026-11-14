@@ -6,6 +6,7 @@ import type {
     TriggerDeclaration,
     TriggerOrigin,
 } from "@modules/domain/provider-triggers"
+import { telegramUpdate } from "./telegram.data-types"
 
 /*
  * THE TELEGRAM BOT'S MESSAGE TRIGGER (stage 1 of the one event pipeline, concept triggers rule 13): a message a person sends the bot, as
@@ -203,13 +204,38 @@ export const TELEGRAM_MESSAGE_WEBHOOK: TriggerDeclaration<TelegramUpdateRow, Tel
     provider: PROVIDER.telegram,
     name: TELEGRAM_MESSAGE_RECEIVED,
     verb: TRIGGER.telegramMessageReceived,
-    via: "webhook",
+    via: ["webhook"],
+    // Verified 2026-11-14 (core.telegram.org/bots/api): getUpdates "will not work if an outgoing webhook is set up", so a bot with a webhook
+    // cannot be polled; a webhook request that fails is repeated and given up "after a reasonable amount of attempts", updates kept 24 hours.
+    withoutPoll: {
+        reason: {
+            vi: "Telegram không cho đọc tin (getUpdates) khi bot đã đặt webhook; chính Telegram giữ và gửi lại cập nhật chưa nhận được, tối đa 24 giờ.",
+            en: "Telegram refuses getUpdates while the bot has a webhook; Telegram itself keeps and re-sends an undelivered update, for at most 24 hours.",
+        },
+        source: "https://core.telegram.org/bots/api",
+    },
+    words: {
+        title: { vi: "Telegram · Tin nhắn đến", en: "Telegram · Message received" },
+        summary: {
+            vi: "Một người nhắn cho bot Telegram của bạn (chữ, ảnh hoặc tệp ảnh/PDF).",
+            en: "A person sends your Telegram bot a message (text, a photo, or an image / PDF file).",
+        },
+        members: {
+            messageKey: { vi: "Mã tin nhắn (duy nhất trong bot)", en: "The message's key (unique inside the bot)" },
+            text: { vi: "Nội dung người đó viết", en: "What the person wrote" },
+            at: { vi: "Thời điểm gửi", en: "When it was sent" },
+            attachments: { vi: "Ảnh và tệp gửi kèm", en: "Pictures and files sent with it" },
+        },
+    },
+    dataType: telegramUpdate.name,
     raw: TELEGRAM_UPDATE_ROW,
     data: TELEGRAM_MESSAGE_DATA,
     translate: translateTelegramUpdateRow,
     line: telegramLineOf,
     key: { by: "subject" },
     settle: CHAT_SETTLE,
+    // The person's lines append to the route's stream: held lines are ONE marker the workflow reads the stream from (rule Q-4).
+    combine: "stream",
 }
 
 /** Every trigger the Telegram provider declares. */

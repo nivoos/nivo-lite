@@ -27,8 +27,6 @@ export interface WorkflowHeadView extends WorkflowRowView {
     /** The command that stops or starts it. */
     readonly toggleLabel: string
     readonly toggleTo: WorkflowStatus
-    /** Whether the graph of the main workflow can be opened in the editor. */
-    readonly canEditGraph: boolean
 }
 
 /** The notice that a newer template exists. */

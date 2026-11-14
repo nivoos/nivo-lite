@@ -96,7 +96,9 @@ const registerReplacementCases = () => {
         await service.replace(write(drafts(1, false)))
 
         expect(tx.em.insert).toHaveBeenCalledWith(KnowledgeChunkEntity, [passage(0, null, "p0")])
-        expect(Object.keys(tx.em.insert.mock.calls[0]?.[1]?.[0] ?? {})).not.toContain("embedding")
+        const inserted: unknown = tx.em.insert.mock.calls[0]?.[1]
+        const first: unknown = Array.isArray(inserted) ? inserted[0] : inserted
+        expect(Object.keys(typeof first === "object" && first !== null ? first : {})).not.toContain("embedding")
     })
     it("inserts a long document in batches that keep the order", async () => {
         const tx = fakeTransaction(

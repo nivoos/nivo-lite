@@ -16,6 +16,8 @@ export type DocGlyph = "file" | "text" | "faq" | "url" | "nivo" | "public" | "se
 export interface DocChipView {
     readonly label: string
     readonly tone: "neutral" | "warning" | "success" | "danger" | "accent"
+    /** A dot before the words: the state is live (work is running or waits to retry); a result has none. */
+    readonly isDot?: boolean
 }
 
 /** One row of the list pane: its mark, its name, one line under it and where it stands. */

@@ -198,7 +198,7 @@ export const chatbotHearNode: TemplateNode<
                 line: lineOfScope(given.subject, given.data),
                 queued: queuedLinesOf(context.run.queue),
                 resume: given.data.resume,
-                unreadSince: async (since) => unreadOf(await threadRowsOf(context, { since })),
+                unreadSince: async (since) => unreadOf(await threadRowsOf(context, { since, consume: true })),
             },
         )
         // A person said something and no conversation holds them: this step cannot open one (it cannot name the speaking agent, lane

@@ -1,4 +1,5 @@
 import type { BackgroundStoppedCardView } from "./background-stop-card.contracts"
+import type { JobParkedCardView } from "./job-parked-card.contracts"
 import type { BrainChangeCardView } from "./brain-change-card.contracts"
 import type { TeamChatErrorCode } from "./errors/team-chat.error"
 import type { ReactionView, ReplyView } from "./team-chat-reaction.contracts"
@@ -163,6 +164,8 @@ export interface MessageView {
     readonly brainChange: BrainChangeCardView | null
     /** NIVO's "background work stopped" card (`background.stopped`): what stopped, why, since when, where to retry; null for every other line. */
     readonly backgroundStopped: BackgroundStoppedCardView | null
+    /** NIVO's "a job stopped for a fix" card (`job.parked`): which job, why, which park episode; the person's door resumes or closes it; null for every other line. */
+    readonly jobParked: JobParkedCardView | null
 }
 
 /** One room as a screen shows it, for one viewer. */

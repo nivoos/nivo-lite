@@ -1,9 +1,10 @@
+import type { ConnectionReadyPayload } from "@modules/events/api"
 import { Injectable } from "@nestjs/common"
-import { ConnectionsService, type ConnectionRecord } from "@modules/domain/connections"
+import { ConnectionsService, halvesOf, hostsOf, type ConnectionRecord } from "@modules/domain/connections"
+import { PollReceiverRegistryService, type PollReceiver } from "@modules/domain/provider-registry"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { eachInOrder } from "@modules/platform/primitives"
-import { InjectTimer, type Timer } from "@modules/platform/retry"
 import { ConnectionPollRunService, emptyPollSummary } from "./connection-poll-run.service"
 import { InjectConnectionPollOptions, InjectPollRandom, type PollRandom } from "./connection-poll.decorators"
 import { ConnectionPollLogEvent } from "./connection-poll.log-events"
@@ -18,16 +19,15 @@ import {
     planAfterFailure,
     planAfterRead,
     probeOf,
+    BUSY_PROVIDER_RECHECK_MS,
     type PollPlan,
 } from "./poll-schedule.policy"
 import type { PollFailure } from "./connection-poll.contracts"
 import { PollScheduleService, type DueConnection } from "./poll-schedule.service"
-import { PollSourceRegistryService } from "./poll-source-registry.service"
 import type { ConnectionPollOptions } from "./connection-poll.options"
-import type { PollOutcome, PollWalkOptions, ScheduledPollSource } from "./poll-schedule.contracts"
-
-/** A busy provider is asked again after this long. */
-const BUSY_RETRY_MS = 5_000
+import type { PolledAccount } from "./connection-poll.contracts"
+import type { PollOutcome, PollWalkOptions } from "./poll-schedule.contracts"
+import { PollReceiptsService } from "./poll-receipts.service"
 
 /** What one tick did for one provider; the numbers the metrics log carries. */
 export interface ProviderTally {
@@ -87,19 +87,18 @@ export class PollSchedulerService {
     constructor(
         @InjectClock() private readonly clock: Clock,
         @InjectLogger() private readonly logger: Logger,
-        @InjectTimer() timer: Timer,
         @InjectPollRandom() private readonly random: PollRandom,
         @InjectConnectionPollOptions() private readonly options: ConnectionPollOptions,
         private readonly connections: ConnectionsService,
         private readonly schedule: PollScheduleService,
-        private readonly sources: PollSourceRegistryService,
+        private readonly receivers: PollReceiverRegistryService,
+        private readonly receipts: PollReceiptsService,
         private readonly limiter: PollLimiterService,
         private readonly notice: PollOwnerNoticeService,
     ) {
         this.run = new ConnectionPollRunService({
             clock,
             logger,
-            timer,
             connections,
             beforeFetch: (connection) => this.takeToken(connection),
         })
@@ -108,7 +107,7 @@ export class PollSchedulerService {
     /** Polls what is due now; answers what it did for each provider. */
     async tick(): Promise<ReadonlyMap<string, ProviderTally>> {
         const tallies = new Map<string, ProviderTally>()
-        const providers = this.sources.providers()
+        const providers = this.polledProviders()
         if (providers.length === 0) return tallies
         await this.schedule.enroll(providers)
         const due = await this.schedule.claimDue(providers, this.options.schedule.batchSize)
@@ -120,34 +119,72 @@ export class PollSchedulerService {
         return tallies
     }
 
+    /**
+     * A connection became ready to be read back (its credential was saved): when its provider has a poll receiver (or may hold the half of
+     * one), the account is made ready and hot, so the next tick reads back what reached the provider before it was connected. Answers
+     * whether it was.
+     */
+    async ready(fact: Pick<ConnectionReadyPayload, "connectionId" | "provider">): Promise<boolean> {
+        if (!this.polledProviders().includes(fact.provider)) return false
+        await this.schedule.markReady(fact.connectionId)
+        return true
+    }
+
+    /** The providers whose accounts are polled: every provider with a poll receiver and every provider whose accounts may hold its half. */
+    private polledProviders(): ReadonlyArray<string> {
+        return [...new Set(this.receivers.providers().flatMap((provider) => [provider, ...hostsOf(provider)]))]
+    }
+
+    /**
+     * The poll receiver that reads an account (its declared facts: limits, classes, cadence, data type): its own provider's, else the one of a
+     * half it holds (a mailbox account's inbound half). Undefined when none is registered.
+     */
+    private receiverOf(record: ConnectionRecord): { readonly provider: string; readonly facts: PollReceiver } | undefined {
+        const provider = [record.provider, ...halvesOf(record)].find((one) => this.receivers.has(one))
+        const facts = provider === undefined ? undefined : this.receivers.liveOf(provider)
+        return provider === undefined || facts === undefined ? undefined : { provider, facts }
+    }
+
+    /** The account as the walk reads and keeps it: the receiver of the account (live or sandbox: THE ONE SWITCH) and the generic store. */
+    private accountOf(provider: string, dataType: string): PolledAccount {
+        return {
+            read: (connection, window) => {
+                const port = this.receivers.portFor({ provider, sandbox: connection.sandbox })
+                if (port === undefined) throw new ConnectionPollError({ code: ConnectionPollErrorCode.ReceiverMissing, params: { provider } })
+                return port.read(connection, window)
+            },
+            keep: (connection, rows) => this.receipts.keep(connection, dataType, rows),
+        }
+    }
+
     private async takeToken(connection: ConnectionRecord): Promise<void> {
-        const source = this.sources.sourceOf(connection.provider)
-        if (source !== undefined) await this.limiter.pass(connection.provider, connection.id, source.limits)
+        const receiver = this.receiverOf(connection)
+        if (receiver !== undefined) await this.limiter.pass(receiver.provider, connection.id, receiver.facts.limits)
     }
 
     private async pollOne(item: DueConnection, tallies: Map<string, ProviderTally>): Promise<void> {
         const { row } = item
-        const source = this.sources.sourceOf(row.provider)
         const record = await this.connections.find(row.workspaceId, row.connectionId)
-        if (source === undefined || record === null || record.status === "disconnected") {
+        const receiver = record === null ? undefined : this.receiverOf(record)
+        if (receiver === undefined || record === null || record.status === "disconnected") {
             await this.defer(row.connectionId, this.options.schedule.healthyIntervalMs)
             return
         }
-        const slot = await this.limiter.enter(row.provider, row.connectionId, source.limits)
+        const slot = await this.limiter.enter(receiver.provider, row.connectionId, receiver.facts.limits)
         const tally = tallies.get(row.provider) ?? emptyTally()
         tallies.set(row.provider, tally)
         if (slot === undefined) {
             tally.deferred += 1
-            await this.defer(row.connectionId, BUSY_RETRY_MS)
+            await this.defer(row.connectionId, BUSY_PROVIDER_RECHECK_MS)
             return
         }
         const now = this.clock.now().getTime()
         tally.polled += 1
         tally.maxLagMs = Math.max(tally.maxLagMs, now - item.dueAt.getTime())
         const outcome = await this.run
-            .poll(source.poller, record, emptyPollSummary(), this.walkOf(item, record))
+            .poll(this.accountOf(receiver.provider, receiver.facts.dataType), record, emptyPollSummary(), this.walkOf(item, record))
             .finally(() => slot.release())
-        await this.settle(item, record, source, outcome, tally)
+        await this.settle(item, record, receiver.facts, outcome, tally)
     }
 
     /** The first poll of a connection is a backfill read in chunks, so it goes through the same limiter as every other poll and never in one burst. */
@@ -163,7 +200,7 @@ export class PollSchedulerService {
     private async settle(
         item: DueConnection,
         record: ConnectionRecord,
-        source: ScheduledPollSource,
+        receiver: PollReceiver,
         outcome: PollOutcome,
         tally: ProviderTally,
     ): Promise<void> {
@@ -173,7 +210,7 @@ export class PollSchedulerService {
         if (outcome.kind !== "failed") {
             tally.found += outcome.kind === "skipped" ? 0 : outcome.fetched
             tally.missedByWebhook += outcome.kind === "skipped" ? 0 : outcome.recorded
-            await this.schedule.settle(row.connectionId, planAfterRead(row, outcome, now, this.options.schedule, unit))
+            await this.schedule.settle(row.connectionId, planAfterRead(row, outcome, now, this.cadenceOf(receiver), unit))
             if (outcome.kind !== "skipped") await this.recoverConnection(record, row)
             return
         }
@@ -184,12 +221,12 @@ export class PollSchedulerService {
                 connectionId: row.connectionId,
                 provider: row.provider,
             })
-            await this.defer(row.connectionId, typeof waitMs === "number" ? waitMs : BUSY_RETRY_MS)
+            await this.defer(row.connectionId, typeof waitMs === "number" ? waitMs : BUSY_PROVIDER_RECHECK_MS)
             return
         }
-        const failure = source.classify(outcome.cause)
+        const failure = receiver.classify(outcome.cause)
         countFailure(tally, failure.kind)
-        const plan = planAfterFailure(row, failure, now, this.options.schedule, unit)
+        const plan = planAfterFailure(row, failure, now, this.cadenceOf(receiver), unit)
         await this.schedule.settle(row.connectionId, plan)
         await this.report(record, failure, plan, now)
     }
@@ -234,6 +271,18 @@ export class PollSchedulerService {
         }
         this.logger.warn(ConnectionPollLogEvent.NeedsReauth, { connectionId: record.id, provider: record.provider })
         await this.notice.needsReauth(record, now, authReasonOf(failure))
+    }
+
+    /**
+     * The schedule a receiver's account is planned with: the receiver's own cadence (owner R95: dense when the poll is the only live way,
+     * sparse while a webhook beside it delivers) over the scheduler's hot pass, backoff and breaker.
+     */
+    private cadenceOf(receiver: PollReceiver): ConnectionPollOptions["schedule"] {
+        return {
+            ...this.options.schedule,
+            silentIntervalMs: receiver.cadence.aloneMs,
+            healthyIntervalMs: receiver.cadence.besideWebhookMs,
+        }
     }
 
     private defer(connectionId: string, afterMs: number): Promise<void> {

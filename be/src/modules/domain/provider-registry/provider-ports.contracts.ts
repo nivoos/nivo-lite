@@ -3,28 +3,6 @@ import type { PollFailure, PollLimits, PollPage, PollWindow } from "@modules/dom
 import type { ConnectionRecord } from "@modules/domain/connections"
 import type { BankFeedDeliveryRecorded } from "@modules/queues/bank-feed-delivery"
 
-/** One bank transaction a poller found, ready for the same inbox path a webhook delivery takes. */
-export interface PolledCredit {
-    /** The connection-scoped delivery key: the same key the provider's webhook uses, so a webhook row and a polled row are one row. */
-    readonly deliveryId: string
-    /** The credit or debit to book. */
-    readonly credit: IncomingCredit
-}
-
-/** A bank provider that can read a connection's transactions back. */
-export interface BankFeedPoller {
-    /** The provider key of the connections it reads. */
-    readonly provider: string
-    /** The provider identity the inbox stores its rows under: the one its webhook uses. */
-    readonly inboxProvider: BankFeedDeliveryRecorded["provider"]
-    /** What the provider allows one credential, declared at registration. */
-    readonly limits: PollLimits
-    /** Reads one page of one connection. */
-    fetch(connection: ConnectionRecord, window: PollWindow): Promise<PollPage<PolledCredit>>
-    /** Classifies a failure of `fetch` so the scheduler can back off, stop on a bad credential, retry or give up. */
-    classify(error: unknown): PollFailure
-}
-
 /** What a workspace feed webhook delivery means. */
 export type FeedWebhookReading =
     | { readonly kind: "transaction"; readonly credit: IncomingCredit }
@@ -187,21 +165,6 @@ export interface BankTransactionsPort {
     transactions(connection: ConnectionRecord, query: BankTransactionsQuery): Promise<OptionalBankTransactions>
 }
 
-/**
- * A messaging provider whose customer messages can be read back from its inbox to catch what the webhook never delivered. It only reads
- * (its poll face, as a bank feed's `BankFeedPoller`): the intake its webhook feeds keeps each item, under the webhook's key.
- */
-export interface MessageInboxPoller<Item = unknown> {
-    /** The provider key of the connections it reads. */
-    readonly provider: string
-    /** What the provider allows one credential, declared at registration. */
-    readonly limits: PollLimits
-    /** Reads one page of one connection. */
-    fetch(connection: ConnectionRecord, window: PollWindow): Promise<PollPage<Item>>
-    /** Classifies a failure of `fetch` so the scheduler can back off, stop on a bad credential, retry or give up. */
-    classify(error: unknown): PollFailure
-}
-
 /** How a ledger entry stands: the payment it records was received, or the entry takes an earlier one back. */
 export type LedgerEntryStatus = "paid" | "void"
 
@@ -259,3 +222,48 @@ export interface LedgerPort {
 
 /** The port a provider registered, or undefined when none registered under that key. */
 export type OptionalProviderPort<Port> = Port | undefined
+
+/**
+ * One row a provider's poll read, as the webhook door of the same data type would have kept it: the value of its `dataType` row (the
+ * provider's own key inside it, so a row the webhook already kept is the same row) and when it happened at the provider (its time order).
+ */
+export interface PolledRow {
+    /** The value, members exactly as the receiver's `dataType` declares them. */
+    readonly value: object
+    /** When it happened at the provider; null when the provider does not say. */
+    readonly at: Date | null
+}
+
+/**
+ * How often a poll receiver reads one account: dense when poll is the only way its trigger is received (or the webhook beside it has gone
+ * silent), sparse while a webhook beside it delivers. The scheduler's hot pass (right after connect, after process start, after a gap)
+ * and its backoff / breaker stay the scheduler's.
+ */
+export interface PollCadence {
+    /** The interval when poll is the only live way, in milliseconds. */
+    readonly aloneMs: number
+    /** The interval while a webhook of the same trigger delivers, in milliseconds. */
+    readonly besideWebhookMs: number
+}
+
+/**
+ * THE POLL RECEIVER of a provider (owner R95: at most ONE receiver per way of receiving for a data type): reads one page of what the
+ * provider holds for one account in a window, as rows of its `dataType`. It reads the provider ONLY: it writes nothing, reads no clock and
+ * no table of NIVO; the engine's one poll job writes what it answers through the account_data intake and hands each NEW row to the
+ * type's admission (the same road as the webhook door). The same function whether poll is the trigger's way or how a missed webhook
+ * event comes back. Registered `{ live, sandbox }` (a sandbox account answers from its catalogue and kept state).
+ */
+export interface PollReceiver {
+    /** The provider key of the accounts it reads. */
+    readonly provider: string
+    /** The account_data type its rows are kept as (the trigger declaration's `dataType`). */
+    readonly dataType: string
+    /** What the provider allows one credential. */
+    readonly limits: PollLimits
+    /** How often it runs (owner R95: the cadence is the receiver's, not a kind of trigger). */
+    readonly cadence: PollCadence
+    /** Reads one page of one account. */
+    read(account: ConnectionRecord, window: PollWindow): Promise<PollPage<PolledRow>>
+    /** Classifies a failure of `read` so the scheduler can back off, stop on a bad credential, retry later or give up. */
+    classify(error: unknown): PollFailure
+}

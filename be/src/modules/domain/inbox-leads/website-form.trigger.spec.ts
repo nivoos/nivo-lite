@@ -27,7 +27,17 @@ describe("the website form's trigger", () => {
     it("is the website verb, received by the engine's form door, keyed by the visitor's route on the site", async () => {
         const trigger = await buildSubject()
 
-        expect([trigger.provider, trigger.verb, trigger.via, trigger.key]).toEqual([PROVIDER.nivo, TRIGGER.websiteMessageReceived, "internal", { by: "subject" }])
+        expect([trigger.provider, trigger.verb, trigger.via, trigger.key]).toEqual([PROVIDER.nivo, TRIGGER.websiteMessageReceived, ["internal"], { by: "subject" }])
+    })
+
+    it("declares a line, so it declares no fact key (two identical lines of a person are two lines), and names the job that recovers a stored submission instead of a poll", async () => {
+        const trigger = await buildSubject()
+
+        expect(trigger.line).toBeDefined()
+        expect(trigger.factKey).toBeUndefined()
+        expect(trigger.withoutPoll?.reason.en).toContain("website-form.deliver")
+        expect(trigger.withoutPoll?.source).toBe("nivo:website-form.deliver")
+        expect(Object.keys(trigger.words.members ?? {}).sort()).toEqual(["contact", "inboundEventId", "request", "siteId", "source"])
     })
 
     it("translates a submission into one event about the visitor by the site's id of them, the typed details as data (claims, never the subject)", async () => {

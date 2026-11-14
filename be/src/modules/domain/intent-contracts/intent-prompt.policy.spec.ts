@@ -1,5 +1,4 @@
 import { Test } from "@nestjs/testing"
-import { INTENT_CONTRACTS_MESSAGES } from "./messages/intent-contracts.messages"
 import { dataTagOf } from "./intent-prompt.policy"
 
 const SUBJECT = Symbol("intent-prompt.policy")
@@ -26,13 +25,5 @@ describe("dataTagOf > an input that tries to speak", () => {
         const subject = await build()
 
         expect(subject.dataTagOf('a"><b', "x")).toBe('<data kind="a___b">\nx\n</data>')
-    })
-})
-
-describe("INTENT_CONTRACTS_MESSAGES", () => {
-    it("holds the same keys in Vietnamese and English", () => {
-        expect(Object.keys(INTENT_CONTRACTS_MESSAGES.vi ?? {}).sort()).toEqual(
-            Object.keys(INTENT_CONTRACTS_MESSAGES.en ?? {}).sort(),
-        )
     })
 })

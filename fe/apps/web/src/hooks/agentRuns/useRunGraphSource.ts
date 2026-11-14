@@ -20,7 +20,7 @@ export const useRunGraphSource = (installationId: string, pin: RunPin | undefine
             ? null
             : { installationId, workflowId: pin.workflowId, number: pin.version, against: "previous" },
     )
-    const current = useAgentGraphRead(installationId, 0)
+    const current = useAgentGraphRead(installationId)
     const flow = current.read === undefined ? null : Reflect.get(current.read.wire.document, "flow")
     if (!isPinRead) return null
     if (pin === undefined || snapshot.error !== undefined) return flow

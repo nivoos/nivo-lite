@@ -36,20 +36,24 @@ export class DossierReviewRunsService {
      */
     async requestForSource(workspaceId: string, sourceId: string, how: CritiqueRequest = {}): Promise<void> {
         if ((await this.sources.briefsOf(workspaceId, [sourceId])).length === 0) return
-        // The shop-document critic waits for this run (written before the run is queued, so the run always sees it).
-        const waits = await this.documentCritic.request(workspaceId, sourceId, how)
-        if (!waits && how.resume === true) return
-        await this.enqueue({ workspaceId, triggerRef: sourceId })
-        await this.critic.enter(workspaceId, sourceId)
+        // The shop-document critic waits for this run: its row and the run (with its job) are written in ONE transaction, so a critique
+        // never waits for a run that was not queued, and the run always sees it.
+        const queued = await this.entityManager.transaction(async (tx) => {
+            const waits = await this.documentCritic.request(workspaceId, sourceId, how, tx)
+            if (!waits && how.resume === true) return false
+            await this.enqueueIn(tx, { workspaceId, triggerRef: sourceId })
+            return true
+        })
+        if (queued) await this.critic.enter(workspaceId, sourceId)
     }
 
     /**
      * A run ended with shop-document critiques still waiting (more than one run carries out): a follow-up run of the workspace is
-     * queued, so no critique waits for a request that may never come (the batch of a run is a job bound, never a quota). A run already
-     * queued covers it.
+     * queued in the transaction that ends the run, so no critique waits for a request that may never come (the batch of a run is a job
+     * bound, never a quota). A run already queued covers it.
      */
-    async continueCritiques(workspaceId: string): Promise<void> {
-        await this.enqueue({ workspaceId, triggerRef: null })
+    async continueCritiquesIn(tx: EntityManager, workspaceId: string): Promise<void> {
+        await this.enqueueIn(tx, { workspaceId, triggerRef: null })
     }
 
     /** A document was deleted: its critique and its open points go with it. */
@@ -57,30 +61,28 @@ export class DossierReviewRunsService {
         await this.documentCritic.forget(workspaceId, sourceId)
     }
 
-    /** Writes the run and its job in one transaction. A request while a run of the workspace is queued writes nothing and answers the queued one. */
-    private enqueue(ask: RunAsk): Promise<DossierReviewRunEntity> {
-        return this.entityManager.transaction(async (tx) => {
-            const id = this.ids.next()
-            await tx
-                .createQueryBuilder(DossierReviewRunEntity, "r")
-                .insert()
-                .values({
-                    id,
-                    workspaceId: ask.workspaceId,
-                    scope: "workspace",
-                    dossierId: null,
-                    trigger: "document",
-                    triggerRef: ask.triggerRef,
-                    status: "queued",
-                    requestedBy: null,
-                })
-                .orIgnore()
-                .execute()
-            const queued = await tx.findOneOrFail(DossierReviewRunEntity, {
-                where: { workspaceId: ask.workspaceId, status: "queued", dossierId: IsNull() },
+    /** Writes the run and its job in the given transaction (the caller's), so the run exists exactly when the change that asked for it does. */
+    private async enqueueIn(tx: EntityManager, ask: RunAsk): Promise<DossierReviewRunEntity> {
+        const id = this.ids.next()
+        await tx
+            .createQueryBuilder(DossierReviewRunEntity, "r")
+            .insert()
+            .values({
+                id,
+                workspaceId: ask.workspaceId,
+                scope: "workspace",
+                dossierId: null,
+                trigger: "document",
+                triggerRef: ask.triggerRef,
+                status: "queued",
+                requestedBy: null,
             })
-            if (queued.id === id) await this.queue.enqueueDossierReview({ runId: id, workspaceId: ask.workspaceId }, tx)
-            return queued
+            .orIgnore()
+            .execute()
+        const queued = await tx.findOneOrFail(DossierReviewRunEntity, {
+            where: { workspaceId: ask.workspaceId, status: "queued", dossierId: IsNull() },
         })
+        if (queued.id === id) await this.queue.enqueueDossierReview({ runId: id, workspaceId: ask.workspaceId }, tx)
+        return queued
     }
 }

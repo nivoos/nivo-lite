@@ -1,0 +1,92 @@
+{
+  "schema": "nivo/set-seed@1",
+  "use": "test",
+  "name": "set-clinic",
+  "workspaceName": "set-clinic",
+  "ownerWorkspace": "NIVO",
+  "kind": "workspace",
+  "agents": [{ "module": "chatbot" }, { "module": "sales" }],
+  "accounts": [
+    {
+      "key": "zalo-a",
+      "provider": "zalo_oa",
+      "name": "Sandbox Zalo OA",
+      "say": { "caseId": "ZALO-1", "person": "userId", "text": "text", "idPrefix": "880051" }
+    },
+    {
+      "key": "telegram-a",
+      "provider": "telegram",
+      "name": "Sandbox Telegram",
+      "say": { "caseId": "TELEGRAM-1", "person": "chatId", "text": "text", "idPrefix": "990051" }
+    },
+    { "key": "sepay-a", "provider": "sepay", "name": "Sandbox SePay" }
+  ],
+  "truths": [
+    { "type": "business", "subject": "Phòng khám nha khoa Nụ Cười", "attribute": "Giờ làm việc", "value": "08:00-18:00, thứ Hai đến thứ Bảy" },
+    { "type": "business", "subject": "Phòng khám nha khoa Nụ Cười", "attribute": "Địa chỉ", "value": "5 Đường Răng Sáng, Phường Mẫu, Quận Giả (địa chỉ mẫu, không có thật)" },
+    { "type": "business", "subject": "Smile Dental Clinic", "attribute": "Languages spoken at the front desk", "value": "Vietnamese and English" },
+    { "type": "business", "subject": "Smile Dental Clinic", "attribute": "Emergency visits", "value": "accepted during opening hours without an appointment, subject to the dentist on duty" },
+
+    { "type": "service", "subject": "Lấy cao răng", "attribute": "Giá", "value": "200.000 đ" },
+    { "type": "service", "subject": "Trám răng thẩm mỹ", "attribute": "Giá", "value": "350.000 đ" },
+    { "type": "service", "subject": "Nhổ răng khôn", "attribute": "Giá", "value": "1.200.000 đ" },
+    { "type": "service", "subject": "Tẩy trắng răng", "attribute": "Giá", "value": "1.500.000 đ" },
+    { "type": "service", "subject": "Khám tổng quát", "attribute": "Giá", "value": "100.000 đ" },
+    { "type": "service", "subject": "Teeth cleaning and polishing", "attribute": "Price", "value": "220.000 đ" },
+    { "type": "service", "subject": "Cosmetic filling", "attribute": "Price", "value": "380.000 đ" },
+    { "type": "service", "subject": "Wisdom tooth extraction", "attribute": "Price", "value": "1.250.000 đ" },
+    { "type": "service", "subject": "Teeth whitening", "attribute": "Price", "value": "1.600.000 đ" },
+    { "type": "service", "subject": "Invisible braces consultation", "attribute": "Price", "value": "0 đ" },
+    { "type": "service", "subject": "Niềng răng trong suốt", "attribute": "Giá", "value": "45.000.000 đ" },
+    { "type": "service", "subject": "Bọc răng sứ", "attribute": "Giá", "value": "3.500.000 đ mỗi răng" },
+
+    {
+      "type": "policy", "subject": "Đặt lịch", "attribute": "Hủy lịch hẹn",
+      "value": "miễn phí nếu báo trước ít nhất 4 giờ; hủy muộn hơn thì lần hẹn sau phải đặt cọc 100.000 đ",
+      "policy": { "title": "Hủy lịch hẹn", "group": "Đặt lịch" }
+    },
+    {
+      "type": "policy", "subject": "Appointments", "attribute": "Late arrival",
+      "value": "a patient arriving more than 15 minutes late may be moved to the next free slot, and the front desk offers it instead of refusing",
+      "policy": { "title": "Late arrival", "group": "Appointments" }
+    },
+    {
+      "type": "policy", "subject": "Deposits", "attribute": "Deposit for orthodontic treatment",
+      "value": "30% of the quoted price, paid by bank transfer with the booking code in the transfer note before the first session",
+      "policy": { "title": "Deposit for orthodontic treatment", "group": "Deposits" }
+    },
+    {
+      "type": "policy", "subject": "Thanh toán", "attribute": "Hình thức thanh toán",
+      "value": "chuyển khoản theo mã lịch hẹn hoặc thanh toán tại quầy sau buổi khám; không nhận tiền qua tin nhắn",
+      "policy": { "title": "Hình thức thanh toán", "group": "Thanh toán" }
+    },
+    {
+      "type": "policy", "subject": "Privacy", "attribute": "Medical information over chat",
+      "value": "the front desk never gives out a patient's medical history or treatment details in chat; it offers to book a call with the dentist instead",
+      "policy": { "title": "Medical information over chat", "group": "Privacy" }
+    },
+    {
+      "type": "policy", "subject": "Tư vấn", "attribute": "Chẩn đoán qua tin nhắn",
+      "value": "không chẩn đoán, không kê đơn qua tin nhắn; mọi câu hỏi về triệu chứng được chuyển cho bác sĩ trực",
+      "policy": { "title": "Không chẩn đoán qua tin nhắn", "group": "Tư vấn" }
+    }
+  ],
+  "people": [
+    {
+      "channels": [{ "account": "zalo-a", "id": "880051000001" }],
+      "lines": [{ "account": "zalo-a", "text": "Chào phòng khám, lấy cao răng giá bao nhiêu vậy?" }]
+    },
+    {
+      "channels": [{ "account": "zalo-a", "id": "880051000002" }],
+      "lines": [{ "account": "zalo-a", "text": "Hello, how much is teeth whitening, and can I book for Saturday?" }]
+    },
+    {
+      "channels": [{ "account": "telegram-a", "id": "990051000001" }],
+      "lines": [{ "account": "telegram-a", "text": "If I cancel an appointment two hours before, do I still pay anything?" }]
+    },
+    {
+      "channels": [{ "account": "zalo-a", "id": "880051000003" }],
+      "lines": [{ "account": "zalo-a", "text": "Mình bị đau răng khôn mấy hôm nay, nên uống thuốc gì ạ?" }]
+    }
+  ]
+}

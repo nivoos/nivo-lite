@@ -21,7 +21,6 @@ const query1: TypedDocumentNode<QueryLoadImapConnectionResponse, InputVariables<
             user
             folders
             sinceDays
-            syncEveryMinutes
             agentIds
         }
     }

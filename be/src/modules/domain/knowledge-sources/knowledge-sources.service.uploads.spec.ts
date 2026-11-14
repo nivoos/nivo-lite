@@ -18,7 +18,6 @@ import { IDS } from "@modules/platform/ids"
 import { KnowledgeQueue } from "@modules/queues/knowledge"
 import { sourceWriteRows } from "@tests/fixtures/builders/knowledge-sources.builder"
 import { KnowledgeSourcesErrorCode } from "./errors/knowledge-sources.error"
-import { KnowledgeProgressService } from "./knowledge-progress.service"
 import { MAX_UPLOAD_BYTES } from "./knowledge-sources.contracts"
 import { KNOWLEDGE_STORAGE } from "./knowledge-sources.decorators"
 import { KnowledgeSourcesService } from "./knowledge-sources.service"
@@ -37,7 +36,6 @@ const build = async (em: MockEntityManager) => {
     const storage = mock<StorageObjectsPort>()
     const queue = mock<KnowledgeQueue>()
     const quota = mock<SourceQuotaService>()
-    const progress = mock<KnowledgeProgressService>()
     const parts = mock<SourcePartsService>()
     const members = mock<WorkspaceMembersService>()
     members.require.mockResolvedValue({
@@ -49,7 +47,6 @@ const build = async (em: MockEntityManager) => {
         status: "active",
     })
     parts.wholeOf.mockResolvedValue({ ids: ["s1"], title: "Bang gia", visibility: "public", origin: null })
-    progress.announce.mockResolvedValue(undefined)
     const moduleRef = await Test.createTestingModule({
         providers: [
             KnowledgeSourcesService,
@@ -62,18 +59,17 @@ const build = async (em: MockEntityManager) => {
 
             { provide: InstallationRecordsService, useValue: mock<InstallationRecordsService>() },
             { provide: SourceQuotaService, useValue: quota },
-            { provide: KnowledgeProgressService, useValue: progress },
             { provide: SourcePartsService, useValue: parts },
             { provide: IDS, useValue: fakeIds() },
         ],
     }).compile()
-    return { service: moduleRef.get(KnowledgeSourcesService), storage, queue, quota, progress, parts }
+    return { service: moduleRef.get(KnowledgeSourcesService), storage, queue, quota, parts }
 }
 
 describe("KnowledgeSourcesService a new upload of the same document", () => {
     it("writes the new object with a cleared hash, queues the reading and removes the replaced object after the write", async () => {
         const tx = fakeTransaction(mockEntityManager({ update: [KnowledgeSourceEntity, { affected: 1 }] }))
-        const { service, quota, queue, progress } = await build(tx.em)
+        const { service, quota, queue } = await build(tx.em)
         quota.uploadOf.mockResolvedValue(NEXT)
         quota.replacementOf.mockResolvedValue({ columns: COLUMNS, replaced: OLD })
 
@@ -98,8 +94,7 @@ describe("KnowledgeSourcesService a new upload of the same document", () => {
             expect.anything(),
             Date.parse(AT),
         )
-        expect(quota.settleReplaced).toHaveBeenCalledWith(OLD, expect.any(Promise))
-        expect(progress.announce).toHaveBeenCalledWith(WS, "s1")
+        expect(quota.settleReplaced).toHaveBeenCalledWith(OLD)
         expect(tx.commits).toBe(1)
     })
 

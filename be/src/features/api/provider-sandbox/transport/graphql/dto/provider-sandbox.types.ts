@@ -255,9 +255,13 @@ export class SandboxSendResultType {
     @Field(() => [SandboxInputValueType])
     inputs!: ReadonlyArray<SandboxInputValueType>
 
-    /** Each webhook call, in order. */
+    /** Each webhook call, in order; none when the webhook was dropped. */
     @Field(() => [SandboxDeliveryType])
     deliveries!: ReadonlyArray<SandboxDeliveryType>
+
+    /** True when the send was asked to drop its webhook: the state was recorded, nothing was posted. */
+    @Field(() => Boolean)
+    webhookDropped!: boolean
 }
 
 @ObjectType()
@@ -270,4 +274,60 @@ export class SandboxWaitExpiryType {
     /** The engine's word: `admitted`. */
     @Field(() => String)
     outcome!: string
+}
+
+@ObjectType()
+/** The sandbox account a pay link belongs to. */
+export class SandboxPayLinkAccountType {
+    /** The connection id. */
+    @Field(() => ID)
+    id!: string
+
+    /** The provider key. */
+    @Field(() => String)
+    provider!: string
+
+    /** The name the owner gave the account, else its id. */
+    @Field(() => String)
+    label!: string
+}
+
+@ObjectType()
+/** One pay link (a payment link, a QR request) a sandbox account issued: what was asked, where it is, which cases apply to it. */
+export class SandboxPayLinkType {
+    /** The link id. */
+    @Field(() => String)
+    linkId!: string
+
+    /** The sandbox account it belongs to. */
+    @Field(() => SandboxPayLinkAccountType)
+    account!: SandboxPayLinkAccountType
+
+    /** The amount asked, in VND. */
+    @Field(() => Int)
+    amountVnd!: number
+
+    /** The transfer content (the description) the link was made with. */
+    @Field(() => String)
+    content!: string
+
+    /** The provider's order code of the link, as text. */
+    @Field(() => String)
+    orderCode!: string
+
+    /** `open`, `paid`, `cancelled` or `expired`. */
+    @Field(() => String)
+    status!: string
+
+    /** What was received on it so far, in VND (an open link may hold some: a short payment leaves it open). */
+    @Field(() => Int)
+    amountReceivedVnd!: number
+
+    /** The inbound cases that apply to it: the ones that pay it while it is open, none once it is paid, cancelled or expired. */
+    @Field(() => [String])
+    caseIds!: Array<string>
+
+    /** What the link gives the inputs of those cases (the order code, or the content and the amount), as text. */
+    @Field(() => [SandboxInputValueType])
+    inputs!: ReadonlyArray<SandboxInputValueType>
 }

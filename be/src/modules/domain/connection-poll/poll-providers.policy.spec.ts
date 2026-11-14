@@ -8,7 +8,10 @@ import { MemoryPollLimiterStore } from "./memory-poll-limiter.adapter"
 import { PollSchedulerService } from "./poll-scheduler.service"
 import { PollScheduleService } from "./poll-schedule.service"
 import { DEFAULT_POLL_SCHEDULE } from "./poll-schedule.policy"
-import { PollSourceRegistryService } from "./poll-source-registry.service"
+import { PollBootPassService } from "./poll-boot-pass.service"
+import { PollLimiterService } from "./poll-limiter.service"
+import { PollOwnerNoticeService } from "./poll-owner-notice.service"
+import { PollReceiptsService } from "./poll-receipts.service"
 import { POLL_EXPORTED, pollProvidersOf, systemRandom } from "./poll-providers.policy"
 import { RedisPollLimiterStore } from "./redis-poll-limiter.client"
 
@@ -28,10 +31,14 @@ const providerOf = (providers: ReadonlyArray<Provider>, key: symbol): Provider |
     providers.find((provider) => typeof provider === "object" && "provide" in provider && provider.provide === key)
 
 describe("poll-providers policy the exports", () => {
-    it("exports what other modules call: the schedule, the scheduler, the source registry and the limiter", () => {
-        expect(POLL_EXPORTED).toEqual(
-            expect.arrayContaining([PollScheduleService, PollSchedulerService, PollSourceRegistryService]),
-        )
+    it("exports what other modules call: the schedule, the scheduler, the generic store of the polled rows and the limiter", () => {
+        expect([...POLL_EXPORTED]).toEqual([PollScheduleService, PollSchedulerService, PollReceiptsService, PollLimiterService])
+    })
+
+    it("provides the owner notice and the boot pass of the one poll job beside what it exports", async () => {
+        const { pollProvidersOf } = await build()
+
+        expect(pollProvidersOf(options)).toEqual(expect.arrayContaining([PollOwnerNoticeService, PollBootPassService]))
     })
 
     it("provides everything it exports", async () => {

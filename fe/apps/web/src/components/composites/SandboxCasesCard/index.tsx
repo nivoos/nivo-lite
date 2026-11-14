@@ -1,4 +1,4 @@
-import { Cluster, Input, Stack, SurfaceCard, Text, type BadgeData, type ListRowData } from "@starci/grammar/common"
+import { Checkbox, Cluster, Input, Stack, SurfaceCard, Text, type BadgeData, type ListRowData } from "@starci/grammar/common"
 import { sandboxCardStateOf } from "@/components/branches/SandboxCardState"
 import type { DataSlot, SandboxCaseRowView, SandboxCasesData, SandboxCopy, SandboxPendingView } from "@/modules/types"
 
@@ -9,6 +9,7 @@ interface SandboxCasesCardProps {
     readonly pending: SandboxPendingView
     readonly on: {
         readonly setInput: (name: string, value: string) => void
+        readonly setDropWebhook: (isDropped: boolean) => void
         readonly send: (caseId: string) => void
         readonly choose: (caseId: string) => void
         readonly retry: () => void
@@ -26,12 +27,14 @@ const PLACEHOLDER: SandboxCasesData = {
         isNext: false,
     })),
     fields: [],
+    dropWebhook: false,
     latestLine: null,
     nextLines: [],
+    scope: null,
 }
 
 /** No case at all. */
-const NONE: SandboxCasesData = { rows: [], fields: [], latestLine: null, nextLines: [] }
+const NONE: SandboxCasesData = { rows: [], fields: [], dropWebhook: false, latestLine: null, nextLines: [], scope: null }
 
 /** The plain Badges a case wears: the default one of an outbound operation, and the one the account answers next. */
 const badgesOf = (row: SandboxCaseRowView, copy: SandboxCopy["cases"]): ListRowData["badges"] => {
@@ -85,6 +88,14 @@ const HeaderFields = (props: SandboxCasesHeaderProps) => (
                 {line}
             </Text>
         ))}
+        {props.data.rows.some((row) => row.direction === "inbound") ? (
+            <Checkbox
+                label={props.card.copy.cases.dropWebhookLabel}
+                description={props.card.copy.cases.dropWebhookHint}
+                isSelected={props.data.dropWebhook}
+                onSelectedChange={props.card.on.setDropWebhook}
+            />
+        ) : null}
         {props.data.fields.length === 0 ? null : (
             <Cluster gap="inline" align="end" label={props.card.copy.cases.inputsLabel}>
                 {props.data.fields.map((field) => (
@@ -117,7 +128,9 @@ export const SandboxCasesCard = (props: SandboxCasesCardProps) => {
     })
     const hasHeader =
         !state.isLoading &&
-        (state.data.fields.length > 0 || state.data.latestLine !== null || state.data.nextLines.length > 0)
+        (state.data.rows.some((row) => row.direction === "inbound") ||
+            state.data.fields.length > 0 ||
+            state.data.latestLine !== null || state.data.nextLines.length > 0)
     return (
         <SurfaceCard
             kind="list"

@@ -1,7 +1,7 @@
 /**
  * The care timing a node still computes: EXACT date arithmetic on instants the tools answer and on `ctx.run.at`, and the
  * exact reading of an order status. Nothing here reads meaning (the customer's delivery words go to `ctx.agent.run`), builds a timer key,
- * or parses lead memory (the opt-out and the occasions come from `nivo.tool.lead.care.get` already typed).
+ * or parses lead memory (the occasions come from `nivo.tool.lead.care.get` already typed).
  */
 
 /** The care steps a timer can wake the Sales agent for: the `kind` a node arms `nivo.tool.timer.arm` with. */

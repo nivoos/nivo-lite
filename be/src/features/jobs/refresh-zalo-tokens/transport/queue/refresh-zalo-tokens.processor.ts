@@ -1,19 +1,20 @@
 import { Injectable } from "@nestjs/common"
-import { FencedProcessor, type ClaimedJob } from "@modules/platform/jobs"
-import { ZALO_REFRESH_QUEUE } from "@modules/queues/zalo-refresh"
-import { RenewTokensStep } from "../../steps/renew-tokens.step"
+import { FencedProcessor, type ClaimedJob, type JobDefinition } from "@modules/platform/jobs"
+import { REFRESH_ZALO_TOKENS_JOB, ZALO_REFRESH_QUEUE, type ZaloRefreshPayload } from "@modules/queues/zalo-refresh"
+import { FanOutRefreshStep } from "../../steps/fan-out-refresh.step"
 
 @Injectable()
-/** The processor of the refresh-zalo-tokens job: every scheduler tick runs the one step. */
+/** The processor of the refresh tick: every scheduler tick writes one renewal job per due connection. A failure throws: the runner classifies it. */
 export class RefreshZaloTokensProcessor extends FencedProcessor {
-    readonly queue: "zalo_refresh" = ZALO_REFRESH_QUEUE
+    override readonly queue: "zalo_refresh" = ZALO_REFRESH_QUEUE
+    override readonly definition: JobDefinition<ZaloRefreshPayload> = REFRESH_ZALO_TOKENS_JOB
 
-    constructor(private readonly renew: RenewTokensStep) {
+    constructor(private readonly fanOut: FanOutRefreshStep) {
         super()
     }
 
-    /** Renews the due tokens; a stale token throws the fenced-out error from the guarded write before the effect. */
+    /** Fans the due tokens out; a stale token throws the fenced-out error from the guarded write before the effect. */
     async process(job: ClaimedJob): Promise<void> {
-        await this.renew.run(job)
+        await this.fanOut.run(job)
     }
 }

@@ -5,25 +5,20 @@ import { ApiKnowledgeSourcesService } from "@modules/domain/knowledge-sources"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { InjectInbox, type Inbox } from "@modules/platform/inbox"
 import type { ClaimedJob, JobClaims, JobFenceService } from "@modules/platform/jobs"
-import type { QueueDelivery } from "@modules/platform/queue"
-import { PublicApiQueueJob, PUBLIC_API_QUEUE } from "@modules/queues/public-api"
+import { InjectQueueOutbox, type QueueDelivery, type QueueOutbox } from "@modules/platform/queue"
+import { PublicApiQueueJob, PUBLIC_API_QUEUE, SEND_PUBLIC_MESSAGE_JOB } from "@modules/queues/public-api"
 import { PublicApiError, PublicApiErrorCode } from "./errors/public-api.error"
 import { parsePublicApiBody, parsePublicApiJob } from "./public-api-job.policy"
 import type { PublicApiJob } from "./public-api-job.contracts"
 import type { PendingMessageDelivery } from "./public-api.contracts"
 import { PublicApiLedgerService } from "./public-api-ledger.service"
-import { PublicMessageDeliveryService } from "./public-message-delivery.service"
 import { PublicMessageFulfillmentService } from "./public-message-fulfillment.service"
-
-/** Where a fenced write leaves the delivery it owes. */
-interface PendingOut {
-    pending: PendingMessageDelivery | null
-}
 
 @Injectable()
 /**
- * Fulfills API admissions with inbox dedupe, domain writes and downstream jobs in one fence-held transaction; the line a message stored
- * is sent to its channel after that transaction (the delivery ledger's claim keeps a retry from sending it twice).
+ * Fulfills API admissions with inbox dedupe, domain writes and downstream jobs in one fence-held transaction. The reply a message owes
+ * is written into the outbox in that same transaction as the send job (`public-api.send`): it commits with the request's completion or
+ * not at all, and the send job (its own ladder and dead letter) makes the channel send through the delivery ledger.
  */
 export class PublicApiProcessingService {
     constructor(
@@ -33,7 +28,7 @@ export class PublicApiProcessingService {
         private readonly messages: PublicMessageFulfillmentService,
         private readonly events: EventsService,
         private readonly ledger: PublicApiLedgerService,
-        private readonly delivery: PublicMessageDeliveryService,
+        @InjectQueueOutbox() private readonly outbox: QueueOutbox,
     ) {}
 
     /** Both historical implicit names and current named requests route through this queue's processor. */
@@ -51,16 +46,15 @@ export class PublicApiProcessingService {
             expectedFencingToken: job.fencingToken,
             step: "public-api",
         })
-        const out: PendingOut = { pending: null }
         await fence.write(job, async (tx) => {
-            out.pending = await this.process(job.payload, tx)
+            const pending = await this.process(job.payload, tx)
+            if (pending !== null) await this.queueSend(pending, tx)
         })
-        if (out.pending !== null) await this.delivery.send(out.pending)
     }
 
     /**
      * The caller owns the live fence and supplies its transaction; no nested transaction may outlive it. Answers the send a message
-     * owes, for the caller to make after commit.
+     * owes, for the caller to enqueue in the same transaction (`processFenced` does).
      */
     async process(payload: object, tx: EntityManager): Promise<PendingMessageDelivery | null> {
         const job = parsePublicApiJob(payload)
@@ -95,6 +89,14 @@ export class PublicApiProcessingService {
                 },
                 tx,
             )
+        })
+    }
+
+    /** Writes the send job of a reply in the transaction that commits the request: once per send key, so a run again adds no second send. */
+    private queueSend(pending: PendingMessageDelivery, tx: EntityManager): Promise<void> {
+        return this.outbox.write(tx, PUBLIC_API_QUEUE, pending, {
+            job: PublicApiQueueJob.Send,
+            dedupeKey: SEND_PUBLIC_MESSAGE_JOB.onceKey(pending),
         })
     }
 

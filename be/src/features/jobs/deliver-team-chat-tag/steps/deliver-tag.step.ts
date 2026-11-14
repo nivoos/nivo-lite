@@ -1,18 +1,19 @@
 import { Injectable } from "@nestjs/common"
 import { TeamChatTagDeliveryService } from "@modules/domain/team-chat"
-import { InjectJobClaims, type ClaimedJob, type JobClaims, type JobStep } from "@modules/platform/jobs"
+import { AdvancingJobStepPolicy, InjectJobClaims, type ClaimedJob, type JobClaims, type JobStep } from "@modules/platform/jobs"
 
 @Injectable()
 /** The one effect of the job: the tag the job names is handed to the one event pipeline, in the api (the one app that drives runs). */
-export class DeliverTagStep implements JobStep {
+export class DeliverTagStep extends AdvancingJobStepPolicy implements JobStep {
     constructor(
-        @InjectJobClaims() private readonly claims: JobClaims,
         private readonly tags: TeamChatTagDeliveryService,
-    ) {}
+        @InjectJobClaims() claims: JobClaims,
+    ) {
+        super(claims, "deliver")
+    }
 
-    /** Records the step with the token this worker holds FIRST, so a stale token stops here before any effect; then delivers. */
-    async run(job: ClaimedJob): Promise<void> {
-        await this.claims.advance({ jobId: job.jobId, expectedFencingToken: job.fencingToken, step: "deliver" })
-        await this.tags.deliverJob(job.payload)
+    /** Delivers the tag after the worker's claim has been checked. */
+    protected perform(payload: object, _job: ClaimedJob): Promise<unknown> {
+        return this.tags.deliverJob(payload)
     }
 }

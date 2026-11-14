@@ -1,19 +1,8 @@
 import { fieldTextOf, fieldTextOrNullOf, isRecord } from "@modules/platform/primitives"
 import type { JsonValue } from "@nivo-lite/agent-sdk/schema"
 import { AgentGraphsError, AgentGraphsErrorCode } from "./errors/agent-graphs.error"
-import type {
-    GraphChangeKind,
-    GraphMode,
-    ProposalKind,
-    ProposalStatus,
-} from "./agent-graphs.contracts"
-import type {
-    GraphRecord,
-    PlainJson,
-    ProposalRecord,
-    GraphSourceRecord,
-    VersionRecord,
-} from "./agent-graphs-records.contracts"
+import type { GraphChangeKind, GraphMode } from "./agent-graphs.contracts"
+import type { GraphRecord, PlainJson, VersionRecord } from "./agent-graphs-records.contracts"
 
 /**
  * A stored row of one of the graph tables by its entity members: a TypeORM entity of `persistence/entities`, or a store double's row.
@@ -39,8 +28,6 @@ export const GRAPH_CHANGE_KINDS: ReadonlyArray<GraphChangeKind> = [
     "spec",
     "copy",
 ]
-const PROPOSAL_KINDS: ReadonlyArray<ProposalKind> = ["conflict", "learned", "template_update", "gap", "contract"]
-const PROPOSAL_STATUSES: ReadonlyArray<ProposalStatus> = ["open", "confirmed", "declined", "superseded"]
 
 const unreadable = (): AgentGraphsError => new AgentGraphsError({ code: AgentGraphsErrorCode.RecordUnreadable })
 
@@ -55,12 +42,6 @@ const textOrNull = (data: Data, key: string): string | null => fieldTextOrNullOf
 const intOf = (data: Data, key: string): number => {
     const value = data[key]
     if (typeof value !== "number") throw unreadable()
-    return value
-}
-
-const flagOf = (data: Data, key: string): boolean => {
-    const value = data[key]
-    if (typeof value !== "boolean") throw unreadable()
     return value
 }
 
@@ -85,17 +66,6 @@ const objectOf = (data: Data, key: string): Readonly<Record<string, unknown>> =>
     if (!isRecord(value)) throw unreadable()
     return value
 }
-
-/** The texts a record keeps under one member of a wrapping object: `{ keys: [...] }` or `{ ids: [...] }`. */
-const listOf = (data: Data, key: string, member: string): ReadonlyArray<string> => {
-    const list = objectOf(data, key)[member]
-    if (!Array.isArray(list)) throw unreadable()
-    return list.map((entry) => {
-        if (typeof entry !== "string") throw unreadable()
-        return entry
-    })
-}
-
 
 /** What every row carries: its id and its workspace. */
 const headOf = (row: Data): Pick<GraphRecord, "id" | "workspaceId"> => ({
@@ -155,60 +125,6 @@ export const versionRecordOf = (stored: StoredRow): VersionRecord => {
         ...headOf(row),
         ...frozenOf(row),
         ...publishedOf(row),
-    }
-}
-
-const citedOf = (data: Data): Pick<GraphSourceRecord, "versionId" | "agentId" | "nodeKey" | "branchKey"> => ({
-    versionId: textOf(data, "versionId"),
-    agentId: textOf(data, "agentId"),
-    nodeKey: textOf(data, "nodeKey"),
-    branchKey: textOf(data, "branchKey"),
-})
-
-const backedByOf = (data: Data): Pick<GraphSourceRecord, "kind" | "ref" | "valueHash"> => ({
-    kind: textOf(data, "kind"),
-    ref: textOf(data, "ref"),
-    valueHash: textOf(data, "valueHash"),
-})
-
-/** A source record read from its stored row. */
-export const sourceRecordOf = (stored: StoredRow): GraphSourceRecord => {
-    const row = membersOfRow(stored)
-    return {
-        workspaceId: textOf(row, "workspaceId"),
-        ...citedOf(row),
-        ...backedByOf(row),
-    }
-}
-
-const raisedOf = (data: Data): Pick<ProposalRecord, "agentId" | "kind" | "status"> => ({
-    agentId: textOf(data, "agentId"),
-    kind: enumOf(data, "kind", PROPOSAL_KINDS),
-    status: enumOf(data, "status", PROPOSAL_STATUSES),
-})
-
-const aboutOf = (data: Data): Pick<ProposalRecord, "baseVersionId" | "nodeKey" | "branchKey"> => ({
-    baseVersionId: textOrNull(data, "baseVersionId"),
-    nodeKey: textOrNull(data, "nodeKey"),
-    branchKey: textOrNull(data, "branchKey"),
-})
-
-const changeOf = (data: Data): Pick<ProposalRecord, "patch" | "widens" | "evidence"> => ({
-    patch: objectOf(data, "patch"),
-    widens: flagOf(data, "widens"),
-    evidence: listOf(data, "evidence", "ids"),
-})
-
-/** A proposal record read from its stored row. */
-export const proposalRecordOf = (stored: StoredRow): ProposalRecord => {
-    const row = membersOfRow(stored)
-    return {
-        ...headOf(row),
-        ...fenceOf(row),
-        createdAt: dateOf(row, "createdAt"),
-        ...raisedOf(row),
-        ...aboutOf(row),
-        ...changeOf(row),
     }
 }
 

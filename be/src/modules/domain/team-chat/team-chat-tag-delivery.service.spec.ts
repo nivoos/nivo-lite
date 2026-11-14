@@ -11,7 +11,7 @@ const PAYLOAD = { workspaceId: "ws-1", agentId: "agent-1", memberId: "seat-1", r
 const build = async () => {
     const tx = fakeTransaction(mockEntityManager({}))
     const triggers = mock<ProviderTriggersService>()
-    triggers.deliver.mockResolvedValue({ status: "delivered", events: 1, dropped: 0, woken: [], repeats: 0, untaken: 0, held: 0 })
+    triggers.deliver.mockResolvedValue({ status: "delivered", events: 1, dropped: 0, sameFact: 0, woken: [], repeats: 0, untaken: 0, held: 0 })
     const moduleRef = await Test.createTestingModule({
         providers: [
             TeamChatTagDeliveryService,

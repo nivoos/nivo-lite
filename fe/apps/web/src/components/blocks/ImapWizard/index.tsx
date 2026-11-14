@@ -7,7 +7,6 @@ import { providerKey } from "@/hooks/connection-providers"
 import { agentChoicesOf, useWizardPhases } from "@/hooks/connection-wizard"
 import type { AgentOption, SlotLabels, WizardPhases } from "@/modules/types"
 import {
-    IMAP_EVERY,
     IMAP_GUIDE_KEY,
     IMAP_PRESET_KEY,
     IMAP_PRESETS,
@@ -97,7 +96,6 @@ export const ImapWizard = (props: ImapWizardProps) => {
                 retry: wizard.reload,
                 folders: wizard.setFolders,
                 since: (value: string) => wizard.setSinceDays(Number(value)),
-                schedule: (value: string) => wizard.setEvery(value === "null" ? null : Number(value)),
                 agents: wizard.setAgentIds,
             }}
         />
@@ -164,7 +162,7 @@ const buildImapWizardView = ({
         title: tc(providerKey("imap", "title")),
         stepLabel: tw("stepOf", { n: wizard.index + 1, total: IMAP_STEPS.length }),
         phases,
-        steps: [t("stepAccount"), t("stepFolders"), t("stepSchedule"), t("stepAgent")],
+        steps: [t("stepAccount"), t("stepFolders"), t("stepAgent")],
         index: wizard.index,
         step: wizard.step,
         account: buildMailboxAccountView({ copy, values, savedId, preset, t, isCustom, isPending, wizard, format }),
@@ -177,10 +175,6 @@ const buildImapWizardView = ({
                 value: String(days),
                 label: t(IMAP_SINCE_KEY[days]),
             })),
-        },
-        schedule: {
-            value: String(wizard.every),
-            options: IMAP_EVERY.map((e) => ({ value: String(e.minutes), label: t(e.key) })),
         },
         agentStep: {
             title: t("agentTitle"),

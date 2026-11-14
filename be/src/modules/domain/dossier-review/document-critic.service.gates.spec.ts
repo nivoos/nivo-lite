@@ -1,3 +1,4 @@
+import { claimedAiJob } from "@tests/fixtures/builders/brain-ai-effects.builder"
 import { passageTextHashOf } from "@modules/domain/knowledge-chunks"
 import {
     DELIVERY_SUBJECT_VI,
@@ -177,7 +178,7 @@ describe("shop-document critic: ONE critique, two gates: the gate of the truths 
 
         // The next critique of the document (nothing changed: no model call) closes every one of them.
         await subject.critic.request(WS, SRC)
-        await subject.critic.runWaiting(WS)
+        await subject.critic.runWaiting(WS, claimedAiJob())
         expect(subject.model.critique).toHaveBeenCalledTimes(1)
         const old = subject.world.findings.filter((row) => typeof row.id === "string" && row.id.startsWith("old-"))
         expect(old.map((row) => [row.status, row.resolution])).toEqual(old.map(() => ["resolved", "not_detected"]))
@@ -313,7 +314,7 @@ describe("shop-document critic: ONE critique, two gates: the minimal set of pass
         subject.script.push(() => answered([]))
         await subject.critic.request(WS, SRC)
         expect((await subject.read.reviewOfSource(WS, SRC)).waitingPassages).toBe(8)
-        await subject.critic.runWaiting(WS)
+        await subject.critic.runWaiting(WS, claimedAiJob())
 
         expect(subject.bundles).toHaveLength(2)
         expect(subject.bundles[1]?.changed).toHaveLength(8)
@@ -368,7 +369,7 @@ describe("shop-document critic: ONE critique, two gates: out of credits in the m
         // Credits are back and the critic is asked again (the truths work's upkeep tick does it): only the rest is read.
         subject.usage.blockedBy.mockResolvedValue(false)
         await subject.critic.request(WS, SRC)
-        await subject.critic.runWaiting(WS)
+        await subject.critic.runWaiting(WS, claimedAiJob())
 
         const done = await subject.critic.truthGateOf(WS, SRC)
         expect(done).toMatchObject({ state: "done", reason: null, waitingPassages: 0 })

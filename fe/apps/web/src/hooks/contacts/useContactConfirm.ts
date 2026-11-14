@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl"
 import { useState } from "react"
 import type { ContactCommands } from "./useContactCommands"
+import type { ContactConsentCommand } from "./useContactConsent"
 import type { ContactConfirmView, ContactDetailView, ContactsPanesBaseProps } from "@/modules/types"
 
 /** A question waiting for the yes of the person: what it is about decides the words and the command. */
@@ -10,6 +11,7 @@ export type ContactAsking =
     | { readonly kind: "delete" }
     | { readonly kind: "unlink"; readonly identityId: string; readonly title: string }
     | { readonly kind: "merge"; readonly fromId: string; readonly from: string }
+    | { readonly kind: "consent"; readonly doNotContact: boolean }
 
 /** What the person is asked before an irreversible change and the commands that answer it. */
 export interface ContactConfirmState {
@@ -23,6 +25,7 @@ export interface ContactConfirmState {
 interface ContactConfirmInput {
     readonly detail: ContactDetailView | undefined
     readonly commands: ContactCommands
+    readonly consent: ContactConsentCommand
     /** Opens a person's page (the survivor of a merge). */
     readonly open: (contactId: string) => void
     /** Goes back to the list (after a delete). */
@@ -55,6 +58,15 @@ const confirmOf = (
             isPending,
         }
     }
+    if (asking.kind === "consent") {
+        return {
+            title: t(asking.doNotContact ? "consentSetTitle" : "consentClearTitle", { name: detail.name }),
+            description: t(asking.doNotContact ? "consentSetBody" : "consentClearBody"),
+            confirmLabel: t(asking.doNotContact ? "consentSetConfirm" : "consentClearConfirm"),
+            kind: "neutral",
+            isPending,
+        }
+    }
     return {
         title: t("mergeConfirmTitle", { from: asking.from, into: detail.name }),
         description: t("mergeConfirmBody"),
@@ -68,10 +80,11 @@ const confirmOf = (
 export const useContactConfirm = (input: ContactConfirmInput): ContactConfirmState => {
     const t = useTranslations("contacts")
     const [asking, setAsking] = useState<ContactAsking>()
-    const { detail, commands } = input
+    const { detail, commands, consent } = input
     const answer = async (): Promise<void> => {
         if (asking === undefined || detail === undefined) return
         if (asking.kind === "delete" && (await commands.remove(detail.id))) input.openList()
+        if (asking.kind === "consent") await consent.set(detail.id, asking.doNotContact)
         if (asking.kind === "unlink") await commands.unlink(detail.id, asking.identityId)
         if (asking.kind === "merge") {
             const survivor = await commands.merge(asking.fromId, detail.id)
@@ -80,7 +93,7 @@ export const useContactConfirm = (input: ContactConfirmInput): ContactConfirmSta
         setAsking(undefined)
     }
     return {
-        confirm: confirmOf(asking, detail, commands.isPending, t),
+        confirm: confirmOf(asking, detail, commands.isPending || consent.isPending, t),
         ask: setAsking,
         on: { acceptConfirm: () => void answer(), cancelConfirm: () => setAsking(undefined) },
     }

@@ -96,7 +96,7 @@ export const salesOrderTalkNode: TemplateNode<typeof input, typeof output, NodeS
     run: async (given, context) => {
         // What the person said is every line since the shop last spoke (the engine's thread of the run's route, pictures included), not
         // only the line that woke the step: several lines may come in one wake (R73). The woken line stands when the thread holds no words.
-        const rows = await threadRowsOf(context)
+        const rows = await threadRowsOf(context, { consume: true })
         const unread = unreadTextOf(rows)
         const decided = await context.agent.run({
             goal: `${messageOf("en", "nodeSalesOrderTalkGoal")}\n${GUIDANCE}`,

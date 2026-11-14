@@ -118,6 +118,8 @@ export interface TeamChatStopLabels {
     readonly approvalLabel: string
     /** The name of the row that holds the message the customer will get, and of the one that lists its files. */
     readonly messageLabel: string
+    /** The name of the row that holds the subject of a mail. */
+    readonly subjectLabel: string
     readonly filesLabel: string
     /** Hand the customer back to the agent. */
     readonly handBack: string
@@ -152,6 +154,8 @@ export interface TeamChatStopCardView {
     /** The work item of a leave request and its lines (account, ability, the call's arguments); null for any other card. */
     readonly approval: {
         readonly workItemId: string
+        /** The subject of a mail the call sends; null when the call has none (a chat message). */
+        readonly subject: string | null
         /** The message as the customer will get it, one entry per line (empty when the call sends no words). */
         readonly messageLines: ReadonlyArray<string>
         /** The addresses of the pictures and files it sends. */

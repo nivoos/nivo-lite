@@ -1,5 +1,4 @@
 import { Module, type DynamicModule } from "@nestjs/common"
-import { AgentRunAlertsService } from "./agent-run-alerts.service"
 import { AgentRunCancelService } from "./agent-run-cancel.service"
 import { AgentRunsLimitService } from "./agent-runs-limit.service"
 import { AgentRunRecordsService } from "./agent-run-records.service"
@@ -33,7 +32,6 @@ export class AgentRunsModule extends ConfigurableModuleClass {
                 AgentRunStoreService,
                 AgentRunCancelService,
                 AgentRunsLimitService,
-                AgentRunAlertsService,
                 AgentRunsService,
                 AgentRunsViewService,
             ],
@@ -41,7 +39,6 @@ export class AgentRunsModule extends ConfigurableModuleClass {
                 AGENT_RUN_TABLE_STORE,
                 AgentRunRecordsService,
                 AgentRunsService,
-                AgentRunAlertsService,
                 AgentRunCancelService,
                 AgentRunsLimitService,
                 AgentRunsViewService,

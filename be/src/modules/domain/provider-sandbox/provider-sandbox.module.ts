@@ -1,6 +1,6 @@
 import { Module, type DynamicModule } from "@nestjs/common"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./provider-sandbox.module-definition"
-import { PROVIDER_SANDBOX_STORE, PROVIDER_SANDBOX_SWITCH, SANDBOX_LOOPBACK_PORT, SANDBOX_WEBHOOK_POSTER } from "./provider-sandbox.decorators"
+import { PROVIDER_SANDBOX_STORE, PROVIDER_SANDBOX_SWITCH, SANDBOX_LOOPBACK_PORT, SANDBOX_WEB_ORIGIN, SANDBOX_WEBHOOK_POSTER } from "./provider-sandbox.decorators"
 import { ProviderSandboxAccountsService } from "./provider-sandbox-accounts.service"
 import { ProviderSandboxStoreService } from "./provider-sandbox-store.service"
 import { ProviderSandboxService } from "./provider-sandbox.service"
@@ -23,6 +23,7 @@ export class ProviderSandboxModule extends ConfigurableModuleClass {
                 ...(base.providers ?? []),
                 { provide: PROVIDER_SANDBOX_SWITCH, useValue: options.sandbox },
                 { provide: SANDBOX_LOOPBACK_PORT, useValue: options.loopbackPort },
+                { provide: SANDBOX_WEB_ORIGIN, useValue: options.webOrigin },
                 SandboxLoopbackPosterService,
                 { provide: SANDBOX_WEBHOOK_POSTER, useExisting: SandboxLoopbackPosterService },
                 ProviderSandboxStoreService,

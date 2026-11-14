@@ -1,5 +1,6 @@
 import type { TeamChatBackgroundStoppedView } from "./team-chat-background-stopped"
 import type { TeamChatBrainChangeView } from "./team-chat-brain-change"
+import type { TeamChatJobParkedView } from "./team-chat-job-parked"
 import type { TeamChatMarkView } from "./team-chat-room"
 import type { TeamChatStopCardView } from "./team-chat-stop"
 
@@ -110,6 +111,8 @@ export interface TeamChatMessageRow {
     readonly stop?: TeamChatStopCardView | null
     /** The typed "background work stopped" card NIVO posted, worded; absent or null for every other message. */
     readonly backgroundStopped?: TeamChatBackgroundStoppedView | null
+    /** The typed "a job stopped" card (`job.parked`) NIVO posted, worded; absent or null for every other message. */
+    readonly jobParked?: TeamChatJobParkedView | null
     /** The typed truth-change card (`brain.change`), worded; absent or null for every other message. */
     readonly brainChange?: TeamChatBrainChangeView | null
 }

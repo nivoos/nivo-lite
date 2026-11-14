@@ -1,9 +1,23 @@
+import { DEFAULT_TRIGGER_COMBINE, type TriggerCombine } from "@nivo-lite/agent-sdk/graph"
 import type { TriggerVerb } from "@nivo-lite/agent-sdk/names"
 import { ProviderTriggersError, ProviderTriggersErrorCode } from "./errors/provider-triggers.error"
 import type { TriggerDeclaration } from "./trigger-declaration.contracts"
 
 /** The key a declaration is registered under: its source and its name inside that source. */
 const keyOf = (provider: string, name: string): string => `${provider}:${name}`
+
+/**
+ * How a declaration's pending events combine (rule Q-4): its own `combine`, else `each`. The engine reads this, never the provider.
+ */
+export const combineOf = (declaration: Pick<TriggerDeclaration, "combine">): TriggerCombine =>
+    declaration.combine ?? DEFAULT_TRIGGER_COMBINE
+
+/**
+ * True unless the declaration combines as a `stream` while it feeds no stream of the engine. Today the one engine stream is the lines of a
+ * route, fed by a declaration that reads a line from its event (`line`).
+ */
+export const streamFed = (declaration: Pick<TriggerDeclaration, "combine" | "line">): boolean =>
+    combineOf(declaration) !== "stream" || typeof declaration.line === "function"
 
 /**
  * THE REGISTRY OF TRIGGER DECLARATIONS (stage 1 of the one event pipeline, lane concept triggers rule 13). Every source registers the
@@ -22,6 +36,10 @@ export class TriggerDeclarationsRegistry {
             if (held === declaration) continue
             if (held !== undefined) {
                 throw new ProviderTriggersError({ code: ProviderTriggersErrorCode.DeclarationTaken, params: { trigger: key } })
+            }
+            // Rule Q-4: a `stream` marker stands for lines the workflow reads from a stream; a declaration that feeds none cannot combine so.
+            if (!streamFed(declaration)) {
+                throw new ProviderTriggersError({ code: ProviderTriggersErrorCode.DeclarationStreamless, params: { trigger: key } })
             }
             this.byKey.set(key, declaration)
         }

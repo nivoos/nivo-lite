@@ -29,7 +29,7 @@ describe("ZaloSandboxInboxPollerService", () => {
         expect(await service.fetch(CONNECTION, ALL)).toMatchObject({ kind: "page", fetched: 0, items: [], oldestAt: undefined })
     })
 
-    it("answers the messages the account's cases made, newest first, counts the picture as fetched but not as an item, marks the old text stale", async () => {
+    it("answers the messages the account's cases made, newest first, counts the picture as fetched but not as an item, never judges an age", async () => {
         const { sandbox, service } = setup()
         await sendCase(sandbox, "ZALO-1", { userId: "8800110022", text: "Chao shop" })
         await sendCase(sandbox, "ZALO-2", { userId: "8800110033" }, new Date("2026-11-14T02:30:00.000Z"))
@@ -39,9 +39,9 @@ describe("ZaloSandboxInboxPollerService", () => {
 
         expect(page).toMatchObject({ kind: "page", fetched: 3 })
         if (page.kind !== "page") throw new Error("page expected")
-        expect(page.items.map((item) => [item.messageId, item.userId, item.userName, item.text, item.stale])).toEqual([
-            ["sbx-zmsg-000001", "8800110022", "Nguyen Van An", "Chao shop", false],
-            ["sbx-zmsg-000003", "8800110044", "Le Minh Chi", "Don hom kia?", true],
+        expect(page.items.map((item) => [item.messageId, item.userId, item.userName, item.text])).toEqual([
+            ["sbx-zmsg-000001", "8800110022", "Nguyen Van An", "Chao shop"],
+            ["sbx-zmsg-000003", "8800110044", "Le Minh Chi", "Don hom kia?"],
         ])
         expect(page.oldestAt?.toISOString()).toBe("2026-11-12T02:00:00.000Z")
         expect(page.newestAt?.toISOString()).toBe("2026-11-14T02:30:00.000Z")

@@ -22,6 +22,26 @@ export const isTriggerKeyPath = (path: string): path is TriggerKeyPath =>
     KEY_MEMBER_NAMES.has(path) || /^data\.[a-z][a-zA-Z0-9]{0,63}$/u.test(path)
 
 /**
+ * HOW THE PENDING EVENTS OF ONE SUBJECT COMBINE (rule Q-4), as a trigger declaration says it (`combine`, absent = `each`):
+ * - `each`: every event is a fact of its own, kept one by one, in arrival order (a bank credit, a form, a render).
+ * - `latest`: only the newest matters (a snapshot of the subject's state: the engine's timer due); the wake just written replaces every
+ *   older un-run one of its subject (`replaced:<newest>`), so the queue keeps one; the event keeps its ordinary scope.
+ * - `stream`: the events append to a stream the engine keeps (the lines of a route); the queue keeps ONE marker, the OLDEST event, with
+ *   `since` and `count`, and the workflow reads the stream itself. Allowed only on a declaration that feeds a stream.
+ */
+export const TRIGGER_COMBINE_MODES = ["each", "latest", "stream"] as const
+
+/** One way the pending events of a subject combine (`TRIGGER_COMBINE_MODES`). */
+export type TriggerCombine = (typeof TRIGGER_COMBINE_MODES)[number]
+
+/** The mode a declaration that names none combines with. */
+export const DEFAULT_TRIGGER_COMBINE: TriggerCombine = "each"
+
+/** Whether a text names a combine mode. */
+export const isTriggerCombine = (value: unknown): value is TriggerCombine =>
+    typeof value === "string" && (TRIGGER_COMBINE_MODES as ReadonlyArray<string>).includes(value)
+
+/**
  * The person an event is about, as the channel names them (the provider's `EventSubject`, carried into the scope as translate gave it): the
  * channel, the channel's own id of the person on the account, and what the event shows of them.
  */
@@ -55,6 +75,13 @@ export interface TriggerScope {
     readonly data: JsonObject
     /** The run's language. */
     readonly locale?: "vi" | "en" | undefined
+    /**
+     * For an event of a `stream` trigger only: when the engine took the marker's (the oldest pending) event, ISO. The lines of the stream
+     * from then on are what the marker stands for; `data` stays the oldest event.
+     */
+    readonly since?: string | undefined
+    /** For an event of a `stream` trigger only: how many events the marker stands for (1 when nothing was folded into it). */
+    readonly count?: number | undefined
 }
 
 /** One event of a run's queue (`ctx.run.queue`, ROAD-API 4): the scope its event supplied, its verb, and when it was queued (ISO). */

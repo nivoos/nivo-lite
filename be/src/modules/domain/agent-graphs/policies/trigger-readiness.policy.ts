@@ -1,6 +1,6 @@
 import type { WorkflowTrigger } from "@nivo-lite/agent-sdk/graph"
 import type { TriggerVerb } from "@nivo-lite/agent-sdk/names"
-import { declarationOf, switchedOn } from "@modules/domain/provider-triggers"
+import { switchDeclarationOf, switchedOn } from "@modules/domain/provider-triggers"
 import {
     providerOfSource,
     sourceStreamOf,
@@ -127,7 +127,7 @@ const candidatesOf = (
 
 /**
  * Whether an account can wake one trigger: a source no switch gates (a channel) always can; a provider trigger can
- * when the account's switch for it is on (the row a person set, else the declaration's default: concept triggers rule 6a), or the
+ * when the account's switch for it is on (the row a person set, else the declaration's switch default: concept triggers rule 6a), or the
  * switches cannot be read.
  */
 const wakes = (trigger: WorkflowTrigger, connectionId: string, facts: TriggerReadinessFacts): boolean => {
@@ -136,7 +136,7 @@ const wakes = (trigger: WorkflowTrigger, connectionId: string, facts: TriggerRea
     if (switches === undefined) return true
     const name = trigger.source.trigger ?? ""
     const row = (switches.get(connectionId) ?? []).find((one) => one.triggerName === name)
-    return switchedOn(row, declarationOf(trigger.source.provider ?? "", name))
+    return switchedOn(row, switchDeclarationOf(trigger.source.provider ?? "", name))
 }
 
 /** One account that can wake a purpose of the graph, with the stream it reads. */

@@ -1,8 +1,10 @@
 import { Test } from "@nestjs/testing"
 import { mock } from "@starci/jest-preset"
+import { bankTriggerOf, mailTriggerOf } from "@tests/fixtures/builders/trigger-declaration.builder"
 import { TOOL } from "@nivo-lite/agent-sdk/names"
 import { ConnectionBindingsReadService } from "@modules/domain/connections"
 import { INSTALLED } from "@modules/domain/installed-plugins"
+import { triggerDeclarations } from "@modules/domain/provider-triggers"
 import { ToolRegistryService, PROVIDER_CATALOGUE, toolArgumentsSchema, type WorkspaceToolFamily } from "@modules/domain/tools"
 import {
     OPENAPI_PROVIDER,
@@ -17,6 +19,14 @@ import { WorkspaceEnterpriseService } from "@modules/domain/workspaces"
 import { LOGGER, type Logger } from "@modules/platform/logging"
 import { ProviderOfferErrorCode } from "./errors/provider-offer.error"
 import { ProviderOfferService } from "./provider-offer.service"
+
+// The level-3 triggers are read from the registered declarations of the account's provider: the bank feed's, the mailbox's and a
+// customer channel's (no switch: it is on while its account is), as fixtures.
+triggerDeclarations.register(
+    bankTriggerOf(),
+    mailTriggerOf(),
+    { ...bankTriggerOf({ provider: "zalo_oa", name: "message.received", dataType: "zalo_oa.event" }), switch: undefined },
+)
 
 type StoredRecord = NonNullable<Awaited<ReturnType<ConnectionBindingsReadService["recordOf"]>>>
 
@@ -177,7 +187,9 @@ describe("ProviderOfferService, providers written in code", () => {
             ["since", "string", "date-time"],
             ["limit", "integer", null],
         ])
-        expect(offer.triggers.map((trigger) => [trigger.name, trigger.kind, trigger.decided])).toEqual([["transaction.received", "webhook", true]])
+        expect(offer.triggers.map((trigger) => [trigger.name, trigger.via, trigger.withoutPoll, trigger.decided])).toEqual([
+            ["transaction.received", ["webhook", "poll"], null, true],
+        ])
         // Documentation only: no account figure is drawn and no read is run.
         for (const reader of readers) {
             expect(reader.read).not.toHaveBeenCalled()
@@ -185,7 +197,7 @@ describe("ProviderOfferService, providers written in code", () => {
         }
     })
 
-    it("documents a mailbox: its info read, its two mail tools, its mail trigger batched by list", async () => {
+    it("documents a mailbox: its info read, its two mail tools, its mail trigger received by poll", async () => {
         const { service, bindings } = await build()
         bindings.recordOf.mockResolvedValue(stored("imap"))
 
@@ -196,12 +208,10 @@ describe("ProviderOfferService, providers written in code", () => {
             [TOOL.mailMessageList, "read"],
             [TOOL.mailMessageGet, "read"],
         ])
-        expect(offer.triggers).toEqual([
-            expect.objectContaining({ name: "mail.received", kind: "poll", batching: { mode: "list", maxEvents: 50 }, recovery: "cursor" }),
-        ])
+        expect(offer.triggers).toEqual([expect.objectContaining({ name: "mail.received", via: ["poll"], withoutPoll: null, decided: false })])
     })
 
-    it("documents a messaging account: no level-1 read, the one customer send tool, no trigger", async () => {
+    it("documents a messaging account: no level-1 read, the one customer send tool, its message trigger decided by nobody", async () => {
         const { service, bindings } = await build()
         bindings.recordOf.mockResolvedValue(stored("zalo_oa"))
 
@@ -211,7 +221,7 @@ describe("ProviderOfferService, providers written in code", () => {
         expect(offer.mcp.map((tool) => [tool.id, tool.kind, tool.effect])).toEqual([
             [TOOL.customerMessageSend, "write", null],
         ])
-        expect(offer.triggers).toEqual([])
+        expect(offer.triggers.map((trigger) => [trigger.name, trigger.via, trigger.decided])).toEqual([["message.received", ["webhook", "poll"], false]])
     })
 
 })

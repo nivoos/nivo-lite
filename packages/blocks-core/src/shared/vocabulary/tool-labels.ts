@@ -31,7 +31,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
     ...ENGINE_TOOL_LABELS,
     [TOOL.customerMessageSend]: acts(
         { vi: "Nh\u1eafn kh\u00e1ch", en: "Message a customer" },
-        { vi: "Tr\u1ea3 l\u1eddi kh\u00e1ch trong cu\u1ed9c tr\u00f2 chuy\u1ec7n c\u1ee7a h\u1ecd.", en: "Replies to a customer in their conversation." },
+        { vi: "Nh\u1eafn cho m\u1ed9t ng\u01b0\u1eddi tr\u00ean k\u00eanh c\u1ee7a h\u1ecd: cu\u1ed9c tr\u00f2 chuy\u1ec7n ho\u1eb7c th\u01b0.", en: "Sends a message to a person on one of their channels: a conversation or a mail." },
     ),
     [TOOL.teamMessagePost]: acts(
         { vi: "Nh\u1eafn \u0111\u1ed9i", en: "Message the team" },
@@ -114,7 +114,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
     ),
     [TOOL.leadCareGet]: reads(
         { vi: "Xem ch\u0103m s\u00f3c kh\u00e1ch", en: "Read customer care" },
-        { vi: "Xem kh\u00e1ch c\u00f3 t\u1eeb ch\u1ed1i nh\u1eadn tin kh\u00f4ng v\u00e0 c\u00e1c d\u1ecbp c\u1ee7a kh\u00e1ch.", en: "Reads whether the customer opted out and their occasions." },
+        { vi: "Xem ng\u01b0\u1eddi nh\u1eadn qu\u00e0 v\u00e0 c\u00e1c d\u1ecbp c\u1ee7a kh\u00e1ch.", en: "Reads who receives and the customer's occasions." },
     ),
     [TOOL.orderGet]: reads(
         { vi: "Xem m\u1ed9t \u0111\u01a1n", en: "Read an order" },
@@ -152,10 +152,6 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
         { vi: "Hu\u1ef7 h\u1eb9n gi\u1edd", en: "Cancel a timer" },
         { vi: "Hu\u1ef7 m\u1ed9t l\u1ecbch h\u1eb9n gi\u1edd \u0111\u00e3 \u0111\u1eb7t theo m\u00e3.", en: "Cancels a timer armed earlier, by its ref." },
     ),
-    [TOOL.mailMessageSend]: acts(
-        { vi: "G\u1eedi th\u01b0", en: "Send a mail" },
-        { vi: "G\u1eedi m\u1ed9t th\u01b0 qua h\u1ed9p th\u01b0 g\u1eedi \u0111\u01b0\u1ee3c n\u1ed1i; c\u00f3 h\u1ecfi ng\u01b0\u1eddi tr\u01b0\u1edbc hay kh\u00f4ng l\u00e0 do ch\u1ebf \u0111\u1ed9 c\u1ee7a b\u01b0\u1edbc.", en: "Sends a mail through the connected outgoing mailbox; whether a person is asked first is the step's mode." },
-    ),
     [TOOL.driveStatusGet]: reads(
         { vi: "Xem tr\u1ea1ng th\u00e1i \u1ed5 l\u01b0u tr\u1eef", en: "Check the drive" },
         { vi: "Xem \u1ed5 l\u01b0u tr\u1eef \u0111\u00e3 n\u1ed1i c\u00f3 \u0111ang ch\u1ea1y kh\u00f4ng.", en: "Checks whether the connected drive works." },
@@ -163,6 +159,10 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
     [TOOL.brainFactList]: reads(
         { vi: "Xem c\u00e1c \u0111i\u1ec1u \u0111\u00fang", en: "List the truths" },
         { vi: "Li\u1ec7t k\u00ea c\u00e1c \u0111i\u1ec1u \u0111\u00fang \u0111ang c\u00f3 hi\u1ec7u l\u1ef1c c\u1ee7a ti\u1ec7m.", en: "Lists the shop's truths in force." },
+    ),
+    [TOOL.brainPolicyList]: reads(
+        { vi: "Xem c\u00e1c ch\u00ednh s\u00e1ch", en: "List the policies" },
+        { vi: "Li\u1ec7t k\u00ea c\u00e1c ch\u00ednh s\u00e1ch \u0111ang c\u00f3 hi\u1ec7u l\u1ef1c.", en: "Lists the policies in force." },
     ),
     [TOOL.brainDocumentRead]: reads(
         { vi: "\u0110\u1ecdc t\u00e0i li\u1ec7u", en: "Read a document" },

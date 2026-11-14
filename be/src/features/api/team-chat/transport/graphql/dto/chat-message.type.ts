@@ -10,6 +10,7 @@ import { ChatReplyType } from "./chat-reply.type"
 import { ChatBrainChangeCardType } from "./chat-brain-change-card.type"
 import { ChatStopCardType } from "./chat-stop-card.type"
 import { ChatBackgroundStoppedCardType } from "./chat-background-stopped-card.type"
+import { ChatJobParkedCardType } from "./chat-job-parked-card.type"
 
 @ObjectType()
 /** One message of a room. */
@@ -97,4 +98,8 @@ export class ChatMessageType {
     /** NIVO's "background work stopped" card (`background.stopped`): what stopped, why, since when, where to retry; null for any other line. */
     @Field(() => ChatBackgroundStoppedCardType, { nullable: true })
     backgroundStopped!: ChatBackgroundStoppedCardType | null
+
+    /** NIVO's "a job stopped for a fix" card (`job.parked`): which job, why, which park episode; the web resumes or closes it through `stoppedWork`; null for any other line. */
+    @Field(() => ChatJobParkedCardType, { nullable: true })
+    jobParked!: ChatJobParkedCardType | null
 }

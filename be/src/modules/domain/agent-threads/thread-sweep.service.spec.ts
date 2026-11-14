@@ -67,6 +67,7 @@ interface World {
     readonly view?: ThreadView | null
     readonly live?: boolean
     readonly redrive?: ThreadWakeAdmission
+    readonly spent?: ThreadWakeAdmission
     readonly openStops?: ReadonlyArray<RunStop>
     readonly ofRun?: ReadonlyArray<RunStop>
     readonly runStatus?: string | null
@@ -107,6 +108,7 @@ const build = async (world: World = {}) => {
     })
     const runs = mock<ThreadRunsService>({
         redrive: jest.fn().mockResolvedValue(world.redrive ?? { kind: "admitted", fresh: true }),
+        redriveSpent: jest.fn().mockResolvedValue(world.spent ?? { kind: "admitted", fresh: true }),
     })
     const deadlines = mock<ThreadDeadlinesService>({
         dueOf: jest.fn().mockResolvedValue(world.deadline ?? null),
@@ -172,8 +174,23 @@ describe("ThreadSweepService", () => {
             expect([live, fresh, blind].map((one) => one.runs.redrive.mock.calls.length)).toEqual([0, 0, 0])
         })
 
-        it("closes as failed a run re-driven from the same place before whose wake is gone, and closes its stops", async () => {
+        it("rule RE-DRIVE SPENT: a run re-driven from the same place before gets ONE last re-drive (a stop), never a failed run", async () => {
             const world = await build({ runs: [runRow()], redrive: { kind: "admitted", fresh: false } })
+
+            const report = await world.service.sweepWorkspace("ws-1")
+
+            expect(report).toEqual({ redriven: 1, repaired: 0, abandoned: 0, closed: 0, fired: 0 })
+            expect(world.runs.redriveSpent).toHaveBeenCalledWith(REF, threadPositionOf(viewOf("open")))
+            expect(world.projection.runEnded).not.toHaveBeenCalled()
+            expect(world.stops.runClosed).not.toHaveBeenCalled()
+        })
+
+        it("closes as failed (last backstop) a run whose last re-drive is gone too, and closes its stops", async () => {
+            const world = await build({
+                runs: [runRow()],
+                redrive: { kind: "admitted", fresh: false },
+                spent: { kind: "admitted", fresh: false },
+            })
 
             const report = await world.service.sweepWorkspace("ws-1")
 

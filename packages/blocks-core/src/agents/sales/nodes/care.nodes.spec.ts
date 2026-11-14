@@ -1,7 +1,7 @@
 import type { JsonValue } from "@nivo-lite/agent-sdk/schema"
 import type { NodeContext } from "@nivo-lite/agent-sdk/template"
 import { checkTemplateNode } from "@nivo-lite/agent-sdk/testing"
-import { ARMED, CARE_OPEN, ORDER_O1, personReadsOf } from "./care.examples"
+import { ARMED, ORDER_O1, personReadsOf } from "./care.examples"
 import { answered } from "../../../shared/nodes/tool-answers"
 import { salesCareDeliveryCheckNode } from "./care-delivery-check.node"
 import { salesCareDeliveryWaitNode } from "./care-delivery-wait.node"
@@ -54,7 +54,7 @@ describe("the Sales care nodes", () => {
         const inputs: Array<JsonValue> = []
         const answers = [
             answered({ order: { ...ORDER_O1, delivery: { ...ORDER_O1.delivery, deliveryAt: "tomorrow" } } }),
-            ...personReadsOf(answered(CARE_OPEN)).map((call) => call.answer),
+            ...personReadsOf().map((call) => call.answer),
             ARMED,
         ]
         let next = 0

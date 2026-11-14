@@ -99,17 +99,15 @@ const blocks = (node: ReadinessNode, input: ReadinessInput): boolean =>
     (node.blocking ?? (node.step === undefined ? undefined : input.definedBlocking?.(node.step))) !== false
 
 /**
- * The accounts that can serve one provider of a node (`nivo` needs none): the account a `@1` entry pins, when the agent is attached to it;
- * else EVERY attached account of the provider. Readiness asks only whether the node CAN act; WHICH account a call acts on is the call's
- * pick, made where the account is needed (the event's account, the run's account, the agent's default, else the typed refusal
- * `TOOLS_ACCOUNT_NEEDS_PICK` at that call: `pickAccountOf`). So a second attached account of a kind never hides a graph, never mutes the
- * registrations that hear the first account's events, and never refuses a hand-off for a later step's account (MX-CORE D2-2, D2-F1).
+ * The accounts that can serve one provider of a node (`nivo` needs none): EVERY attached account of the provider. Readiness asks only
+ * whether the node CAN act; WHICH account a call acts on is the call's pick, made where the account is needed (the event's account, the
+ * run's account, the step's chosen accounts, the agent's default, else the typed refusal `TOOLS_ACCOUNT_NEEDS_PICK` at that call:
+ * `pickAccountOf`). So a second attached account of a kind never hides a graph, never mutes the registrations that hear the first
+ * account's events, never refuses a hand-off for a later step's account (MX-CORE D2-2, D2-F1), and a step's chosen account that was
+ * detached since leaves the pick to the next rule instead of hiding the graph.
  */
-const boundAccountsOf = (_nodeKey: string, wanted: NodeProvider, input: ReadinessInput): ReadonlyArray<string> => {
-    const own = input.attachments.filter((attachment) => attachment.provider === wanted.provider).map((one) => one.connectionId)
-    const { pinned } = wanted
-    return pinned === null ? own : own.filter((connectionId) => connectionId === pinned)
-}
+const boundAccountsOf = (_nodeKey: string, wanted: NodeProvider, input: ReadinessInput): ReadonlyArray<string> =>
+    input.attachments.filter((attachment) => attachment.provider === wanted.provider).map((one) => one.connectionId)
 
 /** Whether one provider of a node is bound: `nivo` always; else some account binds it (`boundAccountsOf`). */
 const boundProvider = (nodeKey: string, wanted: NodeProvider, input: ReadinessInput): boolean =>

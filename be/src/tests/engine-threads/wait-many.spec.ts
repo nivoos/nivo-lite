@@ -1,13 +1,7 @@
 import { mock } from "@starci/jest-preset"
 import { AgentWorkReadService, tagContextOf, type AgentTurnView } from "@modules/domain/agent-work"
-import {
-    PROVIDER_TRIGGER_TAG_SOURCE,
-    RENDER_COMPLETED,
-    declarationOf,
-    wakeContextOf,
-    type ProviderWake,
-} from "@modules/domain/provider-triggers"
-import { planWakes } from "@modules/domain/provider-triggers/provider-triggers.policy"
+import { PROVIDER_TRIGGER_TAG_SOURCE, providerTriggerKeyOf, wakeContextOf, type ProviderWake } from "@modules/domain/provider-triggers"
+import { RENDER_COMPLETED } from "@modules/domain/video-compose/video-render-data.policy"
 import { agentTurnViewOf } from "@tests/fixtures/builders/agent-work.builder"
 import { CORE_AGENT, CORE_AWAIT } from "@tests/fixtures/builders/engine-core-plugin.builder"
 import { jobRecordingOutbox } from "@tests/fixtures/builders/queue-job-outbox.builder"
@@ -16,7 +10,7 @@ import { FRONT, WS, drain, threadDbOf, type ThreadDb } from "./thread-world"
 import { coreProcessOf, coreStarted, threadOf } from "./thread-world-core"
 
 // WORLD (f) of the backlog: SIXTY runs parked on a `wait` that matches by VALUE (each waits for its own work id: the `ticket` of its trigger),
-// and the event for the 30th resumes THAT run and only it: the others stay parked, nothing new starts. Real: the planned wake of the provider
+// and the event for the 30th resumes THAT run and only it: the others stay parked, nothing new starts. Real: the wake of the provider
 // trigger, the flow's first look at a wake (the waits first), the waits service over the real run store (`wait_match` markers: the
 // event\u0027s value must be found among the run\u0027s own), the thread engine. The GIN index that makes the lookup scale is database-only
 // (migration 20261114000400); the memory `waiters` has the same semantics.
@@ -33,15 +27,11 @@ jest.mock("@nivo-lite/plugin-registry", () => {
 const COMPOSE = "shotstack-1"
 const RUNS = 60
 
-const plannedRender = (renderId: string): ProviderWake => {
-    const declaration = declarationOf(PROVIDER.shotstack, RENDER_COMPLETED)
-    if (declaration === null) throw new Error("render.completed is not declared for shotstack")
-    const [planned] = planWakes(declaration, COMPOSE, [
-        { id: renderId, occurredAt: null, payload: { renderRowId: `row-${renderId}`, renderId, status: "done" } },
-    ])
-    if (planned === undefined) throw new Error("no wake planned")
-    return planned.wake
-}
+const plannedRender = (renderId: string): ProviderWake => ({
+    providerTrigger: providerTriggerKeyOf(PROVIDER.shotstack, RENDER_COMPLETED),
+    connectionId: COMPOSE,
+    params: { renderRowId: `row-${renderId}`, renderId, status: "done" },
+})
 
 const renderTurn = (db: ThreadDb, wake: ProviderWake): AgentTurnView => {
     db.turns += 1

@@ -4,8 +4,6 @@ export enum AgentGraphsLogEvent {
     FlowUnsound = "agent_graphs.flow_unsound",
     /** The request of a branch ask could not be opened, so the item stays with the people who govern. */
     AskNotRouted = "agent_graphs.ask_not_routed",
-    /** The contracts and gaps of a setup could not be proposed; the setup itself stands. */
-    ContractSetupFailed = "agent_graphs.contract_setup_failed",
     /** An intent the published graph reaches has no frame, so a turn is offered the other intents without it. */
     IntentUnframed = "agent_graphs.intent_unframed",
     /** The flow of the live version could not be read, so its burst setting was not applied and the app default stands. */
@@ -63,6 +61,4 @@ export enum AgentGraphsLogEvent {
     WorkflowInstallFailed = "agent_graphs.workflow_install_failed",
     /** One run of `cli agents install-workflows` ended: how many workspaces and agents it walked, what it added, what failed. */
     WorkflowInstallRun = "agent_graphs.workflow_install_run",
-    /** A person's queued start of a workflow was delivered and no live registration of the agent took it (paused or replaced since). */
-    WorkflowStartUntaken = "agent_graphs.workflow_start_untaken",
 }

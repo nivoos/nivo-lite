@@ -1,3 +1,4 @@
+import type { EntityManager } from "typeorm"
 /** The kinds of place a passage can sit at in its document. */
 export type PassagePlaceKind = "page" | "slide" | "sheet"
 
@@ -91,6 +92,9 @@ export interface ChunkBatchWrite extends Omit<ChunkWrite, "drafts"> {
     /** The passages, each with its order. */
     readonly drafts: ReadonlyArray<PlacedChunkDraft>
 }
+
+/** A write the caller makes in the same transaction as the passages it stored (the settle of the effect that made them). */
+export type StoredWithin = (tx: EntityManager) => Promise<void>
 
 /** The embedding model in use, or null when the deployment has none. */
 export type ModelInUse = string | null

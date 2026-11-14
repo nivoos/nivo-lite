@@ -72,7 +72,7 @@ describe("BrainPolicyDerivationsService: request", () => {
 
         expect(em.upsert).toHaveBeenCalledWith(
             BrainPolicyDerivationEntity,
-            { workspaceId: WS, status: "queued", requestedAt: new Date(NOW), attempts: 0, error: null },
+            { workspaceId: WS, status: "queued", requestedAt: new Date(NOW), error: null },
             ["workspaceId"],
         )
         expect(queue.enqueuePolicyDerive).toHaveBeenCalledTimes(1)
@@ -166,14 +166,49 @@ describe("BrainPolicyDerivationsService: the fact-change hook", () => {
     })
 })
 
-describe("BrainPolicyDerivationsService: the pass, its start and its end", () => {
-    it("started: the state is running from now and answers the failed tries so far", async () => {
-        const { service, em } = await build(rowOf({ status: "running", attempts: 2 }))
+describe("BrainPolicyDerivationsService: told inside a job's finishing transaction", () => {
+    it("writes the request (the state row and the pass's job) in THAT transaction, opens none of its own and swallows nothing", async () => {
+        const { service, em, queue, logger } = await build(null)
 
-        await expect(service.started(WS)).resolves.toEqual({ startedAt: new Date(NOW), attempts: 2 })
+        await service.factsChanged(WS, ["f1"], em)
+
+        expect(em.transaction).not.toHaveBeenCalled()
         expect(em.upsert).toHaveBeenCalledWith(
             BrainPolicyDerivationEntity,
-            { workspaceId: WS, status: "running", startedAt: new Date(NOW) },
+            { workspaceId: WS, status: "queued", requestedAt: new Date(NOW), error: null },
+            ["workspaceId"],
+        )
+        expect(queue.enqueuePolicyDerive).toHaveBeenCalledWith({ workspaceId: WS }, em, NOW_MS)
+        expect(logger.error).not.toHaveBeenCalled()
+    })
+
+    it("a failure throws to the finishing transaction (it rolls back and the job's ladder retries); nothing is logged and forgotten", async () => {
+        const { service, em, logger } = await build(null)
+        const cause = new Error("database is down")
+        em.findOne.mockRejectedValue(cause)
+
+        await expect(service.factsChanged(WS, ["f1"], em)).rejects.toBe(cause)
+
+        expect(logger.error).not.toHaveBeenCalled()
+    })
+
+    it("a pass given up on its model that is recent is not asked again inside the transaction either", async () => {
+        const { service, em, queue } = await build(rowOf({ status: "failed", error: "model", updatedAt: new Date(NOW_MS - 60_000) }))
+
+        await service.factsChanged(WS, ["f1"], em)
+
+        expect(queue.enqueuePolicyDerive).not.toHaveBeenCalled()
+    })
+})
+
+describe("BrainPolicyDerivationsService: the pass, its start and its end", () => {
+    it("started: the state is running from now, with the error a dead letter left cleared (a resume takes a failed state up again)", async () => {
+        const { service, em } = await build(rowOf({ status: "failed", error: "model" }))
+
+        await expect(service.started(WS)).resolves.toEqual({ startedAt: new Date(NOW) })
+        expect(em.upsert).toHaveBeenCalledWith(
+            BrainPolicyDerivationEntity,
+            { workspaceId: WS, status: "running", startedAt: new Date(NOW), error: null },
             ["workspaceId"],
         )
     })
@@ -189,7 +224,7 @@ describe("BrainPolicyDerivationsService: the pass, its start and its end", () =>
         expect(em.update).toHaveBeenCalledWith(
             BrainPolicyDerivationEntity,
             { workspaceId: WS },
-            { status: "idle", derivedAt: new Date(NOW), attempts: 0, error: null },
+            { status: "idle", derivedAt: new Date(NOW), error: null },
         )
         expect(queue.enqueuePolicyDerive).not.toHaveBeenCalled()
     })
@@ -203,7 +238,7 @@ describe("BrainPolicyDerivationsService: the pass, its start and its end", () =>
 
         expect(em.upsert).toHaveBeenCalledWith(
             BrainPolicyDerivationEntity,
-            { workspaceId: WS, status: "queued", requestedAt, attempts: 0, error: null },
+            { workspaceId: WS, status: "queued", requestedAt, error: null },
             ["workspaceId"],
         )
         expect(queue.enqueuePolicyDerive).toHaveBeenCalledWith({ workspaceId: WS }, expect.anything(), NOW_MS)
@@ -220,27 +255,20 @@ describe("BrainPolicyDerivationsService: the pass, its start and its end", () =>
 })
 
 describe("BrainPolicyDerivationsService: the pass, its tries and its state", () => {
-    it("retrying and failed are recorded on the state", async () => {
+    it("stopped (the dead letter) and waitingForCredits are recorded on the state", async () => {
         const { service, em } = await build(rowOf({ status: "running" }))
 
-        await service.retrying(WS, 2)
-        await service.failed(WS, "model", 3)
-        await service.failed(WS, "credits")
+        await service.stopped(WS)
+        await service.waitingForCredits(WS)
 
         expect(em.update).toHaveBeenNthCalledWith(
             1,
             BrainPolicyDerivationEntity,
             { workspaceId: WS },
-            { attempts: 2, error: "model" },
+            { status: "failed", error: "model" },
         )
         expect(em.update).toHaveBeenNthCalledWith(
             2,
-            BrainPolicyDerivationEntity,
-            { workspaceId: WS },
-            { status: "failed", error: "model", attempts: 3 },
-        )
-        expect(em.update).toHaveBeenNthCalledWith(
-            3,
             BrainPolicyDerivationEntity,
             { workspaceId: WS },
             { status: "failed", error: "credits" },
@@ -362,83 +390,73 @@ const composed = async (row: BrainPolicyDerivationEntity | null, withNotices: bo
     return { service: moduleRef.get(BrainPolicyDerivationsService), em, notices, logger }
 }
 
-describe("BrainPolicyDerivationsService > failed: NIVO tells the founder once per failure episode", () => {
-    /** The last pass that ended well: the failure episode (D-BR-2 (e)). */
+describe("BrainPolicyDerivationsService > waitingForCredits: NIVO tells the founder once per episode", () => {
+    /** The last pass that ended well: the episode (D-BR-2 (e)). */
     const EPISODE = new Date(NOW_MS - 3_600_000)
 
-    it.each(["model", "credits", "gave_up"] as const)(
-        "a pass given up (%s) writes the failed state, then posts NIVO's card keyed by the last pass that ended well",
-        async (reason) => {
-            const { service, em, notices } = await composed(
-                rowOf({ status: "failed", requestedAt: new Date(NOW_MS - 60_000), derivedAt: EPISODE }),
-                true,
-            )
+    it("a pass that waits for credits writes the failed state, then posts NIVO's card keyed by the last pass that ended well", async () => {
+        const { service, em, notices } = await composed(
+            rowOf({ status: "failed", requestedAt: new Date(NOW_MS - 60_000), derivedAt: EPISODE }),
+            true,
+        )
 
-            await service.failed(WS, reason)
+        await service.waitingForCredits(WS)
 
-            expect(em.update).toHaveBeenCalledWith(
-                BrainPolicyDerivationEntity,
-                { workspaceId: WS },
-                { status: "failed", error: reason },
-            )
-            expect(notices.postBackgroundStopped).toHaveBeenCalledTimes(1)
-            expect(notices.postBackgroundStopped).toHaveBeenCalledWith(WS, {
-                work: "brain.policies.derive",
-                reason,
-                episode: EPISODE,
-            })
-        },
-    )
-
-    it("the third try and the queue's later give-up of the SAME pass name the same episode (the card dedupes on it)", async () => {
-        const { service, notices } = await composed(rowOf({ status: "failed", derivedAt: EPISODE }), true)
-
-        await service.failed(WS, "model", 3)
-        await service.failed(WS, "gave_up")
-
-        const episodes = notices.postBackgroundStopped.mock.calls.map(([, report]) => report.episode.getTime())
-        expect(episodes).toEqual([EPISODE.getTime(), EPISODE.getTime()])
+        expect(em.update).toHaveBeenCalledWith(BrainPolicyDerivationEntity, { workspaceId: WS }, { status: "failed", error: "credits" })
+        expect(notices.postBackgroundStopped).toHaveBeenCalledTimes(1)
+        expect(notices.postBackgroundStopped).toHaveBeenCalledWith(WS, {
+            work: "brain.policies.derive",
+            reason: "credits",
+            episode: EPISODE,
+        })
     })
 
-    it("D-BR-2 (e): a new request or fact change while the cause stands is the SAME episode (one card); a success starts a new one", async () => {
+    it("D-BR-2 (e): a new request while the cause stands is the SAME episode (one card); a success starts a new one", async () => {
         const still = await composed(rowOf({ status: "failed", requestedAt: new Date(NOW_MS), derivedAt: EPISODE }), true)
-        await still.service.failed(WS, "model", 3)
+        await still.service.waitingForCredits(WS)
         expect(still.notices.postBackgroundStopped).toHaveBeenCalledWith(WS, expect.objectContaining({ episode: EPISODE }))
 
         const neverDerived = await composed(rowOf({ status: "failed", requestedAt: new Date(NOW_MS), derivedAt: null }), true)
-        await neverDerived.service.failed(WS, "model", 3)
+        await neverDerived.service.waitingForCredits(WS)
         expect(neverDerived.notices.postBackgroundStopped).toHaveBeenCalledWith(WS, expect.objectContaining({ episode: new Date(0) }))
 
         const afterSuccess = new Date(NOW_MS - 5_000)
         const fresh = await composed(rowOf({ status: "failed", derivedAt: afterSuccess }), true)
-        await fresh.service.failed(WS, "model", 3)
+        await fresh.service.waitingForCredits(WS)
         expect(fresh.notices.postBackgroundStopped).toHaveBeenCalledWith(WS, expect.objectContaining({ episode: afterSuccess }))
     })
 
     it("without the team chat (mcp, cli) the state is written and nothing is posted or read", async () => {
         const { service, em, notices } = await composed(rowOf({ status: "failed" }), false)
 
-        await service.failed(WS, "credits")
+        await service.waitingForCredits(WS)
 
         expect(em.update).toHaveBeenCalledTimes(1)
         expect(em.findOne).not.toHaveBeenCalled()
         expect(notices.postBackgroundStopped).not.toHaveBeenCalled()
     })
 
-    it("a report that fails is logged and never fails the state write", async () => {
-        const { service, notices, logger } = await composed(rowOf({ status: "failed" }), true)
+    it("a report that fails is thrown: no catch swallows it, the job is retried", async () => {
+        const { service, notices } = await composed(rowOf({ status: "failed" }), true)
         notices.postBackgroundStopped.mockRejectedValue(new Error("db down"))
 
-        await expect(service.failed(WS, "model", 3)).resolves.toBeUndefined()
-
-        expect(logger.error).toHaveBeenCalledWith("brain.policies.stop_report_failed", expect.any(Error), { workspaceId: WS })
+        await expect(service.waitingForCredits(WS)).rejects.toThrow("db down")
     })
 
     it("no state row: nothing to report", async () => {
         const { service, notices } = await composed(null, true)
 
-        await service.failed(WS, "gave_up")
+        await service.waitingForCredits(WS)
 
+        expect(notices.postBackgroundStopped).not.toHaveBeenCalled()
+    })
+
+    it("a dead-lettered pass writes only the state: the ONE item for a person is the runner's, never a second card here", async () => {
+        const { service, em, notices } = await composed(rowOf({ status: "running", derivedAt: EPISODE }), true)
+
+        await service.stopped(WS)
+
+        expect(em.update).toHaveBeenCalledWith(BrainPolicyDerivationEntity, { workspaceId: WS }, { status: "failed", error: "model" })
         expect(notices.postBackgroundStopped).not.toHaveBeenCalled()
     })
 })

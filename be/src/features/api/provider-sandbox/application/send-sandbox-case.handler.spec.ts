@@ -12,7 +12,7 @@ import { SendSandboxCaseCommand } from "./provider-sandbox.commands"
 import { SendSandboxCaseHandler } from "./send-sandbox-case.handler"
 
 const ACTOR = { principalId: "user-1", workspaceId: "ws-1" }
-const SENT: SandboxSendResult = { caseId: "SEPAY-1", input: { content: "x", amount: 5 }, deliveries: [] }
+const SENT: SandboxSendResult = { caseId: "SEPAY-1", input: { content: "x", amount: 5 }, deliveries: [], webhookDropped: false }
 const ACCOUNT = { id: "c-1", provider: "sepay" } as ConnectionRecord
 const CASES: ReadonlyArray<SandboxCase> = [
     {
@@ -48,9 +48,14 @@ const handlerOf = () => {
 }
 
 /** The command of one send. */
-const sendOf = (inputs: ReadonlyArray<{ name: string; value: string }>, caseId = "SEPAY-1", connectionId = "c-1") =>
+const sendOf = (
+    inputs: ReadonlyArray<{ name: string; value: string }>,
+    caseId = "SEPAY-1",
+    connectionId = "c-1",
+    dropWebhook?: boolean,
+) =>
     new SendSandboxCaseCommand({
-        request: { workspaceId: "ws-1", connectionId, caseId, inputs },
+        request: { workspaceId: "ws-1", connectionId, caseId, inputs, dropWebhook },
         principal: { id: "user-1", role: "authenticated" },
     })
 
@@ -66,7 +71,7 @@ describe("SendSandboxCaseHandler", () => {
         )
 
         expect(accounts.catalogue).toHaveBeenCalledWith(ACTOR, "sepay")
-        expect(accounts.send).toHaveBeenCalledWith(ACTOR, "c-1", "SEPAY-1", { content: "DH42", amount: 250000 })
+        expect(accounts.send).toHaveBeenCalledWith(ACTOR, "c-1", "SEPAY-1", { content: "DH42", amount: 250000 }, { dropWebhook: false })
         expect(result).toBe(SENT)
     })
 
@@ -75,7 +80,15 @@ describe("SendSandboxCaseHandler", () => {
 
         await handler.execute(sendOf([{ name: "order", value: "A" }]))
 
-        expect(accounts.send).toHaveBeenCalledWith(ACTOR, "c-1", "SEPAY-1", {})
+        expect(accounts.send).toHaveBeenCalledWith(ACTOR, "c-1", "SEPAY-1", {}, { dropWebhook: false })
+    })
+
+    it("asks the door to record the case but post no webhook when the send says to drop it (the provider's poll brings the row back)", async () => {
+        const { accounts, handler } = handlerOf()
+
+        await handler.execute(sendOf([], "SEPAY-1", "c-1", true))
+
+        expect(accounts.send).toHaveBeenCalledWith(ACTOR, "c-1", "SEPAY-1", {}, { dropWebhook: true })
     })
 
     it.each(["12.5", "abc", "", "9007199254740993", "1e3"])("refuses the integer %p naming the field", async (value) => {

@@ -21,6 +21,14 @@ export interface SandboxWords {
     readonly providerName: (provider: string) => string
     /** The mark of a provider; null when the app has none. */
     readonly providerLogo: (provider: string) => string | null
+    /** The words of a purpose the app declares ("Pulling out the key points of a document"); null for a purpose it does not know. */
+    readonly purposeKnown: (purpose: string) => string | null
+    /** The generic words of a graph node's agent turn, and of any other call, when the app has no words for its purpose. */
+    readonly purposeNode: string
+    readonly purposeOther: string
+    /** The choice "every call" and its explanation. */
+    readonly scopeAll: string
+    readonly scopeAllHint: string
 }
 
 /** The separator of the parts of one muted line. */

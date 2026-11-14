@@ -1,5 +1,5 @@
 import { Test } from "@nestjs/testing"
-import { fakeIds, mock, mockEntityManager } from "@starci/jest-preset"
+import { fakeIds, fakeTransaction, mock, mockEntityManager, recordingQueueOutbox } from "@starci/jest-preset"
 import { AgentDirectoryService } from "@modules/domain/agents"
 import { ConnectionsService } from "@modules/domain/connections"
 import { ContactsService } from "@modules/domain/contacts"
@@ -7,6 +7,7 @@ import { InboundEventsService } from "@modules/domain/inbound-events"
 import { WorkspaceMembersService } from "@modules/domain/workspace-members"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { IDS } from "@modules/platform/ids"
+import { QUEUE_OUTBOX } from "@modules/platform/queue"
 import {
     CONTACTS_WORKSPACE,
     MemoryContactMemory,
@@ -18,9 +19,10 @@ import { websiteIntakeEntities } from "./persistence/entities"
 import { WebsiteLeadWakeService } from "./website-lead-wake.service"
 import { WebsiteOwnerService } from "./website-owner.service"
 import { WebsiteSitesService } from "./website-sites.service"
+import { WebsiteSubmissionDeliveryService } from "./website-submission-delivery.service"
 import type { WebsiteSubmission } from "./website-sites.service"
 
-// The website intake over the REAL contacts (their identity rules, an in-memory store): the visitor id the hosted form keeps per browser is
+// The website intake (the door, then the job that delivers the stored submission) over the REAL contacts (their identity rules, an in-memory store): the visitor id the hosted form keeps per browser is
 // a `channel` identity (channel `website`, account = the site, value `visitor:<id>`) vouched for by the channel (our own script), so
 // the same browser is the same contact; the phone and the mail typed into the form are claims (proposals), never a merge.
 // Ledger (TOOLS-LEAD F2): the intake's own spec (`website-sites.service.spec.ts`) stands over a contacts fake; this one proves the contract
@@ -44,11 +46,12 @@ const FORM: WebsiteSubmission = {
     submissionId: "sub-1",
 }
 
-/** One intake of a site (workspace + site id) over a shared contacts store. */
+/** One intake of a site (workspace + site id) over a shared contacts store: `submit` is the door, then the job's delivery on what the door queued. */
 const intakeOf = async (store: MemoryContactsStore, workspaceId: string, siteId: string) => {
     const contacts = new ContactsService(store, { now: () => NOW }, new MemoryContactMemory())
     const inbound = mock<InboundEventsService>()
-    inbound.recordInput.mockResolvedValue({ duplicate: false, inboundEventId: "ev-1" })
+    inbound.recordInputInTransaction.mockResolvedValue({ duplicate: false, inboundEventId: "ev-1" })
+    const outbox = recordingQueueOutbox()
     const owners = mock<WebsiteOwnerService>()
     owners.agentOf.mockImplementation((_workspace, siteAgent) => Promise.resolve(siteAgent))
     const wakes = mock<WebsiteLeadWakeService>()
@@ -64,11 +67,24 @@ const intakeOf = async (store: MemoryContactsStore, workspaceId: string, siteId:
             { provide: InboundEventsService, useValue: inbound },
             { provide: WebsiteLeadWakeService, useValue: wakes },
             { provide: WebsiteOwnerService, useValue: owners },
+            { provide: QUEUE_OUTBOX, useValue: outbox },
             { provide: IDS, useValue: fakeIds() },
-            { provide: PRIMARY_ENTITY_MANAGER, useValue: mockEntityManager({ findOne: [WebsiteSiteEntity, site] }) },
+            { provide: PRIMARY_ENTITY_MANAGER, useValue: fakeTransaction(mockEntityManager({ findOne: [WebsiteSiteEntity, site] })).em },
         ],
     }).compile()
-    return { sites: moduleRef.get(WebsiteSitesService), contacts, wakes }
+    const door = moduleRef.get(WebsiteSitesService)
+    const delivery = new WebsiteSubmissionDeliveryService(contacts, wakes)
+    /** The visitor sends the form: the door queues the delivery, the job delivers it; answers the contact the wake carried. */
+    const submit = async (key: string, form: WebsiteSubmission): Promise<{ readonly contactId: string }> => {
+        await door.submit(key, form)
+        const written = outbox.jobs.at(-1)?.payload
+        if (written === undefined) throw new Error("the door queued no delivery")
+        await delivery.deliverJob(written)
+        const contactId = wakes.wake.mock.lastCall?.[2].contactId
+        if (contactId === undefined) throw new Error("the delivery woke nobody")
+        return { contactId }
+    }
+    return { sites: { submit }, contacts, wakes }
 }
 
 describe("the website intake meets visitors through the real contacts", () => {

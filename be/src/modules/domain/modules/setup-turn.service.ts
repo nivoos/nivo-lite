@@ -1,20 +1,20 @@
 import { Injectable } from "@nestjs/common"
-import { DirectGenerationService } from "@modules/domain/ai-generations"
+import { GenerationsService } from "@modules/domain/ai-generations"
 import { BrainFactsService, type FactRecord } from "@modules/domain/brain-facts"
 import { InstallationRecordsService, type InstallationRecord } from "@modules/domain/module-installations"
 import { SetupMessagesService, type SetupMessageRecord } from "@modules/domain/module-setup-messages"
 import { SetupSessionsService, type SetupSessionRecord } from "@modules/domain/module-setup-sessions"
-import { InjectClock, type Clock } from "@modules/platform/clock"
+import type { ClaimedJob } from "@modules/platform/jobs"
 import { InjectMessageCatalog, type MessageCatalog } from "@modules/platform/i18n"
-import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { isSetupTurnPayload, type SetupTurnPayload } from "@modules/queues/agents"
 import { ModulesError, ModulesErrorCode } from "./errors/modules.error"
-import { ModulesLogEvent } from "./modules.log-events"
 import { ModulesService } from "./modules.service"
 import { conflictsOf, knownLinesOf, unmentionedConflicts } from "./policies/setup-facts.policy"
-import { attemptTimeoutOf, budgetLeftMs, canAttempt, canRetry, isTransient } from "./policies/setup-turn-budget.policy"
 import { mergeSetupTurn, readSetupTurn, setupPromptOf, type SetupTurnResult } from "./policies/setup-turn.policy"
 import { SetupCardsService } from "./setup-cards.service"
+
+/** The longest the model may take to answer one turn. */
+const TURN_TIMEOUT_MS = 90_000
 
 const HISTORY_TURNS = 16
 /** The most facts of the business one turn reads. */
@@ -40,36 +40,28 @@ interface OnRecord {
 /**
  * One turn of the setup chat, worked by the setup-turn job: the owner message goes to the model once with the checklist, the draft and the
  * open customer questions; what NIVO learned is merged into the draft, the writes it implies become confirm cards and its reply is the
- * next message of the chat. The reply is written last, so a job that ran before is recognised by it and never answers twice. A failure
- * that heals (the gateway, the model, an empty answer) throws, so the queue attempts the turn again by its own policy within the budget;
- * when the attempts or the budget are used up the owner is told NIVO is busy, once.
+ * next message of the chat. The model call is an effect keyed by the job (`<jobId>:turn`), its answer kept: a job run again after a
+ * crash gets the same turn and never asks (or bills) twice, and the three writes after it are safe to repeat (the merge replaces facts by
+ * key, the cards supersede the ones of the same message). The reply is written last, so a turn answered already is recognised by it. A
+ * model outage throws a typed transient error (the job's `waited` ladder decides), an empty answer a typed refusal (a dead letter with
+ * one item); the turn then has no reply and stays open: the chat shows its own stale label and a resume answers it.
  */
 export class SetupTurnService {
     constructor(
         @InjectMessageCatalog() private readonly catalog: MessageCatalog,
-        @InjectLogger() private readonly logger: Logger,
         private readonly facts: BrainFactsService,
-        private readonly generations: DirectGenerationService,
+        private readonly generations: GenerationsService,
         private readonly installations: InstallationRecordsService,
         private readonly sessions: SetupSessionsService,
         private readonly messages: SetupMessagesService,
         private readonly modules: ModulesService,
         private readonly cards: SetupCardsService,
-        @InjectClock() private readonly clock: Clock,
     ) {}
 
-    /** Answers the owner message the payload names; a payload of another shape, a closed draft or a message answered already is left alone. */
-    async run(payload: object): Promise<void> {
-        if (!isSetupTurnPayload(payload)) return
-        await this.answer(payload)
-    }
-
-    /** Runs once when the job ended as failed (the attempts are used up): the owner is told NIVO is busy unless the message was answered. */
-    async giveUp(payload: object): Promise<void> {
-        if (!isSetupTurnPayload(payload)) return
-        const open = await this.openTurn(payload)
-        if (open === null) return
-        await this.reply(payload, open.session.id, this.catalog.get("generation.busy", {}, payload.locale))
+    /** Answers the owner message the claimed job names; a closed draft or a message answered already is a normal end. */
+    async run(job: ClaimedJob): Promise<void> {
+        if (!isSetupTurnPayload(job.payload)) throw new ModulesError({ code: ModulesErrorCode.SetupTurnPayloadInvalid })
+        await this.answer(job.payload, job.jobId)
     }
 
     /** The draft, the owner message and the chat of a turn still to answer; null when the payload is stale, closed or answered already. */
@@ -83,7 +75,7 @@ export class SetupTurnService {
         return { session, message, chat, at }
     }
 
-    private async answer(job: SetupTurnPayload): Promise<void> {
+    private async answer(job: SetupTurnPayload, jobId: string): Promise<void> {
         const open = await this.openTurn(job)
         if (open === null) return
         const { session, message, chat, at } = open
@@ -106,30 +98,27 @@ export class SetupTurnService {
                 ownerAddress: this.catalog.get("setup.ownerAddress", {}, job.locale),
             },
         }
-        const left = budgetLeftMs(message.createdAt, this.clock.now())
-        if (!canAttempt(left)) return this.reply(job, session.id, this.catalog.get("generation.busy", {}, job.locale))
-        const outcome = await this.generations.run({
+        const outcome = await this.generations.generate({
             workspaceId: job.workspaceId,
             purpose: "setup_chat",
             responseFormat: "json",
-            timeoutMs: attemptTimeoutOf(left),
+            timeoutMs: TURN_TIMEOUT_MS,
             kind: "setup",
             module: "setup",
             locale: job.locale,
+            effectKey: `${jobId}:turn`,
             messages: [
                 { role: "system", content: setupPromptOf(input) },
                 ...input.history.slice(-HISTORY_TURNS).map((line) => ({ role: line.role, content: line.body })),
                 { role: "user", content: input.message },
             ],
         })
-        if (!outcome.ok && !isTransient(outcome.reason)) return this.reply(job, session.id, outcome.message)
-        if (!outcome.ok || outcome.output.trim() === "") {
-            const reason = outcome.ok ? "empty" : outcome.reason
-            if (!canRetry(budgetLeftMs(message.createdAt, this.clock.now()))) {
-                return this.reply(job, session.id, this.catalog.get("generation.busy", {}, job.locale))
-            }
-            throw new ModulesError({ code: ModulesErrorCode.SetupTurnTransient, params: { reason } })
-        }
+        // The allowance is used up or the engine is not set up: a typed end the owner reads in its own sentence.
+        if (!outcome.ok && (outcome.reason === "quota" || outcome.reason === "not_configured")) return this.reply(job, session.id, outcome.message)
+        // The model did not answer in time or at all: it heals, so it throws and the job's ladder decides.
+        if (!outcome.ok) throw new ModulesError({ code: ModulesErrorCode.SetupTurnUnavailable, params: { reason: outcome.reason } })
+        // The model wrote nothing: the same prompt gets the same answer, so it is a refusal (a dead letter), never a retry.
+        if (outcome.output.trim() === "") throw new ModulesError({ code: ModulesErrorCode.SetupTurnRefused })
         const turn = readSetupTurn(
             input,
             outcome.output,
@@ -145,7 +134,7 @@ export class SetupTurnService {
         await this.reply(job, session.id, this.withConflictNotes(job, turn, onRecord.inForce))
     }
 
-    /** The facts of the business the chat may read, in the scope of the instance; a failed read logs and gives none. */
+    /** The facts of the business the chat may read, in the scope of the instance; a failed read throws (the runner judges it). */
     private async onRecordOf(
         workspaceId: string,
         moduleKey: string,
@@ -153,14 +142,9 @@ export class SetupTurnService {
         message: string,
     ): Promise<OnRecord> {
         const scope = installation.isMulti ? installation.id : null
-        try {
-            const inForce = await this.facts.forView(workspaceId, "internal", moduleKey, scope, FACTS_READ_MAX)
-            const hits = await this.facts.search(workspaceId, "internal", moduleKey, scope, message, FACT_HITS_MAX)
-            return { inForce, hits }
-        } catch (cause) {
-            this.logger.error(ModulesLogEvent.SetupFactsFailed, cause, { workspaceId, module: moduleKey })
-            return { inForce: [], hits: [] }
-        }
+        const inForce = await this.facts.forView(workspaceId, "internal", moduleKey, scope, FACTS_READ_MAX)
+        const hits = await this.facts.search(workspaceId, "internal", moduleKey, scope, message, FACT_HITS_MAX)
+        return { inForce, hits }
     }
 
     /** The reply, with one note per value the owner gave that differs from the one on record and the reply does not name. */

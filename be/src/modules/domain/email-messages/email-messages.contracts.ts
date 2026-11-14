@@ -1,3 +1,4 @@
+import type { MailThread } from "./smtp-send.contracts"
 import type { SentMail } from "@modules/integrations/mail"
 
 /** Who a message is for: the owner of the workspace or a customer. */
@@ -49,6 +50,8 @@ export interface SendEmailInput {
     readonly audience?: EmailAudience | undefined
     /** Files to attach: at most three, 2 MB together. */
     readonly attachments?: ReadonlyArray<EmailAttachment>
+    /** The thread the mail answers (a reply to a person's mail on a route), when it answers one. */
+    readonly thread?: MailThread | undefined
 }
 
 /** What a send answered. */
@@ -65,6 +68,8 @@ export interface SendEmailResult {
     readonly error?: string | undefined
     /** Why it did not go out. */
     readonly failure?: SendEmailFailure | undefined
+    /** The mail integration's typed code of a failure (`MailErrorCode`: a refused login, a timeout), when the server answered one. */
+    readonly code?: string | undefined
 }
 
 /** One send attempt to write down. */

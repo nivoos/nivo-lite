@@ -1,0 +1,221 @@
+{
+  "schema": "nivo/set-seed@1",
+  "use": "test",
+  "name": "set-large",
+  "workspaceName": "set-large",
+  "ownerWorkspace": "NIVO",
+  "kind": "workspace",
+  "agents": [{ "module": "chatbot" }, { "module": "sales" }],
+  "accounts": [
+    {
+      "key": "zalo-a",
+      "provider": "zalo_oa",
+      "name": "Sandbox Zalo OA",
+      "say": { "caseId": "ZALO-1", "person": "userId", "text": "text", "idPrefix": "880021" }
+    },
+    {
+      "key": "telegram-a",
+      "provider": "telegram",
+      "name": "Sandbox Telegram",
+      "say": { "caseId": "TELEGRAM-1", "person": "chatId", "text": "text", "idPrefix": "990021" }
+    },
+    {
+      "key": "meta-a",
+      "provider": "meta",
+      "name": "Sandbox Meta",
+      "say": { "caseId": "META-1", "person": "psid", "text": "text", "idPrefix": "770021" }
+    },
+    { "key": "sepay-a", "provider": "sepay", "name": "Sandbox SePay" }
+  ],
+  "truths": [
+    { "type": "business", "subject": "Hệ thống hoa Bốn Mùa", "attribute": "Giờ mở cửa", "value": "07:00-22:00" },
+    { "type": "business", "subject": "Hệ thống hoa Bốn Mùa", "attribute": "Số cửa hàng", "value": "6 cửa hàng trong Thành phố Mẫu (địa chỉ mẫu, không có thật)" },
+    { "type": "business", "subject": "Hệ thống hoa Bốn Mùa", "attribute": "Điện thoại", "value": "0900 000 002 (số mẫu)" },
+
+    {
+      "type": "policy", "subject": "Giảm giá", "attribute": "Mức giảm tối đa cho khách quen", "value": "10%",
+      "policy": { "title": "Mức giảm giá tối đa cho khách quen", "group": "Giảm giá" }
+    },
+    {
+      "type": "policy", "subject": "Giảm giá", "attribute": "Mức giảm tối đa cho đơn từ 2.000.000 đ",
+      "value": "15%, chỉ áp dụng khi khách mua từ 3 sản phẩm trở lên trong cùng một đơn, đã chuyển khoản đủ trước khi cắm hoa và không dùng chung với bất kỳ chương trình khuyến mãi nào khác của hệ thống; vượt mức này nhân viên bán hàng phải chuyển cho chủ tiệm duyệt, không tự hứa với khách.",
+      "policy": { "title": "Mức giảm giá tối đa cho đơn lớn", "group": "Giảm giá" }
+    },
+    {
+      "type": "policy", "subject": "Duyệt đơn", "attribute": "Ngưỡng đơn cần chủ tiệm duyệt",
+      "value": "5.000.000 đ; đơn từ ngưỡng này luôn cần chủ tiệm xem trước khi báo giá chính thức và trước khi nhận tiền, kể cả khi không có giảm giá. Trong lúc chờ, chỉ báo khách rằng chủ tiệm đang xem và sẽ trả lời trong giờ làm việc.",
+      "policy": { "title": "Ngưỡng đơn cần chủ tiệm duyệt", "group": "Duyệt đơn" }
+    },
+    {
+      "type": "policy", "subject": "Thanh toán", "attribute": "Hình thức thanh toán",
+      "value": "Chỉ nhận chuyển khoản vào tài khoản được gửi trong tin nhắn thanh toán của đơn, kèm đúng mã thanh toán của đơn trong nội dung chuyển khoản. Nếu khách quên mã hoặc chuyển sai số tiền, nhân viên đối chiếu thủ công và có thể mất thêm thời gian; tuyệt đối không nhận tiền mặt qua người giao hàng.",
+      "policy": { "title": "Hình thức thanh toán", "group": "Thanh toán" }
+    },
+    {
+      "type": "policy", "subject": "Thanh toán", "attribute": "Thời hạn giữ đơn chưa thanh toán",
+      "value": "2 giờ kể từ lúc chốt đơn; quá hạn mà chưa thấy tiền, hệ thống nhắc khách một lần, sau lần nhắc thứ hai thì đơn được hủy và hoa không được cắm. Đơn đặt cho ngày lễ lớn được giữ 6 giờ vì khách thường chuyển khoản muộn.",
+      "policy": { "title": "Thời hạn giữ đơn chưa thanh toán", "group": "Thanh toán" }
+    },
+    {
+      "type": "policy", "subject": "Đổi trả", "attribute": "Thời hạn báo hoa lỗi",
+      "value": "24 giờ kể từ lúc nhận hoa, kèm ảnh chụp rõ hoa bị dập nát, héo hoặc khác mô tả; báo sau thời hạn này tiệm xem xét từng trường hợp nhưng không cam kết làm lại hay hoàn tiền. Lỗi do tiệm thì khách được chọn làm lại hoặc hoàn tiền.",
+      "policy": { "title": "Thời hạn báo hoa lỗi", "group": "Đổi trả" }
+    },
+    {
+      "type": "policy", "subject": "Đổi trả", "attribute": "Hoàn tiền khi hủy trước khi cắm hoa",
+      "value": "100% số tiền đã chuyển, chuyển về đúng tài khoản đã chuyển trong tối đa 3 ngày làm việc. Khách cần báo hủy bằng tin nhắn trên cùng kênh đã đặt; nhân viên xác nhận lại bằng một tin nhắn trước khi hoàn.",
+      "policy": { "title": "Hoàn tiền khi hủy trước khi cắm hoa", "group": "Đổi trả" }
+    },
+    {
+      "type": "policy", "subject": "Đổi trả", "attribute": "Hoàn tiền khi hủy sau khi cắm hoa",
+      "value": "50% số tiền đã chuyển vì hoa và thiệp đã làm riêng cho đơn; thiệp đã in lời chúc theo yêu cầu không đổi được trừ khi tiệm in sai. Trường hợp khách giận hoặc dọa khiếu nại thì chuyển ngay cho chủ tiệm, không tự thương lượng.",
+      "policy": { "title": "Hoàn tiền khi hủy sau khi cắm hoa", "group": "Đổi trả" }
+    },
+    {
+      "type": "policy", "subject": "Giao hàng", "attribute": "Giờ giao hàng muộn nhất trong ngày",
+      "value": "20:30; đơn chốt sau 16:00 được giao trong tối cùng ngày nếu còn kịp trước giờ này, nếu không thì giao sáng hôm sau từ 7:30. Không hứa giờ giao sớm hơn bảng thời gian giao hàng, kể cả khi khách nhờ nhiều lần.",
+      "policy": { "title": "Giờ giao hàng muộn nhất trong ngày", "group": "Giao hàng" }
+    },
+    {
+      "type": "policy", "subject": "Giao hàng", "attribute": "Đặt trước cho kệ hoa khai trương",
+      "value": "1 ngày; kệ hoa và giỏ hoa lớn cần thời gian chuẩn bị nên đơn nhận trong ngày chỉ được nhận khi cửa hàng còn nguyên liệu và chủ tiệm đồng ý, nhân viên không tự xác nhận với khách.",
+      "policy": { "title": "Đặt trước cho kệ hoa khai trương", "group": "Giao hàng" }
+    },
+    {
+      "type": "policy", "subject": "Giao hàng", "attribute": "Đặt trước dịp lễ lớn",
+      "value": "2 ngày cho các dịp 14/2, 8/3, 20/10 và Tết; giờ giao cụ thể do tiệm xác nhận lại với khách sau khi đơn đã thanh toán, vì số đơn trong các ngày này tăng nhiều lần và tiệm ưu tiên đơn đã đặt trước.",
+      "policy": { "title": "Đặt trước dịp lễ lớn", "group": "Giao hàng" }
+    },
+    {
+      "type": "policy", "subject": "Giao hàng", "attribute": "Giao ngoài thành phố",
+      "value": "Không giao ngoài Thành phố Mẫu; khách ở xa có thể nhờ người nhận trong thành phố, hoặc đặt giúp qua cửa hàng liên kết nếu chủ tiệm cho phép. Nhân viên không hứa hay báo phí cho khu vực chưa có trong bảng phí giao hàng.",
+      "policy": { "title": "Giao ngoài thành phố", "group": "Giao hàng" }
+    },
+    {
+      "type": "policy", "subject": "Chăm sóc khách", "attribute": "Khung giờ được nhắn tin chăm sóc khách",
+      "value": "08:00-20:00; ngoài khung giờ này không nhắn chủ động cho khách, kể cả tin nhắc thanh toán hay tin theo dõi, trừ khi khách vừa nhắn trước cho tiệm trong vòng hai giờ.",
+      "policy": { "title": "Khung giờ được nhắn tin chăm sóc khách", "group": "Chăm sóc khách" }
+    },
+    {
+      "type": "policy", "subject": "Chăm sóc khách", "attribute": "Số lần nhắn theo dõi tối đa",
+      "value": "2 lần cho mỗi khách đã hỏi giá nhưng chưa đặt, cách nhau ít nhất một ngày; khách nói rõ không cần nữa thì dừng ngay, cảm ơn và để lại kênh liên hệ. Không nhắn dồn dập, không dọa hết ưu đãi khi tiệm không có chương trình đó.",
+      "policy": { "title": "Số lần nhắn theo dõi tối đa", "group": "Chăm sóc khách" }
+    },
+    {
+      "type": "policy", "subject": "Hoa tươi", "attribute": "Thay thế khi hết loại hoa",
+      "value": "Đề nghị loại hoa cùng tầm giá và cùng tông màu, hỏi khách đồng ý trước khi làm; khách không đồng ý thì hoàn đủ tiền hoặc giữ đơn đến khi hoa về, theo lựa chọn của khách. Tuyệt đối không tự thay hoa mà không hỏi.",
+      "policy": { "title": "Thay thế khi hết loại hoa", "group": "Hoa tươi" }
+    },
+    {
+      "type": "policy", "subject": "Thiệp", "attribute": "Thiệp kèm hoa",
+      "value": "Miễn phí thiệp nhỏ viết tay cho mọi đơn; thiệp lớn in lời chúc tính thêm 25.000 đ một thiệp, lời chúc nhạy cảm hoặc có tên người thứ ba cần chủ tiệm xem trước khi in.",
+      "policy": { "title": "Thiệp kèm hoa", "group": "Thiệp" }
+    }
+  ],
+  "generate": [
+    {
+      "generate": "series",
+      "seed": 20261114,
+      "type": "product",
+      "subjects": {
+        "count": 300,
+        "kinds": [
+          "Bó hồng", "Bó hướng dương", "Bó cúc họa mi", "Bó cẩm tú cầu", "Bó tulip",
+          "Giỏ hoa mẫu đơn", "Giỏ hoa lan", "Hộp hoa hồng", "Hộp hoa cẩm chướng", "Lẵng hoa chúc mừng",
+          "Chậu lan hồ điệp", "Chậu sen đá", "Kệ hoa khai trương", "Hoa cưới cầm tay", "Vòng hoa chia buồn"
+        ],
+        "variants": [
+          "đỏ", "trắng", "hồng phấn", "vàng", "tím", "cam", "xanh pastel", "mix pastel", "kem", "đỏ đô",
+          "hồng đậm", "tím lavender", "trắng xanh", "vàng cam", "hồng cam", "đỏ trắng", "xanh dương", "tím trắng", "hồng tím", "kem hồng"
+        ],
+        "code": "SP"
+      },
+      "attributes": [
+        { "label": "Giá", "money": { "min": 80000, "max": 2500000, "step": 5000 } },
+        { "label": "Màu sắc chủ đạo", "pick": ["đỏ", "trắng", "hồng", "vàng", "tím", "cam", "xanh", "kem"] },
+        { "label": "Kích cỡ", "pick": ["nhỏ", "vừa", "lớn"] },
+        { "label": "Xuất xứ hoa", "pick": ["Đà Lạt", "Sa Đéc", "nhập khẩu Hà Lan", "nhập khẩu Ecuador", "vườn của tiệm"] },
+        { "label": "Tình trạng", "pick": ["còn hàng", "còn hàng", "còn hàng", "đặt trước 1 ngày", "hết hàng theo mùa"] }
+      ]
+    },
+    {
+      "generate": "series",
+      "seed": 20261115,
+      "type": "place",
+      "subjects": {
+        "list": [
+          "Khu Hoa Giấy", "Khu Cánh Đồng", "Khu Sen Hồng", "Khu Bến Xuân", "Khu Đồi Thông", "Khu Cầu Trắng",
+          "Khu Phố Cổ Mẫu", "Khu Chợ Nổi Mẫu", "Khu Vườn Lan", "Khu Hồ Sen", "Khu Đê Mới", "Khu Bãi Biển Giả",
+          "Khu Công Nghiệp Mẫu 1", "Khu Công Nghiệp Mẫu 2", "Khu Đại Học Mẫu", "Khu Bệnh Viện Mẫu", "Khu Sân Bay Mẫu",
+          "Khu Nhà Ga Mẫu", "Khu Ven Sông Mẫu", "Khu Đảo Giả", "Khu Thung Lũng Mẫu", "Khu Đồng Xanh", "Khu Làng Hoa Mẫu", "Khu Phố Đêm Mẫu"
+        ]
+      },
+      "attributes": [{ "label": "Phí giao hàng", "money": { "min": 15000, "max": 90000, "step": 5000 } }],
+      "policy": { "title": "{attribute} {subject}", "group": "Giao hàng" }
+    },
+    {
+      "generate": "series",
+      "seed": 20261116,
+      "type": "supplier",
+      "scope": "internal",
+      "subjects": {
+        "count": 120,
+        "kinds": ["Vườn hoa", "Hợp tác xã hoa", "Cơ sở cung cấp chậu", "Xưởng giấy gói"],
+        "variants": ["Hướng Dương", "Thiên Phú", "Mai Anh", "Sơn Hà", "Ngọc Lan", "Phúc An", "Minh Tâm", "Bích Hạnh", "Gia Bảo", "Đại Phát"],
+        "code": "NCC"
+      },
+      "attributes": [
+        { "label": "Thời gian giao hàng nhập", "pick": ["6 giờ sáng", "7 giờ sáng", "chiều hôm trước", "2 ngày một lần"] },
+        { "label": "Giá nhập trung bình", "money": { "min": 20000, "max": 600000, "step": 1000 } },
+        { "label": "Điều khoản thanh toán", "pick": ["trả ngay", "trả sau 7 ngày", "trả cuối tuần", "trả cuối tháng"] },
+        { "label": "Mặt hàng chính", "pick": ["hoa hồng", "hoa hướng dương", "lan hồ điệp", "chậu và giỏ", "giấy gói và ruy băng"] }
+      ]
+    },
+    {
+      "generate": "series",
+      "seed": 20261117,
+      "type": "business",
+      "subjects": {
+        "count": 50,
+        "kinds": ["Dịp lễ"],
+        "variants": ["Valentine", "Quốc tế Phụ nữ", "Ngày của Mẹ", "Ngày của Cha", "Giáng sinh"],
+        "code": "DL"
+      },
+      "attributes": [
+        { "label": "Thời gian nhận đơn", "pick": ["từ 7 ngày trước", "từ 10 ngày trước", "từ 14 ngày trước"] },
+        { "label": "Mẫu bán chạy", "pick": ["bó hồng đỏ", "hộp hoa tulip", "giỏ hoa mẫu đơn", "lẵng hoa chúc mừng"] },
+        { "label": "Mức phụ thu", "percent": { "min": 0, "max": 20 } },
+        { "label": "Số đơn tối đa mỗi ngày", "number": { "min": 80, "max": 400 } },
+        { "label": "Ghi chú giao hàng", "pick": ["giao từ 6:30", "giao đến 22:00", "giờ giao do tiệm xác nhận", "không giao ngoài nội thành"] }
+      ]
+    }
+  ],
+  "crowd": {
+    "seed": 20261118,
+    "count": 200,
+    "accounts": ["zalo-a", "telegram-a", "meta-a"],
+    "lines": { "min": 1, "max": 4 },
+    "texts": [
+      "Chào shop, cho mình hỏi giá bó hồng đỏ nhé.",
+      "Tiệm mở cửa đến mấy giờ vậy?",
+      "Phí giao hàng đến khu Hồ Sen là bao nhiêu ạ?",
+      "Mình muốn mua một giỏ hoa chúc mừng cho ngày mai.",
+      "Giao lúc 4 giờ chiều được không shop?",
+      "Hoa dập nát thì mình phải báo trong bao lâu?",
+      "Cho mình đặt kệ hoa khai trương, cần đặt trước bao lâu?",
+      "Chốt đơn giúp mình nhé.",
+      "Mình chuyển khoản rồi, shop kiểm tra giúp.",
+      "Có giảm giá cho khách quen không shop?",
+      "Dịp 8/3 tiệm nhận đơn từ ngày nào ạ?",
+      "Đơn của mình khi nào giao vậy?",
+      "Shop có giao ra ngoài thành phố không?",
+      "Mình muốn hủy đơn hôm qua.",
+      "Cảm ơn shop, hoa đẹp lắm.",
+      "Đừng nhắn tin cho mình nữa nhé.",
+      "Cho mình xin ảnh bó hướng dương mới.",
+      "Thiệp kèm hoa có mất phí không?",
+      "Mình cần gặp chủ tiệm.",
+      "Bó cẩm tú cầu tím còn hàng không?"
+    ]
+  }
+}

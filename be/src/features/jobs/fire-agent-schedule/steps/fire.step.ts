@@ -1,18 +1,19 @@
 import { Injectable } from "@nestjs/common"
 import { AgentScheduleFireService } from "@modules/domain/agent-schedules"
-import { InjectJobClaims, type ClaimedJob, type JobClaims, type JobStep } from "@modules/platform/jobs"
+import { AdvancingJobStepPolicy, InjectJobClaims, type ClaimedJob, type JobClaims, type JobStep } from "@modules/platform/jobs"
 
 @Injectable()
 /** The one effect of the job: the slot that came up becomes one schedule wake on the one road. */
-export class FireStep implements JobStep {
+export class FireStep extends AdvancingJobStepPolicy implements JobStep {
     constructor(
-        @InjectJobClaims() private readonly claims: JobClaims,
+        @InjectJobClaims() claims: JobClaims,
         private readonly fires: AgentScheduleFireService,
-    ) {}
+    ) {
+        super(claims, "fire")
+    }
 
-    /** Records the step with the token this worker holds FIRST; a repeated slot writes no second wake, so the fence only keeps a stale worker from racing the fresh one. */
-    async run(job: ClaimedJob): Promise<void> {
-        await this.claims.advance({ jobId: job.jobId, expectedFencingToken: job.fencingToken, step: "fire" })
-        await this.fires.fire(job.payload)
+    /** Fires the slot after the worker's claim has been checked (a repeated slot writes no second wake, so the fence only keeps a stale worker from racing the fresh one): one domain method, the job passed down. */
+    protected perform(_payload: object, job: ClaimedJob): Promise<unknown> {
+        return this.fires.fire(job)
     }
 }

@@ -102,6 +102,15 @@ const linesOf = (facts: ReadonlyArray<{ readonly name: string; readonly value: s
 const contentOf = (stop: TeamChatStop, kind: "text" | "address"): ReadonlyArray<{ readonly name: string; readonly value: string }> =>
     (stop.decision?.content ?? []).filter((item) => item.kind === kind)
 
+/** The argument member of an approved call that holds the subject of a mail (the engine's own member name). */
+const SUBJECT_MEMBER = "subject"
+
+/** The subject of the mail the approved call sends; null when it carries none. */
+const subjectOf = (stop: TeamChatStop): string | null => {
+    const subject = contentOf(stop, "text").find((item) => item.name === SUBJECT_MEMBER)?.value.trim() ?? ""
+    return subject === "" ? null : subject
+}
+
 /** The head of a stop: "Workflow stopped · {workflow} › {step}"; a leave request keeps the engine's own headline (it names who asks for what). */
 const headOf = (stop: TeamChatStop, words: StopCardWords): string => {
     if (stop.kind === "approval") return stop.headline
@@ -149,7 +158,10 @@ export const stopCardViewOf = (stop: TeamChatStop, words: StopCardWords, mark: T
                 ? null
                 : {
                       workItemId: approval.workItemId,
-                      messageLines: contentOf(stop, "text").flatMap((item) => item.value.split(/\r?\n/)),
+                      subject: subjectOf(stop),
+                      messageLines: contentOf(stop, "text")
+                          .filter((item) => item.name !== SUBJECT_MEMBER)
+                          .flatMap((item) => item.value.split(/\r?\n/)),
                       files: contentOf(stop, "address").map((item) => item.value),
                       lines: linesOf([
                           { name: words.account, value: approval.account },

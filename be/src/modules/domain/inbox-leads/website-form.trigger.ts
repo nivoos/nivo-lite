@@ -72,7 +72,32 @@ export const WEBSITE_FORM_TRIGGER: TriggerDeclaration<WebsiteSubmissionRaw, Webs
     provider: PROVIDER.nivo,
     name: WEBSITE_FORM_SUBMITTED,
     verb: TRIGGER.websiteMessageReceived,
-    via: "internal",
+    via: ["internal"],
+    // The door stores the submission and writes its delivery as a queue outbox row in the SAME transaction (job `website-form.deliver`, once key
+    // per stored input): the job meets the visitor's contact and hands the stored submission to the one pipeline. A crash between the store and
+    // the wake is a redelivery by the job frame, a failure runs the ladder, and a delivery that fails for good parks with one item for a
+    // person. A form the browser repeats under the same `submissionId` is one stored input, one job, one event id.
+    withoutPoll: {
+        reason: {
+            vi: "Biểu mẫu lưu lần gửi và ghi việc báo (website-form.deliver) cùng một giao dịch: chết giữa chừng thì việc được giao lại, lỗi thì thử lại theo bậc rồi dừng kèm một mục cho người xử lý. Cùng mã gửi (submissionId) chỉ là một lần gửi.",
+            en: "The form door stores the submission and writes its delivery job (website-form.deliver) in the same transaction: a crash is redelivered, a failure is retried on the ladder, then parked with one item for a person. The same submissionId is one submission.",
+        },
+        source: "nivo:website-form.deliver",
+    },
+    words: {
+        title: { vi: "Website · khách gửi biểu mẫu", en: "Website · form submitted" },
+        summary: {
+            vi: "Một khách điền và gửi biểu mẫu liên hệ trên website của bạn.",
+            en: "A visitor fills in and sends the contact form on your website.",
+        },
+        members: {
+            siteId: { vi: "Website nhận biểu mẫu.", en: "The site that took the form." },
+            inboundEventId: { vi: "Mã bản ghi lần gửi trong NIVO.", en: "The id of the stored submission in NIVO." },
+            request: { vi: "Điều khách viết.", en: "What the visitor wrote." },
+            contact: { vi: "Tên, số điện thoại, email khách để lại (khách tự khai).", en: "The name, phone and email the visitor left (as they typed them)." },
+            source: { vi: "Trang, chiến dịch và thiết bị của lượt truy cập.", en: "The page, campaign and device of the visit." },
+        },
+    },
     raw: z.object({
         siteId: z.string(),
         inboundEventId: z.string(),
@@ -94,4 +119,6 @@ export const WEBSITE_FORM_TRIGGER: TriggerDeclaration<WebsiteSubmissionRaw, Webs
     line: websiteLineOf,
     key: { by: "subject" },
     settle: null,
+    // The visitor's request is a line of the route's stream: held requests are ONE marker the workflow reads the stream from (rule Q-4).
+    combine: "stream",
 }

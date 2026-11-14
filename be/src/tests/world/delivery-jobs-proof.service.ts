@@ -102,7 +102,7 @@ type DeliveryJobBuilderResultDeliveryShape = {
 type DeliveryJobBuilderResultInboxShape = {
     processRecordedDelivery: jest.SpyInstance<
         Promise<void>,
-        [message: MetaDeliveryRecorded] | [message: TelegramDeliveryRecorded] | [message: SepayDeliveryRecorded]
+        [message: MetaDeliveryRecorded] | [message: TelegramDeliveryRecorded, job: ClaimedJob] | [message: SepayDeliveryRecorded]
     >
 }
 

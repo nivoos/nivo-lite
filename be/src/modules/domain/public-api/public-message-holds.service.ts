@@ -39,7 +39,8 @@ const LOCALE = "vi"
  * Tells the founder about a public-API message that was HELD (no approval road takes a message outside a run): an unhandled case on
  * /chat, in the direct room of the agent whose conversation it was meant for, with the exact text and why, ONCE per request, so a person
  * can answer the customer from the workbench. The words are the engine's own, from the message bundles; the customer is told nothing.
- * A team chat that cannot take the report is logged, never thrown: the hold itself is already recorded.
+ * The report is posted under a key per request, so a run again posts nothing twice; a team chat that cannot take it throws, and the
+ * request job retries it on its ladder and parks it with one item.
  */
 export class PublicMessageHoldsService {
     constructor(
@@ -72,20 +73,16 @@ export class PublicMessageHoldsService {
             origin: "system",
         }
         const key = `api-message-held:${held.requestId}`
-        try {
-            await post.execute(
-                turn,
-                {
-                    kind: reportFactsKind.id,
-                    title: say("publicApi.held.title"),
-                    text: say("publicApi.held.sentence"),
-                    facts: facts.map((fact) => ({ ...fact })),
-                    audience: "founder",
-                },
-                { key, dedupeKey: key },
-            )
-        } catch (cause) {
-            this.logger.error(PublicApiLogEvent.HeldReportSkipped, cause, meta)
-        }
+        await post.execute(
+            turn,
+            {
+                kind: reportFactsKind.id,
+                title: say("publicApi.held.title"),
+                text: say("publicApi.held.sentence"),
+                facts: facts.map((fact) => ({ ...fact })),
+                audience: "founder",
+            },
+            { key, dedupeKey: key },
+        )
     }
 }

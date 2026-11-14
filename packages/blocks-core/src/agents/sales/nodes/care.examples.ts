@@ -3,7 +3,7 @@ import { TOOL } from "@nivo-lite/agent-sdk/names"
 import type { ScriptedToolCall, ToolAnswer } from "@nivo-lite/agent-sdk/template"
 import { SALES_ORDER_ENTITY } from "../../../shared/entities/sales-entity-names"
 import { contextAnswer, answered, sentAnswer } from "../../../shared/nodes/tool-answers"
-import { saleLeadListOf, type CareFacts, type CareOrder } from "./care.reads"
+import type { CareFacts, CareOrder } from "./care.reads"
 import { orderRecordAnswerOf } from "./sales-order"
 
 /**
@@ -26,8 +26,8 @@ export const ARMED: ToolAnswer<JsonObject> = answered({ ref: "timer-1", dueAt: "
 /** The profile read of customer `l1`, named An (a context read: one fact). */
 export const PROFILE_AN: ToolAnswer<JsonObject> = contextAnswer("nivo.lead", [{ id: "l1", name: "An" }])
 
-/** The care read of customer `l1` who did not opt out, named no receiver and mentioned no date. */
-export const CARE_OPEN: CareFacts = { leadId: "l1", optedOut: false, recipient: null, occasions: [] }
+/** The care read of customer `l1`, named no receiver and mentioned no date. */
+export const CARE_OPEN: CareFacts = { leadId: "l1", recipient: null, occasions: [] }
 
 /** An order of the examples as `nivo.tool.order.get` answers it, before the changes each example makes. */
 export const ORDER_O1: CareOrder = {
@@ -41,16 +41,11 @@ export const ORDER_O1: CareOrder = {
     delivery: { address: null, recipientName: null, recipientPhone: null, deliveryAt: null },
 }
 
-/**
- * The reads of the person of order `o1` before care's read, as the examples script them: the order record (its contact `c1`), the sale's
- * record of that person (`l1`), then care's read of it, answering `care`.
- */
-export const personReadsOf = (care: ToolAnswer<JsonObject>): ReadonlyArray<ScriptedToolCall> => [
+/** The read of the person of order `o1` as the examples script it: the order record (its contact `c1`). */
+export const personReadsOf = (): ReadonlyArray<ScriptedToolCall> => [
     {
         id: TOOL.recordGet,
         args: { type: SALES_ORDER_ENTITY, id: "o1" },
         answer: answered(orderRecordAnswerOf("o1", { orderNo: "DH-1", status: "paid", amountVnd: 4500, contactId: "c1" })),
     },
-    { id: TOOL.recordList, args: saleLeadListOf("c1"), answer: answered({ records: [{ id: "l1", values: {} }], next: null }) },
-    { id: TOOL.leadCareGet, args: { leadId: "l1" }, answer: care },
 ]

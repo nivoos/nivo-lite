@@ -129,10 +129,52 @@ export interface SandboxPrefill {
     inputOf(request: unknown): SandboxInput | null
 }
 
+/** Where a pay link is in its life, in the words of the Sandbox page (a provider maps its own status words onto these). */
+export type SandboxPayLinkStatus = "open" | "paid" | "cancelled" | "expired"
+
+/**
+ * One pay link (a payment link, a QR request) of a sandbox account as the provider's own kept state tells it: what was asked, what came
+ * of it. `amountReceivedVnd` is what the account was paid so far (an `open` link may hold some: a short payment leaves it open).
+ */
+export interface SandboxPayLinkRead {
+    /** The link id (the provider's own id of it, unique across accounts). */
+    readonly linkId: string
+    /** The amount asked, in VND. */
+    readonly amountVnd: number
+    /** The transfer content (the description) the link was made with. */
+    readonly content: string
+    /** The provider's order code of the link, as text. */
+    readonly orderCode: string
+    /** Where the link is. */
+    readonly status: SandboxPayLinkStatus
+    /** What was received on it so far, in VND. */
+    readonly amountReceivedVnd: number
+}
+
+/** A read of one kept value of an account's state, by (name, key); null when none is kept. */
+export type SandboxStateReader = (name: string, key: string) => Promise<unknown>
+
+/**
+ * How a provider that issues pay links lets the Sandbox page resolve one by its id (SBX-6): the page API knows no provider name, it
+ * asks the catalogue. The link id names its account (`accountOf`), so the id alone finds the account.
+ */
+export interface SandboxPayLinks {
+    /** The account a link id names, or null when the id is not one this provider's sandbox issues. */
+    accountOf(linkId: string): string | null
+    /** The link as the account's kept state tells it, or null when the account never created it. `now` decides an expiry. */
+    read(linkId: string, state: SandboxStateReader, now: Date): Promise<SandboxPayLinkRead | null>
+    /** The inbound cases that apply to a link that is open (the ones that pay it). */
+    readonly caseIds: ReadonlyArray<string>
+    /** What the link gives the inputs of its cases (the order code, or the content and the amount); a field a case does not declare is left out by the send. */
+    inputsOf(link: SandboxPayLinkRead): SandboxInput
+}
+
 /** A provider's hardcoded catalogue, registered at boot beside its sandbox implementation. */
 export interface SandboxCatalogue {
     readonly provider: string
     readonly cases: ReadonlyArray<SandboxCase>
+    /** How its pay links are resolved by id, when the provider issues them. */
+    readonly payLinks?: SandboxPayLinks | undefined
     /** Where its inbound cases' inputs are prefilled from, when the provider takes requests of the agent's (a payment instruction). */
     readonly prefill?: SandboxPrefill | undefined
 }

@@ -1,5 +1,6 @@
 import { builder, type MockOf } from "@starci/jest-preset"
 import { DOC_SOURCE, DOC_WS } from "@tests/fixtures/builders/document-facts.builder"
+import { claimedJob } from "@tests/fixtures/builders/knowledge-chain.builder"
 import type { BrainExtractionsService, MaybeExtraction } from "@modules/domain/brain-extractions"
 import type { BrainFactsReadService, BrainFactsService, FactRecord } from "@modules/domain/brain-facts"
 import { passageTextHashOf, type KnowledgeChunksService, type TruthPassage } from "@modules/domain/knowledge-chunks"
@@ -329,14 +330,14 @@ export const factsRunnersOf = (service: DocumentFactsService, ai: MockOf<AiServi
     return {
         callsTo: (system: string): number => ai.chat.mock.calls.filter(([request]) => request.messages[0]?.content === system).length,
         runAll: async (): Promise<string> => {
-            let outcome = await service.run(payload)
-            while (outcome === "continued") outcome = await service.run(payload)
+            let outcome = await service.run(claimedJob(payload))
+            while (outcome === "continued") outcome = await service.run(claimedJob(payload))
             return outcome
         },
         critiqueThenSettle: async (more: Partial<PassageCritique> = {}): Promise<string> => {
             world.critique = factsReviewedAll(world.passages, more)
             await service.critiqued(DOC_WS, DOC_SOURCE)
-            return service.run(payload)
+            return service.run(claimedJob(payload))
         },
     }
 }

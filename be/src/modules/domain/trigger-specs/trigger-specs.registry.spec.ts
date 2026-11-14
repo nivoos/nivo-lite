@@ -4,15 +4,16 @@ import { Test } from "@nestjs/testing"
 import { TRIGGER_SOURCES, TRIGGER_SOURCE_KINDS, providerTriggerKeyOf, type TriggerSource } from "@nivo-lite/agent-sdk/graph"
 import { PROVIDER, TRIGGER, type ProviderKey, type TriggerVerb } from "@nivo-lite/agent-sdk/names"
 import { jsonTextOf } from "@tests/fixtures/builders/json-text.builder"
+import { BANK_TRANSACTION_RECEIVED, BANK_TRANSACTION_TRIGGERS } from "@modules/domain/bank-feed-inbox/bank-transaction.trigger"
+import { IMAP_MAIL_TRIGGER, MAIL_RECEIVED } from "@modules/domain/data-hub/imap-mail.trigger"
 import {
-    MAIL_RECEIVED,
     PROVIDER_TRIGGER_TAG_SOURCE,
-    RENDER_COMPLETED,
-    TRANSACTION_RECEIVED,
     providerTriggerLookup,
-    triggersOf,
+    switchableOf,
+    triggerDeclarations,
 } from "@modules/domain/provider-triggers"
-import { RENDER_COMPLETED as COMPOSE_RENDER_COMPLETED } from "@modules/domain/video-compose"
+import { RENDER_COMPLETED } from "@modules/domain/video-compose/video-render-data.policy"
+import { renderTriggerOf } from "@modules/domain/video-compose/video-render.trigger"
 import { WEBSITE_LEAD_TAG_SOURCE } from "@modules/domain/inbox-leads/website-lead-wake.policy"
 import { ENGINE_ROAD } from "./trigger-specs.contracts"
 import {
@@ -33,7 +34,7 @@ import { sourceStreamOf, streamOf } from "./trigger-streams.policy"
 
 /**
  * The trigger registry agrees with what it wraps: every source kind of `TRIGGER_SOURCES` and every provider trigger of
- * `PROVIDER_TRIGGERS` is carried by exactly one verb; what each adapter supplies is exactly its catalogues' members; the `triggers`
+ * switch-bearing provider trigger declaration is carried by exactly one verb; what each adapter supplies is exactly its catalogues' members; the `triggers`
  * table of `scripts/tool-rename-20261112.json` maps every one of its keys to the verb the registry does; the names written in the
  * registry are their owners' (the provider trigger names, the system tag sources).
  */
@@ -55,6 +56,16 @@ const build = async (): Promise<Subject> => {
 }
 
 const VERBS: ReadonlyArray<TriggerVerb> = Object.values(TRIGGER)
+
+// The provider triggers the registry wraps are the declarations that carry an account switch: the three bank feeds', the mailbox's and
+// the three compose providers' render completion, as their owners declare them.
+triggerDeclarations.register(
+    ...BANK_TRANSACTION_TRIGGERS,
+    IMAP_MAIL_TRIGGER,
+    renderTriggerOf("shotstack"),
+    renderTriggerOf("creatomate"),
+    renderTriggerOf("json2video"),
+)
 
 /** Every source of today the registry carries, with its verb. */
 const carried = (registry: typeof TRIGGERS): ReadonlyArray<readonly [TriggerVerb, TriggerSource]> =>
@@ -79,7 +90,7 @@ describe("the trigger registry", () => {
         const { triggers } = await build()
         const keys = carried(triggers).map(([, source]) => keyOfSource(source))
         const declared = Object.values(PROVIDER).flatMap((provider) =>
-            triggersOf(provider).map((declaration) => `provider:${declaration.provider}:${declaration.name}`),
+            switchableOf(provider).map((declaration) => `provider:${declaration.provider}:${declaration.name}`),
         )
         // Ledger (TOOLS-LEAD W2): the core bank road (`kind: sepay`, tag `bank_feed`) left the registry: no producer wrote it any more. The
         // @1 kind stays readable in a stored document and is served by no verb (a trigger of it takes no wake).
@@ -154,9 +165,7 @@ describe("the trigger registry", () => {
         const names = new Set(
             Object.values(triggers).flatMap((spec) => spec.adapters.flatMap((adapter) => wrappedTriggersOf(adapter).map((one) => one.name))),
         )
-        expect([...names].sort()).toEqual([MAIL_RECEIVED, RENDER_COMPLETED, TRANSACTION_RECEIVED].sort())
-        // The compose purpose's intake fires the very name the provider trigger catalogue declares.
-        expect(RENDER_COMPLETED).toBe(COMPOSE_RENDER_COMPLETED)
+        expect([...names].sort()).toEqual([MAIL_RECEIVED, RENDER_COMPLETED, BANK_TRANSACTION_RECEIVED].sort())
         const tags = Object.values(triggers)
             .flatMap((spec) => spec.adapters.flatMap((adapter) => adapter.tagSource ?? []))
         // Ledger: billing's bank feed flow (the owner of `bank_feed`) was deleted with the money strip, and the core bank road left the
@@ -174,7 +183,7 @@ describe("the trigger registry", () => {
             [TRIGGER.paymentCreditReceived, "sepay:transaction.received"],
             [TRIGGER.paymentCreditReceived, "casso:transaction.received"],
             [TRIGGER.paymentCreditReceived, "payos:transaction.received"],
-            [TRIGGER.mailMessageReceived, "imap:mail.received"],
+            [TRIGGER.mailMessageReceived, "smtp:mail.received"],
             [TRIGGER.videoRenderCompleted, "shotstack:render.completed"],
             [TRIGGER.videoRenderCompleted, "creatomate:render.completed"],
             [TRIGGER.videoRenderCompleted, "json2video:render.completed"],
@@ -211,6 +220,7 @@ describe("the trigger registry", () => {
             TRIGGER.facebookMessageReceived,
             TRIGGER.instagramMessageReceived,
             TRIGGER.websiteMessageReceived,
+            TRIGGER.mailMessageReceived,
             TRIGGER.chatMessageReceived,
         ])
         expect(Object.values(TRIGGERS).filter((spec) => spec.supply === "caller").map((spec) => spec.verb)).toEqual([TRIGGER.workflowCalled])
@@ -276,8 +286,8 @@ describe("the lookups", () => {
         expect(of({ kind: "provider", connectionId: "c1", provider: "casso", trigger: "transaction.received" })).toBe(
             TRIGGER.paymentCreditReceived,
         )
-        expect(of({ kind: "provider", connectionId: null, provider: "imap", trigger: "mail.received" })).toBe(TRIGGER.mailMessageReceived)
-        expect(of({ kind: "provider", connectionId: null, provider: "imap", trigger: "nothing" })).toBeNull()
+        expect(of({ kind: "provider", connectionId: null, provider: "smtp", trigger: "mail.received" })).toBe(TRIGGER.mailMessageReceived)
+        expect(of({ kind: "provider", connectionId: null, provider: "smtp", trigger: "nothing" })).toBeNull()
         expect(of({ kind: "workflow", connectionId: null })).toBe(TRIGGER.workflowCalled)
     })
 })
@@ -294,14 +304,13 @@ describe("render completion: ONE generic verb, whichever compose provider render
         for (const provider of COMPOSERS) expect(verbOfProviderTrigger(`${provider}:render.completed`)).toBe(TRIGGER.videoRenderCompleted)
     })
 
-    it("supplies the row id, the render id and the status, and DECLARES the output, the error and the provider filled from the render row", () => {
+    it("supplies the render id and the status, and DECLARES the output, the error and the provider filled from the render row", () => {
         for (const adapter of adaptersOf(TRIGGER.videoRenderCompleted, COMPOSERS)) {
             // Ledger (ROAD Opus-1f, R44): the provider event is the generic scope; its own fields are `data`'s members.
             const supplied = suppliesOfVerb(TRIGGER.videoRenderCompleted, adapter)
             // Ledger (E-RED 2026-11-14): the DECLARED members (output, error, provider) are members of `data` too: the render's translate
             // puts them there and the flow fills nothing at the top of a pipeline event, so the lookup no longer lists them at the top.
             expect(supplied.find((param) => param.name === "data")?.members?.map((member) => member.name)).toEqual([
-                "renderRowId",
                 "renderId",
                 "status",
                 "outputUrl",
@@ -349,7 +358,7 @@ describe("verbOfWake: the verb from what a wake already holds", () => {
         ],
         [
             "the mailbox",
-            { road: "system-event", scope: { source: PROVIDER_TRIGGER_TAG_SOURCE, providerTrigger: "imap:mail.received" } },
+            { road: "system-event", scope: { source: PROVIDER_TRIGGER_TAG_SOURCE, providerTrigger: "smtp:mail.received" } },
             TRIGGER.mailMessageReceived,
         ],
         [
@@ -381,17 +390,12 @@ describe("eventKeyOf: ONE normalised key per event, whichever road brought it", 
         expect(credit("casso")).toBe("credit:tx-1")
     })
 
-    it("keys a mail batch by its span on the account; the same batch is the same event, another batch another one", async () => {
+    it("keys a mail by the wake's own key (MAIL-IN rule MI-4: a person's line on the mail channel, one event per mail)", async () => {
         const { eventKeyOf: of } = await build()
-        const batch = (ids: ReadonlyArray<string>): string =>
-            of({
-                road: "system-event",
-                scope: { providerTrigger: "imap:mail.received", connectionId: "m1", eventIds: ids, count: ids.length },
-                wakeEventKey: "provider:…",
-            })
-        expect(batch(["a", "b", "c"])).toBe("mail:m1:a..c#3")
-        expect(batch(["a"])).toBe("mail:m1:a")
-        expect(batch(["c", "d"])).not.toBe(batch(["a", "b", "c"]))
+        const mail = (wakeEventKey: string): string =>
+            of({ road: "channel", scope: { providerTrigger: "smtp:mail.received", connectionId: "m1" }, wakeEventKey })
+        expect(mail("m1:INBOX:7:42")).toBe("m1:INBOX:7:42")
+        expect(mail("m1:INBOX:7:43")).not.toBe(mail("m1:INBOX:7:42"))
     })
 
     it("keeps the wake's own key for an event of one road, and where a member the rule reads is missing", async () => {

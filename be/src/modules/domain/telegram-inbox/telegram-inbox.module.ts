@@ -1,5 +1,6 @@
 import { Module, type DynamicModule, type OnModuleInit } from "@nestjs/common"
 import { CustomerSendRegistryService, TelegramCustomerSendService } from "@modules/domain/channels"
+import { AccountDataAdmissionsService } from "@modules/domain/account-data"
 import { triggerDeclarations } from "@modules/domain/provider-triggers"
 import { SandboxCatalogueRegistryService } from "@modules/domain/provider-sandbox"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./telegram-inbox.module-definition"
@@ -7,6 +8,7 @@ import { TELEGRAM_RECEIPT_PROCESSOR } from "./telegram-inbox.decorators"
 import { TelegramDeliveryService } from "./telegram-delivery.service"
 import { TelegramFilesService } from "./telegram-files.service"
 import { TelegramInboxService } from "./telegram-inbox.service"
+import { telegramUpdate } from "./telegram.data-types"
 import { TELEGRAM_TRIGGERS } from "./telegram-message.trigger"
 import { TELEGRAM_SANDBOX_CATALOGUE } from "./telegram-sandbox.catalogue"
 import { TELEGRAM_SEND_SANDBOX_CASES, TELEGRAM_STAFF_SANDBOX_CASES } from "./telegram-sandbox-send.catalogue"
@@ -24,6 +26,8 @@ export class TelegramInboxModule extends ConfigurableModuleClass implements OnMo
         private readonly sendLive: TelegramCustomerSendService,
         private readonly sendSandbox: TelegramSandboxSendService,
         private readonly catalogues: SandboxCatalogueRegistryService,
+        private readonly admissions: AccountDataAdmissionsService,
+        private readonly inbox: TelegramInboxService,
     ) {
         super()
     }
@@ -45,11 +49,12 @@ export class TelegramInboxModule extends ConfigurableModuleClass implements OnMo
         }
     }
 
-    /** Registers the bot's message trigger, its customer send (live and sandbox) and its sandbox catalogue once. */
+    /** Registers the bot's update admission, its message trigger, its customer send (live and sandbox) and its sandbox catalogue once. */
     onModuleInit(): void {
         this.sends.register({ live: this.sendLive, sandbox: this.sendSandbox })
         this.catalogues.register(TELEGRAM_SANDBOX_CATALOGUE)
         this.catalogues.register({ provider: TELEGRAM_SANDBOX_CATALOGUE.provider, cases: [...TELEGRAM_SEND_SANDBOX_CASES, ...TELEGRAM_STAFF_SANDBOX_CASES] })
+        this.admissions.register(telegramUpdate.name, (tx, row) => this.inbox.admitUpdate(tx, row))
         triggerDeclarations.register(...TELEGRAM_TRIGGERS)
     }
 }

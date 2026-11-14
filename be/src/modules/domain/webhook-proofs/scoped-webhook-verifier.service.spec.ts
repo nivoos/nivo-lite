@@ -29,11 +29,11 @@ describe("ScopedWebhookVerifier scoped proofs", () => {
     }
 
     it("accepts a delivery the registered proof accepts and hands the proof the scope and the exact bytes", async () => {
-        const prove = jest.fn<Promise<void>, Parameters<WebhookProofRegistry["verify"]>>()
-        prove.mockResolvedValue(undefined)
+        const prove = jest.fn<ReturnType<WebhookProofRegistry["verify"]>, Parameters<WebhookProofRegistry["verify"]>>()
+        prove.mockResolvedValue("proven")
         const service = await build(prove)
 
-        await expect(service.verify(scoped)).resolves.toBeUndefined()
+        await expect(service.verify(scoped)).resolves.toBe("proven")
 
         expect(prove).toHaveBeenCalledWith("zalo", {
             scope: "connection-1",
@@ -41,6 +41,12 @@ describe("ScopedWebhookVerifier scoped proofs", () => {
             signature: "mac",
             timestamp: undefined,
         })
+    })
+
+    it("carries the provider proof's `unproven` verdict (a live account whose secret is not held yet) to the intake", async () => {
+        const service = await build(() => Promise.resolve("unproven"))
+
+        await expect(service.verify(scoped)).resolves.toBe("unproven")
     })
 
     it("refuses a delivery the registered proof rejects", async () => {
@@ -71,9 +77,9 @@ describe("ScopedWebhookVerifier and the one sandbox guard (rulings R58 + R60)", 
         return { registry, guard, service: new ScopedWebhookVerifier(registry, guard) }
     }
 
-    it("skips the provider proof for a sandbox account the guard proved by its sandbox key", async () => {
+    it("answers PROVEN for a sandbox account the guard proved by its sandbox key, and skips the provider proof", async () => {
         const { service, registry, guard } = withGuard(() => Promise.resolve({ kind: "sandbox", workspaceId: "ws-1", provider: "zalo_oa" }))
-        await expect(service.verify({ ...delivery, sandboxKey: "k" })).resolves.toBeUndefined()
+        await expect(service.verify({ ...delivery, sandboxKey: "k" })).resolves.toBe("proven")
         expect(guard.verdictOf).toHaveBeenCalledWith(delivery.scope, "k")
         expect(registry.verify).not.toHaveBeenCalled()
     })
@@ -82,6 +88,12 @@ describe("ScopedWebhookVerifier and the one sandbox guard (rulings R58 + R60)", 
         const { service, registry } = withGuard(() => Promise.resolve({ kind: "live" }))
         await expect(service.verify({ ...delivery, sandboxKey: "k" })).rejects.toMatchObject({ code: HttpSecurityErrorCode.WebhookProviderUnknown })
         expect(registry.verify).toHaveBeenCalledTimes(1)
+    })
+
+    it("never turns a sandbox key into a verdict for a LIVE account: its own proof's `unproven` stays unproven", async () => {
+        const { service, registry } = withGuard(() => Promise.resolve({ kind: "live" }))
+        registry.verify.mockResolvedValue("unproven")
+        await expect(service.verify({ ...delivery, sandboxKey: "k" })).resolves.toBe("unproven")
     })
 
     it("lets the guard's refusal through (a sandbox account without its key, or the sandbox off)", async () => {

@@ -10,6 +10,7 @@ import {
     SOURCE_KINDS,
     type AddSourceInput,
     type DocumentVisibility,
+    type ProgressChange,
     type SourceKind,
     type UpdateSourceInput,
 } from "./knowledge-sources.contracts"
@@ -276,3 +277,18 @@ export const uploadVerdict = (filename: string, sizeBytes: number | null): Outco
     }
     return ok(null)
 }
+
+/** The percent of a source while its passages get their vectors: embedding fills 25 to 80. */
+export const embedPercent = (done: number, total: number): number => (total <= 0 ? 25 : 25 + (55 * done) / total)
+
+/** The columns a change writes, named as the entity names them; a field the change does not name is left out. */
+export const columnsOf = (change: ProgressChange): Partial<KnowledgeSourceEntity> => ({
+    ...(change.status === undefined ? {} : { status: change.status }),
+    ...(change.progress === undefined ? {} : { progress: Math.max(0, Math.min(100, Math.round(change.progress))) }),
+    ...(change.stage === undefined ? {} : { stage: change.stage }),
+    ...(change.done === undefined ? {} : { stageDone: change.done }),
+    ...(change.total === undefined ? {} : { stageTotal: change.total }),
+    ...(change.error === undefined ? {} : { error: change.error }),
+    ...(change.chunkCount === undefined ? {} : { chunkCount: change.chunkCount }),
+    ...(change.contentHash === undefined ? {} : { contentHash: change.contentHash }),
+})

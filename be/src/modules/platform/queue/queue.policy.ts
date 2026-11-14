@@ -9,8 +9,11 @@ import type {
     QueueWriteOptions,
 } from "./queue.contracts"
 
-/** How many starts a job gets before it is dead-lettered as failed. */
-export const ATTEMPTS = 4
+/**
+ * The broker's ceiling of starts per delivery, above every job ladder (`platform/jobs` `JOB_LADDERS`: at most 5): the job runner decides
+ * retry or dead letter by the ladder of the job, so the broker never ends a job the runner still retries.
+ */
+export const ATTEMPTS = 6
 
 /** How many starts a fire of a job scheduler gets: it has no durable row, so the broker alone retries it. */
 export const SCHEDULE_ATTEMPTS = 3

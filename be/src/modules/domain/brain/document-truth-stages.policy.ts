@@ -28,9 +28,6 @@ export const unaccountedTextOf = (read: ReadonlyArray<ReadPassage>, names: Reado
 export const listedOf = (verdicts: ReadonlyMap<string, TriageVerdict>): Array<PassageVerdict> =>
     [...verdicts.entries()].map(([id, verdict]) => ({ id, verdict }))
 
-/** How many tries in a row may fail before the truths work of a document is given up (the owner's AI-error rule: three in total). */
-export const MAX_ATTEMPTS = 3
-
 /** How long the model may take for one call, once its turn at the model has come. */
 export const CALL_TIMEOUT_MS = 180_000
 

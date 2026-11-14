@@ -57,15 +57,16 @@ const query1: Document = gql`
             }
             triggers {
                 name
-                kind
+                via
                 decided
-                recovery
+                withoutPoll {
+                    source
+                    reason {
+                        ...ProviderOfferWordsFields
+                    }
+                }
                 summary {
                     ...ProviderOfferWordsFields
-                }
-                batching {
-                    mode
-                    maxEvents
                 }
                 payload {
                     ...ProviderOfferMemberFields

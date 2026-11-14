@@ -11,6 +11,7 @@ import { parseMailConfig } from "@modules/integrations/mail"
 import { parsePassportConfig } from "@modules/integrations/passport"
 import { parsePrimaryDatabaseConfig } from "@modules/platform/database"
 import type { EnvSource } from "@modules/platform/config"
+import { parseSeedConfig } from "@modules/integrations/seed"
 
 /** Everything the lite cli needs: the PostgreSQL connection and the own-auth account administration. */
 export interface CliAppOptions {
@@ -38,6 +39,8 @@ export interface CliAppOptions {
     readonly channelProvisioning: ReturnType<typeof parseChannelProvisioningConfig>
     /** The key that signs the cursors of the entity engine, which holds the graph of each agent. */
     readonly entityEngine: ReturnType<typeof parseEntityEngineConfig>
+    /** The cache, the environment identity and the git author the seed standard driver works with. */
+    readonly seed: ReturnType<typeof parseSeedConfig>
 }
 
 /**
@@ -59,4 +62,5 @@ export const readCliEnv = (env: EnvSource): CliAppOptions => ({
         process.stdout.write(`${line}\n`)
     }),
     entityEngine: parseEntityEngineConfig(env),
+    seed: parseSeedConfig(env),
 })

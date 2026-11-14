@@ -25,6 +25,7 @@ export type Provider =
     | "json2video"
     | "misa_amis"
     | "misa_meinvoice"
+    | "model"
 
 /** `test` is the provider test mode: its money is not real, so the bank feed books none of its credits. */
 export type Environment = "test" | "live"
@@ -298,3 +299,13 @@ export interface SyncFacts {
 
 /** The id of a workspace's default SMTP connection; null when it has none. */
 export type OptionalConnectionId = string | null
+
+/** A live Zalo connection whose access token ends soon: the connection, its workspace and the end of the token (epoch milliseconds). */
+export interface DueZalo {
+    /** The connection. */
+    readonly id: string
+    /** The workspace of the connection. */
+    readonly workspaceId: string
+    /** When the access token ends, epoch milliseconds. */
+    readonly expiresAt: number
+}

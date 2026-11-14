@@ -1,4 +1,3 @@
-import { parseKnowledgeConfig } from "@modules/domain/knowledge"
 import { parseBillingConfig } from "@modules/domain/billing"
 import { parseConnectionPollConfig } from "@modules/domain/connection-poll"
 import { parseServerConfig, type EnvSource } from "@modules/platform/config"
@@ -7,6 +6,8 @@ import { parseHttpSecurityConfig } from "@modules/platform/http-security"
 import { parseJobsConfig } from "@modules/platform/jobs"
 import { parseJobsAlertConfig } from "@modules/domain/job-ops"
 import { parseQueueConfig } from "@modules/platform/queue"
+import { parseDataBackupConfig } from "@modules/domain/data-copies"
+import { parseSeedConfig } from "@modules/integrations/seed"
 import { parseRealtimeConfig } from "@modules/platform/realtime"
 import { parseChannelsConfig } from "@modules/domain/channels"
 import { parseConnectionSecretsConfig } from "@modules/domain/connection-secrets"
@@ -140,8 +141,6 @@ export interface ApiOptions {
     readonly channelSetup: ReturnType<typeof parseChannelSetupConfig>
     /** Deliveries to tenant-supplied webhook addresses. */
     readonly webhookDelivery: ReturnType<typeof parseWebhookDeliveryConfig>
-    /** The knowledge capability: the demo pacing knob of indexing (`KNOWLEDGE_INDEX_CHUNK_DELAY_MS`, 0 unless a demo asks). */
-    readonly knowledge: ReturnType<typeof parseKnowledgeConfig>
     /** The vector index (`QDRANT_URL` required, `QDRANT_API_KEY`): the only home of vectors. */
     readonly qdrant: ReturnType<typeof parseQdrantConfig>
     /** iNET's API host and call limit (the domain registrar; the key is per connection, sealed). */
@@ -172,6 +171,10 @@ export interface ApiOptions {
     readonly misaAmis: ReturnType<typeof parseMisaAmisConfig>
     /** MISA meInvoice's call limit (no operation is built: its documentation could not be read). */
     readonly misaMeinvoice: ReturnType<typeof parseMisaMeinvoiceConfig>
+    /** The scheduled backup of this environment (`DATA_BACKUP_*`): disabled with its reason when not declared. */
+    readonly dataBackup: ReturnType<typeof parseDataBackupConfig>
+    /** The git layer of the data standard (`SEED_STANDARD_CACHE`, the identity `SOPS_AGE_KEY_FILE`, the git author): the backup repository driver and the verify's open handle. */
+    readonly seed: ReturnType<typeof parseSeedConfig>
     /** The bounds of the LangGraph integration; reading them is also the guard that refuses a LangSmith tracing switch at boot. */
     readonly langgraph?: ReturnType<typeof parseLanggraphConfig>
     /** The thread runs' tunables (graphs kept, the stops' deadline windows). */
@@ -227,7 +230,6 @@ export const readApiEnv = (env: EnvSource): ApiOptions => ({
     meta: parseMetaConfig(env),
     channelSetup: parseChannelSetupConfig(env),
     webhookDelivery: parseWebhookDeliveryConfig(env),
-    knowledge: parseKnowledgeConfig(env),
     qdrant: parseQdrantConfig(env),
     inet: parseInetConfig(env),
     tino: parseTinoConfig(env),
@@ -243,4 +245,6 @@ export const readApiEnv = (env: EnvSource): ApiOptions => ({
     tiktok: parseTiktokConfig(env),
     misaAmis: parseMisaAmisConfig(env),
     misaMeinvoice: parseMisaMeinvoiceConfig(env),
+    dataBackup: parseDataBackupConfig(env),
+    seed: parseSeedConfig(env),
 })

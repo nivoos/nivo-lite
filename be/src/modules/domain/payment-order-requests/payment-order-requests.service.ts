@@ -1,12 +1,12 @@
 import { Injectable } from "@nestjs/common"
-import type { EntityManager } from "typeorm"
+import { In, type EntityManager } from "typeorm"
 import { BillingService } from "@modules/domain/billing"
 import { CreditsError, CreditsErrorCode, CreditsService } from "@modules/domain/credits"
-import { callDbFunction, InjectPrimaryEntityManager } from "@modules/platform/database"
-import { isDomainError } from "@modules/platform/errors"
+import { InjectPrimaryEntityManager } from "@modules/platform/database"
+import { deadLetterCauseOf, payloadOfJob, type ClaimedJob } from "@modules/platform/jobs"
+import { InjectQueueOutbox, type QueueOutbox } from "@modules/platform/queue"
+import { CREATE_PAYMENT_ORDER_JOB, isOrderRequestPayload, type OrderRequestPayload } from "@modules/queues/payment-order-request"
 import {
-    isPaymentOrderRequestPayload,
-    PAYMENT_ORDER_REQUEST_QUEUE,
     type PaymentOrderRequestParams,
     type PaymentOrderRequestStatusLookup,
     type QueuedPaymentOrderRequest,
@@ -18,13 +18,14 @@ import { PaymentOrderRequestEntity } from "./persistence/entities"
 
 @Injectable()
 /**
- * Creates authorized payment order requests and answers them with database prices through the existing fenced job.
+ * Creates authorized payment order requests and answers them with database prices through the create-payment-order job.
  */
 export class PaymentOrderRequestsService {
     constructor(
         @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
         private readonly billing: BillingService,
         private readonly credits: CreditsService,
+        @InjectQueueOutbox() private readonly outbox: QueueOutbox,
     ) {}
 
     /** Commits an authorized manager's request and its durable queue job together, then answers immediately. */
@@ -47,13 +48,11 @@ export class PaymentOrderRequestsService {
             if (identifier?.id === undefined) {
                 throw new PaymentOrderRequestsError({ code: PaymentOrderRequestsErrorCode.NotCreated })
             }
-            await callDbFunction(manager, "public.job_enqueue", [
-                params.workspaceId,
-                PAYMENT_ORDER_REQUEST_QUEUE,
-                PAYMENT_ORDER_REQUEST_QUEUE,
-                { workspaceId: params.workspaceId, requestId: identifier.id },
-                `payment-order-request:${identifier.id}`,
-            ])
+            const payload: OrderRequestPayload = { workspaceId: params.workspaceId, requestId: identifier.id }
+            await this.outbox.write(manager, CREATE_PAYMENT_ORDER_JOB.queue, payload, {
+                job: CREATE_PAYMENT_ORDER_JOB.name,
+                dedupeKey: CREATE_PAYMENT_ORDER_JOB.onceKey(payload),
+            })
             return { id: identifier.id, status: "queued" }
         })
     }
@@ -69,43 +68,47 @@ export class PaymentOrderRequestsService {
     }
 
     /**
-     * Handles one job payload. A payload of another shape or a request that is gone or already answered changes nothing; a
-     * refusal of the domain (not a manager, unknown plan, unpayable) is written to the request; any other failure is thrown so the
-     * job is retried.
+     * Makes the order of one request: the job's one domain method. A request that is gone or already answered is a typed end
+     * (nothing to do, returned); a request the dead letter closed as failed is open again when a person resumed the job. Any refusal
+     * THROWS (a domain refusal such as "not a manager" or "unknown plan" is class input, so it parks at once with one item, and the
+     * request row shows its stable code); the order is made once per request whatever number of runs (the request is the order's
+     * unique key), so a run killed between the order and its answer finds the order and only closes the request.
      */
-    async answer(payload: unknown): Promise<RequestOutcome> {
-        if (!isPaymentOrderRequestPayload(payload)) return "ignored"
+    async answer(job: ClaimedJob): Promise<RequestOutcome> {
+        const run = payloadOfJob(CREATE_PAYMENT_ORDER_JOB, job)
         const request = await this.entityManager.findOne(PaymentOrderRequestEntity, {
-            where: { id: payload.requestId, workspaceId: payload.workspaceId },
+            where: { id: run.requestId, workspaceId: run.workspaceId },
         })
-        if (request?.status !== "pending") return "ignored"
-        try {
-            const orderId = await this.place(request)
-            await this.close(request.id, undefined, { status: "done", orderId })
-            return "ordered"
-        } catch (cause) {
-            if (!isDomainError(cause)) throw cause
-            await this.close(request.id, undefined, { status: "failed", fault: cause.code })
-            return "failed"
-        }
+        if (request === null || request.status === "done") return "ignored"
+        if (request.status === "failed" && (job.resumeCount ?? 0) === 0) return "ignored"
+        const orderId = await this.place(request)
+        await this.close(request.id, { status: "done", orderId, fault: null })
+        return "ordered"
     }
 
-    /** Records the terminal failure after the queue has exhausted retries, preserving a stable code instead of exception prose. */
+    /**
+     * The job was dead-lettered: the request shows `failed` with the stable code of the refusal (a domain refusal's own code), or the
+     * general failure code for any other class, and a resume of the job opens it again.
+     */
     async fail(payload: unknown, cause: unknown): Promise<void> {
-        if (!isPaymentOrderRequestPayload(payload)) return
-        const code = isDomainError(cause) ? cause.code : PaymentOrderRequestsErrorCode.JobFailed
-        await this.close(payload.requestId, payload.workspaceId, { status: "failed", fault: code })
+        if (!isOrderRequestPayload(payload)) return
+        const dead = deadLetterCauseOf(cause)
+        const fault =
+            dead !== undefined && (dead.failureClass === "input" || dead.failureClass === "config")
+                ? dead.reason
+                : PaymentOrderRequestsErrorCode.JobFailed
+        await this.close(payload.requestId, { status: "failed", fault }, payload.workspaceId)
     }
 
-    /** Answers a request that is still pending; one already answered stays as it is. */
+    /** Answers a request that is not done yet (pending, or failed and being resumed); a done one stays as it is. */
     private async close(
         id: string,
-        workspaceId: string | undefined,
         answer: Pick<Partial<PaymentOrderRequestEntity>, "status" | "orderId" | "fault">,
+        workspaceId?: string,
     ): Promise<void> {
         await this.entityManager.update(
             PaymentOrderRequestEntity,
-            { id, status: "pending", ...(workspaceId === undefined ? {} : { workspaceId }) },
+            { id, status: In(["pending", "failed"]), ...(workspaceId === undefined ? {} : { workspaceId }) },
             { ...answer, answeredAt: () => "now()" },
         )
     }
@@ -123,6 +126,7 @@ export class PaymentOrderRequestsService {
     }
 
     private async place(request: PaymentOrderRequestEntity): Promise<string> {
+        const requestId = request.id
         const userId = request.requestedBy
         const workspaceId = request.workspaceId
         const target = request.target ?? ""
@@ -137,16 +141,17 @@ export class PaymentOrderRequestsService {
                             tierCredits: request.tierCredits,
                             seats: request.seats ?? 1,
                         },
+                        requestId,
                     })
                 ).order.id
             case "renew":
-                return (await this.billing.renew(userId, { workspaceId })).order.id
+                return (await this.billing.renew(userId, { workspaceId, requestId })).order.id
             case "topup":
-                return (await this.credits.topup(userId, { workspaceId, packCode: target })).order.id
+                return (await this.credits.topup(userId, { workspaceId, packCode: target, requestId })).order.id
             case "credit_pack":
-                return (await this.credits.creditPack(userId, { workspaceId, credits: Number(target) })).order.id
+                return (await this.credits.creditPack(userId, { workspaceId, credits: Number(target), requestId })).order.id
             case "upgrade":
-                return (await this.credits.upgrade(userId, { workspaceId, planCode: target })).payable.order.id
+                return (await this.credits.upgrade(userId, { workspaceId, planCode: target, requestId })).payable.order.id
         }
     }
 }

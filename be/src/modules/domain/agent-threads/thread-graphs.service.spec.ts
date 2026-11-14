@@ -133,11 +133,13 @@ describe("ThreadGraphsService", () => {
     })
 
     it("refuses by name a version that does not compile or holds no graph, and closes the run as failed", async () => {
-        const { service, projection, graphs } = await build(undefined, ["chatbot.understand"])
+        const { service, projection, graphs } = await build()
+        const desk = frontDesk()
+        const broken = { ...desk, nodes: desk.nodes.map((node, index) => (index === 0 ? { ...node, next: "nowhere" } : node)) }
 
-        await expect(service.routed(REF, { versionId: "v-1", flow: frontDesk(), number: 4 })).rejects.toMatchObject({
+        await expect(service.routed(REF, { versionId: "v-1", flow: broken, number: 4 })).rejects.toMatchObject({
             code: AgentThreadsErrorCode.TemplateRefused,
-            params: { version: "v-1", problem: "TEMPLATE_STEP_UNKNOWN" },
+            params: { version: "v-1", problem: "TEMPLATE_TARGET_UNKNOWN" },
         })
         graphs.versionAt.mockResolvedValue({ version: 1, document: { nodes: [] } })
         await expect(service.pinned(REF, "agent-1", "v-2")).rejects.toMatchObject({
@@ -148,9 +150,63 @@ describe("ThreadGraphsService", () => {
         expect(projection.runEnded).toHaveBeenCalledTimes(2)
         expect(projection.runEnded).toHaveBeenCalledWith(REF, {
             outcome: "failed",
-            code: "TEMPLATE_STEP_UNKNOWN",
+            code: "TEMPLATE_TARGET_UNKNOWN",
             by: null,
             at: new Date(NOW),
         })
+    })
+
+    it("rule Q-5: builds a pinned version whose node is no longer installed; that step reaches the step service marked, nothing is refused", async () => {
+        const { service, steps, projection } = await build()
+        const desk = frontDesk()
+        const missing = desk.nodes.find((node) => node.step === "chatbot.understand")
+        // A release removed the node the pinned version names: its step id is installed nowhere.
+        const flow = { ...desk, nodes: desk.nodes.map((node) => (node === missing ? { ...node, step: "chatbot.gone" } : node)) }
+
+        const graph = await service.routed(REF, { versionId: "v-1", flow, number: 4 })
+        const gone = graph.nodes.find((node) => node.key === missing?.key)
+        const hear = graph.nodes[0]
+        await service.driving("run-1", RUN, async () => {
+            await hear?.run(STATE, scopeOf("run-1"))
+            await gone?.run(STATE, scopeOf("run-1"))
+        })
+
+        expect(projection.runEnded).not.toHaveBeenCalled()
+        expect(steps.run).toHaveBeenCalledWith(
+            expect.objectContaining({ step: expect.objectContaining({ key: missing?.key, refusal: "graph_node_missing" }) }),
+            STATE,
+            expect.anything(),
+        )
+        expect(steps.run).toHaveBeenCalledWith(
+            expect.objectContaining({ step: expect.not.objectContaining({ refusal: expect.anything() }) }),
+            STATE,
+            expect.anything(),
+        )
+    })
+
+    it("rule RE-DRIVE SPENT: a drive that refuses steps hands those steps (only) to the step service marked, for that run only", async () => {
+        const { service, steps } = await build()
+        const graph = await service.routed(REF, { versionId: "v-1", flow: frontDesk(), number: 4 })
+        const hear = graph.nodes[0]
+
+        await service.driving("run-1", { ...RUN, refuse: { stepKeys: ["hear"], code: "thread_redrive_exhausted" } }, async () => {
+            await hear?.run(STATE, scopeOf("run-1"))
+        })
+        await service.driving("run-1", RUN, async () => {
+            await hear?.run(STATE, scopeOf("run-1"))
+        })
+
+        expect(steps.run).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({ step: expect.objectContaining({ key: "hear", refusal: "thread_redrive_exhausted" }) }),
+            STATE,
+            expect.anything(),
+        )
+        expect(steps.run).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({ step: expect.not.objectContaining({ refusal: expect.anything() }) }),
+            STATE,
+            expect.anything(),
+        )
     })
 })

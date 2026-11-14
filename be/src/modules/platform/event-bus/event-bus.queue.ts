@@ -35,8 +35,5 @@ export const INSTALLATION_CHANGED_AGENT_WAKES_TOPIC_QUEUE = "installation_change
 /** The event name and pgmq topic of `connection_ready`. */
 export const CONNECTION_READY_TOPIC = "connection_ready"
 
-/** The queue of the `bank_feed_poll` consumer of `connection_ready`. */
-export const CONNECTION_READY_BANK_FEED_POLL_TOPIC_QUEUE = "connection_ready__bank_feed_poll"
-
-/** The queue of the `zalo_inbox_poll` consumer of `connection_ready`. */
-export const CONNECTION_READY_ZALO_INBOX_POLL_TOPIC_QUEUE = "connection_ready__zalo_inbox_poll"
+/** The queue of the `connection_poll` consumer of `connection_ready`: the one poll job makes the account ready and hot. */
+export const CONNECTION_READY_CONNECTION_POLL_TOPIC_QUEUE = "connection_ready__connection_poll"

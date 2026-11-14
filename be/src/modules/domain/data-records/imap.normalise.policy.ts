@@ -4,7 +4,9 @@ import {
     IMAP_HEADER_ID_MAX,
     IMAP_MAIL_ID_MAX,
     IMAP_MAIL_TEXT_MAX,
+    IMAP_HEADER_TEXT_MAX,
     IMAP_MAIL_TYPE,
+    IMAP_REFERENCES_MAX,
     IMAP_SUBJECT_MAX,
 } from "./imap.data-types"
 
@@ -34,6 +36,13 @@ const optionalBoolean = (name: string, value: unknown): Readonly<Record<string, 
 const optionalJson = (name: string, value: unknown): Readonly<Record<string, unknown>> =>
     value === undefined || value === null ? {} : { [name]: value }
 
+/** The thread's ids as the poll read them (the newest end kept, each cut to a header id's bound); absent when none. */
+const referencesOf = (value: unknown): Readonly<Record<string, ReadonlyArray<string>>> => {
+    if (!Array.isArray(value)) return {}
+    const ids = value.filter((one): one is string => typeof one === "string" && one !== "").map((one) => one.slice(0, IMAP_HEADER_ID_MAX))
+    return ids.length === 0 ? {} : { references: ids.slice(-IMAP_REFERENCES_MAX) }
+}
+
 /** The ISO instant of the mail's date, or none when the sync knew none (or it is no date). */
 const dateOf = (value: DataRecordInput["occurredAt"]): Readonly<Record<string, string>> => {
     if (value === undefined || value === null) return {}
@@ -50,7 +59,7 @@ const uidOf = (row: DataRecordInput): number | null => {
 }
 
 /**
- * One mail row of the IMAP sync as the `imap.mail` value: the head, the text (cut to the declared 20 KB), the attachments, the date.
+ * One mail row of the IMAP poll as the `imap.mail` value: the head, the text (cut to the declared 20 KB), the attachments, the date.
  * The hub row's `title` is not kept: it is the subject (both are the parsed `Subject`, or empty). Null when the row has no usable id
  * (empty, or longer than the hub kept) or no UID, so one odd row never refuses its batch.
  */
@@ -75,10 +84,14 @@ export const imapMailValueOf = (row: DataRecordInput): OptionalImapMailValue => 
         attachments,
         ...optionalText("messageId", data.messageId, IMAP_HEADER_ID_MAX),
         ...optionalText("inReplyTo", data.inReplyTo, IMAP_HEADER_ID_MAX),
+        ...referencesOf(data.references),
+        ...optionalText("autoSubmitted", data.autoSubmitted, IMAP_HEADER_TEXT_MAX),
+        ...optionalText("precedence", data.precedence, IMAP_HEADER_TEXT_MAX),
+        ...optionalText("returnPath", data.returnPath, IMAP_HEADER_TEXT_MAX),
     }
 }
 
-/** The `imap.mail` inputs of a batch of the IMAP sync's rows, in order; a row with no usable id is left out (as the hub skipped it). */
+/** The `imap.mail` inputs of a batch of the IMAP poll's rows, in order; a row with no usable id is left out (as the hub skipped it). */
 export const imapMailInputsOf = (rows: ReadonlyArray<DataRecordInput>): ReadonlyArray<ImapMailInput> =>
     rows.flatMap((row) => {
         const value = imapMailValueOf(row)

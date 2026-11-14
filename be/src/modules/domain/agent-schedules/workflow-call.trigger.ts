@@ -33,7 +33,23 @@ export const WORKFLOW_CALL_TRIGGER: TriggerDeclaration<WorkflowCallRaw, Workflow
     provider: PROVIDER.nivo,
     name: WORKFLOW_CALLED,
     verb: TRIGGER.workflowCalled,
-    via: "internal",
+    via: ["internal"],
+    // A call is a job of the workflow-start queue written in the caller's transaction (outbox row, once key = the caller's key): a crash
+    // is redelivered by the broker, a failure runs the `waited` ladder, then parks with one item that the parked-jobs sweep can hand back.
+    withoutPoll: {
+        reason: {
+            vi: "Lời gọi quy trình là một việc ghi cùng giao dịch với bên gọi (workflow-start.deliver): lỗi thì thử lại theo bậc, rồi dừng kèm một mục cho người xử lý.",
+            en: "A workflow call is a job written in the caller's own transaction (workflow-start.deliver): a failure is retried on the ladder, then parked with one item for a person.",
+        },
+        source: "nivo:workflow-start.deliver",
+    },
+    words: {
+        title: { vi: "Quy trình · được gọi", en: "Workflow · called" },
+        summary: {
+            vi: "Một quy trình khác (hoặc một việc định sẵn) gọi quy trình này và đưa dữ liệu vào.",
+            en: "Another workflow (or a declared job) calls this workflow and hands it its inputs.",
+        },
+    },
     raw: z.object({ key: z.string(), params: z.record(z.string(), z.unknown()) }),
     data: z.record(z.string(), z.unknown()),
     translate: translateWorkflowCall,

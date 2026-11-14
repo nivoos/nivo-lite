@@ -16,6 +16,8 @@ export enum ProviderTriggersErrorCode {
     DeclarationTaken = "PROVIDER_TRIGGERS_DECLARATION_TAKEN",
     /** A delivery named a declaration that is not the one registered for its source and name. */
     DeclarationUnknown = "PROVIDER_TRIGGERS_DECLARATION_UNKNOWN",
+    /** A declaration combines its events as a `stream` but feeds no stream of the engine (it declares no `line`): a boot error. */
+    DeclarationStreamless = "PROVIDER_TRIGGERS_DECLARATION_STREAMLESS",
 }
 
 /** How each provider triggers code travels. */
@@ -27,6 +29,7 @@ export const PROVIDER_TRIGGERS_ERROR_KINDS: Record<ProviderTriggersErrorCode, Er
     [ProviderTriggersErrorCode.NotAttached]: "invalid",
     [ProviderTriggersErrorCode.DeclarationTaken]: "conflict",
     [ProviderTriggersErrorCode.DeclarationUnknown]: "invalid",
+    [ProviderTriggersErrorCode.DeclarationStreamless]: "invalid",
 }
 
 /** The one error class of the provider triggers capability. */

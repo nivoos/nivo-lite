@@ -1,5 +1,5 @@
 import { Test } from "@nestjs/testing"
-import { Not } from "typeorm"
+import { LessThan, Not } from "typeorm"
 import {
     builder,
     fakeTransaction,
@@ -17,7 +17,7 @@ import { JOBS_MANAGERS, JOBS_OPTIONS } from "./jobs.decorators"
 import { JobsLogEvent } from "./jobs.log-events"
 import type { JobsOptions } from "./jobs.options"
 import { ParkedJobCloseService } from "./parked-job-close.service"
-import { ParkedJobResumerService } from "./parked-job-resumer.service"
+import { AUTO_RESUMES, ParkedJobResumerService } from "./parked-job-resumer.service"
 import { JobEntity } from "./persistence/entities"
 
 const WS = "11111111-1111-4111-8111-111111111111"
@@ -60,7 +60,7 @@ const build = async (em: MockEntityManager, buildId?: string) => {
 }
 
 describe("ParkedJobResumerService resume", () => {
-    it("hands every parked job back to its queue under the next resume key and gives the row the new delivery's key", async () => {
+    it("hands every parked job the tick may retry back to its queue under the next resume key and gives the row the new delivery's key", async () => {
         const em = mockEntityManager({
             find: [JobEntity, [parkedJob("j-1", {}), parkedJob("j-2", {})]],
             update: [JobEntity, {}],
@@ -102,7 +102,6 @@ describe("ParkedJobResumerService resume", () => {
                 failureClass: null,
                 parkedBuild: null,
                 parkedAt: null,
-                alertedAt: null,
                 error: null,
             },
         )
@@ -114,6 +113,46 @@ describe("ParkedJobResumerService resume", () => {
         )
         expect(transaction.outcomes).toEqual(["commit", "commit"])
         expect(logger.info).toHaveBeenCalledWith(JobsLogEvent.Resumed, { jobId: "j-1", resumeCount: 2 })
+    })
+})
+
+describe("ParkedJobResumerService a person's resume", () => {
+    it("hands the job back and opens a new park episode: the alert of the last one is forgotten so the next park raises a new item", async () => {
+        const em = mockEntityManager({ find: [JobEntity, [parkedJob("j-1", {})]], update: [JobEntity, {}], query: [ENQUEUE_SQL, [{ job_enqueue: "d-1" }]] })
+        fakeTransaction(em)
+        queueQueryBuilders(em, [{ getOne: parkedJob("j-1", {}) }])
+        const { resumer } = await build(em)
+
+        await expect(resumer.resume("j-1")).resolves.toBe(1)
+
+        expect(em.update).toHaveBeenCalledWith(
+            JobEntity,
+            { id: "j-1" },
+            {
+                jobKey: "d-1",
+                status: "failed",
+                resumeCount: 2,
+                failureClass: null,
+                parkedBuild: null,
+                parkedAt: null,
+                alertedAt: null,
+                error: null,
+            },
+        )
+    })
+
+    it("treats a sweep delivery that names a job as the person's resume of that job, whatever its class", async () => {
+        const em = mockEntityManager({ find: [JobEntity, []] })
+        const { resumer } = await build(em)
+
+        await expect(resumer.sweep({ jobId: "j-7" })).resolves.toBe(0)
+
+        expect(em.find).toHaveBeenCalledWith(JobEntity, {
+            select: { id: true },
+            where: { id: "j-7", status: "failed_awaiting_fix" },
+            order: { parkedAt: "ASC" },
+            take: 100,
+        })
     })
 })
 
@@ -233,29 +272,47 @@ describe("ParkedJobResumerService boot and sweep", () => {
         expect(outbox.jobs).toEqual([])
     })
 
-    it("hands back the jobs parked under any other build when the sweep names one", async () => {
-        const em = mockEntityManager({ find: [JobEntity, []] })
+    it("hands back every class of dead letter parked under any other build when the sweep names one, and the machine keeps the episode's alert", async () => {
+        const em = mockEntityManager({
+            find: [JobEntity, [parkedJob("j-1", {})]],
+            update: [JobEntity, {}],
+            query: [ENQUEUE_SQL, [{ job_enqueue: "d-1" }]],
+        })
+        fakeTransaction(em)
+        queueQueryBuilders(em, [{ getOne: parkedJob("j-1", {}) }])
         const { resumer } = await build(em)
 
-        await expect(resumer.sweep({ build: "build-2" })).resolves.toBe(0)
+        await expect(resumer.sweep({ build: "build-2" })).resolves.toBe(1)
+
         expect(em.find).toHaveBeenCalledWith(JobEntity, {
             select: { id: true },
             where: { parkedBuild: Not("build-2"), status: "failed_awaiting_fix" },
             order: { parkedAt: "ASC" },
             take: 100,
         })
+        expect(em.update.mock.calls[0]?.[2]).not.toHaveProperty("alertedAt")
     })
 
-    it("hands back every parked job when the sweep names no build", async () => {
+    it("hands back by the tick only transient dead letters, each at most three times", async () => {
         const em = mockEntityManager({ find: [JobEntity, []] })
         const { resumer } = await build(em)
 
         await expect(resumer.sweep({})).resolves.toBe(0)
         expect(em.find).toHaveBeenCalledWith(JobEntity, {
             select: { id: true },
-            where: { status: "failed_awaiting_fix" },
+            where: { failureClass: "transient", resumeCount: LessThan(AUTO_RESUMES), status: "failed_awaiting_fix" },
             order: { parkedAt: "ASC" },
             take: 100,
         })
+        expect(AUTO_RESUMES).toBe(3)
+    })
+
+    it("answers the same pass from resumeAll as from a tick", async () => {
+        const em = mockEntityManager({ find: [JobEntity, []] })
+        const { resumer } = await build(em)
+
+        await resumer.resumeAll()
+
+        expect(em.find.mock.calls[0]?.[1]).toMatchObject({ where: { failureClass: "transient" } })
     })
 })

@@ -105,7 +105,20 @@ describe("ProviderSandboxAccountsService (the Sandbox page's doors, rulings R58,
                 { path, status: 200, body: { success: true } },
                 { path, status: 200, body: { success: true } },
             ],
+            webhookDropped: false,
         })
+        const calls = await sandbox.calls(SANDBOX, "inbound")
+        expect(calls).toHaveLength(1)
+        expect(calls[0]).toMatchObject({ key: "BANK-1", request: { caseId: "BANK-1", input: { content: "NIVO DH1", amount: 350000 } } })
+    })
+
+    it("DROPS the webhook on request: the case is recorded as the provider would remember it (one inbound call), nothing is posted", async () => {
+        const { doors, poster, sandbox } = doorsOf(true)
+
+        const sent = await doors.send(ACTOR, SANDBOX.id, "BANK-1", { content: "NIVO DH1", amount: 350000 }, { dropWebhook: true })
+
+        expect(poster.posts).toEqual([])
+        expect(sent).toEqual({ caseId: "BANK-1", input: { content: "NIVO DH1", amount: 350000 }, deliveries: [], webhookDropped: true })
         const calls = await sandbox.calls(SANDBOX, "inbound")
         expect(calls).toHaveLength(1)
         expect(calls[0]).toMatchObject({ key: "BANK-1", request: { caseId: "BANK-1", input: { content: "NIVO DH1", amount: 350000 } } })
@@ -149,6 +162,22 @@ describe("ProviderSandboxAccountsService (the Sandbox page's doors, rulings R58,
         for (const _ of [1, 2]) await sandbox.call(SANDBOX, "renew", {}, { answer: (state) => seen.push(state.nextCase) })
         expect(seen).toEqual(["BANK-3", "BANK-3"])
         await expect(doors.setNextCase(ACTOR, SANDBOX.id, "BANK-1")).rejects.toMatchObject({ code: ProviderSandboxErrorCode.CaseUnknown })
+    })
+
+    it("a pick with a SCOPE holds for that narrower key only (the model's purpose), leaves the operation's pick alone; a blank scope is refused", async () => {
+        const { doors, sandbox } = doorsOf(true)
+
+        await expect(doors.setNextCase(ACTOR, SANDBOX.id, "BANK-3", "renew:urgent")).resolves.toEqual({
+            operation: "renew:urgent",
+            caseId: "BANK-3",
+            isDefault: false,
+        })
+        expect(await doors.nextCases(ACTOR, SANDBOX.id)).toEqual([{ operation: "renew", caseId: "BANK-2", isDefault: true }])
+        const seen: Array<string | null> = []
+        await sandbox.call(SANDBOX, "renew:urgent", {}, { answer: (state) => seen.push(state.nextCase) })
+        await sandbox.call(SANDBOX, "renew", {}, { answer: (state) => seen.push(state.nextCase) })
+        expect(seen).toEqual(["BANK-3", null])
+        await expect(doors.setNextCase(ACTOR, SANDBOX.id, "BANK-3", "  ")).rejects.toMatchObject({ code: ProviderSandboxErrorCode.InputInvalid })
     })
 
     it("refuses a live or unknown account at the account doors", async () => {

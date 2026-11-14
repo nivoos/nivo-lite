@@ -1,9 +1,8 @@
 import type { GraphSpec } from "@nivo-lite/agent-sdk/graph"
 import { TOOL } from "@nivo-lite/agent-sdk/names"
-import { nodeIndexOf } from "@nivo-lite/agent-sdk/node"
 import { AgentGraphsErrorCode } from "@modules/domain/agent-graphs/errors/agent-graphs.error"
 import { GRAPH_TEMPLATE_EDITED, requireSoundFlow, sameFlow, templateFlowProblems } from "@modules/domain/agent-graphs/policies/flow.policy"
-import { graphWithNodeMode } from "@modules/domain/agent-graphs/policies/node-mode-override.policy"
+import { graphWithNodeSettings } from "@modules/domain/agent-graphs/policies/node-settings.policy"
 import { INSTALLED } from "@modules/domain/installed-plugins"
 import { DESK_AGENT, DESK_FRONT } from "@tests/fixtures/builders/thread-desk-plugin.builder"
 import { ANSWER, CONTACT, CONV, UNDERSTAND, ZALO, itemsOf, processOf, refOf, startThread, stopsOf, threadDbOf, type ThreadDb } from "./thread-world"
@@ -27,12 +26,11 @@ jest.mock("@nivo-lite/plugin-registry", () => {
 // case's kind (a step that sends a line to the person of the route, the front desk's `answer`); `node-mode-setting-write.spec.ts` proves
 // the same rule on a different kind of workflow (a plain record write with no person).
 // Real: the save judgement (`requireSoundFlow`, the one the workflow store runs on every publish), the door's pure change of one mode
-// (`graphWithNodeMode`, what the owner door writes), the thread engine, the tool door judging the mode of the PINNED version, the approvals.
+// (`graphWithNodeSettings`, what the owner door writes), the thread engine, the tool door judging the mode of the PINNED version, the approvals.
 
-const INDEX = nodeIndexOf(INSTALLED.nodeInstall())
 
-/** What the owner door treats as an engine control step (the admin service's own test). */
-const isControl = (step: string): boolean => INSTALLED.stepOf(step)?.control === true
+/** The door's refusal of a setting the step does not take (the admin service throws its typed code). */
+const unsettable = (key: string): Error => new Error(`unsettable ${key}`)
 
 /** The front desk as the install reads it: what an adopted workflow stores as its first version. */
 const adopted = (): GraphSpec => {
@@ -43,7 +41,7 @@ const adopted = (): GraphSpec => {
 
 /** The owner door's change, then the store's round trip (the stored document is JSON). */
 const set = (graph: GraphSpec, mode: "auto" | "ask"): GraphSpec => {
-    const changed = graphWithNodeMode(graph, "answer", mode, isControl)
+    const changed = graphWithNodeSettings(graph, "answer", { mode }, unsettable)
     if (changed === null) throw new Error("the mode did not change")
     const stored: GraphSpec = JSON.parse(JSON.stringify(changed))
     return stored
@@ -75,7 +73,7 @@ describe("a node's mode is the shop's setting on its copy of an installed templa
         const asking = set(adopted(), "ask")
 
         expect(templateFlowProblems(asking)).toEqual([])
-        expect(() => requireSoundFlow(asking, INDEX)).not.toThrow()
+        expect(() => requireSoundFlow(asking)).not.toThrow()
         expect(asking.nodes.find((node) => node.key === "answer")?.mode).toBe("ask")
 
         const back = set(asking, "auto")
@@ -96,7 +94,7 @@ describe("a node's mode is the shop's setting on its copy of an installed templa
 
         expect(templateFlowProblems(params)).toEqual([{ code: GRAPH_TEMPLATE_EDITED, at: DESK_AGENT }])
         expect(templateFlowProblems(control)).toEqual([{ code: GRAPH_TEMPLATE_EDITED, at: DESK_AGENT }])
-        expect(() => requireSoundFlow(params, INDEX)).toThrow(expect.objectContaining({ code: AgentGraphsErrorCode.PublishRefused }))
+        expect(() => requireSoundFlow(params)).toThrow(expect.objectContaining({ code: AgentGraphsErrorCode.PublishRefused }))
     })
 
     it("a run pinned to the version with `ask` stops at the send for a person's yes; nothing is said yet", async () => {

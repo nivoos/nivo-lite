@@ -1,3 +1,4 @@
+import type { EntityManager } from "typeorm"
 /** The type of one member of a stored value: what the engine's schema and the generated CHECK of the member hold it to. */
 export type AccountFieldType = "text" | "integer" | "number" | "boolean" | "timestamp" | "json"
 
@@ -124,6 +125,26 @@ export interface PendingRow {
     readonly value: AccountValue
 }
 
+/** A row the intake just inserted (new), handed to its type's admission: the row, its account and the value as written. */
+export interface AdmittedRow {
+    /** The row id. */
+    readonly id: string
+    /** The type. */
+    readonly type: string
+    /** The row key as stored. */
+    readonly key: string
+    /** The account the row belongs to. */
+    readonly owner: AccountOwner
+    /** The value as written. */
+    readonly value: object
+}
+
+/**
+ * What a new row of a `wakes` type does next, as its provider declares it (its door's tail: queue its consumer for the row, or complete
+ * it at once), in the transaction that wrote it.
+ */
+export type AccountAdmission = (tx: EntityManager, row: AdmittedRow) => Promise<void>
+
 /** A pending row, or null when there is none (absent or already completed). */
 export type OptionalPendingRow = PendingRow | null
 
@@ -143,6 +164,8 @@ export interface StoredRow {
     readonly occurredAt: Date
     /** When its consumer completed it; null while pending and for types that do not wake. */
     readonly processedAt: Date | null
+    /** The id of the earlier row that reported the same fact (a trigger's `factKey`); null on the first row of a fact and on a row with none. */
+    readonly sameFactOf?: string | null | undefined
 }
 
 /** A stored row, or null when the account holds none (or it expired). */
@@ -360,6 +383,8 @@ export interface AccountDataRowView {
     readonly occurredAt: string
     /** The value, as the provider sent it. */
     readonly value: Readonly<Record<string, unknown>>
+    /** The id of the earlier row that reported the same fact (the engine did not deliver this one again); null otherwise. */
+    readonly sameFactOf: string | null
 }
 
 /** The rows of one type of an account, or why none were read. */

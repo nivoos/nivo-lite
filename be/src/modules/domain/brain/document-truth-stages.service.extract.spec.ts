@@ -11,6 +11,7 @@ import type { AiService } from "@modules/integrations/ai"
 import { CLOCK } from "@modules/platform/clock"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
+import { chainProviders, claimedJob } from "@tests/fixtures/builders/knowledge-chain.builder"
 import { DocumentTruthStagesService } from "./document-truth-stages.service"
 import { SKIPPED_VERSION, SYSTEM_PROMPT, TRUTHS_VERSION } from "./extraction.policy"
 import { FactEmbeddingsService } from "./fact-embeddings.service"
@@ -24,7 +25,10 @@ const WS = DOC_WS
 const SOURCE = DOC_SOURCE
 const source = stageSource
 
+const JOB = claimedJob({ sourceId: "s1" })
+
 const build = async () => {
+    const chain = chainProviders()
     const ai = mock<AiService>()
     const logger = mock<Logger>()
     const facts = mock<BrainFactsService>()
@@ -36,6 +40,7 @@ const build = async () => {
     scriptStageDoubles({ ai, usage, vectors, nature })
     const moduleRef = await Test.createTestingModule({
         providers: [
+            ...chain.providers,
             DocumentTruthStagesService,
             ModelJsonService,
             { provide: AI, useValue: ai },
@@ -50,7 +55,7 @@ const build = async () => {
             { provide: WorkspaceTimeZoneService, useValue: mock<WorkspaceTimeZoneService>({ timeZoneOf: () => Promise.resolve("Asia/Ho_Chi_Minh") }) },
         ],
     }).compile()
-    return { service: moduleRef.get(DocumentTruthStagesService), ai, facts, extractions, chunks, usage, vectors, logger, nature }
+    return { service: moduleRef.get(DocumentTruthStagesService), chain, ai, facts, extractions, chunks, usage, vectors, logger, nature }
 }
 
 describe("DocumentTruthStagesService extract", () => {
@@ -68,7 +73,7 @@ describe("DocumentTruthStagesService extract", () => {
             }),
         ]
 
-        const result = await t.service.extract({ source, passages, state: STAGES_STATE })
+        const result = await t.service.extract({ job: JOB, source, passages, state: STAGES_STATE })
 
         expect(result).toMatchObject({ end: "done", state: { done: 1, filed: 1, model: "haiku" } })
         expect(result.passages[0]?.truthsVersion).toBe(TRUTHS_VERSION)
@@ -100,7 +105,7 @@ describe("DocumentTruthStagesService extract", () => {
             stagePassageOf(index, `${STAGES_RULE} (${String(index)})`, { triage: "rule", triageVersion: TRIAGE_VERSION }),
         )
 
-        const result = await t.service.extract({ source, passages, state: STAGES_STATE })
+        const result = await t.service.extract({ job: JOB, source, passages, state: STAGES_STATE })
 
         expect(result).toMatchObject({ end: "budget", left: 1, state: { done: 10 } })
         expect(t.ai.chat).toHaveBeenCalledTimes(10)
@@ -119,7 +124,7 @@ describe("DocumentTruthStagesService extract: one window never abandons its part
             // The other passages of window 2 state the same rule again: listed as skipped, every line accounted for.
             .mockResolvedValueOnce(stageReply(["1|policy|Shipping inside the city|fee|30.000 VND|-|-|-", "2|skip|L1|duplicate", "3|skip|L1|duplicate", "4|skip|L1|duplicate"].join("\n")))
 
-        const result = await t.service.extract({ source, passages: stageRulesOf(8), state: STAGES_STATE })
+        const result = await t.service.extract({ job: JOB, source, passages: stageRulesOf(8), state: STAGES_STATE })
 
         expect(result).toMatchObject({ end: "done", state: { done: 2, filed: 1, attempts: 0 } })
         expect(t.ai.chat).toHaveBeenCalledTimes(3)
@@ -154,7 +159,7 @@ describe("DocumentTruthStagesService extract: one window never abandons its part
             .mockResolvedValueOnce(stageReply("2|business|Shop|opening hours|8h-21h|-|-|-"))
             .mockResolvedValueOnce(stageReply("1|business|Shop|opening hours|8h-21h|-|-|-\n2|skip|L1|unclear"))
 
-        const result = await t.service.extract({ source, passages, state: STAGES_STATE })
+        const result = await t.service.extract({ job: JOB, source, passages, state: STAGES_STATE })
 
         expect(result).toMatchObject({ end: "done", state: { filed: 1 } })
         expect(t.ai.chat).toHaveBeenCalledTimes(2)
@@ -171,7 +176,7 @@ describe("DocumentTruthStagesService extract: one window never abandons its part
         t.facts.propose.mockImplementation((_ws, input) => filedAs(`f-${input.value}`, input.value))
         t.ai.chat.mockResolvedValueOnce(stageReply("Here:\n1|policy|Shipping inside the city|fee|30.000 VND|-|-|-"))
 
-        await t.service.extract({ source, passages: stageRulesOf(1), state: STAGES_STATE })
+        await t.service.extract({ job: JOB, source, passages: stageRulesOf(1), state: STAGES_STATE })
 
         expect(t.facts.propose).toHaveBeenCalledTimes(1)
         expect(t.extractions.note).toHaveBeenCalledWith(
@@ -191,7 +196,7 @@ describe("DocumentTruthStagesService extract: no line of rule material is silent
         const passages = [stagePassageOf(0, list, { triage: "rule", triageVersion: TRIAGE_VERSION })]
         t.ai.chat.mockResolvedValue(stageReply("1|service|Shirt washing|price|20,000 VND|-|-|-"))
 
-        await t.service.extract({ source, passages, state: STAGES_STATE })
+        await t.service.extract({ job: JOB, source, passages, state: STAGES_STATE })
 
         expect(t.ai.chat).toHaveBeenCalledTimes(2)
         expect(t.ai.chat.mock.calls[1]?.[0].messages[3]?.content).toContain("1:L2")

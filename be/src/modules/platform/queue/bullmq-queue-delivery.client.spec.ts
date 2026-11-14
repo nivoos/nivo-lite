@@ -14,7 +14,7 @@ import type { QueueDelivery, QueueHandler } from "./queue.contracts"
 import { QUEUE_OPTIONS } from "./queue.decorators"
 import { QueueLogEvent } from "./queue.log-events"
 import type { QueueOptions } from "./queue.options"
-import { deferMsOf } from "./queue.policy"
+import { ATTEMPTS, deferMsOf } from "./queue.policy"
 import type { BullmqJob, QueueRedisGuard } from "./queue-transport.port"
 import type { QueueStartRow } from "./persistence/queue.rows"
 
@@ -345,7 +345,7 @@ describe("failure settlement", () => {
 
 describe("failure dead letters", () => {
     it("exhausts the durable attempt budget without requiring a failure hook or reporter", async () => {
-        const { client, em, redis } = await build(started(4), false)
+        const { client, em, redis } = await build(started(ATTEMPTS), false)
         const handler: QueueHandler = {
             queue: "knowledge",
             job: "index",

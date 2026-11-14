@@ -300,6 +300,46 @@ describe("TeamChatStoreService storing a text", () => {
     })
 })
 
+describe("TeamChatStoreService storing a text together with what it owes", () => {
+    const text = { workspaceId: WS, roomId: ROOM, authorId: ANA, body: "hi", clientId: "c1", mentions: [], attachments: [] }
+
+    it("runs what the message owes in the SAME transaction as its row, and commits both", async () => {
+        const em = mockEntityManager({ insert: [ChatRoomMessageEntity, {}], findOneOrFail: [ChatRoomMessageEntity, message] })
+        const tx = fakeTransaction(em)
+        const store = await build(em)
+        const within = jest.fn().mockResolvedValue(undefined)
+
+        await expect(store.insertTextWith(text, within)).resolves.toBe(message)
+
+        expect(within).toHaveBeenCalledWith(expect.anything(), message)
+        expect(tx.rollbacks).toBe(0)
+        expect(tx.committedWrites).toMatchObject([{ method: "insert", args: [ChatRoomMessageEntity, expect.objectContaining({ id: NEW_ID })] }])
+    })
+
+    it("rolls the row back when what the message owes fails, so the message is never stored without it", async () => {
+        const em = mockEntityManager({ insert: [ChatRoomMessageEntity, {}], findOneOrFail: [ChatRoomMessageEntity, message] })
+        const tx = fakeTransaction(em)
+        const store = await build(em)
+
+        await expect(store.insertTextWith(text, () => Promise.reject({ code: "40001" }))).rejects.toEqual({ code: "40001" })
+
+        expect(tx.rollbacks).toBe(1)
+        expect(tx.committedWrites).toEqual([])
+    })
+
+    it("answers the first write, and runs nothing again, when a retry lost the race on the client id", async () => {
+        const em = mockEntityManager({ insert: [ChatRoomMessageEntity, {}], findOne: [ChatRoomMessageEntity, message] })
+        fakeTransaction(em)
+        const store = await build(em)
+        em.insert.mockRejectedValueOnce(clash)
+        const within = jest.fn()
+
+        await expect(store.insertTextWith(text, within)).resolves.toBe(message)
+
+        expect(within).not.toHaveBeenCalled()
+    })
+})
+
 describe("TeamChatStoreService thread reads", () => {
     it("reads the keys of the first page of a thread, one more than the size", async () => {
         const em = mockEntityManager()

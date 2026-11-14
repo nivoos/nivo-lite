@@ -16,4 +16,6 @@ export interface GraphNodesOptions {
     readonly agentLoop?: { readonly nodes: ReadonlyArray<string>; readonly loops?: InjectionToken | undefined } | undefined
     /** Provider of the `NodeRouteReach` port (the routes a step cannot follow in the workspace); absent: every route is open. */
     readonly routes?: InjectionToken | undefined
+    /** Provider of the `NodeWorkspacePolicies` port (the workspace's policies, L2 of the agents' model calls); absent: no L2. */
+    readonly policies?: InjectionToken | undefined
 }

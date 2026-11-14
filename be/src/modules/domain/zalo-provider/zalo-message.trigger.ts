@@ -1,18 +1,21 @@
 import { PROVIDER, TRIGGER } from "@nivo-lite/agent-sdk/names"
 import type { DeclaredLine, OptionalCanonicalEvent, TriggerDeclaration } from "@modules/domain/provider-triggers"
-import { ZALO_ATTACHMENT_LABELS } from "./messages/zalo-trigger.messages"
+import { ZALO_ATTACHMENT_LABELS, ZALO_MESSAGE_WORDS } from "./messages/zalo-trigger.messages"
 import { ZALO_EVENT_ROW, ZALO_MESSAGE_DATA } from "./zalo-message.trigger.schema"
 
 /*
  * THE ZALO OA'S MESSAGE TRIGGER (stage 1 of the one event pipeline, concept triggers rule 13): what a customer writes to the OA, as ONE
- * canonical event. It is received by the OA's webhook; the OA's poll reconciles what a webhook never delivered by keeping the same
- * `zalo_oa.event` row under the same key (the body the webhook would have posted), so both doors give one event. Pure: the translate reads
+ * canonical event. It is received by the OA's webhook and by the poll of the OA's inbox (`via: ["webhook", "poll"]`: one event, two ways); the poll
+ * keeps the same `zalo_oa.event` row under the same key (the body the webhook would have posted), so both ways give one event. Pure: the translate reads
  * only its arguments. What counts as a message is Zalo's documented event names (`user_send_text`, `user_send_image`, `user_send_file`);
  * every other event (follow, seen, an OA message) is dropped, exactly as the conversation intake dropped it.
  */
 
 /** The trigger's name inside the provider. */
 export const ZALO_MESSAGE_RECEIVED = "message.received"
+
+/** The account_data type its raw rows are kept as (`zalo.data-types` declares it; a declaration file takes no value from another folder). */
+const ZALO_EVENT_DATA_TYPE = "zalo_oa.event"
 
 /** The channel of a Zalo customer's identity. */
 export const ZALO_CHANNEL = "zalo"
@@ -164,18 +167,24 @@ const CHAT_SETTLE = { windowMs: 6000, maxWaitMs: 20_000 } as const
 export const zaloLineOf = (data: ZaloMessageData): DeclaredLine | null =>
     data.messageKey === "" ? null : { key: data.messageKey, text: data.text, at: data.at }
 
-/** The message trigger: received by the webhook, reconciled by the poll into the same row. */
+/** The message trigger: received by the webhook and by the poll of the OA's inbox, both keeping the same `zalo_oa.event` row. */
 export const ZALO_MESSAGE_TRIGGER: TriggerDeclaration<ZaloEventRow, ZaloMessageData> = {
     provider: PROVIDER.zaloOa,
     name: ZALO_MESSAGE_RECEIVED,
     verb: TRIGGER.zaloMessageReceived,
-    via: "webhook",
+    // ONE event, two ways in (no webhook-only reason: Zalo documents no re-delivery, so the poll of the OA's inbox is the way a missed one comes back).
+    via: ["webhook", "poll"],
+    // The row both ways keep (a customer channel has no owner switch: it is on while its account is; no factKey: it declares a line).
+    dataType: ZALO_EVENT_DATA_TYPE,
+    words: ZALO_MESSAGE_WORDS,
     raw: ZALO_EVENT_ROW,
     data: ZALO_MESSAGE_DATA,
     translate: translateZaloEventRow,
     line: zaloLineOf,
     key: { by: "subject" },
     settle: CHAT_SETTLE,
+    // The person's lines append to the route's stream: held lines are ONE marker the workflow reads the stream from (rule Q-4).
+    combine: "stream",
 }
 
 /** Every trigger the Zalo OA provider declares. */

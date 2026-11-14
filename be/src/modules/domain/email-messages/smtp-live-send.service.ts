@@ -10,8 +10,11 @@ export class SmtpLiveSendService implements SmtpSendPort {
 
     constructor(@InjectMailRelay() private readonly mail: MailRelayService) {}
 
-    /** Sends through the account's server with its settings and password; a failure is the integration's `MailError`. */
+    /**
+     * Sends through the account's server with its settings and password; a failure is the integration's `MailError`. The thread headers
+     * (`In-Reply-To`, `References`) are not carried yet: the mail integration (`@starci/mail` `MailMessage`) takes no header (MAIL-IN need).
+     */
     send(_account: ConnectionRecord, config: SmtpConfig, delivery: SmtpOutgoing): Promise<SmtpSent> {
-        return this.mail.sendThroughSmtp(config, delivery)
+        return this.mail.sendThroughSmtp(config, { to: delivery.to, message: delivery.message })
     }
 }

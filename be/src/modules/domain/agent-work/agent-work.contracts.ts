@@ -147,6 +147,15 @@ export interface AgentWakeContext {
     readonly rawRowId?: string
     /** The event's data as JSON text, for a source that keeps no raw row (ids, counts and flags; a team chat line's words as a tag's). */
     readonly dataJson?: string
+    /**
+     * How the declaration's pending events combine (rule Q-4), written by `deliver` for a mode other than the default `each`
+     * (`latest` | `stream`); absent = `each`.
+     */
+    readonly combine?: string
+    /** On a `stream` marker: how many events it stands for, as decimal text (absent = 1, itself only). */
+    readonly count?: string
+    /** On a `stream` marker: the newest event folded into it (absent = its own `eventId`). */
+    readonly latestEventId?: string
 }
 
 /** One fact that wakes an agent. */

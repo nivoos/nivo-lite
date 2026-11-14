@@ -5,7 +5,10 @@ import type { EntityManager } from "typeorm"
 import { JobTickService } from "./job-tick.service"
 import {
     JOB_CLAIMS,
+    JOB_DEAD_LETTERS,
     JOB_FENCE,
+    JOB_PROGRESS,
+    JOB_PROGRESS_STREAM,
     JOB_PROCESSOR_REGISTRY,
     JOB_TICK_SCHEDULER,
     JOBS_MANAGERS,
@@ -16,6 +19,10 @@ import { JobClaimService } from "./job-claim.service"
 import { JobFenceService } from "./job-fence.service"
 import { JobRenewalService } from "./job-renewal.service"
 import { JobRunnerService } from "./job-runner.service"
+import { JobDeadLettersService } from "./job-dead-letters.service"
+import { JobProgressService } from "./job-progress.service"
+import { JobProgressStreamService } from "./job-progress-stream.service"
+import { JobStateEventsService } from "./job-state-events.service"
 import { ParkedJobCloseService } from "./parked-job-close.service"
 import { ParkedJobResumerService } from "./parked-job-resumer.service"
 import type { JobTickScheduler } from "./jobs.port"
@@ -50,6 +57,10 @@ export class JobsModule extends ConfigurableModuleClass {
                 JobFenceService,
                 JobRenewalService,
                 JobRunnerService,
+                JobDeadLettersService,
+                JobProgressService,
+                JobProgressStreamService,
+                JobStateEventsService,
                 ParkedJobCloseService,
                 ParkedJobResumerService,
                 ...(options.scheduler.enabled
@@ -60,16 +71,23 @@ export class JobsModule extends ConfigurableModuleClass {
                     : []),
                 { provide: JOB_CLAIMS, useExisting: JobClaimService },
                 { provide: JOB_FENCE, useExisting: JobFenceService },
+                { provide: JOB_PROGRESS, useExisting: JobProgressService },
+                { provide: JOB_PROGRESS_STREAM, useExisting: JobProgressStreamService },
                 { provide: JOB_PROCESSOR_REGISTRY, useExisting: JobRunnerService },
                 { provide: PARKED_JOB_RESUMER, useExisting: ParkedJobResumerService },
+                { provide: JOB_DEAD_LETTERS, useExisting: JobDeadLettersService },
             ],
             exports: [
                 JOB_CLAIMS,
+                JOB_DEAD_LETTERS,
                 JOB_FENCE,
+                JOB_PROGRESS,
+                JOB_PROGRESS_STREAM,
                 JOB_PROCESSOR_REGISTRY,
                 PARKED_JOB_RESUMER,
                 ParkedJobResumerService,
                 ParkedJobCloseService,
+                JobDeadLettersService,
             ],
         }
     }

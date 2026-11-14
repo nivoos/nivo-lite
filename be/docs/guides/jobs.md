@@ -1,4 +1,4 @@
-﻿# Background jobs
+# Background jobs
 
 Heavy work runs after the request commits. The request writes the business row and a `job_outbox` row in one PostgreSQL transaction,
 then a relay publishes the committed job to BullMQ on the deployment's declared Redis. A rolled-back change cannot start work. Owner
@@ -40,36 +40,50 @@ carry a sequence and enforce it under their fence.
 Recurring jobs are owned by pg_cron migrations and call `job_enqueue`, with an occurrence dedupe key. They enter the same durable
 outbox and BullMQ lifecycle as request-driven jobs. The event bus's pgmq queues remain separate.
 
-## Retry policy and idempotency
+## A job is declared (concept `outbox-job`)
 
-- Four real attempts; default waits are 5 s, 10 s and 20 s. The custom BullMQ backoff strategy honors queue and supported domain retry
-  hints instead of using a built-in backoff type that would bypass the hints.
-- `QueueError` `Unrecoverable`, a missing handler, or an explicitly unrecoverable domain error ends immediately. The error and terminal
-  state remain in PostgreSQL; the processor's failure hook records the owner-facing result.
-- A crash-recovered delivery can run again after its lease expires. A settle-query failure must not turn that redelivery into success.
-- Operator retry resets the failed row's attempts and explicitly republishes the same UUID with a fresh BullMQ retry budget. It does
-  not rely on adding an ID that Redis still holds as failed.
-- Shutdown pauses fetching first. After the grace period, aborted deliveries are handed back without consuming a try. Ordinary
-  failures while draining still count. A handler that does not settle within the further 5 s deadline causes close to reject and log;
-  active deliveries are never force-closed.
+`defineJob({ name, queue, ladder, payload, onceKey, next, effects, progress? })` (`platform/jobs/job-definition.ts`) sits beside the
+payload in `modules/queues/<queue>/<queue>.jobs.ts`. The producer writes the outbox with `onceKey(payload)` as the dedupe key inside the
+caller's transaction; the processor sets `definition` and calls ONE domain method; a job enqueues only the jobs its `next` lists, in
+the transaction that finishes it.
 
-Handlers must re-read current state, return harmlessly for completed subjects, and replace or resume effects rather than append them
-again. Chained jobs use a dedupe key derived from the subject and parent job. Credits are checked before spending; a blocked-credits
-source waits for the owner's explicit retry.
+## Failure: one judge, two ladders, one dead letter
 
-Completed Redis copies last one hour, failed copies seven days. PostgreSQL remains the audit trail after Redis retention expires.
+- `JobRunnerService` is the only place a job failure is judged: `classifyFailure` names the class (`transient`, `input`, `code`,
+  `config`; a retry hint counts as transient). No service catches to wait, retry, count tries or swallow.
+- Ladders (`platform/jobs/job-ladders.policy.ts`): `background` 4 starts with 5 / 10 / 20 s pauses; `waited` (a person waits) 5 starts
+  with 1 / 2 / 4 / 8 min. A transient failure with starts left is failed and handed back with the ladder's pause (`QueueError`
+  `RetryAfter`); the broker's `ATTEMPTS` (6) is only a ceiling above every ladder.
+- Anything else, a transient failure on the last start, a payload the declaration refuses, or a delivery whose counted start is past
+  the ladder (it died every time it ran) is a DEAD LETTER: the job row parks `failed_awaiting_fix`, the processor's `onFailed` writes the
+  state its domain row shows (resumable), and ONE `job.parked` card goes to the founder's NIVO room per park episode
+  (`JobDeadLettersService`, bound by `job-ops` `JobParkedAlertsService`).
+- Resume: the founder's "Chạy lại" (`resumeStoppedWork`) or `cli queues resume --job <id>` opens a new episode; a new build hands back
+  every dead letter; the 15-minute `parked-jobs:sweep` hands back only transient dead letters, at most 3 times, without a new card.
+  "Đóng" (`closeStoppedWork`) ends a dead letter for good. A resumed job claims the same row, so recorded steps and settled effects stay.
+- Shutdown hands an aborted delivery back without spending a start.
+
+## Outside effects (`platform/effects`)
+
+`Effects.once(key, effect, call)`: an `effect_ledger` row is committed as an intent before the act and settled after; key
+`<jobId>:<effect>:<part>`. A settled key with a kept result answers without acting; an intent without a result is settled as the
+effect declares (`repeatable`, `confirm`, `person`). Large answers are not kept: the domain write that stores them settles the key in
+its transaction (`settleIn`).
+
+## Progress (optional)
+
+A job that declares `progress.topic(payload)` gets its committed state changes and its `JobProgress.report(job, done, total, labelKey)`
+calls published to `job-progress:<workspaceId>:<root>`; the one door `GET /realtime/job-progress?root=<kind>:<id>` sends the current
+state from the rows first, then live frames (Last-Event-ID resumes). Keys only; nobody listening changes nothing.
 
 ## Adding a job
 
-1. Define names, ID-only payloads and dedupe-key builders in `modules/queues/<queue>/`, and expose a typed producer using the outbox.
-   BullMQ job queues do not need a pgmq queue migration.
-2. Produce the job in the transaction that commits its business change.
-3. Add a `FencedProcessor` and steps under `features/jobs/<job>/`; keep effects idempotent and token-guarded.
-4. Register its queue module in the API composition. Recurring jobs need a migration-owned pg_cron command calling `job_enqueue`.
-5. A user-facing retry must enqueue through the owning job's outbox contract rather than run work inline.
-
-The public API consumer registers both `public-api.request` and historical `public_api` job names, so accepted and legacy requests use
-the same fenced processing path on BullMQ.
+1. Declare it with `defineJob` beside its payload guard in `modules/queues/<queue>/`; expose a typed producer that writes the outbox
+   with the declaration's once key, in the transaction that commits the business change.
+2. Add the processor (`definition` set) and its step under `features/jobs/<job>/`; the step calls one domain method.
+3. Make every outside act an `Effects.once` with its declared settle; make every next job an outbox write in the finishing transaction.
+4. Write one "killed between steps" spec and one "fails for good -> dead letter -> resume" spec for the chain.
+5. Register its queue module in the API composition. Recurring work is a tick of `platform/jobs` (`job-ticks.contracts.ts`).
 
 ## Settings and operations
 

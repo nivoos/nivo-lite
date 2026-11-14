@@ -9,6 +9,7 @@ import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
 import { generationRow } from "@tests/fixtures/builders/ai-generations.builder"
+import { aiChainProviders } from "@tests/fixtures/builders/brain-ai-effects.builder"
 import { queueQueryBuilders } from "@tests/fixtures/builders/entity-query-builder.builder"
 import { AI_GENERATIONS_USAGE } from "./ai-generations.decorators"
 import { AiGenerationsLogEvent } from "./ai-generations.log-events"
@@ -57,6 +58,9 @@ const USAGE = { prompt_tokens: 10, completion_tokens: 5, cached_tokens: 0, cost:
 
 const PAYLOAD = { generationId: "g1", workspaceId: "w1" }
 
+/** The effect key of the model call of the job of these specs. */
+const KEY = "job-1:generate"
+
 /** What the AI endpoint answers for the prompt, with the usage it reports. */
 const ANSWER: AiChatAnswer = {
     text: "hello",
@@ -96,8 +100,10 @@ const build = async (entityManager: MockEntityManager, setup: Setup = {}) => {
         blockedBy: jest.fn(() => Promise.resolve(setup.blocked === true ? { message: "out of credits" } : null)),
     })
     const logger = mock<Logger>()
+    const chain = aiChainProviders()
     const moduleRef = await Test.createTestingModule({
         providers: [
+            ...chain.providers,
             GenerationRunnerService,
             { provide: PRIMARY_ENTITY_MANAGER, useValue: entityManager },
             { provide: CLOCK, useValue: clock },
@@ -106,7 +112,7 @@ const build = async (entityManager: MockEntityManager, setup: Setup = {}) => {
             { provide: AI, useValue: ai },
         ],
     }).compile()
-    return { runner: moduleRef.get(GenerationRunnerService), clock, ai, usage, logger }
+    return { runner: moduleRef.get(GenerationRunnerService), clock, ai, usage, logger, ledger: chain.ledger }
 }
 
 describe("GenerationRunnerService", () => {
@@ -118,11 +124,11 @@ describe("GenerationRunnerService", () => {
         await expect(runner.runJob(job)).resolves.toBeUndefined()
     })
 
-    it("does nothing for a job of another shape", async () => {
+    it("refuses a job of another shape with a typed error (the job's declaration refuses it before this)", async () => {
         const { runner } = await build(mockEntityManager())
         const job = { jobId: "job-2", kind: "generate", fencingToken: 1, currentStep: null, payload: { other: true } }
 
-        await expect(runner.runJob(job)).resolves.toBeUndefined()
+        await expect(runner.runJob(job)).rejects.toMatchObject({ code: "AI_GENERATIONS_PAYLOAD_INVALID" })
     })
 })
 
@@ -131,7 +137,7 @@ describe("GenerationRunnerService", () => {
         const { em, finisher } = managerOf()
         const { runner, ai, usage } = await build(em)
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("done")
 
         expect(ai.attempt.mock.calls).toEqual([
             [
@@ -180,7 +186,7 @@ describe("GenerationRunnerService", () => {
         const { em } = managerOf(generationRow({ input: { ...INPUT, response_format: "json" } }))
         const { runner, ai } = await build(em)
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("done")
 
         expect(ai.attempt.mock.calls[0]?.[0]).toMatchObject({ json: true, schema: null })
         expect(ai.attempt.mock.calls[0]?.[0].messages.at(-1)).toEqual({
@@ -202,7 +208,7 @@ describe("GenerationRunnerService: usage the endpoint did not report", () => {
             },
         })
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("done")
 
         expect(finisher?.callsOf("set")).toEqual([
             [
@@ -220,7 +226,7 @@ describe("GenerationRunnerService", () => {
         const { em } = managerOf(generationRow(), [])
         const { runner, usage } = await build(em)
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("dropped")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("dropped")
         expect(usage.record).not.toHaveBeenCalled()
     })
 
@@ -234,25 +240,16 @@ describe("GenerationRunnerService", () => {
         queueQueryBuilders(em, [{ execute: { raw } }])
         const { runner, usage } = await build(em)
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("dropped")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("dropped")
         expect(usage.record).not.toHaveBeenCalled()
-    })
-
-    it("drops a payload of another shape", async () => {
-        const em = mockEntityManager()
-        const { runner } = await build(em)
-
-        await expect(runner.run({ orderId: "o1" })).resolves.toBe("dropped")
-        expect(em.findOne).not.toHaveBeenCalled()
-        expect(em.update).not.toHaveBeenCalled()
     })
 
     it("drops a generation that is gone or no longer waiting", async () => {
         const gone = await build(managerOf(null, null).em)
         const ended = await build(managerOf(generationRow({ status: "cancelled" }), null).em)
 
-        await expect(gone.runner.run(PAYLOAD)).resolves.toBe("dropped")
-        await expect(ended.runner.run(PAYLOAD)).resolves.toBe("dropped")
+        await expect(gone.runner.run(PAYLOAD, KEY)).resolves.toBe("dropped")
+        await expect(ended.runner.run(PAYLOAD, KEY)).resolves.toBe("dropped")
         expect(gone.ai.attempt).not.toHaveBeenCalled()
         expect(ended.ai.attempt).not.toHaveBeenCalled()
     })
@@ -261,7 +258,7 @@ describe("GenerationRunnerService", () => {
         const { em } = managerOf(generationRow(), null)
         const { runner, ai } = await build(em, { available: false })
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("error")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("error")
 
         expect(ai.attempt).not.toHaveBeenCalled()
         expect(em.update).toHaveBeenCalledWith(
@@ -282,7 +279,7 @@ describe("GenerationRunnerService", () => {
         const { em } = managerOf(generationRow(), null)
         const { runner, usage, logger } = await build(em, { answer: null })
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("error")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("error")
 
         expect(logger.warn).toHaveBeenCalledWith(AiGenerationsLogEvent.GenerationUnanswered, {
             purpose: "relay",
@@ -312,7 +309,7 @@ describe("GenerationRunnerService", () => {
         const { em } = managerOf(generationRow(), null)
         const { runner, usage } = await build(em, { answer: null, takesMs: 17_000 })
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("error")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("error")
 
         expect(em.findOne.mock.calls).toEqual([[AiGenerationEntity, FIND_OPTIONS]])
         expect(em.update.mock.calls).toEqual([STARTED, cancelledAt("2026-10-12T10:00:17.000Z")])
@@ -333,7 +330,7 @@ describe("GenerationRunnerService: credits and cut calls", () => {
             },
         })
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("error")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("error")
 
         expect(usage.record).toHaveBeenCalledTimes(1)
         expect(usage.record.mock.calls[0]?.[0]).toMatchObject({
@@ -355,7 +352,7 @@ describe("GenerationRunnerService: credits and cut calls", () => {
         const { em } = managerOf(generationRow(), null)
         const { runner, ai, usage } = await build(em, { blocked: true })
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("error")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("error")
 
         expect(ai.attempt).not.toHaveBeenCalled()
         expect(usage.record).not.toHaveBeenCalled()

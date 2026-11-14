@@ -251,12 +251,11 @@ describe("sales tools: payment.claim.list", () => {
 
 describe("sales tools: lead.care.get", () => {
     const memory = (): PluginToolCall["leadMemory"] => () =>
-        Promise.resolve({ careOptOut: false, recipientName: "M\u1eb9", occasions: [{ label: "Sinh nh\u1eadt", date: "03-08" }] })
+        Promise.resolve({ recipientName: "M\u1eb9", occasions: [{ label: "Sinh nh\u1eadt", date: "03-08" }] })
 
     it("answers the run's own customer's care facts from their lead memory", async () => {
         await expect(build().run(TOOL.leadCareGet, {}, { ...asCustomer(OWN), leadMemory: memory() })).resolves.toMatchObject({
             leadId: "lead-1",
-            optedOut: false,
             recipient: "M\u1eb9",
             occasions: [{ label: "Sinh nh\u1eadt", month: 3, day: 8, year: null }],
         })

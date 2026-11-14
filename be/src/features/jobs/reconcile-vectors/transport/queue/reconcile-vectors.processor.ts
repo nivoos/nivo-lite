@@ -1,13 +1,13 @@
 import { Injectable } from "@nestjs/common"
-import { FencedProcessor, type ClaimedJob } from "@modules/platform/jobs"
-import { VECTOR_SYNC_QUEUE, VectorSyncJob } from "@modules/queues/vector-sync"
+import { FencedProcessor, type ClaimedJob, type JobDefinition } from "@modules/platform/jobs"
+import { RECONCILE_VECTORS_JOB, VECTOR_SYNC_QUEUE, type VectorReconcilePayload } from "@modules/queues/vector-sync"
 import { ReconcileRunStep } from "../../steps/reconcile-run.step"
 
 @Injectable()
-/** The processor of the reconcile-vectors job (the tick `vector-reconcile` and the follow-up of a run that used its budget): the runner claims and settles it; `process` delegates to the one step. The run itself never throws for the index: it counts the failure and the next run goes on. */
+/** The processor of the reconcile-vectors job (the tick `vector-reconcile` and the follow-up of a run that used its budget): the runner claims and settles it; `process` delegates to the one step. A failure of the index or of an embedding call throws: the runner retries the run on its ladder and dead-letters it with one item. */
 export class ReconcileVectorsProcessor extends FencedProcessor {
     override readonly queue: "vector_sync" = VECTOR_SYNC_QUEUE
-    override readonly job: VectorSyncJob.Reconcile = VectorSyncJob.Reconcile
+    override readonly definition: JobDefinition<VectorReconcilePayload> = RECONCILE_VECTORS_JOB
 
     constructor(private readonly step: ReconcileRunStep) {
         super()

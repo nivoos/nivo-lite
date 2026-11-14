@@ -93,6 +93,7 @@ const MESSAGE: MessageView = {
     stop: null,
     brainChange: null,
     backgroundStopped: null,
+    jobParked: null,
 }
 
 const ROOM: ChatRoomView = {

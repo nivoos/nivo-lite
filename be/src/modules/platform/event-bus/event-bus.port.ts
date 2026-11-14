@@ -30,4 +30,6 @@ export interface EventConsumerRegistry {
         consumer: EventConsumer<Event>,
         options?: EventSubscriptionOptions,
     ): void
+    /** The consumer queues subscribed in this app, in the order they subscribed: where a person's door looks for buried deliveries. */
+    queues(): ReadonlyArray<string>
 }

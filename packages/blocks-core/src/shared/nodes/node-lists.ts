@@ -8,6 +8,8 @@ import { bookingFindSlotsNode } from "../../agents/booking/nodes/find-slots.node
 import { bookingRemindNode } from "../../agents/booking/nodes/remind.node"
 import { chatbotAnswerNode } from "../../agents/chatbot/nodes/answer.node"
 import { chatbotComplaintNotifyNode } from "../../agents/chatbot/nodes/complaint-notify.node"
+import { chatbotStopKeepNode } from "../../agents/chatbot/nodes/stop-keep.node"
+import { chatbotStopReplyNode } from "../../agents/chatbot/nodes/stop-reply.node"
 import { chatbotComplaintReplyNode } from "../../agents/chatbot/nodes/complaint-reply.node"
 import { chatbotHearNode } from "../../agents/chatbot/nodes/hear.node"
 import { chatbotUnderstandNode } from "../../agents/chatbot/nodes/understand.node"
@@ -98,6 +100,8 @@ export const coreTemplateNodes: ReadonlyArray<AnyTemplateNode> = [
     chatbotAnswerNode,
     chatbotComplaintReplyNode,
     chatbotComplaintNotifyNode,
+    chatbotStopKeepNode,
+    chatbotStopReplyNode,
     teamChatNode,
     teamTruthProposeNode,
     teamAnswerPostNode,

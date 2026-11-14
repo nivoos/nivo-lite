@@ -1,8 +1,6 @@
 import type { GraphSpec } from "@nivo-lite/agent-sdk/graph"
-import { nodeIndexOf } from "@nivo-lite/agent-sdk/node"
 import { requireSoundFlow, sameFlow, templateFlowProblems } from "@modules/domain/agent-graphs/policies/flow.policy"
-import { graphWithNodeMode } from "@modules/domain/agent-graphs/policies/node-mode-override.policy"
-import { INSTALLED } from "@modules/domain/installed-plugins"
+import { graphWithNodeSettings } from "@modules/domain/agent-graphs/policies/node-settings.policy"
 import { CORE_WRITE_AUTO, NOTE_WRITE } from "@tests/fixtures/builders/engine-core-plugin.builder"
 import { WS, drain, itemsOf, stopsOf, startThread, threadDbOf, type ThreadDb, type ThreadProcess } from "./thread-world"
 import { NOTE_TRIGGER, coreFlowOf, coreProcessOf, noteActsOf, threadOf, workflowIdOf } from "./thread-world-core"
@@ -23,14 +21,13 @@ jest.mock("@nivo-lite/plugin-registry", () => {
 // write step of the installed graph to `ask`: the save takes it as the template's copy, a run pinned to it stops for a yes and the yes
 // writes once; set back to `auto` the graph is the template's own again and a run writes with no stop.
 
-const INDEX = nodeIndexOf(INSTALLED.nodeInstall())
 
-/** What the owner door treats as an engine control step (the admin service's own test). */
-const isControl = (step: string): boolean => INSTALLED.stepOf(step)?.control === true
+/** The door's refusal of a setting the step does not take (the admin service throws its typed code). */
+const unsettable = (key: string): Error => new Error(`unsettable ${key}`)
 
 /** The owner door's change of the write step's mode, then the store's round trip (the stored document is JSON). */
 const set = (graph: GraphSpec, mode: "auto" | "ask"): GraphSpec => {
-    const changed = graphWithNodeMode(graph, "write", mode, isControl)
+    const changed = graphWithNodeSettings(graph, "write", { mode }, unsettable)
     if (changed === null) throw new Error("the mode did not change")
     const stored: GraphSpec = JSON.parse(JSON.stringify(changed))
     return stored
@@ -54,7 +51,7 @@ describe("a node's mode set by the shop on a write graph (no person, no line)", 
         const asking = set(coreFlowOf(CORE_WRITE_AUTO), "ask")
 
         expect(templateFlowProblems(asking)).toEqual([])
-        expect(() => requireSoundFlow(asking, INDEX)).not.toThrow()
+        expect(() => requireSoundFlow(asking)).not.toThrow()
         expect(sameFlow(coreFlowOf(CORE_WRITE_AUTO), set(asking, "auto"))).toBe(true)
     })
 

@@ -14,7 +14,7 @@ Program `ext/checks/crm-names.mjs`: no arguments, exit 0 is green. Run by the `c
 
 A CRM is a provider connected through its OpenAPI document, and every operation of it has ONE name,
 `nivo.api.crm.<crmId>.<method>.<path>` (a node calls it, an interface reads it). A package that supports a CRM pins the document at
-`src/crm/<crmId>/openapi.json` and its codegen (`npm run crm:codegen`) writes `src/crm/<crmId>/api.generated.ts`. For every package under
+`src/shared/crm/<crmId>/openapi.json` and its codegen (`npm run crm:codegen`) writes `src/shared/crm/<crmId>/api.generated.ts`. For every package under
 `packages/*` that pins a document:
 
 1. `api.generated.ts` equals what the SDK writes for the document (the codegen is current).
@@ -22,7 +22,7 @@ A CRM is a provider connected through its OpenAPI document, and every operation 
    package declares for that id: a package that uses another package's CRM id, or an id it declares no template for, is a finding (a
    package that declares nothing is judged on its code only, not its comments or specs).
 3. Every provider template a plugin declares (`defineProviderTemplate({ kind: "crm", id, openapi, ... })` in its `providers`, owner chốt
-   2026-11-14, read from the built package) has its `src/crm/<id>/openapi.json`, and its `openapi` IS that file (compared by content); a
+   2026-11-14, read from the built package) has its `src/shared/crm/<id>/openapi.json`, and its `openapi` IS that file (compared by content); a
    pinned folder no template declares is a finding.
 4. Template ids are unique across packages: two packages declaring the same id, or pinning the same `<crmId>` folder, are a finding.
 

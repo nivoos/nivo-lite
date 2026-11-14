@@ -587,14 +587,6 @@ export interface WorkflowVersionDocument {
     readonly document: Readonly<Record<string, unknown>>
 }
 
-/** What a template blank workflow is made of: its name and the module whose agent runs it. */
-export interface BlankWorkflow {
-    /** The name. */
-    readonly name: string
-    /** The module. */
-    readonly moduleKey: string
-}
-
 /** Which template version a workflow copies: the newest when `version` is null. */
 export interface TemplatePick {
     /** The template. */

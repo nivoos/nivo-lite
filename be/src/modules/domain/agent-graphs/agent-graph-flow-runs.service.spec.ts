@@ -461,7 +461,6 @@ describe("AgentGraphFlowRunsService.triggerOf: a wake of the one event pipeline"
 })
 
 describe("flow F graphs on fake ports", () => {
-    const installed = coreNodeIndex()
     // Ledger (TOOLS-LEAD 2026-11-13): the accounting agent is dropped (its seed file and its three workflows are gone); chatbot and sales stay.
     const modules: ReadonlyArray<ModuleName> = ["chatbot", "sales"]
 
@@ -480,9 +479,9 @@ describe("flow F graphs on fake ports", () => {
             "sales.team-chat",
         ])
         expect(seeded.find((workflow) => workflow.templateId.startsWith("sales.") && workflow.primary)?.templateId).toBe("sales.consult")
-        // A seeded workflow is a template agent's graph since the flip: judged as the seed's check judges it (`flowProblemsOf`: the @2
-        // checks for a template flow, the `@1` ones with the saga rule for any other).
-        for (const workflow of seeded) expect(flowProblemsOf(workflow.graph, installed)).toEqual([])
+        // A seeded workflow is a template agent's graph: judged as the seed's check judges it (`flowProblemsOf`: an installed template
+        // version's copy, its modes and the loop checks).
+        for (const workflow of seeded) expect(flowProblemsOf(workflow.graph)).toEqual([])
     })
 
     // Out of date after a template change: `npm run seeds:graphs` (from the lane root, after the blocks-core build) rewrites them.

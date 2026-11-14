@@ -31,6 +31,7 @@ export type {
 } from "./brain-policies.contracts"
 export type { BrainPoliciesWire, BrainPolicyDetailWire } from "./brain-policies-wire.contracts"
 export { BrainPolicyReadService } from "./brain-policy-read.service"
+export { BrainPolicyStoreService } from "./brain-policy-store.service"
 export { BrainPolicyDeriveService } from "./brain-policy-derive.service"
 export { BrainPolicyDerivationsService } from "./brain-policy-derivations.service"
 export type { PolicyDeriveRequested } from "./brain-policy-derivations.service"

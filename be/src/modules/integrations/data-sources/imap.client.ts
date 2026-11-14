@@ -8,20 +8,13 @@ import { InjectDataSourcesOptions, InjectPublicHost } from "./data-sources.decor
 import type { DataSourcesOptions } from "./data-sources.options"
 import { DataSourcesError, DataSourcesErrorCode } from "./errors/data-sources.error"
 import { describeImapError } from "./imap-error.policy"
-import type {
-    ImapFolderOutcome,
-    ImapFolderRequest,
-    ImapLogin,
-    ImapMessageRow,
-    ImapPullRequest,
-    ImapPullResult,
-} from "./imap-mailbox.contracts"
-import { formatImapCursor, messageToRow, parseImapCursor, unreadableRow } from "./imap-message.policy"
+import type { ImapLogin, ImapMessageRow, ImapPage, ImapPageRequest } from "./imap-mailbox.contracts"
+import { messageToRow, unreadableRow } from "./imap-message.policy"
 import { ImapLogEvent } from "./imap.log-events"
 import type { PublicHostClient } from "./public-host.client"
 
-const MAX_NEW_PER_FOLDER = 200
 const BATCH_SIZE = 20
+const DAY_MS = 86_400_000
 const MAX_SOURCE = 2_000_000
 const CONNECT_TIMEOUT_MS = 10_000
 const SOCKET_TIMEOUT_MS = 60_000
@@ -44,6 +37,21 @@ const batchesOf = (uids: ReadonlyArray<number>): Array<Array<number>> => {
     const batches: Array<Array<number>> = []
     for (let start = 0; start < uids.length; start += BATCH_SIZE) batches.push(uids.slice(start, start + BATCH_SIZE))
     return batches
+}
+
+/** One message of a folder inside the window: where it is and when it was received. */
+interface Found {
+    readonly path: string
+    readonly validity: string
+    readonly uid: number
+    readonly at: Date
+}
+
+/** A message's INTERNALDATE as an instant, or null when it carries none. */
+const receivedAt = (value: Date | string | undefined): Date | null => {
+    if (value === undefined) return null
+    const at = new Date(value)
+    return Number.isNaN(at.getTime()) ? null : at
 }
 
 @Injectable()
@@ -73,23 +81,33 @@ export class ImapClient {
         return paths
     }
 
-    /** Reads the new messages of the folders, hands them to `deliver` folder by folder and answers the new cursors. */
-    async pull(login: ImapLogin, request: ImapPullRequest): Promise<ImapPullResult> {
+    /**
+     * Reads ONE PAGE of the mailbox's window (the connection poll's walk, providers rule 12): the messages of the folders received inside
+     * `[from, to]`, the newest `limit` of them, newest first, each with its row. IMAP searches by day (`SINCE` / `BEFORE`), so the window
+     * is narrowed on each message's INTERNALDATE read first (no body); only the page's messages are then fetched whole. A folder that
+     * cannot be opened fails the read (the poll classifies it): a page never silently skips a folder.
+     */
+    async page(login: ImapLogin, request: ImapPageRequest): Promise<ImapPage> {
         const client = await this.open(login)
-        const folders: Array<ImapFolderOutcome> = []
-        let expired = false
         try {
-            await eachInOrder(request.folders, async (folder) => {
-                if (expired || request.isExpired()) {
-                    expired = true
-                    return
-                }
-                folders.push(await this.pullFolder(client, folder, request))
+            const found: Array<Found> = []
+            await eachInOrder(request.folders, async (path) => {
+                found.push(...(await this.inWindow(client, path, request)))
             })
+            const ordered = found.toSorted((a, b) => b.at.getTime() - a.at.getTime() || b.uid - a.uid)
+            const chosen = ordered.slice(0, request.limit)
+            const rows: Array<ImapMessageRow> = []
+            await eachInOrder(request.folders, async (path) => {
+                const mine = chosen.filter((one) => one.path === path)
+                if (mine.length > 0) rows.push(...(await this.rowsOf(client, path, mine)))
+            })
+            const byTime = rows.toSorted((a, b) => (b.occurredAt?.getTime() ?? 0) - (a.occurredAt?.getTime() ?? 0))
+            return { rows: byTime, fetched: found.length, oldestAt: chosen.at(-1)?.at, newestAt: chosen[0]?.at }
+        } catch (error) {
+            throw toError(error)
         } finally {
             await this.close(client)
         }
-        return { folders, expired }
     }
 
     private async open(login: ImapLogin): Promise<ImapFlow> {
@@ -130,63 +148,44 @@ export class ImapClient {
         }
     }
 
-    private async pullFolder(
-        client: ImapFlow,
-        folder: ImapFolderRequest,
-        request: ImapPullRequest,
-    ): Promise<ImapFolderOutcome> {
-        const failed = (error: unknown): ImapFolderOutcome => ({
-            path: folder.path,
-            cursor: null,
-            rows: 0,
-            more: false,
-            failure: describeImapError(error).detail,
-        })
-        let lock: Awaited<ReturnType<ImapFlow["getMailboxLock"]>>
+    /** The messages of one folder received inside the window, by their INTERNALDATE (no body read). */
+    private async inWindow(client: ImapFlow, path: string, request: ImapPageRequest): Promise<ReadonlyArray<Found>> {
+        const lock = await client.getMailboxLock(path, { readOnly: true })
         try {
-            lock = await client.getMailboxLock(folder.path, { readOnly: true })
-        } catch (error) {
-            return failed(error)
+            const box = client.mailbox
+            if (box === false) return []
+            const validity = String(box.uidValidity)
+            const before = request.to === undefined ? undefined : new Date(request.to.getTime() + DAY_MS)
+            const uids = await client.search({ since: request.from, ...(before === undefined ? {} : { before }) }, { uid: true })
+            const listed = uids === false || uids === undefined ? [] : uids
+            const found: Array<Found> = []
+            await eachInOrder(batchesOf(listed), async (batch) => {
+                for await (const message of client.fetch(batch.join(","), { uid: true, internalDate: true }, { uid: true })) {
+                    const at = receivedAt(message.internalDate)
+                    if (at === null || at < request.from || (request.to !== undefined && at > request.to)) continue
+                    found.push({ path, validity, uid: message.uid, at })
+                }
+            })
+            return found
+        } finally {
+            lock.release()
         }
-        const outcome = await this.readOpenFolder(client, folder, request).catch((error: unknown) => failed(error))
-        lock.release()
-        return outcome
     }
 
-    private async newUids(client: ImapFlow, known: number, since: Date): Promise<Array<number>> {
-        if (known > 0) {
-            const found = await client.search({ uid: `${known + 1}:*` }, { uid: true })
-            return (found === false || found === undefined ? [] : found).filter((uid) => uid > known)
+    /** The rows of the chosen messages of one folder, fetched whole. */
+    private async rowsOf(client: ImapFlow, path: string, chosen: ReadonlyArray<Found>): Promise<ReadonlyArray<ImapMessageRow>> {
+        const lock = await client.getMailboxLock(path, { readOnly: true })
+        try {
+            const validity = chosen[0]?.validity ?? ""
+            const rows: Array<ImapMessageRow> = []
+            await eachInOrder(batchesOf(chosen.map((one) => one.uid)), async (batch) => {
+                const messages = await this.fetchBatch(client, batch)
+                rows.push(...(await Promise.all(messages.map((message) => this.toRow(path, validity, message)))))
+            })
+            return rows
+        } finally {
+            lock.release()
         }
-        const found = await client.search({ since }, { uid: true })
-        return found === false || found === undefined ? [] : found
-    }
-
-    private async readOpenFolder(
-        client: ImapFlow,
-        folder: ImapFolderRequest,
-        request: ImapPullRequest,
-    ): Promise<ImapFolderOutcome> {
-        const box = client.mailbox
-        const idle: ImapFolderOutcome = { path: folder.path, cursor: null, rows: 0, more: false, failure: null }
-        if (box === false) return idle
-        const validity = String(box.uidValidity)
-        const previous = parseImapCursor(folder.cursor)
-        const known = previous !== null && previous.validity === validity ? previous.uid : 0
-        const found = (await this.newUids(client, known, request.since)).sort((a, b) => a - b)
-        const more = found.length > MAX_NEW_PER_FOLDER
-        const uids = found.slice(0, MAX_NEW_PER_FOLDER)
-        if (uids.length === 0) return known === 0 ? { ...idle, cursor: formatImapCursor(validity, 0) } : idle
-        let last = known
-        let written = 0
-        await eachInOrder(batchesOf(uids), async (batch) => {
-            if (request.isExpired()) return
-            const messages = await this.fetchBatch(client, batch)
-            const rows = await Promise.all(messages.map((message) => this.toRow(folder.path, validity, message)))
-            if (rows.length > 0) written += await request.deliver(rows)
-            last = messages.reduce((top, message) => Math.max(top, message.uid), last)
-        })
-        return { path: folder.path, cursor: formatImapCursor(validity, last), rows: written, more, failure: null }
     }
 
     private async fetchBatch(client: ImapFlow, uids: ReadonlyArray<number>): Promise<Array<FetchMessageObject>> {

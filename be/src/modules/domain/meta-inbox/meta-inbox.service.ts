@@ -1,6 +1,12 @@
 import { Injectable, Optional } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
-import { AccountDataIntakeService, AccountDataReadService, scopedDeliveryIdOf } from "@modules/domain/account-data"
+import {
+    AccountDataAdmissionsService,
+    AccountDataIntakeService,
+    AccountDataReadService,
+    scopedDeliveryIdOf,
+    type AdmittedRow,
+} from "@modules/domain/account-data"
 import { ConnectionsService } from "@modules/domain/connections"
 import { InboundEventsService } from "@modules/domain/inbound-events"
 import { MetaCommentsService } from "@modules/domain/meta-comments"
@@ -12,13 +18,13 @@ import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { InjectMessageCatalog, type MessageCatalog } from "@modules/platform/i18n"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { eachInOrder, isRecord, parseJsonText } from "@modules/platform/primitives"
+import { payloadOfJob, type ClaimedJob } from "@modules/platform/jobs"
 import { InjectQueueOutbox, type QueueOutbox } from "@modules/platform/queue"
+import { DELIVER_META_JOB } from "@modules/queues/meta-delivery"
+import { META_INBOUND_JOB } from "@modules/queues/meta-inbound"
 import { MetaInboxError, MetaInboxErrorCode } from "./errors/meta-inbox.error"
 import { MetaInboxLogEvent } from "./meta-inbox.log-events"
 import {
-    isMetaInboundJob,
-    META_INBOUND_QUEUE,
-    META_DELIVERY_QUEUE,
     type DeliverySignature,
     type MetaDeliveryOutcome,
     type MetaDeliveryRecorded,
@@ -51,6 +57,7 @@ export class MetaInboxService {
         private readonly threads: MetaThreadsService,
         private readonly comments: MetaCommentsService,
         private readonly intake: AccountDataIntakeService,
+        private readonly admissions: AccountDataAdmissionsService,
         private readonly reads: AccountDataReadService,
         private readonly triggers: ProviderTriggersService,
         private readonly inboundEvents: InboundEventsService,
@@ -124,12 +131,16 @@ export class MetaInboxService {
     }
 
     /**
-     * Delivers the event a claimed job carries to the chatbot front door; a payload that is not a queued Meta event is left
-     * alone.
+     * Delivers the event a claimed job carries to the chatbot front door (the runner refused a payload the declaration does not accept).
+     * Every typed end (`delivered`, `not_a_message`, `switched_off`, `account_removed`) returns normally and is logged with its outcome;
+     * a failure throws.
      */
-    async deliverPayload(payload: object): Promise<void> {
-        if (!isMetaInboundJob(payload)) return
-        await this.deliver(payload)
+    async deliverPayload(job: ClaimedJob): Promise<void> {
+        const queued = payloadOfJob(META_INBOUND_JOB, job)
+        if (!isMetaEvent(queued.event)) throw new MetaInboxError({ code: MetaInboxErrorCode.DeliveryInvalid })
+        const work: MetaInboundJob = { connectionId: queued.connectionId, workspaceId: queued.workspaceId, event: queued.event }
+        const outcome = await this.deliver(work)
+        this.logger?.info(MetaInboxLogEvent.Outcome, { connectionId: work.connectionId, eventKey: work.event.event_key, outcome })
     }
 
     /**
@@ -173,7 +184,10 @@ export class MetaInboxService {
                 },
                 manager,
             )
-            if (delivered.status === "off") return "switched_off"
+            if (delivered.status === "off") {
+                this.logger?.warn(MetaInboxLogEvent.SwitchedOff, { connectionId: job.connectionId, eventKey: row.eventKey })
+                return "switched_off"
+            }
             if (delivered.status === "disconnected") {
                 this.logger?.warn(MetaInboxLogEvent.AccountRemoved, {
                     connectionId: job.connectionId,
@@ -209,15 +223,30 @@ export class MetaInboxService {
         return owners
     }
 
-    /** Writes one event as a `meta.event` row of its account and queues its handoff when it is new. */
+    /** Writes one event as a `meta.event` row of its account and admits it when it is new. */
     private async receive(event: MetaEvent, owner: MetaSurfaceOwner, manager: EntityManager): Promise<void> {
-        const written = await this.intake.write(manager, owner.id, metaEventRowsOf(event))
+        const rows = metaEventRowsOf(event)
+        const written = await this.intake.write(manager, owner.id, rows)
         const row = written.rows.find((entry) => entry.type === metaEvent.name)
         if (written.owner === null || row?.isNew !== true) return
-        const deliveryId = `${owner.id}:${row.key}`
-        const message: MetaDeliveryRecorded = { deliveryId }
-        await this.outbox.write(manager, META_DELIVERY_QUEUE, message, {
-            dedupeKey: `${META_DELIVERY_QUEUE}:${deliveryId}`,
+        await this.admissions.admit(manager, {
+            id: row.id,
+            type: row.type,
+            key: row.key,
+            owner: written.owner,
+            value: rows[0]?.value ?? {},
+        })
+    }
+
+    /**
+     * The ADMISSION of a new `meta.event` row (the door's tail, account-data rule 7): queues its consumer in the transaction that wrote the
+     * row. The one road after the intake.
+     */
+    admitEvent(manager: EntityManager, row: AdmittedRow): Promise<void> {
+        const message: MetaDeliveryRecorded = { deliveryId: `${row.owner.connectionId}:${row.key}` }
+        return this.outbox.write(manager, DELIVER_META_JOB.queue, message, {
+            job: DELIVER_META_JOB.name,
+            dedupeKey: DELIVER_META_JOB.onceKey(message),
         })
     }
 
@@ -245,8 +274,9 @@ export class MetaInboxService {
             manager,
         )
         const job: MetaInboundJob = { connectionId: owner.id, workspaceId: owner.workspaceId, event }
-        await this.outbox.write(manager, META_INBOUND_QUEUE, job, {
-            dedupeKey: `${META_INBOUND_QUEUE}:${owner.id}:${event.event_key}`,
+        await this.outbox.write(manager, META_INBOUND_JOB.queue, job, {
+            job: META_INBOUND_JOB.name,
+            dedupeKey: META_INBOUND_JOB.onceKey(job),
         })
     }
 }

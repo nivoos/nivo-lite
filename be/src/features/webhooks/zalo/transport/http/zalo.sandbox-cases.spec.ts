@@ -41,7 +41,7 @@ const world = () => {
     const { sandbox, store } = sandboxServiceOf(SANDBOX, LIVE)
     const guard = new SandboxWebhookKeyService(store, { enabled: true }, connections)
     const proofs = mock<WebhookProofRegistry>()
-    proofs.verify.mockResolvedValue(undefined)
+    proofs.verify.mockResolvedValue("proven")
     const deliveries = mock<ZaloDeliveryIntakeService>()
     deliveries.accept.mockResolvedValue(undefined)
     const door = new ZaloWebhook(new ScopedWebhookVerifier(proofs, guard), deliveries)

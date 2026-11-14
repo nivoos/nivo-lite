@@ -522,3 +522,55 @@ export class ContactWorkType {
     @Field(() => ID, { nullable: true })
     runId!: string | null
 }
+
+@ObjectType()
+/** Who changed a contact's "do not contact" last. */
+export class ContactConsentActorType {
+    /** member (a person on the contact page) or agent (a step's call when the person asked to stop). */
+    @Field(() => String)
+    kind!: string
+
+    /** The member or the agent. */
+    @Field(() => ID)
+    id!: string
+
+    /** Its name as it reads now, or null when it is gone. */
+    @Field(() => String, { nullable: true })
+    name!: string | null
+
+    /** For an agent: the member who approved the step's call, or null. */
+    @Field(() => ID, { nullable: true })
+    approvedBy!: string | null
+}
+
+@ObjectType()
+/** The contact's ONE consent fact: may the shop write to this person first. An answer on the person's own line is never refused by it. */
+export class ContactConsentType {
+    /** True when the shop may not start a message to this person (a nudge, a reminder, a round, a campaign). */
+    @Field(() => Boolean)
+    doNotContact!: boolean
+
+    /** When it was last set or cleared, ISO UTC; null when never. */
+    @Field(() => String, { nullable: true })
+    at!: string | null
+
+    /** Who changed it last; null when never. */
+    @Field(() => ContactConsentActorType, { nullable: true })
+    by!: ContactConsentActorType | null
+
+    /** Why, in the words of whoever changed it; null when none was given. */
+    @Field(() => String, { nullable: true })
+    reason!: string | null
+}
+
+@ObjectType()
+/** What a person's consent change did. */
+export class SetContactConsentType {
+    /** set, unchanged (already so: nothing written) or not_found. */
+    @Field(() => String)
+    outcome!: string
+
+    /** The fact after the call; null when the contact is not found. */
+    @Field(() => ContactConsentType, { nullable: true })
+    consent!: ContactConsentType | null
+}

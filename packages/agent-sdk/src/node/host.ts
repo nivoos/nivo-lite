@@ -21,6 +21,7 @@ import {
     type NodeTools,
     type NodeQuery,
     type NodeModelRequest,
+    type PromptOpening,
     type SubjectRef,
 } from "./node.types"
 import { RightsDeniedError } from "./rights-denied-error"
@@ -178,7 +179,7 @@ const turnRefusalOf = (error: z.ZodError): NodeAgentRefusal => ({
 /** How an agent takes its turns: part of the agent's craft, the same words for every step of every agent. */
 const AGENT_RULE =
     "You act by calling tools; you never claim an action you did not call a tool for. Each turn answer ONLY with JSON, one of three shapes. " +
-    'To call one tool the step allows: {"call": {"tool": "<name>", "args": {<arguments fitting that tool\'s schema>}}}. You then see its result, or why it was refused, in `calls`: a refusal is a fact, never retry the same call unchanged, never work around it. ' +
+    'To call one tool the step allows: {"call": {"tool": "<name>", "args": {<arguments fitting that tool\'s schema>}}}. You then see its result, or why it was refused, after your turn (each earlier turn is shown in order, with `turnsLeft` after it): a refusal is a fact, never retry the same call unchanged, never work around it. ' +
     'When the goal is reached: {"done": <the output, fitting the step\'s `outputSchema`>}. Every tool the step lists as `required` must have succeeded before that. ' +
     'When you cannot reach the goal without guessing: {"confused": {"reason": "<why, plainly>", "question": "<what a person must answer, or null>"}}. ' +
     "Never type an amount, a total, a name or any fact that is not in what you are given or in a tool's result: tools take ids and work the rest out themselves."
@@ -194,6 +195,13 @@ const AGENT_ACT_RULE =
     "Every tool the step lists as `required` must have succeeded before you give the step's output, which must fit its `outputSchema`. " +
     "When you cannot reach the goal without guessing, say so with the reason and what a person must answer. " +
     "Never type an amount, a total, a name or any fact that is not in what you are given or in a tool's result: tools take ids and work the rest out themselves."
+
+/**
+ * The engine's order of authority (owner 2026-11-10, concept `engine-core.md`), stated ONCE in L1 for every agent: the same words for
+ * every call, in engine words only.
+ */
+const AUTHORITY_RULE =
+    "Order of authority: what the tools allow and refuse (hard rights and node settings, enforced by code) comes first; then the workspace's policies (`nivo.tool.brain.policy.list`); then this agent's craft. A specific rule outranks a general one, a newer one an older one, and a person's explicit word an inference."
 
 /** What goes before the agent's tool set: the whole set is always shown, and a step may call only the ones it names. */
 const TOOLS_RULE =
@@ -231,17 +239,19 @@ const ALREADY_SENT_RULE =
 // ---------------------------------------------------------------------------------------------------------------------------------
 // The layout of a model call (prompt caching)
 //
-// A provider caches the PREFIX of a prompt, so every model call of the engine is laid out from what changes least to what changes
-// most, and equal data always has the same text (`stableJson`, tools in name order):
-//   L1  the agent's craft: its guidance, its whole tool set with the schemas, how an agent takes its turns;
-//   L2  (the shop's rules from the truth graph: not laid out by this host)
-//   L3  the step: its goal, the tools it may call, the schema of its output (the host appends the schema of the answer);
-//   ---- END OF THE STABLE PART: `instructions` ends here; a host that marks a cacheable prefix marks this point, and the end of
-//        L1 (`sharedLength`) as well, so the first call of ANOTHER step of the same agent and shop reads that opening ----
-//   L4  what changes from call to call: `volatile` (the rules about what waits, what was answered, what was sent) and `input`
-//       (the thread, the facts, the calls so far).
-// Nothing of L4 may enter `instructions`: no clock, no run, lead or record id, no member order that depends on how an object was
-// built. The calls of one step only ever grow at the end of `input`: an earlier call is never rewritten or dropped.
+// A provider caches the PREFIX of a prompt, so every model call of the engine is laid out in four layers, from what changes least to
+// what changes most, and equal data always has the same text (`stableJson`, tools in name order). The layer a piece belongs to is
+// where it comes from, never what it says:
+//   L1  the agent's craft (`opening.craft`): the package's guidance and the agent's whole tool set with the schemas; the same bytes for
+//       every step of the agent in every workspace of one install;
+//   L2  the workspace's policies (`opening.policies`): what the host's `policies` port pre-read with the brain tool
+//       `nivo.tool.brain.policy.list` for the agent; the same bytes for every step of the agent in one workspace while no policy changes;
+//   L3  the step (`instructions`): how this call answers (the turn protocol of an agent, the decide rule), its goal, the tools it may
+//       call, the schema of its output (a host appends the schema of the answer);
+//   ---- END OF THE STABLE PART: a host that marks cache breakpoints marks the end of L1, of L2 and of L3 ----
+//   L4  what changes from call to call: `volatile` (the rules about what waits, what was answered, what was sent), `input` (the
+//       thread, the facts) and, in a loop, `turns`: what each earlier turn came to, appended, never rewritten.
+// Nothing of L4 may enter L1-L3: no clock, no run, lead or record id, no member order that depends on how an object was built.
 // ---------------------------------------------------------------------------------------------------------------------------------
 
 /**
@@ -326,15 +336,19 @@ const agentToolsOf = (frame: ModelCallFrame, own: ReadonlyArray<string>): Readon
                 : [{ name: id, does: doesOf(frame, tool.title), argsSchema: argsSchemaOf(tool.args) }]
         })
 
-/** L1, the agent's craft: its guidance, its tool set, and for an agent's turn how turns are taken. Nothing when the agent has none. */
-const craftOf = (frame: ModelCallFrame, own: ReadonlyArray<string>, agentTurn: boolean): ReadonlyArray<string> => {
+/**
+ * L1, the agent's craft: its guidance and its whole tool set; "" when the agent has neither. The same text for every call of the agent
+ * (a plain call, a JSON loop's turn, the engine's own decision), so they all read one cache entry; how a call answers is its L3.
+ */
+const craftOf = (frame: ModelCallFrame, own: ReadonlyArray<string>): string => {
     const guidance = (frame.turn.guidance ?? "").trim()
     const tools = agentToolsOf(frame, own)
+    if (guidance === "" && tools.length === 0) return ""
     return [
         ...(guidance === "" ? [] : [guidance]),
+        AUTHORITY_RULE,
         ...(tools.length === 0 ? [] : [`${TOOLS_RULE}\n${stableJson(tools)}`]),
-        ...(agentTurn ? [AGENT_RULE] : []),
-    ]
+    ].join("\n\n")
 }
 
 /**
@@ -343,41 +357,28 @@ const craftOf = (frame: ModelCallFrame, own: ReadonlyArray<string>, agentTurn: b
  */
 const hostLoopCraftOf = (frame: ModelCallFrame): string => {
     const guidance = (frame.turn.guidance ?? "").trim()
-    return [...(guidance === "" ? [] : [guidance]), AGENT_ACT_RULE].join("\n\n")
+    return [...(guidance === "" ? [] : [guidance]), AUTHORITY_RULE, AGENT_ACT_RULE].join("\n\n")
 }
 
-/** The stable part of a call laid out: L1 (the opening every step's call of the agent shares), then the step's own words (L3). */
-interface StableLayout {
-    /** L1 and L3, one blank line between them. */
-    readonly instructions: string
-    /** How long the L1 opening of `instructions` is; absent when the turn carries none (the call is its step alone). */
-    readonly sharedLength?: number
-}
-
-/** The stable part of a call: L1, then the step's own words (L3), with where the shared opening (L1) ends. */
-const stableOf = (
-    frame: ModelCallFrame,
-    own: ReadonlyArray<string>,
-    agentTurn: boolean,
-    step: string,
-): StableLayout => {
-    const shared = craftOf(frame, own, agentTurn).join("\n\n")
-    return shared === ""
-        ? { instructions: step }
-        : { instructions: `${shared}\n\n${step}`, sharedLength: shared.length }
+/** The shared opening of a call (L1 craft, L2 policies), or none when the agent has no craft and the workspace no policy. */
+const openingOf = (frame: ModelCallFrame, own: ReadonlyArray<string>, policies: string): PromptOpening | undefined => {
+    const craft = craftOf(frame, own)
+    return craft === "" && policies === "" ? undefined : { craft, policies }
 }
 
 /**
- * A plain model call of a turn's agent laid out for the cache: the agent's craft in front of the call's
- * own instructions, when the turn carries any, with `sharedLength` saying where that shared opening ends (a host that marks cache
- * breakpoints marks there too, so every step of the agent reads it from the cache). A host uses it for a model call it makes for the
- * agent outside a node (the engine's own decision on a stuck step); the same call is returned when the turn adds nothing.
+ * A plain model call of a turn's agent laid out for the cache: the agent's craft (L1) and the workspace's policies (L2) as the call's `opening`,
+ * in front of the call's own instructions (L3), which are handed on unchanged. A host uses it for a model call it makes for the agent
+ * outside a node (the engine's own decision on a stuck step); the same call is returned when the turn and the workspace add nothing.
+ *
+ * @param frame - The turn, the installed effects and tools, the words of the install.
+ * @param model - The call as its author wrote it.
+ * @param policies - The workspace's policies for the agent (L2), as the host's `policies` port read them; "" when none.
+ * @returns The call with its opening.
  */
-export const guidedModelRequest = (frame: ModelCallFrame, model: NodeModelRequest): NodeModelRequest => {
-    const laid = stableOf(frame, [], false, model.instructions)
-    return laid.sharedLength === undefined
-        ? model
-        : { ...model, instructions: laid.instructions, sharedLength: laid.sharedLength }
+export const guidedModelRequest = (frame: ModelCallFrame, model: NodeModelRequest, policies = ""): NodeModelRequest => {
+    const opening = openingOf(frame, [], policies)
+    return opening === undefined ? model : { ...model, opening }
 }
 
 /** The rules about what changes between two tries of a step, each only when the turn carries its data: L4, never the stable part. */
@@ -457,6 +458,7 @@ const agentRun = async <S extends z.ZodType>(
     ports: NodeHostPorts,
     hands: AgentHands,
     asked: NodeAgentRequest<S>,
+    policiesOf: () => Promise<string>,
 ): Promise<NodeModelDecision<z.output<S>>> => {
     const { node } = request
     const own = [...node.effects, ...(node.tools ?? [])]
@@ -518,6 +520,7 @@ const agentRun = async <S extends z.ZodType>(
     const step = `${asked.goal}\n\n${STEP_RULE}\n${stableJson(frame)}`
     const volatile = volatileWordsOf(request.turn)
     const facts = volatileFactsOf(request.turn)
+    const policies = await policiesOf()
     if (ports.agent !== undefined) {
         // The host takes the turns (a native tool-calling loop); the closures above stay the only way a call acts or an output stands.
         const ended: HostLoopEnd<z.output<S>> = { decision: null }
@@ -527,6 +530,7 @@ const agentRun = async <S extends z.ZodType>(
         await ports.agent({
             purpose,
             instructions: hostLoopCraftOf(request),
+            ...(policies === "" ? {} : { policies }),
             step,
             ...(volatile === undefined ? {} : { volatile }),
             input: { input: asked.input, ...facts },
@@ -567,20 +571,28 @@ const agentRun = async <S extends z.ZodType>(
         })
         return ended.decision ?? (lastRefused.refused === null ? exhausted : exhaustedAfter(turns, lastRefused.refused))
     }
-    const { instructions, sharedLength } = stableOf(request, own, true, step)
-    const calls: Array<unknown> = []
+    const opening = openingOf(request, own, policies)
+    // The turn protocol is how this call answers: L3, in front of the step, so L1 stays the agent's craft every call of it shares.
+    const instructions = `${AGENT_RULE}\n\n${step}`
+    // What each turn came to, appended in order: the request of a turn is the request of the turn before plus one more part.
+    const turnsSoFar: Array<unknown> = []
     // The last answer the loop refused (a turn of no shape, an output that did not fit): named in the confusion when the turns run out,
     // so the person the engine reports to reads why, not only that the turns ended.
     const ended: { refused: NodeAgentRefusal | null } = { refused: null }
     const take = async (left: number): Promise<NodeModelDecision<z.output<S>>> => {
         if (left === 0) return ended.refused === null ? exhausted : exhaustedAfter(turns, ended.refused)
+        // What this turn came to, with the turns left after the next answer: the part the next request appends.
+        const kept = (fact: Readonly<Record<string, unknown>>): void => {
+            turnsSoFar.push({ ...fact, turnsLeft: Math.max(0, left - 2) })
+        }
         const answered = await ports.model.json(agentTurnAsked, {
             purpose,
             instructions,
-            ...(sharedLength === undefined ? {} : { sharedLength }),
+            ...(opening === undefined ? {} : { opening }),
             ...(volatile === undefined ? {} : { volatile }),
-            // The calls so far come last and only grow, so the text of one turn is the opening of the next turn's.
-            input: { input: asked.input, ...facts, calls: [...calls], turnsLeft: left - 1 },
+            // The same input on every turn of the step; the turns so far follow it and only grow at the end.
+            input: { input: asked.input, ...facts, turnsLeft: turns - 1 },
+            ...(turnsSoFar.length === 0 ? {} : { turns: [...turnsSoFar] }),
             ...(asked.images === undefined ? {} : { images: asked.images }),
             ...(asked.reasoning === undefined ? {} : { reasoning: asked.reasoning }),
         })
@@ -589,20 +601,20 @@ const agentRun = async <S extends z.ZodType>(
         const read = agentTurnSchema.safeParse(answered)
         if (!read.success) {
             ended.refused = turnRefusalOf(read.error)
-            calls.push({ turn: "refused", refused: ended.refused })
+            kept({ turn: "refused", refused: ended.refused })
             return take(left - 1)
         }
         const turn = read.data
         if ("confused" in turn) return { kind: "confused", confusion: turn.confused }
         if ("call" in turn) {
             const { tool, args } = turn.call
-            calls.push({ tool, args, ...(await call(tool, args)) })
+            kept({ tool, args, ...(await call(tool, args)) })
             return take(left - 1)
         }
         const judged = done(turn.done)
         if (!judged.ok) {
             ended.refused = judged.refused
-            calls.push({ done: "refused", refused: judged.refused })
+            kept({ done: "refused", refused: judged.refused })
             return take(left - 1)
         }
         return { kind: "answer", value: judged.value }
@@ -622,6 +634,12 @@ const exhaustedAfter = <T>(turns: number, refused: NodeAgentRefusal): NodeModelD
     },
 })
 
+/** A read made once: every later ask answers the first one's promise. */
+const onceOf = (read: () => Promise<string>): (() => Promise<string>) => {
+    const held: { value: Promise<string> | null } = { value: null }
+    return () => (held.value ??= read())
+}
+
 /** The context a node runs with: every call checked, every effect counted. */
 const contextOf = (
     request: NodeRunRequest,
@@ -630,8 +648,10 @@ const contextOf = (
     done: Array<NodeRunEffect>,
 ): NodeContext => {
     const { node } = request
-    const purpose = (model: NodeModelRequest): NodeModelRequest => ({
-        ...guidedModelRequest(request, model),
+    // The workspace's policies (L2) are read once per node run, and only when the node calls the model.
+    const policies = onceOf(ports.policies ?? (() => Promise.resolve("")))
+    const purpose = async (model: NodeModelRequest): Promise<NodeModelRequest> => ({
+        ...guidedModelRequest(request, model, await policies()),
         purpose: `${node.id}:${model.purpose}`,
     })
     // One road for the node's own code and for the agent's calls: the code may post the wider `codePayload` shape of an effect (a card its
@@ -662,10 +682,10 @@ const contextOf = (
         },
         effect,
         model: {
-            text: (model) => ports.model.text(purpose(model)),
-            json: (schema, model) => ports.model.json(schema, purpose(model)),
+            text: async (model) => ports.model.text(await purpose(model)),
+            json: async (schema, model) => ports.model.json(schema, await purpose(model)),
             decide: async (schema, model) => {
-                const asked = purpose({ ...model, instructions: `${model.instructions}\n\n${DECIDE_RULE}` })
+                const asked = await purpose({ ...model, instructions: `${model.instructions}\n\n${DECIDE_RULE}` })
                 const got = await ports.model.json(decisionSchemaOf(schema), asked)
                 return "confused" in got
                     ? { kind: "confused", confusion: got.confused }
@@ -673,7 +693,7 @@ const contextOf = (
             },
         },
         tools,
-        agent: { run: (asked) => agentRun(request, ports, { effect: effectOf(true), tools }, asked) },
+        agent: { run: (asked) => agentRun(request, ports, { effect: effectOf(true), tools }, asked, policies) },
         fail: (failure) => {
             throw new NodeBusinessFailure(failure)
         },

@@ -21,7 +21,7 @@ tester.run("tool-ids-from-names", rule, {
         { filename: file, code: 'const notAVerb = "nivo.tool"' },
         // A generated names map and a spec are not judged (the old manifest's `excludes`, now inside the rule).
         {
-            filename: at("packages/nivo-web-core/src/vocabulary/crm-tool-names.generated.ts"),
+            filename: at("packages/nivo-web-core/src/shared/vocabulary/crm-tool-names.generated.ts"),
             code: 'export const CRM = { customerGet: "nivo.tool.crm.get.customers" }',
         },
         { filename: at("packages/blocks-core/src/agents/sales/nodes/example.node.spec.ts"), code: 'const id = "nivo.tool.order.get"' },

@@ -28,10 +28,10 @@ export interface AgentGraphLayoutView {
 }
 
 /** The tabs of the pane beside the graph. */
-export type AgentGraphSideTab = "chat" | "detail" | "proposals" | "versions"
+export type AgentGraphSideTab = "chat" | "detail"
 
-/** The views the phone offers in place of two panes: what must be done before it runs, the map as branches, the chat, the proposals and the versions. */
-export type AgentGraphPhoneView = "checklist" | "graph" | "chat" | "proposals" | "versions"
+/** The views the phone offers in place of two panes: what must be done before it runs, the map as branches and the chat. */
+export type AgentGraphPhoneView = "checklist" | "graph" | "chat"
 
 /** One line of a list answer: the owner's words and, under them, the technical name. */
 export interface AgentGraphLine {
@@ -127,38 +127,14 @@ export interface AgentGraphVersionData {
     readonly isActive: boolean
 }
 
-/** One decision the learning proposes on, with what each did. */
-export interface AgentGraphEvidenceData {
-    readonly id: string
-    readonly line: string
-    readonly outcome: string
-}
-
-/** What a proposal is about. */
-export type AgentGraphProposalKind = "conflict" | "learned" | "template_update" | "gap" | "contract"
-
-/** A thing NIVO proposes: a Brain conflict, a learned change or a template update. */
-export interface AgentGraphProposalData {
-    readonly id: string
-    readonly kind: AgentGraphProposalKind
-    readonly title: string
-    readonly why: string
-    /** More reach for the agent: only the owner may add it to the draft. */
-    readonly widens: boolean
-    readonly nodeKey: string
-    readonly branchKey: string
-    readonly evidence: ReadonlyArray<AgentGraphEvidenceData>
-    /** What the map follows now, for a conflict. */
-    readonly before: AgentGraphSourceData | null
-    /** What the Brain says now, for a conflict. */
-    readonly after: AgentGraphSourceData | null
-    /** What would change if the owner chose it, one sentence each. */
-    readonly effects: ReadonlyArray<string>
-    /** The confirm button of a conflict reads the new value, "Switch to 3 million". */
-    readonly confirmLabel: string
-    readonly keepLabel: string
-    /** The amount the lower branch ends at and the next one starts at once the proposal is in the draft; null changes no bound. */
-    readonly boundaryVnd: number | null
+/** One comparison of a condition as the page reads it: a fact, how it is compared, and the value. */
+export interface AgentGraphTermForm {
+    readonly fact: string
+    readonly op: AgentGraphOp
+    /** The value of a number fact. */
+    readonly amount: number
+    /** The value of any other fact; for "is one of", the values apart by commas. */
+    readonly text: string
 }
 
 /** One step of a traced run. */
@@ -221,90 +197,18 @@ export interface AgentGraphFactData {
     readonly allowed: ReadonlyArray<string>
 }
 
-/** One thing the graph can be asked to do: an action a node performs, and whether a decision point already guards it. */
-export interface AgentGraphActionData {
-    readonly action: string
-    readonly title: string
-    readonly isGuarded: boolean
-}
-
-/** The graph of one agent as the editor opens it. */
+/** The graph of one agent as the page reads it (read only: a shop never edits a graph). */
 export interface AgentGraphData {
-    readonly mode: "shadow" | "enforced"
     readonly activeVersion: number
-    readonly changes: number
     readonly gaps: ReadonlyArray<AgentGraphGapData>
     readonly problems: ReadonlyArray<AgentGraphProblemData>
     readonly nodes: ReadonlyArray<AgentGraphNodeData>
     readonly versions: ReadonlyArray<AgentGraphVersionData>
-    readonly proposals: ReadonlyArray<AgentGraphProposalData>
     readonly runs: ReadonlyArray<AgentGraphRunData>
     readonly members: ReadonlyArray<AgentGraphMemberData>
     /** The facts a condition may be written on. */
     readonly facts: ReadonlyArray<AgentGraphFactData>
-    /** The actions the agent performs, for adding a decision point to one. */
-    readonly actions: ReadonlyArray<AgentGraphActionData>
 }
-
-/** One comparison of a condition while the owner edits it: a fact, how it is compared, and the value. */
-export interface AgentGraphTermForm {
-    readonly fact: string
-    readonly op: AgentGraphOp
-    /** The value of a number fact. */
-    readonly amount: number
-    /** The value of any other fact; for "is one of", the values apart by commas. */
-    readonly text: string
-}
-
-/** One branch of a decision point while the owner edits it: when it applies, what happens and who is asked. */
-export interface AgentGraphRowForm {
-    /** The key the branch has in the draft; empty for a branch not saved yet. */
-    readonly key: string
-    /** The last branch, for every case no other branch took: it has no terms. */
-    readonly isElse: boolean
-    /** True for a condition the form cannot draw as rows (any of, nested): it is kept as it is. */
-    readonly isLocked: boolean
-    /** The terms, all of which must hold. */
-    readonly terms: ReadonlyArray<AgentGraphTermForm>
-    readonly mode: AgentGraphBranchMode
-    readonly approverId: string
-    readonly timeoutHours: number
-    readonly onTimeout: AgentGraphOnTimeout
-    readonly backupId: string
-}
-
-/** The whole decision point while the owner edits it: its branches, in the order they are tried. */
-export interface AgentGraphDecideForm {
-    readonly nodeKey: string
-    readonly rows: ReadonlyArray<AgentGraphRowForm>
-}
-
-/** A field of a branch the form changes. */
-export type AgentGraphRowField = "mode" | "approverId" | "timeoutHours" | "onTimeout" | "backupId"
-
-/** A field of a term the form changes. */
-export type AgentGraphTermField = "fact" | "op" | "amount" | "text"
-
-/** One change the owner makes to the form: add, remove or move a branch or a term, or set a field. */
-export type AgentGraphFormChange =
-    | { readonly kind: "addRow" }
-    | { readonly kind: "removeRow"; readonly row: number }
-    | { readonly kind: "moveRow"; readonly row: number; readonly delta: -1 | 1 }
-    | { readonly kind: "addTerm"; readonly row: number }
-    | { readonly kind: "removeTerm"; readonly row: number; readonly term: number }
-    | {
-          readonly kind: "setTerm"
-          readonly row: number
-          readonly term: number
-          readonly field: AgentGraphTermField
-          readonly value: string | number
-      }
-    | {
-          readonly kind: "setRow"
-          readonly row: number
-          readonly field: AgentGraphRowField
-          readonly value: string | number
-      }
 
 /** A node as the graph draws it at a glance, in the shape the graph component takes. */
 export interface AgentGraphFlowNode {

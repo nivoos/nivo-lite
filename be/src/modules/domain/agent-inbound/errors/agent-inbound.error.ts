@@ -18,8 +18,6 @@ export enum AgentInboundErrorCode {
     EventTypeInvalid = "AGENT_INBOUND_EVENT_TYPE_INVALID",
     /** The endpoint a webhook delivery names is not a connection that can receive it. */
     EndpointUnknown = "AGENT_INBOUND_ENDPOINT_UNKNOWN",
-    /** A delivery job names no event: nothing a retry could change. */
-    JobPayloadInvalid = "AGENT_INBOUND_JOB_PAYLOAD_INVALID",
 }
 
 /** How each agent-inbound code travels. */
@@ -32,7 +30,6 @@ export const AGENT_INBOUND_ERROR_KINDS: Record<AgentInboundErrorCode, ErrorKind>
     [AgentInboundErrorCode.BodyInvalid]: "invalid",
     [AgentInboundErrorCode.EventTypeInvalid]: "invalid",
     [AgentInboundErrorCode.EndpointUnknown]: "not-found",
-    [AgentInboundErrorCode.JobPayloadInvalid]: "internal",
 }
 
 /** The one error class of the agent-inbound capability. */

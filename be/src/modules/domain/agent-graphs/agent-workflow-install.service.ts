@@ -1,8 +1,6 @@
-import { Injectable, Optional } from "@nestjs/common"
-import { nodeIndexOf } from "@nivo-lite/agent-sdk/node"
+import { Injectable } from "@nestjs/common"
 import { latestTemplateVersion, type WorkflowTemplate } from "@nivo-lite/agent-sdk/template"
 import { EntityEngineService } from "@modules/domain/entity-engine"
-import { GraphNodeRegistryService } from "@modules/domain/graph-nodes"
 import { INSTALLED } from "@modules/domain/installed-plugins"
 import { AgentGraphFlowService } from "./agent-graph-flow.service"
 import { AgentGraphsService } from "./agent-graphs.service"
@@ -83,7 +81,6 @@ export class AgentWorkflowInstallService {
         private readonly workflows: AgentWorkflowsService,
         private readonly engine: EntityEngineService,
         private readonly records: AgentWorkflowRecordsService,
-        @Optional() private readonly nodes?: GraphNodeRegistryService,
     ) {}
 
     /** Makes the templates of the agent's module its workflows, where it holds none of them yet. */
@@ -93,9 +90,7 @@ export class AgentWorkflowInstallService {
         const template = INSTALLED.templatesOf(moduleKey).find((entry) => entry.primary)
         if (standing === "publish" && template !== undefined) {
             const { graph } = latestTemplateVersion(template)
-            // The nodes a flow is judged against: the app's registry, or what the installation declares where the app has none.
-            const installed = this.nodes?.installed() ?? nodeIndexOf(INSTALLED.nodeInstall())
-            await this.flows.publish({ workspaceId, agentId, installationId, flow: graph, installed })
+            await this.flows.publish({ workspaceId, agentId, installationId, flow: graph })
         }
         const made = await this.workflows.seedAgent(workspaceId, agentId, moduleKey)
         return { flow: standing === "publish" ? "published" : standing, made }

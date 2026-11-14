@@ -3,7 +3,15 @@ import { Injectable } from "@nestjs/common"
 import { isRefused, type EffectCall, type SubjectRef } from "@nivo-lite/agent-sdk/node"
 import type { JsonValue } from "@nivo-lite/agent-sdk/schema"
 import { isDomainError } from "@modules/platform/errors"
-import { repeatableBySpec } from "@modules/domain/tool-specs"
+import {
+    EffectLedgerRules,
+    type EffectLedger,
+    type EffectLedgerKept,
+    type EffectLedgerRow,
+    type EffectResult,
+} from "@modules/platform/effects"
+import type { JobEffectDeclaration } from "@modules/platform/jobs"
+import { repeatableBySpec, staysInsideBySpec } from "@modules/domain/tool-specs"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import {
     EffectOutcomeUnknownCode,
@@ -15,7 +23,7 @@ import {
 import type { EffectAct } from "./graph-nodes.contracts"
 import { GraphNodesLogEvent } from "./graph-nodes.log-events"
 import { InjectNodeEffectStore } from "./graph-nodes.decorators"
-import type { EffectInsert, NodeEffectStore, StoredEffect } from "./node-effect-store.port"
+import type { EffectInsert, EffectResettle, NodeEffectStore, StoredEffect } from "./node-effect-store.port"
 
 /** The longest key the ledger keeps (`agent_node_effects.effect_key`). */
 const KEY_MAX = 200
@@ -31,6 +39,29 @@ export const ledgerKeyOf = (call: EffectCall): string => {
 
 /** The kind a ledger record names as its subject when its act ended with an outcome nobody knows (see `OUTCOME_UNKNOWN_CODES`). */
 export const OUTCOME_UNKNOWN_KIND = "outcome-unknown"
+
+/**
+ * The kind a ledger record names as its subject while the act it stands for is under way: the INTENT written and committed BEFORE an act
+ * outside NIVO's database (QB-P3 rule I-1); the act's answer fills it. An intent a later call finds with no result is an outcome nobody
+ * knows (the process died between the act and its result).
+ */
+export const INTENT_KIND = "intent"
+
+/** The ledger namespace of the engine's own facts (the step's instant and day): values the engine computes, never an act outside. */
+const ENGINE_OWN_PREFIX = "engine."
+
+/**
+ * Whether an act may change something OUTSIDE NIVO's database, from declared data only (QB-P3 rule I-2): every id except the engine's own
+ * facts and a core tool whose spec declares it stays inside (a read, or NIVO's own records). A plugin's effect, an ability's write and a
+ * provider's tool are outside: the engine cannot prove an undeclared executor stays inside, and the safe side of not knowing is outside.
+ */
+export const actsOutside = (effect: string): boolean => !effect.startsWith(ENGINE_OWN_PREFIX) && !staysInsideBySpec(effect)
+
+/** The open kind of a kept subject (an intent with no result, or an act whose outcome is unknown), or null for a settled one. */
+const openKindOf = (subject: SubjectRef): string | null => {
+    if (subject.kind === INTENT_KIND) return INTENT_KIND
+    return subject.kind === OUTCOME_UNKNOWN_KIND && isOutcomeUnknownCode(subject.id) ? OUTCOME_UNKNOWN_KIND : null
+}
 
 /** The codes an act ends with when its effect may or may not have happened (`EffectOutcomeUnknownCode`). */
 export const OUTCOME_UNKNOWN_CODES: ReadonlySet<string> = new Set(Object.values(EffectOutcomeUnknownCode))
@@ -148,7 +179,10 @@ export interface LedgerRecord {
     readonly effect: string
     /** The arguments the call ran with; null when they were not kept (a record from before they were, or too large to keep). */
     readonly args: Readonly<Record<string, unknown>> | null
-    /** The subject it touched, with the facts it answered when kept; of kind `outcome-unknown` when nobody knows whether it acted. */
+    /**
+     * The subject it touched, with the facts it answered when kept; of kind `outcome-unknown` when nobody knows whether it acted, of kind
+     * `intent` when it was written before its act and no result was kept.
+     */
     readonly subject: SubjectRef
     /** When it was kept (ISO text): just after the act. */
     readonly at: string
@@ -174,19 +208,171 @@ const unknownCodeOf = (cause: unknown): string | null => {
     return isOutcomeUnknownCode(code) ? code : null
 }
 
-/** Whether the ledger kept a call whose outcome nobody knows; the write's failure when it could not. */
-type UnknownKept = { readonly kept: true } | { readonly kept: false; readonly cause: unknown }
+/** The row of a call whose act ended with an outcome nobody knows: its code as the subject. */
+const unknownSubjectOf = (code: string): EffectResettle => ({ subjectEntity: OUTCOME_UNKNOWN_KIND, subjectId: code, facts: { code } })
+
+/** The state the shared effect rules read of a ledger row: an intent, an outcome kept unknown, or a settled act. */
+const stateOf = (row: StoredEffect): EffectLedgerRow["state"] => {
+    const open = openKindOf(keptOf(row).subject)
+    if (open === INTENT_KIND) return "intent"
+    return open === null ? "done" : "unknown"
+}
+
+/** What a settled row keeps for the shared rules: the subject and the facts the act answered. */
+const keptSubjectOf = (subject: SubjectRef): EffectResult => ({
+    kind: subject.kind,
+    id: subject.id,
+    facts: ledgerJsonOf(subject.facts),
+})
+
+/** The subject a kept result stands for (the inverse of `keptSubjectOf`); a result of another shape is no subject. */
+const subjectOfKept = (kept: EffectResult): SubjectRef => {
+    const record = recordOf(kept)
+    const kind = record?.kind
+    const id = record?.id
+    if (typeof kind !== "string" || typeof id !== "string") {
+        throw new GraphNodesError({ code: GraphNodesErrorCode.EffectNotRecorded, params: { effect: typeof kind === "string" ? kind : "" } })
+    }
+    const facts = recordOf(record?.facts)
+    return facts === null ? { kind, id } : { kind, id, facts }
+}
+
+/** The columns an open row is settled to from what the rules keep. */
+const resettleOf = (kept: EffectResult): EffectResettle => {
+    const subject = subjectOfKept(kept)
+    return { subjectEntity: subject.kind, subjectId: subject.id, facts: ledgerJsonOf(subject.facts) }
+}
+
+/** The columns of one call, as the row of its key keeps them beside the subject. */
+type CallValues = Omit<EffectInsert, "subjectEntity" | "subjectId" | "facts">
+
+/** What one call of the node ledger reads and writes through the shared effect rules. */
+interface NodeLedgerCall {
+    readonly store: NodeEffectStore
+    readonly logger: Logger
+    readonly workspaceId: string
+    /** The effect of the call. */
+    readonly effect: string
+    /** The columns of the call's row. */
+    readonly values: CallValues
+    /** True for an act outside NIVO's database (QB-P3 rule I-2): its intent is written before it. */
+    readonly outside: boolean
+    /** True for a tool that declares itself `repeatable`. */
+    readonly repeatable: boolean
+    /** True when the key is known to hold a row before anything is read (a confirmation settling an open row). */
+    readonly held?: boolean
+}
+
+/**
+ * `agent_node_effects` as an `EffectLedger` of one call (its workspace, effect and columns): the rows only, keys and table unchanged.
+ * The shared rules decide; this adapter maps their states onto the subject columns (`intent`, `outcome-unknown` + its code, else a
+ * settled subject), types the failures as the engine reads them (`EffectOutcomeUnknownError` with the code, `GraphNodesError`), and
+ * keeps the node ledger's own forms: an act INSIDE the database writes no intent (its row is written once after the act, insert or
+ * nothing), a lost act found later stays the intent it was (its readers read an open intent as unknown), and a key another effect holds
+ * is refused before anything acts. Releases and unknown keeps are best effort: the act's own answer or error is what the caller gets.
+ */
+class NodeEffectLedger implements EffectLedger {
+    /** The row this call found or wrote under the key, or null while the key holds none of this call's. */
+    private found: StoredEffect | null = null
+    /** True while the key holds a row (found, or the intent this call wrote). */
+    private written: boolean
+
+    constructor(private readonly call: NodeLedgerCall) {
+        this.written = call.held === true
+    }
+
+    async find(key: string): Promise<EffectLedgerRow | null> {
+        const { store, workspaceId, effect, repeatable, logger } = this.call
+        const row = await store.byKey(workspaceId, key)
+        this.found = row
+        this.written = row !== null
+        if (row === null) return null
+        if (row.effectId !== effect) {
+            throw new GraphNodesError({ code: GraphNodesErrorCode.EffectKeyTaken, params: { effect, heldBy: row.effectId } })
+        }
+        const state = stateOf(row)
+        if (state === "done" || !repeatable) logger.info(GraphNodesLogEvent.EffectReplayed, { workspaceId, effect })
+        return { name: row.effectId, state, kept: state === "done" ? { kept: keptSubjectOf(keptOf(row).subject) } : undefined }
+    }
+
+    async open(): Promise<boolean> {
+        if (!this.call.outside) return true
+        const intended = await this.call.store.insert(this.call.workspaceId, {
+            ...this.call.values,
+            subjectEntity: INTENT_KIND,
+            subjectId: INTENT_KIND,
+            facts: null,
+        })
+        this.written = intended
+        return intended
+    }
+
+    async reopen(key: string): Promise<void> {
+        const { store, workspaceId, effect, logger } = this.call
+        logger.info(GraphNodesLogEvent.EffectReplayed, { workspaceId, effect, again: true })
+        if (this.found === null || stateOf(this.found) !== "unknown") return
+        await store.resettle(workspaceId, key, OUTCOME_UNKNOWN_KIND, {
+            subjectEntity: INTENT_KIND,
+            subjectId: INTENT_KIND,
+            facts: null,
+        })
+    }
+
+    async settle(key: string, kept: EffectLedgerKept | undefined): Promise<boolean> {
+        const { store, workspaceId, values } = this.call
+        if (kept === undefined) return false
+        const settled = resettleOf(kept.kept)
+        if (!this.written) return store.insert(workspaceId, { ...values, ...settled })
+        if (await store.resettle(workspaceId, key, INTENT_KIND, settled)) return true
+        return store.resettle(workspaceId, key, OUTCOME_UNKNOWN_KIND, settled)
+    }
+
+    async markUnknown(key: string, failure: unknown): Promise<void> {
+        const code = unknownCodeOf(failure)
+        // A lost act found later stays the intent it was: its readers read an open intent as an outcome nobody knows.
+        if (code === null) return
+        const { store, workspaceId, values } = this.call
+        const kept = this.written
+            ? store.resettle(workspaceId, key, INTENT_KIND, unknownSubjectOf(code))
+            : store.insert(workspaceId, { ...values, ...unknownSubjectOf(code) })
+        await kept.catch(() => false)
+    }
+
+    async release(key: string): Promise<void> {
+        if (!this.written) return
+        await this.call.store.release(this.call.workspaceId, key, INTENT_KIND).catch(() => false)
+        this.written = false
+    }
+
+    isOutcomeUnknown(failure: unknown): boolean {
+        return unknownCodeOf(failure) !== null
+    }
+
+    failureOf(_key: string, effect: JobEffectDeclaration, found: EffectLedgerRow | null): Error {
+        if (found === null || found.state === "done") {
+            return new GraphNodesError({ code: GraphNodesErrorCode.EffectNotRecorded, params: { effect: effect.name } })
+        }
+        if (found.state === "intent") {
+            return new EffectOutcomeUnknownError({
+                code: EffectOutcomeUnknownCode.Tool,
+                params: { effect: effect.name, open: INTENT_KIND },
+            })
+        }
+        const stored = this.found?.subjectId
+        const code = isOutcomeUnknownCode(stored) ? stored : EffectOutcomeUnknownCode.Tool
+        return new EffectOutcomeUnknownError({ code, params: { effect: effect.name } })
+    }
+}
 
 @Injectable()
 /**
- * The ledger that makes a node's effect act once, kept as rows of the core table `agent_node_effects` (`NODE_EFFECT_STORE`). Before
- * acting, a key already written answers its subject and the facts it answered; the act itself runs outside any transaction (an effect may
- * call a door, BE-PERSISTENCE-6); after acting, the subject is written once under the unique key (insert or nothing), with the run, the step, the
- * arguments and the facts of the call (D.1: what a step already did is read back from here, across conversations and attempts), and
- * when two runs raced, both answer the subject of the record that won. A refusal (`{ kind: "refused" }`) is never written: it changed
- * nothing, and a kept refusal would be replayed for ever. An act that ends with an outcome nobody knows is written as such and answers
- * that same outcome for ever after: no machine makes the call again, only a person decides. A key answers only the effect that wrote
- * it: a key another effect holds is refused before anything acts, so one tool's result is never handed to another.
+ * The ledger that makes a node's effect act once, kept as rows of the core table `agent_node_effects` (`NODE_EFFECT_STORE`), keyed
+ * `<run>:<step>:<digest>` (or the node's business key). It owns the KEYS, the columns of a call (run, step, arguments: D.1, what a step
+ * already did is read back from here) and the node's declarations (`repeatable`, inside or outside, from tool-specs); the RULES (intent
+ * before an act outside, fill, release on a refusal or a failure that says nothing happened, an unknown outcome kept, a lost act settled
+ * by its declaration, never a blind second act) are the platform's ONE piece, `EffectLedgerRules`, run on this table (QB-EFFECTS). The
+ * act itself runs outside any transaction (an effect may call a door, BE-PERSISTENCE-6). A refusal (`{ kind: "refused" }`) is never kept.
+ * A `confirmBy` read is the runner's (it needs the step's door); its proof settles the open row through `settleOpen`.
  */
 export class GraphNodeEffectsService {
     constructor(
@@ -203,51 +389,35 @@ export class GraphNodeEffectsService {
         record: CallRecord = {},
     ): Promise<SubjectRef> {
         const ledgerKey = ledgerKeyOf(call)
-        const before = await this.recorded(workspaceId, ledgerKey)
-        if (before !== null) {
-            if (before.effect !== effect) {
-                throw new GraphNodesError({
-                    code: GraphNodesErrorCode.EffectKeyTaken,
-                    params: { effect, heldBy: before.effect },
-                })
-            }
-            const unknown = before.subject.kind === OUTCOME_UNKNOWN_KIND && isOutcomeUnknownCode(before.subject.id)
-            // Rule Q-3: a kept unknown outcome of a tool that declares itself `repeatable` is made again under the SAME key.
-            if (unknown && repeatableBySpec(effect) === true) return this.actedAgain(workspaceId, effect, ledgerKey, act)
-            this.logger.info(GraphNodesLogEvent.EffectReplayed, { workspaceId, effect })
-            if (unknown) throw new EffectOutcomeUnknownError({ code: before.subject.id, params: { effect } })
-            return before.subject
-        }
         const place = record.place ?? placeOf(call.key)
-        const args = ledgerJsonOf(record.args)
-        const values: Omit<EffectInsert, "subjectEntity" | "subjectId" | "facts"> = {
+        const repeatable = repeatableBySpec(effect) === true
+        const values: CallValues = {
             effectKey: ledgerKey,
             effectId: effect,
             runId: place?.runId ?? null,
             stepKey: place?.stepKey ?? null,
-            args,
+            args: ledgerJsonOf(record.args),
         }
-        const subject = await act().catch(async (cause: unknown) => {
-            const code = unknownCodeOf(cause)
-            if (code !== null) await this.keepUnknown(workspaceId, values, code)
-            throw cause
+        const ledger = this.ledgerOf(workspaceId, effect, values, { outside: actsOutside(effect), repeatable })
+        return new EffectLedgerRules(ledger).once(ledgerKey, declarationOf(effect, repeatable), {
+            act,
+            keep: keptSubjectOf,
+            from: subjectOfKept,
+            // A refusal is an answer, not an act: nothing is kept under the key, so the call asked again later is really made again.
+            nothingDone: isRefused,
         })
-        // A refusal is an answer, not an act: nothing is kept under the key, so the call asked again later is really made again.
-        if (isRefused(subject)) return subject
-        const facts = ledgerJsonOf(subject.facts)
-        const written = await this.store.insert(workspaceId, {
-            ...values,
-            subjectEntity: subject.kind,
-            subjectId: subject.id,
-            facts,
-        })
-        if (written) return subject
-        // Another try wrote the key first: both answer the subject of the row that won.
-        const winner = await this.recorded(workspaceId, ledgerKey)
-        if (winner?.effect !== effect) {
-            throw new GraphNodesError({ code: GraphNodesErrorCode.EffectNotRecorded, params: { effect } })
-        }
-        return winner.subject
+    }
+
+    /**
+     * Settles an OPEN row of a call (an intent with no result, or an outcome kept unknown) to the subject a confirmation read proved
+     * (QB-P3 rule I-3: the tool's `confirmBy`, read by the runner): a later call of the key answers it. True when a row was settled; false
+     * when the key holds no open row (nothing kept, or already settled).
+     */
+    async settleOpen(workspaceId: string, call: EffectCall, subject: SubjectRef): Promise<boolean> {
+        const ledgerKey = ledgerKeyOf(call)
+        const values: CallValues = { effectKey: ledgerKey, effectId: subject.kind, runId: null, stepKey: null, args: null }
+        const ledger = this.ledgerOf(workspaceId, subject.kind, values, { outside: true, repeatable: false, held: true })
+        return new EffectLedgerRules(ledger).settleOpen(ledgerKey, keptSubjectOf(subject))
     }
 
     /**
@@ -269,44 +439,19 @@ export class GraphNodeEffectsService {
         })
     }
 
-    /** What the ledger kept for a key, or null when the key is not written. */
-    private async recorded(workspaceId: string, ledgerKey: string): Promise<Kept | null> {
-        const row = await this.store.byKey(workspaceId, ledgerKey)
-        return row === null ? null : keptOf(row)
-    }
-
-    /**
-     * Keeps a call whose act ended with an outcome nobody knows, so it is never made again by a machine. Best effort: the act's own
-     * error is what the caller gets either way (a failed keep is answered, not thrown, so it never hides that error); a key another
-     * attempt wrote meanwhile keeps what that attempt wrote.
-     */
-    /**
-     * Makes again a call the ledger kept with an unknown outcome, for a tool that declares itself `repeatable` (rule Q-3, R74): the act
-     * runs under the same key; what it answers settles the kept row (a refusal settles nothing, an unknown outcome again leaves the row
-     * as it is), so a later call of the key answers the new subject.
-     */
-    private async actedAgain(workspaceId: string, effect: string, ledgerKey: string, act: EffectAct): Promise<SubjectRef> {
-        this.logger.info(GraphNodesLogEvent.EffectReplayed, { workspaceId, effect, again: true })
-        const subject = await act()
-        if (isRefused(subject)) return subject
-        await this.store.resettle(workspaceId, ledgerKey, OUTCOME_UNKNOWN_KIND, {
-            subjectEntity: subject.kind,
-            subjectId: subject.id,
-            facts: ledgerJsonOf(subject.facts),
-        })
-        return subject
-    }
-
-    private keepUnknown(
+    /** The node ledger of one call. */
+    private ledgerOf(
         workspaceId: string,
-        values: Omit<EffectInsert, "subjectEntity" | "subjectId" | "facts">,
-        code: string,
-    ): Promise<UnknownKept> {
-        return this.store
-            .insert(workspaceId, { ...values, subjectEntity: OUTCOME_UNKNOWN_KIND, subjectId: code, facts: { code } })
-            .then(
-                (): UnknownKept => ({ kept: true }),
-                (cause: unknown): UnknownKept => ({ kept: false, cause }),
-            )
+        effect: string,
+        values: CallValues,
+        kind: Pick<NodeLedgerCall, "outside" | "repeatable" | "held">,
+    ): NodeEffectLedger {
+        return new NodeEffectLedger({ store: this.store, logger: this.logger, workspaceId, effect, values, ...kind })
     }
 }
+
+/** How the shared rules settle a lost act of a node's effect: a `repeatable` tool is made again; any other waits for a person. */
+const declarationOf = (effect: string, repeatable: boolean): JobEffectDeclaration => ({
+    name: effect,
+    settle: repeatable ? "repeatable" : "person",
+})

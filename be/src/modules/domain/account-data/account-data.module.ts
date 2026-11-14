@@ -1,5 +1,7 @@
 import { Module, type DynamicModule, type Provider } from "@nestjs/common"
 import { AccountCursorsService } from "./account-cursors.service"
+import { AccountDataAdmissionsService } from "./account-data-admissions.service"
+import { AccountDataFactsService } from "./account-data-facts.service"
 import { AccountDataIntakeService } from "./account-data-intake.service"
 import { AccountDataPageService } from "./account-data-page.service"
 import { AccountDataPlanService } from "./account-data-plan.service"
@@ -12,6 +14,8 @@ import { ConfigurableModuleClass, OPTIONS_TYPE } from "./account-data.module-def
 const SERVICES: ReadonlyArray<Provider> = [
     AccountDataTypesService,
     AccountDataIntakeService,
+    AccountDataAdmissionsService,
+    AccountDataFactsService,
     AccountDataReadService,
     AccountCursorsService,
     AccountDataRetentionService,

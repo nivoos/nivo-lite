@@ -3,6 +3,7 @@ import { Secret } from "@modules/platform/config"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { I18nModule } from "@modules/platform/i18n"
 import { JobsModule } from "@modules/platform/jobs"
+import { EffectsModule } from "@modules/platform/effects"
 import { HttpSecurityModule } from "@modules/platform/http-security"
 import { refused } from "@modules/platform/primitives"
 import { ZaloModule } from "@modules/integrations/zalo"
@@ -16,7 +17,7 @@ import { CONVERSATIONS_MESSAGES } from "@modules/domain/conversations"
 import { ZaloCredentialsService } from "@modules/domain/channels"
 import { CHANNELS_OPTIONS } from "../../modules/domain/channels/channels.decorators"
 import { chatRecordsModules } from "./chat-records-modules"
-import { EntityEngineModule, ReadOnlyEngineAlertsService } from "@modules/domain/entity-engine"
+import { EntityEngineModule } from "@modules/domain/entity-engine"
 import { AgentConnectionsModule } from "@modules/domain/agent-connections"
 import { AGENTS_INSTALLATIONS, AgentDirectoryService, AgentsModule } from "@modules/domain/agents"
 import { InboundEventsModule } from "@modules/domain/inbound-events"
@@ -75,6 +76,7 @@ const platformModules = (tokenKey: Secret): Array<DynamicModule> => [
         leaseMs: 100,
         scheduler: { enabled: false },
     }),
+    EffectsModule.register({ isGlobal: true, connection: PRIMARY_ENTITY_MANAGER }),
     I18nModule.register({ isGlobal: true, bundles: [CONVERSATIONS_MESSAGES, BILLING_MESSAGES] }),
     HttpSecurityModule.register({
         isGlobal: true,
@@ -116,7 +118,6 @@ const domainModules = (tokenKey: Secret): Array<DynamicModule> => [
     AccountDataModule.register({ isGlobal: true, types: ACCOUNT_DATA_CATALOG }),
     EntityEngineModule.register({
         isGlobal: true,
-        alerts: ReadOnlyEngineAlertsService,
         entities: INSTALLED.entities(),
         jobs: INSTALLED.jobs(),
         cursorKey: tokenKey,

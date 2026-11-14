@@ -1,18 +1,19 @@
 import { Injectable, Optional } from "@nestjs/common"
-import { graphSpecSchema, type GraphSpec } from "@nivo-lite/agent-sdk/graph"
 import type { AgentRightsAgreed } from "./agent-workflow-rights.contracts"
 import type { WorkflowTemplate } from "@nivo-lite/agent-sdk/template"
 import { INSTALLED } from "@modules/domain/installed-plugins"
-import { isNodeMode } from "@modules/domain/tools"
+import { ConnectionBindingsReadService } from "@modules/domain/connections"
+import { ProviderSandboxService } from "@modules/domain/provider-sandbox"
+import { AccountAttachmentsService } from "@modules/domain/tool-grants"
+import { accountLabelOf, accountsAsNodesName, isNodeMode } from "@modules/domain/tools"
 import { InstallationRecordsService } from "@modules/domain/module-installations"
 import { WorkspaceMemberSeatsService } from "@modules/domain/workspace-members"
 import { WorkspaceEnterpriseService } from "@modules/domain/workspaces"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
-import { parseJsonText } from "@modules/platform/primitives"
+import { eachInOrder } from "@modules/platform/primitives"
 import type { GraphActor } from "./agent-graph-admin.service"
 import { AgentDirectoryService } from "@modules/domain/agents"
 import { storedAvatarAddress } from "@modules/integrations/object-storage"
-import { AgentGraphLayoutService } from "./agent-graph-layout.service"
 import { AgentGraphsLogEvent } from "./agent-graphs.log-events"
 import { AgentStepTitlesService } from "./agent-step-titles.service"
 import { AgentWorkflowInstallService } from "./agent-workflow-install.service"
@@ -33,21 +34,26 @@ import type {
     TemplateRequest,
     TemplatesRequest,
     WorkflowAcceptRequest,
-    LayoutSaveRequest,
     WorkflowCreateRequest,
     WorkflowDiffRequest,
-    WorkflowPublishRequest,
     WorkflowRequest,
     WorkflowRollbackRequest,
     WorkflowStatusRequest,
-    WorkflowNodeModeRequest,
+    WorkflowNodeSettingsRequest,
     WorkflowTemplateVersionRequest,
     WorkflowsRequest,
 } from "./agent-workflows-door.contracts"
 import { AgentGraphsError, AgentGraphsErrorCode } from "./errors/agent-graphs.error"
-import type { GraphLayoutPosition } from "./policies/graph-layout.policy"
 import { agreedRightsOf, type AgreedRight } from "./policies/node-rights-gate.policy"
-import { graphWithNodeMode } from "./policies/node-mode-override.policy"
+import {
+    graphWithNodeSettings,
+    judgedAccountChoice,
+    nodeSettingsViewsOf,
+    unsettableRefusal,
+    type NodeAccountOption,
+    type NodeSettingsChange,
+    type NodeSettingsView,
+} from "./policies/node-settings.policy"
 import { requireNoWidening } from "./policies/workflow-widening.policy"
 import {
     diffAgainstOf,
@@ -100,24 +106,29 @@ export interface AgentWorkflowGraphWire extends Omit<AgentWorkflowGraph, "workfl
     readonly workflows: ReadonlyArray<WorkflowGraphEntryWire>
 }
 
-/** The saved layout of the Graph page. */
-export interface GraphLayoutWire {
-    /** Where each workflow sits; a workflow without a position is placed by the page. */
-    readonly positions: ReadonlyArray<GraphLayoutPosition>
-}
-
 /** The entries the owner agreed, as the last argument of a version write: none when the request agreed nothing. */
 const agreedOf = (request: AgreedRightsRequest): [] | [ReadonlyArray<AgreedRight>] => {
     const agreed = agreedRightsOf(request.agreedRights)
     return agreed.length === 0 ? [] : [agreed]
 }
 
-/** The text of a graph the editor sent, read as a graph; one that is not JSON or not a graph is refused. */
-const graphOfText = (text: string): GraphSpec => {
-    const read = parseJsonText(text)
-    const parsed = read.ok ? graphSpecSchema.safeParse(read.value) : null
-    if (parsed?.success !== true) throw new AgentGraphsError({ code: AgentGraphsErrorCode.DocumentInvalid })
-    return parsed.data
+/** One workflow with its graph and every step's settings: what is settable, what is in force, the accounts it could use. */
+export interface WorkflowSettingsDetailWire extends WorkflowDetailWire {
+    /** Every step of the running graph, in its order. */
+    readonly nodeSettings: ReadonlyArray<NodeSettingsView>
+}
+
+/** The status of a connection that works. */
+const CONNECTED = "connected"
+
+/** The note of a settings version: the step and what was set on it. */
+const noteOf = (nodeKey: string, change: NodeSettingsChange): string => {
+    const accounts = change.accounts?.map((one) => one.connectionId).join(",")
+    return [
+        `${nodeKey}:`,
+        ...(change.mode === undefined ? [] : [change.mode]),
+        ...(accounts === undefined ? [] : [`accounts ${accounts === "" ? "default" : accounts}`]),
+    ].join(" ")
 }
 
 @Injectable()
@@ -134,12 +145,14 @@ export class AgentWorkflowsAdminService {
         private readonly installations: InstallationRecordsService,
         private readonly workflows: AgentWorkflowsService,
         private readonly runs: AgentWorkflowRunsService,
-        private readonly layouts: AgentGraphLayoutService,
         private readonly agents: AgentDirectoryService,
         @Optional() private readonly enterprise?: WorkspaceEnterpriseService,
         @Optional() private readonly installer?: AgentWorkflowInstallService,
         @Optional() @InjectLogger() private readonly logger?: Logger,
         @Optional() private readonly titles?: AgentStepTitlesService,
+        @Optional() private readonly attachments?: AccountAttachmentsService,
+        @Optional() private readonly bindings?: ConnectionBindingsReadService,
+        @Optional() private readonly sandbox?: ProviderSandboxService,
     ) {}
 
     /** The title of a step as its installed node declares it; none in an app that installed no nodes. */
@@ -196,30 +209,15 @@ export class AgentWorkflowsAdminService {
         }
     }
 
-    /** Where the owner placed each workflow on the Graph page of the agent of an installation. */
-    async layout(actor: GraphActor, request: WorkflowsRequest): Promise<GraphLayoutWire> {
+    /**
+     * One workflow with its graph, its history, how it differs from its template, and every step's NODE SETTINGS (`node-settings.policy`):
+     * what the shop may set on it, what is in force, and the agent's attached accounts the step could use (default and sandbox marked).
+     */
+    async detail(actor: GraphActor, request: WorkflowRequest): Promise<WorkflowSettingsDetailWire> {
         await this.editorOf(actor)
-        const seat = await this.seatOf(actor, request.installationId)
-        return { positions: await this.layouts.read(actor.workspaceId, request.installationId, seat.agentId) }
-    }
-
-    /** Replaces the layout of the Graph page of the agent of an installation. */
-    async saveLayout(actor: GraphActor, request: LayoutSaveRequest): Promise<GraphLayoutWire> {
-        await this.editorOf(actor)
-        const seat = await this.seatOf(actor, request.installationId)
-        const positions = await this.layouts.save(
-            actor.workspaceId,
-            request.installationId,
-            seat.agentId,
-            request.positions,
-        )
-        return { positions }
-    }
-
-    /** One workflow with its graph, its history and how it differs from its template. */
-    async detail(actor: GraphActor, request: WorkflowRequest): Promise<WorkflowDetailWire> {
-        await this.editorOf(actor)
-        return workflowDetailWireOf(await this.owned(actor, request), this.stepTitleOf)
+        const detail = await this.owned(actor, request)
+        const attached = await this.accountOptionsOf(actor.workspaceId, detail.workflow.agentId)
+        return { ...workflowDetailWireOf(detail, this.stepTitleOf), nodeSettings: nodeSettingsViewsOf(detail.graph, attached) }
     }
 
     /** How one version differs from another, from the one before or from a template version. */
@@ -249,76 +247,76 @@ export class AgentWorkflowsAdminService {
         )
     }
 
-    /** Adds a workflow from a template version (the newest when none is named), or from scratch when no template is named. */
+    /** Adds a workflow from a template version (the newest when none is named): a stored graph is exactly an installed template version. */
     async create(actor: GraphActor, request: WorkflowCreateRequest): Promise<WorkflowWire> {
         const author = await this.editorOf(actor)
         const seat = await this.seatOf(actor, request.installationId)
+        await this.openTemplate(actor.workspaceId, request.templateId)
+        const pick = { templateId: request.templateId, version: request.templateVersion ?? null }
         const locale = workflowLocaleOf(request.locale)
-        const templateId = request.templateId ?? null
-        if (templateId !== null) {
-            await this.openTemplate(actor.workspaceId, templateId)
-            const pick = { templateId, version: request.templateVersion ?? null }
-            return workflowWireOf(
-                await this.workflows.createFromTemplate(actor.workspaceId, seat.agentId, pick, author, locale),
-            )
-        }
-        const name = request.name?.trim() ?? ""
-        if (name === "") throw workflowRefused("name")
-        const blank = { name, moduleKey: seat.moduleKey }
-        return workflowWireOf(await this.workflows.createBlank(actor.workspaceId, seat.agentId, blank, author, locale))
-    }
-
-    /** Publishes the graph the editor sent as the next version of the workflow. */
-    async publish(actor: GraphActor, request: WorkflowPublishRequest): Promise<WorkflowVersionWire> {
-        const author = await this.editorOf(actor)
-        const detail = await this.owned(actor, request)
-        const graph = graphOfText(request.graphJson)
-        requireNoWidening(detail.graph, graph, author.role)
-        const expected = request.expectedLatest ?? null
-        const { workspaceId } = actor
-        return workflowVersionWireOf(
-            await this.workflows.publish(
-                workspaceId,
-                request.workflowId,
-                graph,
-                author,
-                expected,
-                request.note,
-                ...agreedOf(request),
-            ),
-        )
+        return workflowWireOf(await this.workflows.createFromTemplate(actor.workspaceId, seat.agentId, pick, author, locale))
     }
 
     /**
-     * Sets ONE node of the workflow's running graph to `auto` or `ask`, for the OWNER alone (nivo-frame `rights`: account attachments + one
-     * mode per node are the hard rights; rule 5: a shop overrides a node's mode on its own graph copy, and a template update keeps it). It
-     * writes a NEW version of the workflow (the running graph with that node's mode replaced) through the same road as every edit, so the
-     * history shows it and a run pins it; the tool door reads the mode from the version a run is pinned to: `ask` raises the approval stop
-     * with the whole content of the call (rule 11 h) on the next run, while runs in flight keep the version they started on. A node already
-     * in that mode writes nothing and answers the running version. Refused, typed: a manager or staff (`FORBIDDEN`), a mode that is not
-     * `auto` / `ask` (`mode`), a key no node has (`node`), an engine control step (`node-control`), a newer version than the one read.
+     * THE ONE DOOR of a node's settings (`node-settings.policy`; rights rule 5, templates R89), for the OWNER alone: ONE node step of the
+     * workflow's running graph gets the settings asked (its mode `auto | ask`, the accounts it uses in try order; a member not asked is
+     * left), each judged by rule: the step must take it (`NODE_SETTING_UNSETTABLE`), the mode must be a mode (`mode`), every chosen
+     * account must be attached to the agent, working, of a provider the step lists, a sandbox one only while the sandbox is on, and named
+     * once (`judgedAccountChoice`); an empty choice goes back to the default pick. It writes a NEW version of the workflow through the
+     * judged road (`requireSoundFlow`: still the template's copy, an `ask` step calls one write `NODE_ASK_WRITES_MANY`), so the history
+     * shows it and a run pins it; runs in flight keep the version they started on. Settings already in force write nothing and answer the
+     * running version. Refused, typed: a manager or staff (`FORBIDDEN`), a key no node has (`node`), a newer version than the one read.
      */
-    async setNodeMode(actor: GraphActor, request: WorkflowNodeModeRequest): Promise<WorkflowVersionWire> {
+    async setNodeSettings(actor: GraphActor, request: WorkflowNodeSettingsRequest): Promise<WorkflowVersionWire> {
         const author = await this.editorOf(actor)
         if (author.role !== "owner") throw new AgentGraphsError({ code: AgentGraphsErrorCode.Forbidden })
-        if (!isNodeMode(request.mode)) throw workflowRefused("mode")
+        const mode = request.mode ?? undefined
+        if (mode !== undefined && !isNodeMode(mode)) throw workflowRefused("mode")
         const detail = await this.owned(actor, request)
-        const graph = graphWithNodeMode(detail.graph, request.nodeKey, request.mode, (step) => INSTALLED.stepOf(step)?.control === true)
+        const node = detail.graph.nodes.find((one) => one.key === request.nodeKey)
+        if (node === undefined) throw workflowRefused("node")
+        const wanted = request.accountIds ?? undefined
+        const attached = wanted === undefined ? [] : await this.accountOptionsOf(actor.workspaceId, detail.workflow.agentId)
+        const sandboxOn = this.sandbox?.enabled() === true
+        const change: NodeSettingsChange = {
+            ...(mode === undefined ? {} : { mode }),
+            ...(wanted === undefined ? {} : { accounts: judgedAccountChoice(node, wanted, attached, sandboxOn) }),
+        }
+        const graph = graphWithNodeSettings(detail.graph, request.nodeKey, change, unsettableRefusal)
         if (graph === null) {
             const running = detail.versions.find((version) => version.active)
             if (running === undefined) throw workflowRefused("version")
             return workflowVersionWireOf(running)
         }
+        const expected = request.expectedLatest ?? null
+        const note = noteOf(request.nodeKey, change)
         return workflowVersionWireOf(
-            await this.workflows.publish(
-                actor.workspaceId,
-                request.workflowId,
-                graph,
-                author,
-                request.expectedLatest ?? null,
-                `${request.nodeKey}: ${request.mode}`,
-            ),
+            await this.workflows.publish(actor.workspaceId, request.workflowId, graph, author, expected, note),
         )
+    }
+
+    /**
+     * The agent's attached accounts as a step's choice reads them: under the provider key nodes name each by, with its label, whether it
+     * works, is a sandbox one and is the agent's default of its provider. None in an app that reads no attachments.
+     */
+    private async accountOptionsOf(workspaceId: string, agentId: string): Promise<ReadonlyArray<NodeAccountOption>> {
+        const { attachments, bindings } = this
+        if (attachments === undefined) return []
+        const attached = await attachments.listOfAgent(workspaceId, agentId)
+        const named = await accountsAsNodesName(workspaceId, attached, bindings)
+        const options: Array<NodeAccountOption> = []
+        await eachInOrder(named, async (account) => {
+            const record = (await bindings?.recordOf(workspaceId, account.connectionId)) ?? null
+            options.push({
+                connectionId: account.connectionId,
+                provider: account.provider,
+                label: record === null ? account.connectionId : accountLabelOf(record.provider, record.name, record.meta),
+                connected: record?.status === CONNECTED,
+                sandbox: record?.sandbox === true,
+                isDefault: attached.some((row) => row.connectionId === account.connectionId && row.isDefault === true),
+            })
+        })
+        return options
     }
 
     /** Rolls the workflow back to an older version, as a new version. */

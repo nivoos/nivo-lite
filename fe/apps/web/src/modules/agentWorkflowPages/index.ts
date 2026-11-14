@@ -191,5 +191,6 @@ export const overviewOf = (
                   .filter((node) => isEnd(node))
                   .map((node) => ({ id: node.id, title: node.title ?? node.label, line: "", chips: [], end: "" })),
         calls: callsOf(graph, words, memberWords),
+        origin: null,
     }
 }

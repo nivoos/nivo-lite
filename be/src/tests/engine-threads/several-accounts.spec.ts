@@ -1,4 +1,5 @@
 import { TOOL } from "@nivo-lite/agent-sdk/names"
+import type { Provider } from "@modules/domain/connections"
 import { calledWorkflow, heardCredit } from "./thread-world-intake"
 import { ANSWER, CONTACT, CONV, FRONT, UNDERSTAND, ZALO, customersSay, processOf, runHeard, threadDbOf, type ThreadDb } from "./thread-world"
 
@@ -15,7 +16,7 @@ const LINE = "Shop mo cua may gio?"
 const REPLY = "Shop mo cua tu 8h den 21h a."
 
 /** Attaches one more account of a provider to an agent. */
-const attach = (db: ThreadDb, agentId: string, connectionId: string, provider: string): void => {
+const attach = (db: ThreadDb, agentId: string, connectionId: string, provider: Provider): void => {
     if (!db.rights.accounts.some((one) => one.id === connectionId)) db.rights.accounts.push({ id: connectionId, provider })
     db.rights.attachments.push({ agentId, connectionId, provider })
 }

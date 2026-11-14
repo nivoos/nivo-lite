@@ -48,11 +48,3 @@ export const templateMergeOf = (
     return { merged, template, link }
 }
 
-/** The graph of a workflow made from scratch: a graph of the module with one step that ends the run. */
-export const blankGraphOf = (moduleKey: string): GraphSpec => ({
-    schema: "nivo/agent-graph@1",
-    moduleKey,
-    trigger: { kind: "tag", sources: ["agent"] },
-    grant: { tools: [], effects: [] },
-    nodes: [{ key: "end", kind: "output", step: "stop" }],
-})

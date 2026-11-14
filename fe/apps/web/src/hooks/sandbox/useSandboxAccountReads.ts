@@ -8,7 +8,7 @@ import {
     useQuerySandboxLatestRequestSwr,
     useQuerySandboxNextCasesSwr,
 } from "@/hooks/swr"
-import { callsDataOf, casesDataOf, type SandboxWords } from "@/modules/sandbox"
+import { callsDataOf, casesDataOf, scopeOf, type SandboxWords } from "@/modules/sandbox"
 import { slotOfSandboxRead } from "./sandbox.shared"
 import type { SandboxAccountState } from "./useSandboxAccountState"
 import type { DataSlot, SandboxCallsData, SandboxCasesData } from "@/modules/types"
@@ -50,10 +50,20 @@ export const useSandboxAccountReads = (
     const casesData =
         cases.data === undefined || next.data === undefined || latest.data === undefined
             ? undefined
-            : casesDataOf(cases.data, next.data, latest.data, state.edits, words)
+            : casesDataOf(
+                  cases.data,
+                  next.data,
+                  latest.data,
+                  state.edits,
+                  state.dropWebhook,
+                  words,
+                  scopeOf(account?.provider ?? "", calls.data, state.scope, words),
+              )
     return {
         cases: slotOfReads([cases, next, latest], () => casesData),
-        calls: mapSlot(slotOfSandboxRead(calls), (wire) => callsDataOf(wire, state.callsShown, words)),
+        calls: mapSlot(slotOfSandboxRead(calls), (wire) =>
+            callsDataOf(wire, state.callsShown, account?.provider ?? "", words),
+        ),
         key: slotOfSandboxRead(key),
         casesData,
         keyValue: key.data,

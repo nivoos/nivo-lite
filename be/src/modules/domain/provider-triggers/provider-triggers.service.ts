@@ -1,11 +1,15 @@
 import { Injectable, Optional } from "@nestjs/common"
-import { WORKFLOW_CALL_MEMBER, WORKFLOW_PARAMS_MEMBER } from "@nivo-lite/agent-sdk/graph"
+import { DEFAULT_TRIGGER_COMBINE, WORKFLOW_CALL_MEMBER, WORKFLOW_PARAMS_MEMBER } from "@nivo-lite/agent-sdk/graph"
 import { PROVIDER } from "@nivo-lite/agent-sdk/names"
 import type { EntityManager } from "typeorm"
 import type { AgentWakeContext } from "@modules/domain/agent-work"
+// The policy file, not the barrel (as the door below): the combine modes a wake carries.
+import { LATEST_COMBINE, STREAM_COMBINE } from "@modules/domain/agent-work/agent-wake-coalesce.policy"
 // The door file, not the barrel: the barrel reaches back to this capability through its readers (no import ring at decoration).
 import { AgentWakeService } from "@modules/domain/agent-work/agent-wake.service"
-import { ConnectionBindingsReadService } from "@modules/domain/connections"
+// The service file, not the barrel: the fact claim of the account data store.
+import { AccountDataFactsService } from "@modules/domain/account-data/account-data-facts.service"
+import { ConnectionBindingsReadService, actsAs, halvesOf } from "@modules/domain/connections"
 // The service file, not the barrel: the barrel loads contacts-page.service, which reaches agent-work while it is half loaded (R37).
 import { ContactsService } from "@modules/domain/contacts/contacts.service"
 import { CustomerMessagesService, CustomerRoutesService } from "@modules/domain/customer-routes"
@@ -13,7 +17,6 @@ import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { eachInOrder } from "@modules/platform/primitives"
-import { canCatchUpOf } from "./provider-trigger-states.policy"
 import { ProviderTriggerStoreService } from "./provider-trigger-store.service"
 import type {
     DeliverInput,
@@ -21,7 +24,6 @@ import type {
     DeliveredEvent,
     OptionalAgentId,
     ProviderTriggerCoreDeciders,
-    ProviderTriggerDeclaration,
     ProviderTriggerReceivers,
     SwitchRequest,
     TriggerChangeResult,
@@ -32,7 +34,7 @@ import { InjectProviderTriggerCoreDeciders, InjectProviderTriggerReceivers } fro
 import { ProviderTriggersLogEvent } from "./provider-triggers.log-events"
 import { ProviderTriggersError, ProviderTriggersErrorCode } from "./errors/provider-triggers.error"
 import type { DeclaredLine, TriggerDeclaration } from "./trigger-declaration.contracts"
-import { triggerDeclarations } from "./trigger-declarations.registry"
+import { combineOf, triggerDeclarations } from "./trigger-declarations.registry"
 import {
     TRIGGER_WAKE_SOURCE,
     eventIdHolds,
@@ -44,7 +46,14 @@ import {
     scopeKeyOfEvent,
     type EventScope,
 } from "./trigger-delivery.policy"
-import { declarationOf, onByDefaultOf, switchedOn, triggersOf } from "./provider-triggers.policy"
+import {
+    canCatchUpOf,
+    onByDefaultOf,
+    switchDeclarationOf,
+    switchableOf,
+    switchedOn,
+    type SwitchedDeclaration,
+} from "./trigger-declarations.policy"
 
 /** One event the delivery hands on, after its data passed its schema and its person was met. */
 interface Handed {
@@ -72,7 +81,8 @@ type EventOutcome =
 const CALLER_MEMBER = "caller"
 
 /** The account switch facts of a declaration, or null for a trigger with no switch (a customer channel: on while its account is). */
-const switchOf = (declaration: TriggerDeclaration) => declarationOf(declaration.provider, declaration.name)
+const switchOf = (declaration: TriggerDeclaration): SwitchedDeclaration | null =>
+    switchDeclarationOf(declaration.provider, declaration.name)
 
 const refused = (reason: Exclude<TriggerChangeResult, { ok: true }>["reason"]): TriggerChangeResult => ({ ok: false, reason })
 
@@ -97,6 +107,7 @@ export class ProviderTriggersService {
         @Optional() private readonly routes?: CustomerRoutesService,
         @Optional() private readonly wakes?: AgentWakeService,
         @Optional() private readonly lines?: CustomerMessagesService,
+        @Optional() private readonly facts?: AccountDataFactsService,
     ) {}
 
     /**
@@ -120,8 +131,13 @@ export class ProviderTriggersService {
         const gate = await this.gateOf(input, tx)
         if (gate.status !== "open") return { status: gate.status }
         const handed: Array<Handed> = []
+        let sameFact = 0
         await eachInOrder(input.events, async (given) => {
-            const read = await this.scopeOf(input, given, gate.enabledAt)
+            const read = await this.scopeOf(input, given, gate.enabledAt, tx)
+            if (read === "same_fact") {
+                sameFact += 1
+                return
+            }
             if (read === null) return
             handed.push({ given, scope: read.scope })
             // A person's message is kept on its route ONCE per event, before any agent is matched (R26): whether or not a wait or a
@@ -170,7 +186,8 @@ export class ProviderTriggersService {
         const result: DeliverResult = {
             status: "delivered",
             events: handed.length,
-            dropped: input.events.length - handed.length,
+            dropped: input.events.length - handed.length - sameFact,
+            sameFact,
             woken,
             repeats: outcomes.filter((outcome) => outcome.kind === "repeat").length,
             untaken: outcomes.filter((outcome) => outcome.kind === "untaken").length,
@@ -184,6 +201,7 @@ export class ProviderTriggersService {
             verb: declaration.verb,
             events: result.events,
             dropped: result.dropped,
+            sameFact: result.sameFact,
             woken: woken.length,
             repeats: result.repeats,
             untaken: result.untaken,
@@ -230,7 +248,8 @@ export class ProviderTriggersService {
         if (switchFacts !== null && (!switchedOn(held, switchFacts) || (held !== null && held.workspaceId !== input.workspaceId)))
             return { status: "off" }
         const account = await this.connections.recordOf(input.workspaceId, connectionId)
-        if (account?.provider !== declaration.provider || account.status === "disconnected") return { status: "disconnected" }
+        // The account is the declaration's provider's, or holds that provider's half (a mailbox `smtp` account holds its `imap` inbound half).
+        if (account === null || !actsAs(account, declaration.provider) || account.status === "disconnected") return { status: "disconnected" }
         return { status: "open", enabledAt: held?.enabledAt ?? null, rowId: held?.id ?? null }
     }
 
@@ -243,13 +262,17 @@ export class ProviderTriggersService {
         input: DeliverInput,
         given: DeliveredEvent,
         enabledAt: Date | null,
-    ): Promise<{ readonly scope: EventScope; readonly said: DeclaredLine | null } | null> {
+        tx: EntityManager,
+    ): Promise<{ readonly scope: EventScope; readonly said: DeclaredLine | null } | "same_fact" | null> {
         const { event } = given
         if (!eventIdHolds(event.id)) return null
         const at = given.occurredAt === undefined ? null : Date.parse(given.occurredAt)
         if (enabledAt !== null && at !== null && !Number.isNaN(at) && at < enabledAt.getTime()) return null
         const parsed = input.declaration.data.safeParse(event.data)
         if (!parsed.success) return null
+        // THE SAME FACT (owner R97), before the person is met or any registration matched: the first report of a fact goes on, a later one
+        // is kept as its raw row (`same_fact_of`) and counted, never handed on and never silent.
+        if (await this.sameFactAsEarlier(input, given, parsed.data, tx)) return "same_fact"
         const data: Readonly<Record<string, unknown>> = { ...parsed.data }
         const person = await this.personOf(input, given)
         const scope = eventScopeOf({
@@ -262,6 +285,35 @@ export class ProviderTriggersService {
         })
         // The source's pure reading of the event as a person's message, on the PARSED data (null: this event is none).
         return { scope, said: input.declaration.line?.(parsed.data) ?? null }
+    }
+
+    /**
+     * Whether the event reports a fact an earlier row of the workspace already reported: only for a declaration with a `factKey`, an event
+     * with its raw row and a key the source gives; the key is `<verb>:<factKey>` (two providers on one verb meet). Any other event goes on as before.
+     */
+    private async sameFactAsEarlier(
+        input: DeliverInput,
+        given: DeliveredEvent,
+        data: Readonly<Record<string, unknown>>,
+        tx: EntityManager,
+    ): Promise<boolean> {
+        const { declaration } = input
+        const key = declaration.factKey?.(data) ?? null
+        if (this.facts === undefined || key === null || given.raw === undefined) return false
+        const claim = await this.facts.claim(tx, {
+            workspaceId: input.workspaceId,
+            type: given.raw.type,
+            id: given.raw.id,
+            factKey: `${declaration.verb}:${key}`,
+        })
+        if (claim.first) return false
+        this.logger.info(ProviderTriggersLogEvent.SameFact, {
+            workspaceId: input.workspaceId,
+            verb: declaration.verb,
+            eventId: given.event.id,
+            earlierRowId: claim.sameAs.id,
+        })
+        return true
     }
 
     /**
@@ -301,12 +353,19 @@ export class ProviderTriggersService {
         const { connectionId, workspaceId } = input
         if (subject === undefined || connectionId === null || this.contacts === undefined || this.routes === undefined)
             return { contactId: given.contactId ?? null, routeId: given.routeId ?? null }
-        const contactId = await this.contacts.meetChannel(workspaceId, {
-            channel: subject.channel,
-            account: connectionId,
-            userId: subject.id,
-            name: subject.name ?? null,
-        })
+        // A person-level identity (a mail address) is met as the person's own address, the same person on every account; any other
+        // subject is the channel's own id of the person on this account.
+        const contactId =
+            subject.identity === undefined
+                ? await this.contacts.meetChannel(workspaceId, {
+                      channel: subject.channel,
+                      account: connectionId,
+                      userId: subject.id,
+                      name: subject.name ?? null,
+                  })
+                : await this.contacts.meetAddress(workspaceId, subject.identity, subject.id, true, subject.name ?? null)
+        // Met with `make`: a contact always answers (null only when a look that writes nothing finds none).
+        if (contactId === null) return { contactId: null, routeId: null }
         const { routeId } = await this.routes.ensure(workspaceId, { contactId, channel: subject.channel, accountId: connectionId })
         return { contactId, routeId }
     }
@@ -376,6 +435,18 @@ export class ProviderTriggersService {
             ...(declaration.settle === undefined || declaration.settle === null ? {} : { settle: declaration.settle }),
         })
         if (written === null) return { kind: "repeat" }
+        // Rule Q-4 (QB-P5 C-2): a wake of a `stream` declaration is ONE marker with the un-run wakes of its set: the oldest stays, this one is
+        // closed `coalesced:<marker>` at once when an older one waits. Written first, so its once-key holds a redelivery to one row.
+        // Rule Q-4 `latest` (QB-LATEST): the wake just written replaces every other un-run wake of its set (each closed `replaced:<it>`).
+        const set = {
+            workspaceId: input.workspaceId,
+            agentId,
+            scopeKey: scopeKeyOfEvent(keyPath, keyValue),
+            declaration: `${declaration.provider}:${declaration.name}`,
+            workflowId: taker?.workflowId ?? null,
+        }
+        if (combineOf(declaration) === STREAM_COMBINE) await this.wakes.coalesce(tx, set)
+        if (combineOf(declaration) === LATEST_COMBINE) await this.wakes.replaceOlder(tx, set, written)
         return taker === null
             ? { kind: "listened" }
             : { kind: "woken", agentId, workflowId: taker.workflowId, eventId: one.scope.eventId, wakeId: written }
@@ -402,6 +473,8 @@ export class ProviderTriggersService {
             // A wake no registration took names no workflow: only a parked `wait` may take it (`listened`).
             ...(workflowId === null ? { waitOnly: "true" as const } : { workflowId }),
             ...(workflowId === null && unclaimed ? { unclaimed: "true" as const } : {}),
+            // How the declaration's pending events combine (rule Q-4); absent = `each`.
+            ...(combineOf(declaration) === DEFAULT_TRIGGER_COMBINE ? {} : { combine: combineOf(declaration) }),
             ...(keyPath === null ? {} : { keyPath }),
             ...(connectionId === null ? {} : { connectionId }),
             ...(scope.contactId === undefined ? {} : { contactId: scope.contactId }),
@@ -445,7 +518,8 @@ export class ProviderTriggersService {
         const account = await this.connections.recordOf(workspaceId, connectionId)
         if (account === null) return []
         const held = new Map((await this.store.listOf(workspaceId, connectionId)).map((row) => [row.triggerName, row]))
-        return triggersOf(account.provider).map((declaration) => {
+        // The account's own provider's triggers and those of every half it holds (a mailbox's inbound half: `imap`).
+        return [account.provider, ...halvesOf(account)].flatMap((provider) => switchableOf(provider)).map((declaration) => {
             const row = held.get(declaration.name)
             return {
                 name: declaration.name,
@@ -495,7 +569,7 @@ export class ProviderTriggersService {
     ): Promise<TriggerChangeResult> {
         const declaration = await this.declaredOn(workspaceId, connectionId, trigger)
         if (typeof declaration === "string") return refused(declaration)
-        if (!declaration.decided) return refused("not_decided")
+        if (!declaration.switch.decided) return refused("not_decided")
         if (agentId !== null) {
             const core = await this.coreDeciders?.coreDeciderOf(declaration.provider, trigger, connectionId)
             if (core != null) return refused("core_decides")
@@ -511,9 +585,10 @@ export class ProviderTriggersService {
         workspaceId: string,
         connectionId: string,
         trigger: string,
-    ): Promise<ProviderTriggerDeclaration | "unknown_account" | "undeclared"> {
+    ): Promise<SwitchedDeclaration | "unknown_account" | "undeclared"> {
         const account = await this.connections.recordOf(workspaceId, connectionId)
         if (account === null) return "unknown_account"
-        return declarationOf(account.provider, trigger) ?? "undeclared"
+        const declared = [account.provider, ...halvesOf(account)].map((provider) => switchDeclarationOf(provider, trigger)).find((one) => one !== null)
+        return declared ?? "undeclared"
     }
 }

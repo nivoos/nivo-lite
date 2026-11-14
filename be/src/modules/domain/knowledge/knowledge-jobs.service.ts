@@ -1,10 +1,11 @@
 import { Injectable } from "@nestjs/common"
 import { KnowledgeSourceCitesService } from "@modules/domain/knowledge-sources"
-import { InjectLogger, type Logger } from "@modules/platform/logging"
+import type { ClaimedJob } from "@modules/platform/jobs"
+import { reasonOf } from "./failure-reason.policy"
+import { KnowledgeError, KnowledgeErrorCode } from "./errors/knowledge.error"
 import { KnowledgeIndexingService } from "./knowledge-indexing.service"
 import { sourcePayloadOf } from "./knowledge-payload.policy"
 import type { OptionalFairGroup } from "./knowledge.contracts"
-import { KnowledgeLogEvent } from "./knowledge.log-events"
 
 /** How many sources' documents one process remembers before it forgets them all and reads again. */
 const DOCUMENTS_REMEMBERED = 10_000
@@ -19,7 +20,6 @@ const documentGroupOf = (documentId: string): string => `document:${documentId}`
 /** What the knowledge jobs do with the payload they are handed: check it, run the capability, and say how the job ended. */
 export class KnowledgeJobsService {
     constructor(
-        @InjectLogger() private readonly logger: Logger,
         private readonly indexing: KnowledgeIndexingService,
         private readonly cites: KnowledgeSourceCitesService,
     ) {}
@@ -55,22 +55,19 @@ export class KnowledgeJobsService {
     }
 
     /**
-     * Indexes the source of the payload; a source that cannot be read is closed as failed, which is a normal end of the job. A payload
-     * of another shape is logged and dropped: waiting would not make it right.
+     * Indexes the source of the claimed job (its payload was checked against the job's declaration by the runner). A source that cannot
+     * be read throws a typed refusal (a dead letter with one item); a source that is gone or already done is a normal end.
      */
-    async index(payload: object): Promise<void> {
-        const run = sourcePayloadOf(payload)
-        if (run === null) {
-            this.logger.warn(KnowledgeLogEvent.PayloadRefused, { job: "index" })
-            return
-        }
-        await this.indexing.index(run)
+    async index(job: ClaimedJob): Promise<void> {
+        const run = sourcePayloadOf(job.payload)
+        if (run === null) throw new KnowledgeError({ code: KnowledgeErrorCode.PayloadInvalid })
+        await this.indexing.index(run, job)
     }
 
-    /** The indexing job ended as failed: the source is closed with the stored code of the cause. */
+    /** The indexing job was dead-lettered: the source is closed as failed with the stored code of the dead letter's reason, and a resume indexes it again. */
     async indexFailed(payload: object, cause: unknown): Promise<void> {
         const run = sourcePayloadOf(payload)
-        if (run !== null) await this.indexing.failSource(run.workspaceId, run.sourceId, cause)
+        if (run !== null) await this.indexing.failSource(run.workspaceId, run.sourceId, reasonOf(cause))
     }
 
 }

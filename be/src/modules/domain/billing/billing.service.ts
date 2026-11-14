@@ -131,18 +131,24 @@ export class BillingService {
         if (workspace?.planCode == null) {
             throw new BillingError({ code: BillingErrorCode.WorkspaceNotFound })
         }
-        return this.orderPlanOf(userId, params.workspaceId, workspace.planCode, {
-            cycle: workspace.billingCycle ?? "monthly",
-            tierCredits: workspace.tierCredits,
-            seats: workspace.seatCount ?? 1,
-        })
+        return this.orderPlanOf(
+            userId,
+            params.workspaceId,
+            workspace.planCode,
+            {
+                cycle: workspace.billingCycle ?? "monthly",
+                tierCredits: workspace.tierCredits,
+                seats: workspace.seatCount ?? 1,
+            },
+            params.requestId,
+        )
     }
 
     /** The first payment of a workspace for the plan it chose, with the cycle, usage tier and seats (owner or manager). */
     async orderPlan(userId: string, params: PlanOrderParams): Promise<PayableOrder> {
         await this.requireManager(userId, params.workspaceId)
         await this.requireListed(params.workspaceId, params.planCode)
-        return this.orderPlanOf(userId, params.workspaceId, params.planCode, params.selection)
+        return this.orderPlanOf(userId, params.workspaceId, params.planCode, params.selection, params.requestId)
     }
 
     /** What a plan selection costs this workspace right now (any member): the intro price shows only while it still applies. */
@@ -167,6 +173,7 @@ export class BillingService {
         workspaceId: string,
         planCode: string,
         selection: PlanSelectionInput | undefined,
+        requestId: string | undefined,
     ): Promise<PayableOrder> {
         const plan = await this.requirePlan(planCode)
         const quote = quoteSelection(plan, selectionOf(selection), await this.promoHistory(workspaceId))
@@ -185,6 +192,7 @@ export class BillingService {
                 promo: quote.promo,
                 listMonthlyVnd: quote.listMonthlyVnd,
             },
+            requestId,
         })
         return this.payable(order)
     }

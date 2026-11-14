@@ -11,6 +11,7 @@ import type { AiService } from "@modules/integrations/ai"
 import { CLOCK } from "@modules/platform/clock"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
+import { chainProviders, claimedJob } from "@tests/fixtures/builders/knowledge-chain.builder"
 import { DocumentTruthStagesService } from "./document-truth-stages.service"
 import { DOCUMENT_DATE_PROMPT, SYSTEM_PROMPT } from "./extraction.policy"
 import { FactEmbeddingsService } from "./fact-embeddings.service"
@@ -22,7 +23,10 @@ import { objectLike, STAGES_STATE, filedAs, scriptStageDoubles, stagePassageOf, 
 const WS = DOC_WS
 const SOURCE = DOC_SOURCE
 
+const JOB = claimedJob({ sourceId: "s1" })
+
 const build = async () => {
+    const chain = chainProviders()
     const ai = mock<AiService>()
     const logger = mock<Logger>()
     const facts = mock<BrainFactsService>()
@@ -35,6 +39,7 @@ const build = async () => {
     facts.propose.mockImplementation((_ws, input) => filedAs(`f-${input.value}`, input.value))
     const moduleRef = await Test.createTestingModule({
         providers: [
+            ...chain.providers,
             DocumentTruthStagesService,
             ModelJsonService,
             { provide: AI, useValue: ai },
@@ -49,7 +54,7 @@ const build = async () => {
             { provide: WorkspaceTimeZoneService, useValue: mock<WorkspaceTimeZoneService>({ timeZoneOf: () => Promise.resolve("Asia/Ho_Chi_Minh") }) },
         ],
     }).compile()
-    return { service: moduleRef.get(DocumentTruthStagesService), ai, facts, extractions, chunks, usage, logger }
+    return { service: moduleRef.get(DocumentTruthStagesService), chain, ai, facts, extractions, chunks, usage, logger }
 }
 
 /** A rule passage of a synthetic laundry. */
@@ -81,7 +86,7 @@ describe("DocumentTruthStagesService extract: a window line whose period cannot 
         const t = await build()
         t.ai.chat.mockResolvedValue(stageReply(line))
 
-        const result = await t.service.extract({ source: stageSource, passages: [rule(0, WINDOW)], state: STAGES_STATE })
+        const result = await t.service.extract({ job: JOB, source: stageSource, passages: [rule(0, WINDOW)], state: STAGES_STATE })
 
         expect(t.ai.chat).toHaveBeenCalledTimes(2)
         expect(systemsOf(t)).toEqual([SYSTEM_PROMPT, SYSTEM_PROMPT])
@@ -101,7 +106,7 @@ describe("DocumentTruthStagesService extract: a window line whose period cannot 
             .mockResolvedValueOnce(stageReply(BAD_DAY))
             .mockResolvedValueOnce(stageReply("1|business|Laundry|closing time|18:00|-|2026-12-24|2026-12-26"))
 
-        await t.service.extract({ source: stageSource, passages: [rule(0, WINDOW)], state: STAGES_STATE })
+        await t.service.extract({ job: JOB, source: stageSource, passages: [rule(0, WINDOW)], state: STAGES_STATE })
 
         expect(t.ai.chat).toHaveBeenCalledTimes(2)
         expect(t.facts.propose).toHaveBeenCalledTimes(1)
@@ -117,7 +122,7 @@ describe("DocumentTruthStagesService extract: a window line whose period cannot 
         const t = await build()
         t.ai.chat.mockResolvedValue(stageReply("1|skip|L1|unclear"))
 
-        await t.service.extract({ source: stageSource, passages: [rule(0, WINDOW)], state: STAGES_STATE })
+        await t.service.extract({ job: JOB, source: stageSource, passages: [rule(0, WINDOW)], state: STAGES_STATE })
 
         expect(t.ai.chat).toHaveBeenCalledTimes(2)
         expect(t.ai.chat.mock.calls[1]?.[0].messages[3]?.content).toContain("You listed these lines as unclear: 1:L1")
@@ -129,7 +134,7 @@ describe("DocumentTruthStagesService extract: a window line whose period cannot 
         t.ai.chat.mockResolvedValue(stageReply("1|business|Laundry|closing time|18:00|-|2026-12-24|2026-12-26"))
         t.facts.propose.mockRejectedValue(new Error("refused by the store"))
 
-        await t.service.extract({ source: stageSource, passages: [rule(0, WINDOW)], state: STAGES_STATE })
+        await t.service.extract({ job: JOB, source: stageSource, passages: [rule(0, WINDOW)], state: STAGES_STATE })
 
         expect(t.extractions.note).toHaveBeenCalledWith(
             WS,
@@ -150,7 +155,7 @@ describe("DocumentTruthStagesService extract: a period relative to the document'
         // The notice line is no rule material: never read for truths, but shown to the date call.
         const passages = [stagePassageOf(0, NOTICE, { triage: "none", triageVersion: TRIAGE_VERSION }), rule(1, RELATIVE)]
 
-        await t.service.extract({ source: stageSource, passages, state: STAGES_STATE })
+        await t.service.extract({ job: JOB, source: stageSource, passages, state: STAGES_STATE })
 
         expect(systemsOf(t)).toEqual([SYSTEM_PROMPT, DOCUMENT_DATE_PROMPT])
         expect(t.ai.chat.mock.calls[1]?.[0].messages[1]?.content).toContain(`L1 ${NOTICE}`)
@@ -172,7 +177,7 @@ describe("DocumentTruthStagesService extract: a period relative to the document'
         const t = await build()
         t.ai.chat.mockResolvedValueOnce(stageReply(RELATIVE_LINE)).mockResolvedValueOnce(stageReply("NONE"))
 
-        const result = await t.service.extract({ source: stageSource, passages: [rule(0, RELATIVE)], state: STAGES_STATE })
+        const result = await t.service.extract({ job: JOB, source: stageSource, passages: [rule(0, RELATIVE)], state: STAGES_STATE })
 
         // The line itself is well formed: no follow-up, one call for the document's date.
         expect(systemsOf(t)).toEqual([SYSTEM_PROMPT, DOCUMENT_DATE_PROMPT])
@@ -197,7 +202,7 @@ describe("DocumentTruthStagesService extract: a period relative to the document'
             .mockResolvedValueOnce(stageReply("1|2026-02-20"))
         const passages = [stagePassageOf(0, NOTICE, { triage: "none", triageVersion: TRIAGE_VERSION }), rule(1, RELATIVE)]
 
-        await t.service.extract({ source: stageSource, passages, state: STAGES_STATE })
+        await t.service.extract({ job: JOB, source: stageSource, passages, state: STAGES_STATE })
 
         expect(systemsOf(t)).toEqual([SYSTEM_PROMPT, DOCUMENT_DATE_PROMPT])
         expect(t.facts.propose).toHaveBeenCalledWith(
@@ -220,14 +225,14 @@ describe("DocumentTruthStagesService extract: a period relative to the document'
             .mockResolvedValueOnce(stageReply("NONE"))
             .mockResolvedValueOnce(stageReply(RELATIVE_LINE))
 
-        await t.service.extract({ source: stageSource, passages, state: STAGES_STATE })
+        await t.service.extract({ job: JOB, source: stageSource, passages, state: STAGES_STATE })
 
         expect(systemsOf(t)).toEqual([SYSTEM_PROMPT, DOCUMENT_DATE_PROMPT, SYSTEM_PROMPT])
         expect(t.usage.record).toHaveBeenCalledTimes(3)
 
         const plain = await build()
         plain.ai.chat.mockResolvedValue(stageReply("1|business|Laundry|closing time|18:00|-|2026-12-24|2026-12-26"))
-        await plain.service.extract({ source: stageSource, passages: [rule(0, WINDOW)], state: STAGES_STATE })
+        await plain.service.extract({ job: JOB, source: stageSource, passages: [rule(0, WINDOW)], state: STAGES_STATE })
         expect(systemsOf(plain)).toEqual([SYSTEM_PROMPT])
     })
 })

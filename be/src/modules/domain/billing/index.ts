@@ -1,7 +1,6 @@
+export { BankFeedAdmissionService } from "./bank-feed-admission.service"
 export { BankFeedDeliveryService } from "./bank-feed-delivery.service"
 export { BankFeedIntakeService } from "./bank-feed-intake.service"
-export { BankFeedPollService } from "./bank-feed-poll.service"
-export { BankFeedPollTriggerService } from "./bank-feed-poll-trigger.service"
 export { BankFeedReceiptsService } from "./bank-feed-receipts.service"
 export { BankFeedService } from "./bank-feed.service"
 export { parseBillingConfig } from "./billing.config"

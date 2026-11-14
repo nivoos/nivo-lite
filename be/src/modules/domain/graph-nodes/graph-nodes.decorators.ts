@@ -1,5 +1,5 @@
 import { injector, type TypedParameterDecorator } from "@modules/platform/composition"
-import type { EffectOnce, NodeAgentLoops, NodeModelDoor, NodeRouteReach, NodeToolDoor } from "./graph-nodes.contracts"
+import type { EffectOnce, NodeAgentLoops, NodeModelDoor, NodeRouteReach, NodeWorkspacePolicies, NodeToolDoor } from "./graph-nodes.contracts"
 import type { GraphNodesOptions } from "./graph-nodes.options"
 import { NODE_EFFECT_STORE, type NodeEffectStore } from "./node-effect-store.port"
 
@@ -49,3 +49,9 @@ export const GRAPH_NODE_ROUTES: unique symbol = Symbol("domain.graph-nodes.route
 
 /** Injects the reader of closed routes. Parameter type: NodeRouteReach. */
 export const InjectGraphNodeRoutes = (): TypedParameterDecorator<NodeRouteReach> => injector<NodeRouteReach>(GRAPH_NODE_ROUTES)
+
+/** Token of the reader of the workspace's policies (L2 of the agents' model calls). Absent in an app that binds none: no L2. */
+export const GRAPH_NODE_WORKSPACE_POLICIES: unique symbol = Symbol("domain.graph-nodes.workspace-policies")
+
+/** Injects the reader of the workspace's policies. Parameter type: NodeWorkspacePolicies. */
+export const InjectGraphNodeWorkspacePolicies = (): TypedParameterDecorator<NodeWorkspacePolicies> => injector<NodeWorkspacePolicies>(GRAPH_NODE_WORKSPACE_POLICIES)

@@ -1,22 +1,35 @@
 import { ZaloDeliveryPolicy } from "./zalo-delivery.policy"
-import { Module, type DynamicModule } from "@nestjs/common"
+import { Module, type DynamicModule, type OnModuleInit } from "@nestjs/common"
+import { PollReceiverRegistryService } from "@modules/domain/provider-registry"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./zalo-inbox.module-definition"
 import { ZaloInboxPageReadService } from "./zalo-inbox-page-read.service"
 import { ZaloInboxService } from "./zalo-inbox.service"
 import { ZaloDeliveryIntakeService } from "./zalo-delivery-intake.service"
-import { MessageInboxPollSourcesService } from "./message-inbox-poll-sources.service"
 import { ZaloInboxTokensService } from "./zalo-inbox-tokens.service"
-import { ZaloInboxPollTriggerService } from "./zalo-poll-trigger.service"
-import { ZaloInboxPollService } from "./zalo-poll.service"
-import { ZaloPolledInboxService } from "./zalo-polled-inbox.service"
-import { ZaloReconcileService } from "./zalo-reconcile.service"
+import { ZaloPollReceiverService } from "./zalo-poll-receiver.service"
+import { ZaloSandboxPollReceiverService } from "./zalo-sandbox-poll-receiver.service"
 
 @Module({})
 /**
- * The Zalo OA webhook and poll doors and their deferred consumer, keeping every event in the connection's account data; the poll walks the
- * provider's reader (its poll face) and keeps what it read under the webhook's key; the token port the provider reads with is bound here.
+ * The Zalo OA webhook door and its deferred consumer, keeping every event in the connection's account data, with the OA's poll receiver
+ * (live and sandbox, registered once at boot: it reads the OA's chats back as the same `zalo_oa.event` rows) and the admission of a new row
+ * (registered by the inbox service); the token port the provider reads with is bound here. The poll receiver lives here beside the row's key
+ * policy: that policy imports the provider's trigger, so the provider's own module cannot import it back.
  */
-export class ZaloInboxModule extends ConfigurableModuleClass {
+export class ZaloInboxModule extends ConfigurableModuleClass implements OnModuleInit {
+    constructor(
+        private readonly receivers: PollReceiverRegistryService,
+        private readonly live: ZaloPollReceiverService,
+        private readonly sandbox: ZaloSandboxPollReceiverService,
+    ) {
+        super()
+    }
+
+    /** Hands the poll receiver, live and sandbox, to the engine's registry. */
+    onModuleInit(): void {
+        this.receivers.register({ live: this.live, sandbox: this.sandbox })
+    }
+
     /** Registers the capability once in the API app. */
     static register(options: typeof OPTIONS_TYPE): DynamicModule {
         const base = super.register(options)
@@ -29,11 +42,8 @@ export class ZaloInboxModule extends ConfigurableModuleClass {
                 ZaloInboxPageReadService,
                 ZaloDeliveryPolicy,
                 ZaloInboxTokensService,
-                ZaloPolledInboxService,
-                ZaloInboxPollService,
-                ZaloInboxPollTriggerService,
-                MessageInboxPollSourcesService,
-                ZaloReconcileService,
+                ZaloPollReceiverService,
+                ZaloSandboxPollReceiverService,
             ],
             exports: [
                 ZaloInboxService,
@@ -41,8 +51,6 @@ export class ZaloInboxModule extends ConfigurableModuleClass {
                 ZaloInboxPageReadService,
                 ZaloDeliveryPolicy,
                 ZaloInboxTokensService,
-                ZaloInboxPollTriggerService,
-                ZaloReconcileService,
             ],
         }
     }

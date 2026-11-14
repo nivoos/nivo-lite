@@ -3,7 +3,6 @@ export { ENTITY_ENGINE_MESSAGES } from "./messages/entity-engine.messages"
 export { parseEntityEngineConfig } from "./entity-engine.config"
 export { ModuleAgentService } from "./module-agent.service"
 export { ModuleJobRunnerService } from "./module-job-runner.service"
-export { ReadOnlyEngineAlertsService } from "./read-only-engine-alerts.service"
 export { EntityEngineModule } from "./entity-engine.module"
 export { entityEngineEntities } from "./persistence/entities"
 export { EntityEngineService } from "./entity-engine.service"
@@ -18,7 +17,6 @@ export { EntityNodePortsService } from "./entity-node-ports.service"
 export type { EntityNodePort } from "./entity-node.contracts"
 export type {
     EngineDoorProvider,
-    EngineFailureAlerts,
     EngineWorkflowProvider,
     JobWorkflowBinding,
 } from "./entity-engine.contracts"

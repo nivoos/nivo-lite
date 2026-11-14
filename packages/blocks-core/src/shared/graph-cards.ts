@@ -39,6 +39,7 @@ export {
     ENTRY_LABELS,
     PARAM_LABELS,
     TRIGGER_SOURCE_LABELS,
+    TRIGGER_VERB_LABELS,
     bindingViewOf,
     bindingViewsOf,
     callEdgesOf,

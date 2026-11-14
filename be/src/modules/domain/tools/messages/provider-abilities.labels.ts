@@ -81,7 +81,8 @@ export const ABILITY_LABELS: Readonly<Record<string, Readonly<Record<string, Abi
         "youtube.publish": { vi: "Đăng video lên YouTube", en: "Publish videos to YouTube" },
     },
     smtp: {
-        "email.send": { vi: "Gửi email cho khách", en: "Send email to customers" },
+        "customer.send": { vi: "Gửi email cho khách", en: "Send email to customers" },
+        "mail.read": { vi: "Đọc thư trong hộp thư", en: "Read mail in the mailbox" },
     },
     imap: {
         "mail.read": { vi: "Đọc thư trong hộp thư", en: "Read mail in the mailbox" },
@@ -131,7 +132,7 @@ export const labelOf = (table: Readonly<Record<string, AbilityLabel>> | undefine
     table?.[key] ?? { vi: key, en: key }
 
 /**
- * The name of one ability of a provider in business words (`email.send` of `smtp`: what a roll-up titles the work action that ability
+ * The name of one ability of a provider in business words (`customer.send` of `smtp`: what a roll-up titles the work action that ability
  * holds), or the ability id itself in both languages when the provider's table has none.
  */
 export const abilityLabelOf = (provider: string, abilityId: string): AbilityLabel => labelOf(ABILITY_LABELS[provider], abilityId)

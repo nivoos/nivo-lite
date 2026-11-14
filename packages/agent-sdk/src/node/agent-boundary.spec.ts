@@ -96,7 +96,7 @@ const attempt = async (call: ModelCall) => {
     }
     const ran = await runNode(request, fake.ports)
     const second: NodeModelRequest | undefined = json.mock.calls[1]?.[1]
-    const told: unknown = second === undefined ? undefined : Reflect.get(Object(second.input), "calls")
+    const told: unknown = second?.turns
     return { ran, fake, told: Array.isArray(told) ? told : [] }
 }
 

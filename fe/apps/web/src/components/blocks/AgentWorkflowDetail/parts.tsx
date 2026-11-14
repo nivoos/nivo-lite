@@ -1,5 +1,4 @@
-import { Alert, Badge, Button, IconButton, Link } from "@starci/grammar/common"
-import { nivoIconSource } from "@/components/leaves/Icon"
+import { Alert, Badge, Button, Link } from "@starci/grammar/common"
 import { SlotView } from "@nivo-lite/agent-sdk/client"
 import { AgentRunsListTable } from "@/components/composites/AgentRunsListTable"
 import { AgentWorkflowMap } from "@/components/composites/AgentWorkflowMap"
@@ -28,8 +27,6 @@ export type DetailTab = "io" | "map" | "versions" | "runs"
 /** The words of the parts of the page of a workflow. */
 export interface AgentWorkflowDetailCopy {
     readonly paneLabel: string
-    readonly editMap: string
-    readonly addStep: string
     /** update from the template: the notice's one command. */
     readonly noticeAction: string
     /** see changes: the link in the notice's text to the page of what the update would change. */
@@ -45,22 +42,18 @@ export interface AgentWorkflowDetailCopy {
     readonly runs: RunsTableCopy
 }
 
-/** What the head of the page needs: the workflow, the open tab and the way to the map. */
+/** What the head of the page needs: the workflow and the command. */
 interface DetailHeadProps {
     readonly view: WorkflowDetailView
-    readonly copy: AgentWorkflowDetailCopy
-    readonly tab: DetailTab
     readonly isLoading: boolean
-    readonly onMap: () => void
-    readonly onAddStep: () => void
     /** Turns the workflow on (draft, paused) or pauses it (active). */
     readonly onToggle: (status: WorkflowStatus) => void
     readonly isWriting: boolean
 }
 
-/** The head of the page: name, version and status, and the commands of the open part (the map has its two, the rest open the map). */
+/** The head of the page: name, version and status, and the one command: turn on or pause. */
 export const DetailHead = (props: DetailHeadProps) => {
-    const { view, copy } = props
+    const { view } = props
     return (
         <PaneHead
             title={view.head.name}
@@ -73,33 +66,15 @@ export const DetailHead = (props: DetailHeadProps) => {
             }
             isLoading={props.isLoading}
             actions={
-                <>
-                    <Button
-                        intent="neutral"
-                        size="sm"
-                        isPending={props.isWriting}
-                        isDisabled={props.isLoading}
-                        onPress={() => props.onToggle(view.head.toggleTo)}
-                    >
-                        {view.head.toggleLabel}
-                    </Button>
-                    {/* The head holds at most ONE Button (PaneHeader): the status command. The map commands are icon buttons. */}
-                    {props.tab === "map" ? (
-                        <IconButton
-                            intent="neutral"
-                            source={nivoIconSource("add", "leading")}
-                            label={copy.addStep}
-                            onPress={props.onAddStep}
-                        />
-                    ) : (
-                        <IconButton
-                            intent="neutral"
-                            source={nivoIconSource("edit", "leading")}
-                            label={copy.editMap}
-                            onPress={props.onMap}
-                        />
-                    )}
-                </>
+                <Button
+                    intent="neutral"
+                    size="sm"
+                    isPending={props.isWriting}
+                    isDisabled={props.isLoading}
+                    onPress={() => props.onToggle(view.head.toggleTo)}
+                >
+                    {view.head.toggleLabel}
+                </Button>
             }
         />
     )

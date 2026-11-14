@@ -1,8 +1,8 @@
 import { ProviderRegistryError, ProviderRegistryErrorCode } from "./errors/provider-registry.error"
 import {
-    BankFeedPollerRegistryService,
     BankTransactionsRegistryService,
     PaymentInstructionRegistryService,
+    PollReceiverRegistryService,
 } from "./provider-registries.service"
 
 const port = (provider: string) => ({ provider, qrUrl: () => provider, transfer: () => Promise.reject(new ProviderRegistryError({ code: ProviderRegistryErrorCode.CallNotSent })) })
@@ -71,7 +71,7 @@ describe("ProviderRegistryService", () => {
     })
 
     it("keeps the registries of the capabilities apart", () => {
-        expect(new BankFeedPollerRegistryService().providers()).toEqual([])
+        expect(new PollReceiverRegistryService().providers()).toEqual([])
         expect(new BankTransactionsRegistryService().providers()).toEqual([])
     })
 })

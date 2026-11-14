@@ -291,9 +291,9 @@ const adapterOfWake = (spec: TriggerSpec, wake: WakeFacts): TriggerAdapterSpec |
 
 /**
  * THE NORMALISED EVENT KEY of a wake: what the one-run dedupe `(workflowId, eventKey)` keys on, the same for one event whichever road
- * brought it. A bank credit is `credit:<payment.transaction id>` (`transactionId`) whichever bank feed brought it;
- * a mail batch is `mail:<connection>:<first>..<last>#<count>` (one id: `mail:<connection>:<id>`); every other event reaches a graph by
- * one road and keeps the wake's own key. The wake's own key also where a member the rule reads is missing.
+ * brought it. A bank credit is `credit:<payment.transaction id>` (`transactionId`) whichever bank feed brought it; every other event
+ * (a person's mail included: one mail, one event) reaches a graph by one road and keeps the wake's own key. The wake's own key also where
+ * a member the rule reads is missing.
  */
 export const eventKeyOf = (wake: WakeFacts & { readonly wakeEventKey: string }): string => {
     const verb = verbOfWake(wake)
@@ -301,16 +301,6 @@ export const eventKeyOf = (wake: WakeFacts & { readonly wakeEventKey: string }):
     const adapter = spec === undefined ? undefined : adapterOfWake(spec, wake)
     const rule = adapter?.eventKey
     if (rule === undefined || rule.kind === "wake") return wake.wakeEventKey
-    if (rule.kind === "record") {
-        const id = idOf(wake.scope[rule.member])
-        return id === null ? wake.wakeEventKey : `${rule.prefix}:${id}`
-    }
-    const ids = wake.scope[rule.member]
-    const connection = idOf(wake.scope.connectionId)
-    if (!Array.isArray(ids) || connection === null) return wake.wakeEventKey
-    const listed = ids.filter((id): id is string => typeof id === "string" && id !== "")
-    const [first] = listed
-    if (first === undefined || listed.length !== ids.length) return wake.wakeEventKey
-    const span = listed.length === 1 ? first : `${first}..${listed.at(-1) ?? first}#${listed.length}`
-    return `${rule.prefix}:${connection}:${span}`
+    const id = idOf(wake.scope[rule.member])
+    return id === null ? wake.wakeEventKey : `${rule.prefix}:${id}`
 }

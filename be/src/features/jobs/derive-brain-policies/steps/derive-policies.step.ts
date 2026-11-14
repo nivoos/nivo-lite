@@ -13,6 +13,6 @@ export class DerivePoliciesStep implements JobStep {
     /** Records the step with the token this worker holds FIRST, so a stale token stops here before any effect; then derives. */
     async run(job: ClaimedJob): Promise<void> {
         await this.claims.advance({ jobId: job.jobId, expectedFencingToken: job.fencingToken, step: "derive" })
-        await this.derive.run(job.payload)
+        await this.derive.run(job)
     }
 }

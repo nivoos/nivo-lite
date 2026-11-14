@@ -1,7 +1,8 @@
 import { TRIGGER } from "@nivo-lite/agent-sdk/names"
 import type { OptionalCanonicalEvent, TriggerDeclaration } from "@modules/domain/provider-triggers"
-import { RENDER_COMPLETED } from "./video-render-data.policy"
+import { RENDER_COMPLETED, renderTypeOf } from "./video-render-data.policy"
 import { RENDER_COMPLETED_DATA, RENDER_ROW } from "./video-render.trigger.schema"
+import { RENDER_TRIGGER_WORDS, RENDER_WITHOUT_POLL } from "./video-render.words"
 
 /*
  * THE COMPOSE PROVIDERS' RENDER TRIGGER (stage 1 of the one event pipeline, concept triggers rule 13): a render NIVO asked a compose
@@ -67,7 +68,13 @@ export const renderTriggerOf = (provider: string): TriggerDeclaration<RenderRowV
         provider,
         name: RENDER_COMPLETED,
         verb: TRIGGER.videoRenderCompleted,
-        via: "webhook",
+        // Webhook only: no compose provider lists renders, and the open render ids live in the waiting runs (a NIVO table): see the words file.
+        via: ["webhook"],
+        withoutPoll: RENDER_WITHOUT_POLL,
+        words: RENDER_TRIGGER_WORDS,
+        // A completion of work NIVO itself asked for: on by default for every account (triggers rule 6a); nobody decides it.
+        switch: { decided: false, onByDefault: true },
+        dataType: renderTypeOf(provider),
         raw: RENDER_ROW,
         data: RENDER_COMPLETED_DATA,
         translate: translateRenderRow,

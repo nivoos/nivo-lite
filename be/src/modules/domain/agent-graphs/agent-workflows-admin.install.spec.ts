@@ -6,7 +6,6 @@ import type { InstallationRecord } from "@modules/domain/module-installations"
 import { WorkspaceMemberSeatsService } from "@modules/domain/workspace-members"
 import type { MemberSeatRecord } from "@modules/domain/workspace-members"
 import { LOGGER, type Logger } from "@modules/platform/logging"
-import { AgentGraphLayoutService } from "./agent-graph-layout.service"
 import { AgentGraphsLogEvent } from "./agent-graphs.log-events"
 import { AgentWorkflowInstallService } from "./agent-workflow-install.service"
 import { AgentWorkflowRunsService } from "./agent-workflow-runs.service"
@@ -37,7 +36,6 @@ const build = async (role: "owner" | "manager" | "staff" = "manager") => {
             { provide: InstallationRecordsService, useValue: installations },
             { provide: AgentWorkflowsService, useValue: workflows },
             { provide: AgentWorkflowRunsService, useValue: mock<AgentWorkflowRunsService>() },
-            { provide: AgentGraphLayoutService, useValue: mock<AgentGraphLayoutService>() },
             { provide: AgentDirectoryService, useValue: agents },
             { provide: AgentWorkflowInstallService, useValue: installer },
             { provide: LOGGER, useValue: logger },

@@ -11,6 +11,7 @@ export const PROVIDER_SANDBOX_MESSAGES: MessageBundle = {
         "errors.PROVIDER_SANDBOX_INPUT_INVALID": "Thiếu hoặc sai giá trị {{field}} của tình huống Sandbox.",
         "errors.PROVIDER_SANDBOX_RUN_NOT_WAITING": "Run này không còn đang chờ, không thể cho hết hạn chờ.",
         "errors.PROVIDER_SANDBOX_PROVIDER_UNKNOWN": "Nhà cung cấp {{provider}} chưa có Sandbox.",
+        "errors.PROVIDER_SANDBOX_PAY_LINK_UNKNOWN": "Không tìm thấy yêu cầu thanh toán {{linkId}} trong Sandbox của không gian làm việc này.",
     },
     en: {
         "errors.PROVIDER_SANDBOX_LIVE_ACCOUNT": "This account is a live account, not a Sandbox one.",
@@ -21,5 +22,6 @@ export const PROVIDER_SANDBOX_MESSAGES: MessageBundle = {
         "errors.PROVIDER_SANDBOX_INPUT_INVALID": "The Sandbox case's input {{field}} is missing or of the wrong kind.",
         "errors.PROVIDER_SANDBOX_RUN_NOT_WAITING": "This run is no longer waiting: its wait cannot be expired.",
         "errors.PROVIDER_SANDBOX_PROVIDER_UNKNOWN": "The provider {{provider}} has no Sandbox.",
+        "errors.PROVIDER_SANDBOX_PAY_LINK_UNKNOWN": "No payment request {{linkId}} was found in this workspace's Sandbox.",
     },
 }

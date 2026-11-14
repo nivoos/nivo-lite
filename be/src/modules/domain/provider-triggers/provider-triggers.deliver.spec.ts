@@ -2,6 +2,7 @@ import { Test } from "@nestjs/testing"
 import { FakeClock, fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
 import { PROVIDER, TRIGGER } from "@nivo-lite/agent-sdk/names"
 import { z } from "zod"
+import { AccountDataFactsService } from "@modules/domain/account-data/account-data-facts.service"
 import { AgentWakeService, type AgentWake } from "@modules/domain/agent-work"
 import { ConnectionBindingsReadService } from "@modules/domain/connections"
 import { ContactsService } from "@modules/domain/contacts"
@@ -22,6 +23,9 @@ type ConnectionRecord = NonNullable<Awaited<ReturnType<ConnectionBindingsReadSer
 
 const NOW = new Date("2026-11-14T03:00:00Z")
 
+/** The owner words every test declaration carries (the delivery never reads them). */
+const WORDS = { title: { vi: "Nguồn · sự kiện", en: "Source · event" }, summary: { vi: "Một sự kiện thử.", en: "A test event." } }
+
 /** A customer line of a channel: about a person, keyed by their route. */
 const LINE_RAW = z.object({ userId: z.string(), messageId: z.string(), text: z.string() })
 const LINE_DATA = z.object({ messageKey: z.string(), text: z.string() })
@@ -29,7 +33,9 @@ const ZALO_LINE: TriggerDeclaration<z.infer<typeof LINE_RAW>, z.infer<typeof LIN
     provider: PROVIDER.zaloOa,
     name: "message.received",
     verb: TRIGGER.zaloMessageReceived,
-    via: "webhook",
+    via: ["webhook", "poll"],
+    dataType: "zalo_oa.event",
+    words: WORDS,
     raw: LINE_RAW,
     data: LINE_DATA,
     translate: (raw) => ({
@@ -51,7 +57,11 @@ const SEPAY_CREDIT: TriggerDeclaration<z.infer<typeof CREDIT_RAW>, z.infer<typeo
     provider: PROVIDER.sepay,
     name: "transaction.received",
     verb: TRIGGER.paymentCreditReceived,
-    via: "webhook",
+    via: ["webhook", "poll"],
+    dataType: "sepay.transaction",
+    words: WORDS,
+    // A bank feed's account has a switch the owner turns on (off until then).
+    switch: { decided: true, onByDefault: false },
     raw: CREDIT_RAW,
     data: CREDIT_DATA,
     translate: (raw) => ({ id: raw.transactionId, data: raw }),
@@ -64,14 +74,23 @@ const CLOCK_TICK: TriggerDeclaration<z.infer<typeof CLOCK_RAW>, z.infer<typeof C
     provider: PROVIDER.nivo,
     name: "clock.tick",
     verb: TRIGGER.clockTick,
-    via: "clock",
+    via: ["clock"],
+    withoutPoll: { reason: WORDS.summary, source: "nivo:agent-work-sweep" },
+    words: WORDS,
     raw: CLOCK_RAW,
     data: CLOCK_RAW,
     translate: (raw) => ({ id: `reg-1:${raw.slotMs}`, data: raw }),
     key: { by: "none" },
 }
 
-triggerDeclarations.register(ZALO_LINE, SEPAY_CREDIT, CLOCK_TICK)
+/** The same bank credit, declaring the source's identity of the fact: the part of the transaction id before `#` (two feeds report one transfer). */
+const FACT_CREDIT: TriggerDeclaration<z.infer<typeof CREDIT_RAW>, z.infer<typeof CREDIT_DATA>> = {
+    ...SEPAY_CREDIT,
+    name: "transaction.fact-test",
+    factKey: (data) => (data.transactionId.startsWith("none") ? null : (data.transactionId.split("#")[0] ?? null)),
+}
+
+triggerDeclarations.register(ZALO_LINE, SEPAY_CREDIT, FACT_CREDIT, CLOCK_TICK)
 
 /** Who takes what: per agent, the taker its registration answers (none when absent). */
 type Takers = Readonly<Record<string, TriggerTaker | ((scope: Readonly<Record<string, unknown>>) => TriggerTaker | null)>>
@@ -115,11 +134,23 @@ const build = async (attached: ReadonlyArray<string>, takers: Takers) => {
     })
     const lines = mock<CustomerMessagesService>()
     lines.hear.mockResolvedValue({ id: "line-1", written: true })
+    // The fact claim as the store answers it under its lock: the first row to claim a key is the first, any other row is the same fact.
+    const claimed = new Map<string, { readonly type: string; readonly id: string }>()
+    const facts = mock<AccountDataFactsService>()
+    facts.claim.mockImplementation((_tx, claim) => {
+        const held = claimed.get(claim.factKey)
+        if (held === undefined || held.id === claim.id) {
+            claimed.set(claim.factKey, { type: claim.type, id: claim.id })
+            return Promise.resolve({ first: true })
+        }
+        return Promise.resolve({ first: false, sameAs: held })
+    })
     const manager = mockEntityManager()
     fakeTransaction(manager)
     const moduleRef = await Test.createTestingModule({
         providers: [
             ProviderTriggersService,
+            { provide: AccountDataFactsService, useValue: facts },
             { provide: PRIMARY_ENTITY_MANAGER, useValue: manager },
             { provide: CLOCK, useValue: new FakeClock(NOW) },
             { provide: LOGGER, useValue: mock<Logger>() },
@@ -133,7 +164,7 @@ const build = async (attached: ReadonlyArray<string>, takers: Takers) => {
             { provide: CustomerMessagesService, useValue: lines },
         ],
     }).compile()
-    return { service: moduleRef.get(ProviderTriggersService), manager, wakes: [...written.values()], written, contacts, routes, receivers, lines, store, holds }
+    return { service: moduleRef.get(ProviderTriggersService), manager, wakes: [...written.values()], written, contacts, routes, receivers, lines, store, holds, door: wakes, facts }
 }
 
 const FRONT_DESK: TriggerTaker = { workflowId: "wf-front", ownKey: null }
@@ -166,6 +197,7 @@ describe("ProviderTriggersService.deliver: the one delivery function", () => {
             repeats: 0,
             untaken: 0,
             held: 0,
+            sameFact: 0,
         })
         expect(world.contacts.meetChannel).toHaveBeenCalledWith("ws-1", {
             channel: "zalo",
@@ -279,7 +311,7 @@ describe("ProviderTriggersService.deliver: the one delivery function", () => {
 
         const result = await world.service.deliver(zaloInput([lineOf("m-1", "con hang khong")]), world.manager)
 
-        expect(result).toEqual({ status: "delivered", events: 1, dropped: 0, woken: [], repeats: 0, untaken: 0, held: 1 })
+        expect(result).toEqual({ status: "delivered", events: 1, dropped: 0, sameFact: 0, woken: [], repeats: 0, untaken: 0, held: 1 })
         expect(world.lines.hear).toHaveBeenCalledTimes(1)
         expect(world.written.size).toBe(0)
         expect(world.receivers.takerOf).not.toHaveBeenCalled()
@@ -431,7 +463,9 @@ describe("ProviderTriggersService.deliver: the one delivery function", () => {
             provider: PROVIDER.nivo,
             name: "deliver-spec.workflow.called",
             verb: TRIGGER.workflowCalled,
-            via: "internal",
+            via: ["internal"],
+            withoutPoll: { reason: WORDS.summary, source: "nivo:workflow-start.deliver" },
+            words: WORDS,
             raw: CALL_RAW,
             data: CALL_DATA,
             translate: (raw) => ({ id: raw.key, data: { ...raw.params } }),
@@ -463,5 +497,170 @@ describe("ProviderTriggersService.deliver: the one delivery function", () => {
             params: { orderId: "o-1" },
             caller: { runId: "run-caller" },
         })
+    })
+})
+
+describe("ProviderTriggersService.deliver: how pending events combine (rule Q-4, QB-P5)", () => {
+    /** A customer line that declares `stream`: its lines append to the route's stream. */
+    const STREAM_LINE: TriggerDeclaration<z.infer<typeof LINE_RAW>, z.infer<typeof LINE_DATA>> = {
+        ...ZALO_LINE,
+        name: "message.stream-test",
+        combine: "stream",
+    }
+    triggerDeclarations.register(STREAM_LINE)
+
+    const streamInput = (events: DeliverInput["events"]): DeliverInput => ({ ...zaloInput(events), declaration: STREAM_LINE })
+
+    it("a `stream` wake carries its mode and is combined with its set right after it is written (the set: agent, scope, declaration, registration)", async () => {
+        const world = await build(["front"], { front: FRONT_DESK })
+        world.door.coalesce.mockResolvedValue(null)
+
+        await world.service.deliver(streamInput([lineOf("m-s1", "a"), lineOf("m-s2", "b")]), world.manager)
+
+        const written = [...world.written.values()]
+        expect(written.map((wake) => wake.context.combine)).toEqual(["stream", "stream"])
+        expect(world.door.coalesce).toHaveBeenCalledTimes(2)
+        expect(world.door.coalesce).toHaveBeenLastCalledWith(world.manager, {
+            workspaceId: "ws-1",
+            agentId: "front",
+            scopeKey: "key:routeId=route-of-contact-of-zalo-user-1",
+            declaration: "zalo_oa:message.stream-test",
+            workflowId: "wf-front",
+        })
+    })
+
+    it("a redelivered stream event writes nothing and combines nothing (its once-key held it to one row)", async () => {
+        const world = await build(["front"], { front: FRONT_DESK })
+        world.door.coalesce.mockResolvedValue(null)
+        await world.service.deliver(streamInput([lineOf("m-r1", "a")]), world.manager)
+        const again = await world.service.deliver(streamInput([lineOf("m-r1", "a")]), world.manager)
+
+        expect(again).toMatchObject({ repeats: 1 })
+        expect(world.door.coalesce).toHaveBeenCalledTimes(1)
+    })
+
+    it("`each` (absent): the wake names no mode and nothing is combined: every event its own, in order", async () => {
+        const world = await build(["front"], { front: FRONT_DESK })
+        await world.service.deliver(zaloInput([lineOf("m-e1", "a"), lineOf("m-e2", "b")]), world.manager)
+
+        expect([...world.written.values()].map((wake) => wake.context.combine)).toEqual([undefined, undefined])
+        expect(world.door.coalesce).not.toHaveBeenCalled()
+    })
+
+    it("a `latest` wake carries its mode and, right after it is written, replaces the older un-run wakes of its set (QB-LATEST)", async () => {
+        const LATEST_LINE = { ...ZALO_LINE, name: "message.latest-deliver-test", combine: "latest" as const }
+        triggerDeclarations.register(LATEST_LINE)
+        const world = await build(["front"], { front: FRONT_DESK })
+        world.door.replaceOlder.mockResolvedValue(0)
+
+        await world.service.deliver({ ...zaloInput([lineOf("m-l1", "a"), lineOf("m-l2", "b")]), declaration: LATEST_LINE }, world.manager)
+
+        expect([...world.written.values()].map((wake) => wake.context.combine)).toEqual(["latest", "latest"])
+        expect(world.door.coalesce).not.toHaveBeenCalled()
+        // The door is told WHICH wake is the newest (the one just written), never left to guess from times.
+        expect(world.door.replaceOlder.mock.calls.map(([, , newest]) => newest)).toEqual(["wake-1", "wake-2"])
+        expect(world.door.replaceOlder).toHaveBeenLastCalledWith(
+            world.manager,
+            {
+                workspaceId: "ws-1",
+                agentId: "front",
+                scopeKey: "key:routeId=route-of-contact-of-zalo-user-1",
+                declaration: "zalo_oa:message.latest-deliver-test",
+                workflowId: "wf-front",
+            },
+            "wake-2",
+        )
+    })
+
+    describe("the same fact (owner R97: a trigger's `factKey`)", () => {
+        const factCredit = (transactionId: string, rowId: string): DeliverInput["events"][number] => {
+            const event = FACT_CREDIT.translate({ transactionId, direction: "in" }, { connectionId: "conn-bank" })
+            if (event === null) throw new Error("the test credit does not translate")
+            return { event, raw: { type: "sepay.transaction", id: rowId } }
+        }
+        const factInput = (...events: DeliverInput["events"]): DeliverInput => ({
+            workspaceId: "ws-1",
+            declaration: FACT_CREDIT,
+            connectionId: "conn-bank",
+            agentId: null,
+            events,
+        })
+
+        it("hands on the first report of a fact and NOT the second (another feed, another row): no wake, counted, the claim keyed by verb and fact", async () => {
+            const world = await build(["books"], { books: { workflowId: "wf-in", ownKey: null } })
+
+            const first = await world.service.deliver(factInput(factCredit("T1#sepay", "row-1")), world.manager)
+            const second = await world.service.deliver(factInput(factCredit("T1#casso", "row-2")), world.manager)
+
+            expect(first).toMatchObject({ events: 1, sameFact: 0, woken: [{ eventId: "T1#sepay" }] })
+            expect(second).toMatchObject({ events: 0, dropped: 0, sameFact: 1, woken: [] })
+            expect(world.written.size).toBe(1)
+            expect(world.facts.claim).toHaveBeenLastCalledWith(world.manager, {
+                workspaceId: "ws-1",
+                type: "sepay.transaction",
+                id: "row-2",
+                factKey: `${TRIGGER.paymentCreditReceived}:T1`,
+            })
+        })
+
+        it("hands on two reports of two different facts as two events", async () => {
+            const world = await build(["books"], { books: { workflowId: "wf-in", ownKey: null } })
+
+            const result = await world.service.deliver(factInput(factCredit("T1#a", "row-1"), factCredit("T2#a", "row-2")), world.manager)
+
+            expect(result).toMatchObject({ events: 2, sameFact: 0 })
+            expect(world.written.size).toBe(2)
+        })
+
+        it("counts a same-fact event inside one delivery, and still hands on the rest", async () => {
+            const world = await build(["books"], { books: { workflowId: "wf-in", ownKey: null } })
+
+            const result = await world.service.deliver(
+                factInput(factCredit("T1#a", "row-1"), factCredit("T1#b", "row-2"), factCredit("T3#a", "row-3")),
+                world.manager,
+            )
+
+            expect(result).toMatchObject({ events: 2, dropped: 0, sameFact: 1 })
+        })
+
+        it("goes on as today for an event with no key (the source gives none) and for one with no raw row: the claim is never asked", async () => {
+            const world = await build(["books"], { books: { workflowId: "wf-in", ownKey: null } })
+            const noRaw = factCredit("T9#a", "row-9")
+
+            const result = await world.service.deliver(
+                factInput(factCredit("none-1", "row-1"), factCredit("none-2", "row-2"), { event: noRaw.event }, { event: noRaw.event }),
+                world.manager,
+            )
+
+            expect(result).toMatchObject({ sameFact: 0 })
+            expect(world.facts.claim).not.toHaveBeenCalled()
+        })
+
+        it("a declaration with no factKey never claims: two reports of one transfer are two events, as before", async () => {
+            const world = await build(["books"], { books: { workflowId: "wf-in", ownKey: null } })
+            const credit = (id: string, rowId: string) => {
+                const event = SEPAY_CREDIT.translate({ transactionId: id, direction: "in" }, { connectionId: "conn-bank" })
+                if (event === null) throw new Error("the test credit does not translate")
+                return { event, raw: { type: "sepay.transaction", id: rowId } }
+            }
+
+            const result = await world.service.deliver(
+                { workspaceId: "ws-1", declaration: SEPAY_CREDIT, connectionId: "conn-bank", agentId: null, events: [credit("T1#a", "r1"), credit("T1#b", "r2")] },
+                world.manager,
+            )
+
+            expect(result).toMatchObject({ events: 2, sameFact: 0 })
+            expect(world.facts.claim).not.toHaveBeenCalled()
+        })
+    })
+
+    it("a declaration that combines as a stream but feeds no stream (no `line`) is refused at registration", () => {
+        const { line: _line, ...noLine } = ZALO_LINE
+        expect(() => triggerDeclarations.register({ ...noLine, name: "message.streamless-test", combine: "stream" })).toThrow(
+            expect.objectContaining({ code: "PROVIDER_TRIGGERS_DECLARATION_STREAMLESS" }),
+        )
+        expect(triggerDeclarations.of(PROVIDER.zaloOa, "message.streamless-test")).toBeNull()
+        // `each` and `latest` need no stream.
+        expect(() => triggerDeclarations.register({ ...noLine, name: "message.latest-test", combine: "latest" })).not.toThrow()
     })
 })

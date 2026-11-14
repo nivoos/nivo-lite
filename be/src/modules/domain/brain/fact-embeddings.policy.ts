@@ -1,19 +1,12 @@
 import { hasStatedPeriod, readByJudge, sameValue, valueLineOf, type FactRecord } from "@modules/domain/brain-facts"
 import { JUDGE_EFFORT, JUDGE_MAX_TOKENS, JUDGE_RETRY_MAX_TOKENS, type AiBudget } from "@modules/integrations/ai"
-import type { EmbeddingsRefreshed, LineBatchEntry } from "./fact-embeddings.contracts"
+import type { LineBatchEntry } from "./fact-embeddings.contracts"
 
 /** How long one batch of fact lines may take to embed. */
 export const EMBED_TIMEOUT_MS = 20_000
 
 /** The most fact lines one embedding call carries (the passages' batch size). */
 export const EMBED_BATCH = 32
-
-/**
- * The most changed facts one announcement embeds INLINE: one embedding call's worth (`EMBED_BATCH`), under `EMBED_TIMEOUT_MS`. The write
- * that announced waits for it, so it is bounded; the rest of a bigger announcement is embedded by its `vector.sync` job (every changed
- * fact gets one) and, failing that, by the vector reconcile (tick `vector-reconcile`), which walks every row against its point.
- */
-export const ANNOUNCE_INLINE_MAX = 32
 
 /**
  * How many same-meaning judgements of one window run at once (TRIAGE-4): at effort `high` each reasons for seconds, and a window's
@@ -108,9 +101,6 @@ export const sameTruthActOf = (
     if (!agree) return "ask"
     return samePeriod(fact, other) ? "join" : "apart"
 }
-
-/** A refresh that did nothing (the AI is off, or it failed). */
-export const NOTHING_REFRESHED: EmbeddingsRefreshed = { embedded: 0, adopted: 0, unchanged: 0 }
 
 /** The lines cut into batches of `EMBED_BATCH`, in order. */
 export const batchesOf = (lines: ReadonlyArray<LineBatchEntry>): ReadonlyArray<ReadonlyArray<LineBatchEntry>> =>

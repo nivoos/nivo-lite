@@ -110,20 +110,22 @@ export interface CallMeta {
 export interface NodeAsk {
     /** `<node id>:<purpose>`; the namespace of the node is the usage module. */
     readonly purpose: string
-    /** The node's instructions, the system message: the stable part of the call, the same text for the same agent, shop and step. */
+    /** The step's own words (L3), a system message: the stable part of the call, the same text for the same agent, workspace and step. */
     readonly instructions: string
     /**
-     * How long the opening of `instructions` is that every call of the agent shares whatever the step (L1 craft + tools, L2 shop
-     * values; agent-sdk `NodeModelRequest.sharedLength`): the stable part is sent as two system parts, each with a cache breakpoint,
-     * so another step's first call reads the opening from the cache. Absent: one part, as before.
+     * What every call of the agent shares before `instructions` (agent-sdk `NodeModelRequest.opening`): L1 `craft` (the agent's craft
+     * and its whole tool set) and L2 `rules` (the workspace's policies). Each non-empty layer is its own system part with a cache breakpoint at
+     * its end, so another step's first call reads them from the cache. Absent: the call is its instructions alone.
      */
-    readonly sharedLength?: number | undefined
+    readonly opening?: { readonly craft: string; readonly policies: string } | undefined
     /** Words that hold for this call only; they go after the stable part, never inside it. */
     readonly volatile?: string | undefined
     /** The reasoning the node asks a reasoning model for on this call; absent takes the default of node calls. */
     readonly reasoning?: "off" | "low" | "medium" | "high" | undefined
     /** What the node asks about, sent as JSON. */
     readonly input: unknown
+    /** What the earlier turns of the same loop came to, oldest first: each sent as JSON in its own part after `input`, appended only. */
+    readonly turns?: ReadonlyArray<unknown> | undefined
     /** Pictures to look at, sent with the input as image parts of the user message. */
     readonly images?: ReadonlyArray<string> | undefined
 }

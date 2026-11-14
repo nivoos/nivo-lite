@@ -4,9 +4,10 @@ import { UuidAbstractEntity } from "@modules/platform/database"
 
 @Entity({ schema: "public", name: "agent_node_effects" })
 /**
- * The effect ledger: ONE row per call key in the workspace (`effect_key` unique), written once after the act, with the effect that ran,
- * the subject it touched (or `outcome-unknown` and its code), the run and step of the call, its arguments and the facts it answered. A
- * replay reads the row and answers the kept subject; the row is never rewritten.
+ * The effect ledger: ONE row per call key in the workspace (`effect_key` unique), with the effect that ran, the subject it touched (or
+ * `outcome-unknown` and its code), the run and step of the call, its arguments and the facts it answered. An act inside NIVO's database
+ * writes it once after the act; an act outside writes it first as an `intent` (QB-P3 rule I-1), filled by the act's answer (or deleted
+ * when the act answered that nothing happened). A replay reads the row and answers the kept subject; a settled row is never rewritten.
  */
 export class NodeEffectEntity extends UuidAbstractEntity {
     /** The workspace. */
@@ -21,7 +22,7 @@ export class NodeEffectEntity extends UuidAbstractEntity {
     @Column({ name: "effect_id", type: "text" })
     effectId!: string
 
-    /** The data kind of the subject it touched (`outcome-unknown` when nobody knows whether it acted). */
+    /** The data kind of the subject it touched (`outcome-unknown` when nobody knows whether it acted, `intent` while its act is under way). */
     @Column({ name: "subject_entity", type: "text" })
     subjectEntity!: string
 

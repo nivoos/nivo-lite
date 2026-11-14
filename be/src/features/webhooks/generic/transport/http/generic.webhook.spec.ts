@@ -13,7 +13,7 @@ const ROUTE = { connectionId: CONNECTION }
 const SIGNATURE = "abc123"
 
 const build = async () => {
-    const signature = mock<ScopedWebhookVerifier>({ verify: jest.fn().mockResolvedValue(undefined) })
+    const signature = mock<ScopedWebhookVerifier>({ verify: jest.fn().mockResolvedValue("proven") })
     const intake = mock<GenericWebhookIntakeService>({
         accept: jest.fn().mockResolvedValue(undefined),
     })
@@ -33,7 +33,7 @@ describe("GenericWebhook", () => {
         const effects: Array<string> = []
         signature.verify.mockImplementation(() => {
             effects.push("verify")
-            return Promise.resolve()
+            return Promise.resolve("proven" as const)
         })
         intake.accept.mockImplementation(() => {
             effects.push("accept")

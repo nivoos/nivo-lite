@@ -9,7 +9,8 @@ import { WEBSITE_FORM_TRIGGER } from "./website-form.trigger"
 @Module({})
 /**
  * The website that brings customers in: the owner's switches and agent, the hosted form a visitor fills in under the site key, and the
- * wake of the owning agent (`website.message.received`). Each accepted form stores one input and meets one core contact; no agent record.
+ * wake of the owning agent (`website.message.received`). Each accepted form stores one input and queues its delivery in the same transaction;
+ * the api's job (`website-form.deliver`, composed by `features/jobs/deliver-website-form`) meets one core contact and wakes; no agent record.
  */
 export class WebsiteIntakeModule extends ConfigurableModuleClass implements OnModuleInit {
     /** Registers the capability in the API app. */

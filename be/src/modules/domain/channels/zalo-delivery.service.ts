@@ -1,6 +1,7 @@
 import { Injectable, Optional } from "@nestjs/common"
 import { AccountDataReadService } from "@modules/domain/account-data"
 import { ConnectionsService } from "@modules/domain/connections"
+import { ZALO_REPLY_WINDOW_MS } from "@modules/domain/tools/provider-abilities.policy"
 import {
     InjectZalo,
     isZaloMessageRefusal,
@@ -22,8 +23,11 @@ import { ZaloCredentialsService } from "./zalo-credentials.service"
 import { ZaloPicturesService } from "./zalo-pictures.service"
 import { renewalTemplateData, znsRenewalOf } from "./zns-renewal.policy"
 
-/** Consultation messages are free for 48 hours after the customer's last interaction; later ones are paid or refused by Zalo. */
-export const ZALO_FREE_WINDOW_MS: number = 48 * 3_600_000
+/**
+ * Consultation messages are free for 48 hours after the customer's last interaction; later ones are paid or refused by Zalo. The number is
+ * Zalo's channel declaration (`ZALO_REPLY_WINDOW_MS`, rule SO-2): one source for the send's window and Zalo's own ZNS fallback.
+ */
+export const ZALO_FREE_WINDOW_MS: number = ZALO_REPLY_WINDOW_MS
 
 const BY_CONSULTATION: DeliveryResult = { delivered: true, failure: null, outcome: "acknowledged", via: "consultation" }
 const BY_ZNS: DeliveryResult = { delivered: true, failure: null, outcome: "acknowledged", via: "zns" }

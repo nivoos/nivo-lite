@@ -1,7 +1,8 @@
 import { Test } from "@nestjs/testing"
+import type { ClaimedJob } from "@modules/platform/jobs"
 import { FakeClock, fakeTransaction, mock, mockEntityManager, recordingQueueOutbox } from "@starci/jest-preset"
 import { isTransactionManager } from "@starci/jest-preset/entity-manager"
-import { AccountDataIntakeService } from "@modules/domain/account-data"
+import { AccountDataAdmissionsService, AccountDataIntakeService } from "@modules/domain/account-data"
 import type { AccountWrite, PendingRow } from "@modules/domain/account-data"
 import { CustomerFilesService } from "@modules/domain/chat-files"
 import { ConnectionsService } from "@modules/domain/connections"
@@ -16,6 +17,9 @@ import { TelegramFilesService } from "./telegram-files.service"
 import { TELEGRAM_MESSAGE_WEBHOOK } from "./telegram-message.trigger"
 import { TelegramInboxService } from "./telegram-inbox.service"
 import { TELEGRAM_DELIVERY_QUEUE } from "./telegram-inbox.contracts"
+
+/** The delivery job the receipt runs under: its id keys the effects of the files the message carries. */
+const JOB: ClaimedJob = { jobId: "job-1", kind: "telegram-delivery", fencingToken: 1, currentStep: null, payload: {} }
 
 /** A connection id as the doors scope a delivery by it. */
 const CONNECTION = "0b1d52a4-8f3e-4c8a-9a64-4f0d2f6e7a11"
@@ -47,7 +51,7 @@ const pendingOf = (raw: object = update): PendingRow => ({
 })
 
 /** What the ONE delivery answers: the event delivered, and taken by a registered graph unless `untaken`. */
-const deliveredOf = (untaken = 0): DeliverResult => ({ status: "delivered", events: 1, dropped: 0, woken: [], repeats: 0, untaken, held: 0 })
+const deliveredOf = (untaken = 0): DeliverResult => ({ status: "delivered", events: 1, dropped: 0, sameFact: 0, woken: [], repeats: 0, untaken, held: 0 })
 
 const build = async (written: AccountWrite = writtenNew, pending: PendingRow | null = pendingOf()) => {
     const tx = fakeTransaction(mockEntityManager({}))
@@ -57,7 +61,7 @@ const build = async (written: AccountWrite = writtenNew, pending: PendingRow | n
     connections.intakeOf.mockResolvedValue({ kind: "ok", value: { workspaceId: "w-1" } } as Awaited<ReturnType<ConnectionsService["intakeOf"]>>)
     connections.markReceived.mockResolvedValue(undefined)
     const customerFiles = mock<CustomerFilesService>()
-    customerFiles.keep.mockImplementation((_workspace, _key, addresses) =>
+    customerFiles.keep.mockImplementation((_job, _workspace, _key, addresses) =>
         Promise.resolve(addresses.map((one, index) => ({ id: `f-${String(index)}`, url: `https://files.test/${one.url}`, name: one.name, contentType: "image/jpeg" }))),
     )
     const inboundEvents = mock<InboundEventsService>()
@@ -72,6 +76,7 @@ const build = async (written: AccountWrite = writtenNew, pending: PendingRow | n
     )
     const outbox = recordingQueueOutbox()
     const write = jest.spyOn(outbox, "write")
+    const admissions = new AccountDataAdmissionsService()
     const moduleRef = await Test.createTestingModule({
         providers: [
             TelegramInboxService,
@@ -83,12 +88,17 @@ const build = async (written: AccountWrite = writtenNew, pending: PendingRow | n
             { provide: InboundEventsService, useValue: inboundEvents },
             { provide: TelegramFilesService, useValue: files },
             { provide: AccountDataIntakeService, useValue: intake },
+            { provide: AccountDataAdmissionsService, useValue: admissions },
             { provide: CLOCK, useValue: new FakeClock(NOW) },
             { provide: LOGGER, useValue: logger },
         ],
     }).compile()
+    const service = moduleRef.get(TelegramInboxService)
+    // The module registers this at boot: the door's tail is the type's admission.
+    admissions.register("telegram.update", (manager, row) => service.admitUpdate(manager, row))
     return {
-        service: moduleRef.get(TelegramInboxService),
+        admissions,
+        service,
         tx,
         triggers,
         connections,
@@ -115,9 +125,21 @@ describe("TelegramInboxService receipt delivery", () => {
             manager,
             TELEGRAM_DELIVERY_QUEUE,
             { deliveryId: `${CONNECTION}:77` },
-            { dedupeKey: `telegram-delivery:${CONNECTION}:77` },
+            { job: "telegram-delivery", dedupeKey: `telegram-delivery:${CONNECTION}:77` },
         )
         expect(triggers.deliver).not.toHaveBeenCalled()
+    })
+
+    it("hands the new row to the type's admission once, with the account, the key and the value written", async () => {
+        const { service, admissions, intake } = await build()
+        const admit = jest.spyOn(admissions, "admit")
+        await service.acceptTelegramDelivery(body, CONNECTION)
+        expect(admit).toHaveBeenCalledTimes(1)
+        expect(admit).toHaveBeenCalledWith(
+            expect.anything(),
+            { id: "row-1", type: "telegram.update", key: "77", owner, value: { updateId: "77", raw: update } },
+        )
+        expect(intake.write).toHaveBeenCalledTimes(1)
     })
 
     it("queues nothing for a redelivery: the row is not new", async () => {
@@ -157,7 +179,7 @@ describe("TelegramInboxService receipt delivery", () => {
 describe("TelegramInboxService deferred effects", () => {
     it("locks the pending update, hands its message to the ONE delivery as the provider translates it, keeps the message and the person and completes, in one transaction", async () => {
         const { service, tx, triggers, intake, connections } = await build()
-        await service.processRecordedDelivery({ deliveryId: `${CONNECTION}:77` })
+        await service.processRecordedDelivery({ deliveryId: `${CONNECTION}:77` }, JOB)
         const manager = triggers.deliver.mock.calls[0]?.[1]
         expect(isTransactionManager(manager)).toBe(true)
         expect(intake.lockPending).toHaveBeenCalledWith(manager, "telegram.update", CONNECTION, "77")
@@ -204,7 +226,7 @@ describe("TelegramInboxService deferred effects", () => {
     it("delivers /start as the message it is (its words, no start flag)", async () => {
         const start = { ...update, message: { ...update.message, text: "/start" } }
         const { service, triggers } = await build(undefined, pendingOf(start))
-        await service.processRecordedDelivery({ deliveryId: `${CONNECTION}:77` })
+        await service.processRecordedDelivery({ deliveryId: `${CONNECTION}:77` }, JOB)
         expect(triggers.deliver.mock.calls[0]?.[0].events[0]?.event.data).toEqual({
             messageKey: `tg:${CONNECTION}:555:9`,
             text: "/start",
@@ -215,15 +237,15 @@ describe("TelegramInboxService deferred effects", () => {
 
     it("delivers the same event id for a replay of the same update", async () => {
         const { service, triggers } = await build()
-        await service.processRecordedDelivery({ deliveryId: `${CONNECTION}:77` })
-        await service.processRecordedDelivery({ deliveryId: `${CONNECTION}:77` })
+        await service.processRecordedDelivery({ deliveryId: `${CONNECTION}:77` }, JOB)
+        await service.processRecordedDelivery({ deliveryId: `${CONNECTION}:77` }, JOB)
         expect(triggers.deliver.mock.calls.map((call) => call[0].events.map((one) => one.event.id))).toEqual([["77"], ["77"]])
     })
 
     it("keeps a message no registered graph took for the owner, as an unrouted channel message", async () => {
         const { service, triggers, inboundEvents } = await build()
         triggers.deliver.mockResolvedValue(deliveredOf(1))
-        await service.processRecordedDelivery({ deliveryId: `${CONNECTION}:77` })
+        await service.processRecordedDelivery({ deliveryId: `${CONNECTION}:77` }, JOB)
         expect(inboundEvents.keepUnrouted).toHaveBeenCalledWith(expect.anything(), {
             workspaceId: "w-1",
             channel: "telegram",
@@ -236,7 +258,7 @@ describe("TelegramInboxService deferred effects", () => {
     it("delivers nothing for a connection that is no live Telegram one, and still keeps the message for the account", async () => {
         const { service, triggers, connections, intake } = await build()
         connections.intakeOf.mockResolvedValue({ kind: "refused", code: "x" } as unknown as Awaited<ReturnType<ConnectionsService["intakeOf"]>>)
-        await service.processRecordedDelivery({ deliveryId: `${CONNECTION}:77` })
+        await service.processRecordedDelivery({ deliveryId: `${CONNECTION}:77` }, JOB)
         expect(triggers.deliver).not.toHaveBeenCalled()
         expect(intake.write).toHaveBeenCalledTimes(1)
         expect(intake.complete).toHaveBeenCalledTimes(1)
@@ -244,7 +266,7 @@ describe("TelegramInboxService deferred effects", () => {
 
     it("does nothing for an update that is absent or already completed", async () => {
         const { service, triggers, intake } = await build(undefined, null)
-        await service.processRecordedDelivery({ deliveryId: `${CONNECTION}:77` })
+        await service.processRecordedDelivery({ deliveryId: `${CONNECTION}:77` }, JOB)
         expect(triggers.deliver).not.toHaveBeenCalled()
         expect(intake.write).not.toHaveBeenCalled()
         expect(intake.complete).not.toHaveBeenCalled()
@@ -252,13 +274,13 @@ describe("TelegramInboxService deferred effects", () => {
 
     it("locks nothing for a delivery id that names no connection", async () => {
         const { service, intake } = await build()
-        await service.processRecordedDelivery({ deliveryId: "c-1:77" })
+        await service.processRecordedDelivery({ deliveryId: "c-1:77" }, JOB)
         expect(intake.lockPending).not.toHaveBeenCalled()
     })
 
     it("completes an update that is not a message without a delivery or a kept row", async () => {
         const { service, triggers, intake } = await build(undefined, pendingOf({ update_id: 77 }))
-        await service.processRecordedDelivery({ deliveryId: `${CONNECTION}:77` })
+        await service.processRecordedDelivery({ deliveryId: `${CONNECTION}:77` }, JOB)
         expect(triggers.deliver).not.toHaveBeenCalled()
         expect(intake.write).not.toHaveBeenCalled()
         expect(intake.complete).toHaveBeenCalledTimes(1)
@@ -268,7 +290,7 @@ describe("TelegramInboxService deferred effects", () => {
         const { service, tx, triggers, intake } = await build()
         const failure = new Error("delivery failed")
         triggers.deliver.mockRejectedValue(failure)
-        await expect(service.processRecordedDelivery({ deliveryId: `${CONNECTION}:77` })).rejects.toBe(failure)
+        await expect(service.processRecordedDelivery({ deliveryId: `${CONNECTION}:77` }, JOB)).rejects.toBe(failure)
         expect(tx.rollbacks).toBe(1)
         expect(intake.complete).not.toHaveBeenCalled()
     })
@@ -290,9 +312,9 @@ describe("TelegramInboxService photo messages", () => {
             },
         }
         const { service, triggers, files, customerFiles } = await build(undefined, pendingOf(photo))
-        await service.processRecordedDelivery({ deliveryId: `${CONNECTION}:80` })
+        await service.processRecordedDelivery({ deliveryId: `${CONNECTION}:80` }, JOB)
         expect(files.addressesOf).toHaveBeenCalledWith(CONNECTION, [{ kind: "image", fileId: "large", name: "", size: null }])
-        expect(customerFiles.keep).toHaveBeenCalledWith("w-1", `tg:${CONNECTION}:555:11`, [{ kind: "image", url: "https://tg.test/large", name: "" }])
+        expect(customerFiles.keep).toHaveBeenCalledWith(JOB, "w-1", `tg:${CONNECTION}:555:11`, [{ kind: "image", url: "https://tg.test/large", name: "" }])
         const [delivered] = triggers.deliver.mock.calls[0]?.[0].events ?? []
         expect(delivered?.event.data).toMatchObject({ text: "[Kh\u00e1ch g\u1eedi m\u1ed9t \u1ea3nh] This one" })
         expect(delivered?.event.subject).toEqual({ channel: "telegram", id: "555" })

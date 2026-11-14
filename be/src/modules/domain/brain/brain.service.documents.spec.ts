@@ -1,13 +1,15 @@
 import { Test } from "@nestjs/testing"
-import { FakeClock, mock } from "@starci/jest-preset"
+import { FakeClock, mock, mockEntityManager } from "@starci/jest-preset"
 import { BrainFactsReadService, BrainFactsService } from "@modules/domain/brain-facts"
 import { BrainLessonsService } from "@modules/domain/brain-lessons"
 import { KnowledgeGapsService } from "@modules/domain/knowledge-gaps"
 import { KnowledgeSourcesService } from "@modules/domain/knowledge-sources"
 import { WorkspaceMembersService } from "@modules/domain/workspace-members"
 import { CLOCK } from "@modules/platform/clock"
+import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
+import { KnowledgeQueue } from "@modules/queues/knowledge"
 import { BrainService } from "./brain.service"
 import { DocumentFactsService } from "./document-facts.service"
 import { SERVICE_AT, SERVICE_WS, serviceFactOf, serviceLesson, serviceMemberOf } from "@tests/fixtures/builders/brain-service.builder"
@@ -42,6 +44,8 @@ const build = async () => {
             { provide: KnowledgeSourcesService, useValue: sources },
             { provide: DocumentFactsService, useValue: documentFacts },
             { provide: BrainFactsReadService, useValue: reads },
+            { provide: KnowledgeQueue, useValue: mock<KnowledgeQueue>() },
+            { provide: PRIMARY_ENTITY_MANAGER, useValue: mockEntityManager() },
         ],
     }).compile()
     return {

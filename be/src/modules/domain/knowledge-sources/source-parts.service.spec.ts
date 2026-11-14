@@ -8,7 +8,6 @@ import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { KnowledgeQueue } from "@modules/queues/knowledge"
 import { VectorSyncService } from "@modules/domain/vector-sync"
 import { KnowledgeSourcesErrorCode } from "./errors/knowledge-sources.error"
-import { KnowledgeProgressService } from "./knowledge-progress.service"
 import { KnowledgeSourceEntity } from "./persistence/entities"
 import { metaChanges } from "./source-input.policy"
 import { SourcePartsService } from "./source-parts.service"
@@ -22,33 +21,29 @@ const WRITTEN = {}
 /** The service with no vector sync bound (the sync is optional: a deployment without an index has none). */
 const build = async (em: MockEntityManager) => {
     const queue = mock<KnowledgeQueue>()
-    const progress = mock<KnowledgeProgressService>()
     const moduleRef = await Test.createTestingModule({
         providers: [
             SourcePartsService,
             { provide: PRIMARY_ENTITY_MANAGER, useValue: em },
             { provide: KnowledgeQueue, useValue: queue },
-            { provide: KnowledgeProgressService, useValue: progress },
         ],
     }).compile()
-    return { service: moduleRef.get(SourcePartsService), queue, progress }
+    return { service: moduleRef.get(SourcePartsService), queue }
 }
 
 /** The service with a vector sync bound; its double comes back to be read by the case. */
 const buildWithSync = async (em: MockEntityManager) => {
     const queue = mock<KnowledgeQueue>()
-    const progress = mock<KnowledgeProgressService>()
     const vectorSync = mock<VectorSyncService>()
     const moduleRef = await Test.createTestingModule({
         providers: [
             SourcePartsService,
             { provide: PRIMARY_ENTITY_MANAGER, useValue: em },
             { provide: KnowledgeQueue, useValue: queue },
-            { provide: KnowledgeProgressService, useValue: progress },
             { provide: VectorSyncService, useValue: vectorSync },
         ],
     }).compile()
-    return { service: moduleRef.get(SourcePartsService), queue, progress, vectorSync }
+    return { service: moduleRef.get(SourcePartsService), queue, vectorSync }
 }
 
 describe("SourcePartsService splitLong", () => {
@@ -60,12 +55,11 @@ describe("SourcePartsService splitLong", () => {
                 insert: [KnowledgeSourceEntity, { identifiers: [{ id: 42 }] }],
             }),
         )
-        const { service, queue, progress } = await build(tx.em)
+        const { service, queue } = await build(tx.em)
 
         await expect(service.splitLong(WS, "s1", "Plan", ["two"])).resolves.toBe("Plan (1/2)")
 
         expect(queue.enqueueIndex).not.toHaveBeenCalled()
-        expect(progress.announce).not.toHaveBeenCalled()
         expect(tx.commits).toBe(1)
     })
 
@@ -77,7 +71,7 @@ describe("SourcePartsService splitLong", () => {
                 insert: [KnowledgeSourceEntity, { identifiers: [{ id: "p2" }, { id: "p3" }] }],
             }),
         )
-        const { service, queue, progress } = await build(tx.em)
+        const { service, queue } = await build(tx.em)
 
         await expect(service.splitLong(WS, "s1", "Plan", ["two", "three"])).resolves.toBe("Plan (1/3)")
 
@@ -88,7 +82,6 @@ describe("SourcePartsService splitLong", () => {
         ])
         expect(queue.enqueueIndex).toHaveBeenCalledWith({ sourceId: "p2", workspaceId: WS }, expect.anything())
         expect(queue.enqueueIndex).toHaveBeenCalledWith({ sourceId: "p3", workspaceId: WS }, expect.anything())
-        expect(progress.announce).toHaveBeenCalledWith(WS, "p3")
     })
 
     it("adds nothing when the first source is gone", async () => {

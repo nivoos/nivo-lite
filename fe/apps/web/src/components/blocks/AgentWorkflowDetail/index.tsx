@@ -38,7 +38,6 @@ const DETAIL_PLACEHOLDER: WorkflowDetailView = {
         facts: "-",
         toggleLabel: "-",
         toggleTo: "active",
-        canEditGraph: false,
     },
     notice: null,
     graphTitle: "-",
@@ -82,8 +81,6 @@ const overviewCopyOf = (t: PageWords): AgentWorkflowDetailCopy["overview"] => ({
 /** The words of the page that do not come from the data. */
 const copyOf = (t: PageWords, td: WorkflowWords, runs: RunsTableCopy): AgentWorkflowDetailCopy => ({
     paneLabel: t("paneLabel"),
-    editMap: t("editMap"),
-    addStep: t("addStep"),
     noticeAction: t("noticeAction"),
     noticePreview: t("noticePreview"),
     noticeCaption: td("noticeCaption"),
@@ -119,7 +116,6 @@ export const AgentWorkflowDetail = (props: AgentWorkflowDetailProps) => {
     const td = useTranslations("agentWorkflows")
     const runsCopy = useRunsTableCopy()
     const slotLabels = useSlotLabels()
-    const router = navigation.useRouter()
     const base = navigation.usePathname().replace(/\/(map|versions|runs)$/, "")
     const page = useWorkflowDetail(route.module, route.installationId, route.workflowKey)
     const { runs } = page
@@ -144,7 +140,6 @@ export const AgentWorkflowDetail = (props: AgentWorkflowDetailProps) => {
             }}
             on={{
                 retry: page.retry,
-                openMap: () => router.push(`${base}/map`),
                 step: page.steps.act,
                 rollback: page.rollback,
                 toggle: page.setStatus,

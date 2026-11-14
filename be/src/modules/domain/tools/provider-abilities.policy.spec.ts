@@ -13,6 +13,10 @@ import {
     judgeAttachment,
     pickAccountOf,
     providerOfChannel,
+    channelCapabilitiesOf,
+    personAddressedChannels,
+    DEFAULT_CHANNEL_CAPABILITIES,
+    ZALO_REPLY_WINDOW_MS,
     providerSpecOf,
     providersHolding,
     providersOfDeclaration,
@@ -56,10 +60,29 @@ describe("the provider catalogue: which provider serves which tool (information,
         expect(providerOfChannel("facebook")).toBe("meta")
         expect(providerOfChannel("instagram")).toBe("meta")
         expect(providerOfChannel("website")).toBeNull()
+        expect(providerOfChannel("email")).toBe("smtp")
     })
 
-    it("keeps the SMTP account to its mail tool alone and the IMAP mailbox to its two reads", () => {
-        expect(providerSpecOf("smtp")?.abilities).toEqual([{ id: "email.send", scope: "write", tools: [TOOL.mailMessageSend] }])
+    it("rule SO-2: every customer channel DECLARES its capabilities; a channel of no provider has the default", () => {
+        expect(channelCapabilitiesOf("zalo")).toEqual({ subject: "none", replyWindowMs: ZALO_REPLY_WINDOW_MS, addressedBy: "channel", threads: false })
+        expect(channelCapabilitiesOf("telegram")).toEqual({ subject: "none", replyWindowMs: null, addressedBy: "channel", threads: false })
+        expect(channelCapabilitiesOf("instagram")).toEqual({ subject: "none", replyWindowMs: null, addressedBy: "channel", threads: false })
+        expect(channelCapabilitiesOf("email")).toEqual({ subject: "required", replyWindowMs: null, addressedBy: "email", threads: true })
+        expect(channelCapabilitiesOf("website")).toEqual(DEFAULT_CHANNEL_CAPABILITIES)
+        expect(personAddressedChannels()).toEqual([{ channel: "email", kind: "email" }])
+    })
+
+    it("rules SO-1 + MI-1: the mailbox (smtp) account serves the channel `email` of the ONE send and the reads of the inbound half it holds; IMAP the reads", () => {
+        expect(providerSpecOf("smtp")?.abilities).toEqual([
+            {
+                id: "customer.send",
+                scope: "write",
+                tools: [TOOL.customerMessageSend],
+                channels: ["email"],
+                capabilities: { subject: "required", replyWindowMs: null, addressedBy: "email", threads: true },
+            },
+            { id: "mail.read", scope: "read", tools: [TOOL.mailMessageList, TOOL.mailMessageGet] },
+        ])
         expect(providerSpecOf("imap")?.abilities).toEqual([
             { id: "mail.read", scope: "read", tools: [TOOL.mailMessageList, TOOL.mailMessageGet] },
         ])
@@ -147,7 +170,7 @@ describe("the providers a fresh agent is attached to", () => {
 
     it("read an old declaration only for which providers it names: a mode it wrote is nothing, `off` names nothing", () => {
         expect(providersOfDeclaration({ kinds: { messaging: { "customer.send": "ask" } } })).toEqual(["zalo_oa", "telegram", "meta"])
-        expect(providersOfDeclaration({ providers: { smtp: { "email.send": "auto" } }, kinds: { payment: { "qr.create": "off" } } })).toEqual([
+        expect(providersOfDeclaration({ providers: { smtp: { "customer.send": "auto" } }, kinds: { payment: { "qr.create": "off" } } })).toEqual([
             "smtp",
         ])
         expect(providersOfDeclaration(undefined)).toEqual([])
@@ -194,12 +217,23 @@ describe("which of several accounts of one provider a step's call uses (pickAcco
         })
     })
 
-    it("(3) the agent's default account decides when the run names none", () => {
+    it("(3) the step's CHOSEN accounts (its node settings) decide when the run names none, in try order, over the default", () => {
+        expect(pickAccountOf(both, "live", {}, ["sandbox", "live"])).toEqual({ kind: "picked", account: sandbox, by: "node" })
+        expect(pickAccountOf(both, null, {}, ["detached", "live"])).toEqual({ kind: "picked", account: live, by: "node" })
+        // The event's account and the run's account still come first: an inbound line is answered where it was written.
+        expect(pickAccountOf(both, null, { triggerConnectionId: "live" }, ["sandbox"])).toEqual({ kind: "picked", account: live, by: "trigger" })
+        expect(pickAccountOf(both, null, { usedConnectionIds: ["live"] }, ["sandbox"])).toEqual({ kind: "picked", account: live, by: "run" })
+        // A choice naming no attached account names nothing: the default, then the typed choice to make.
+        expect(pickAccountOf(both, "live", {}, ["detached"])).toEqual({ kind: "picked", account: live, by: "default" })
+        expect(pickAccountOf(both, null, {}, ["detached"])).toEqual({ kind: "needs_pick", candidates: both })
+    })
+
+    it("(4) the agent's default account decides when the run and the step name none", () => {
         expect(pickAccountOf(both, "sandbox")).toEqual({ kind: "picked", account: sandbox, by: "default" })
         expect(pickAccountOf(both, "live", { usedConnectionIds: [] })).toEqual({ kind: "picked", account: live, by: "default" })
     })
 
-    it("(4) names the choice to make when nothing picks: the candidates, never a guess", () => {
+    it("(5) names the choice to make when nothing picks: the candidates, never a guess", () => {
         expect(pickAccountOf(both, null)).toEqual({ kind: "needs_pick", candidates: both })
         expect(pickAccountOf(both, null, { triggerConnectionId: undefined, usedConnectionIds: [] })).toEqual({
             kind: "needs_pick",
@@ -225,6 +259,14 @@ describe("the binding of a node's providers (bindNodeProviders, unpickedOf)", ()
     const sandbox = { provider: "bank", connectionId: "sandbox" }
     const mail = { provider: "mail", connectionId: "mail-1" }
     const none = (): null => null
+
+    it("binds a provider's account the step chose (per provider), and leaves nothing to pick for it", () => {
+        const chosen = (provider: string): ReadonlyArray<string> => (provider === "bank" ? ["sandbox"] : [])
+
+        expect(bindNodeProviders(["bank", "mail"], [live, sandbox, mail], none, {}, chosen)).toEqual([sandbox, mail])
+        expect(unpickedOf(["bank"], [live, sandbox], none, {}, chosen)).toEqual([])
+        expect(unpickedOf(["bank"], [live, sandbox], none, {})).toEqual([{ provider: "bank", connectionIds: ["live", "sandbox"] }])
+    })
 
     it("binds, in the node's order, each provider's one account; a provider with none binds nothing", () => {
         expect(bindNodeProviders(["mail", "bank", "mail", "chat"], [live, mail], none)).toEqual([mail, live])

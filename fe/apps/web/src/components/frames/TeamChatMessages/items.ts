@@ -12,6 +12,7 @@ const isNotice = (row: TeamChatMessageRow): boolean =>
     row.card === null &&
     row.stop == null &&
     row.backgroundStopped == null &&
+    row.jobParked == null &&
     row.brainChange == null &&
     row.files.length === 0 &&
     row.replyTo === null &&

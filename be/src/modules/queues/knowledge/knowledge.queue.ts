@@ -1,26 +1,23 @@
 import { Injectable } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
 import { InjectQueueOutbox, type QueueOutbox } from "@modules/platform/queue"
-import {
-    KnowledgeJob,
-    knowledgeDedupeKey,
-    type DossierReviewPayload,
-    type PolicyDerivePayload,
-    type PublicDraftPayload,
-    type KnowledgeSourcePayload,
+import type {
+    BrainWorkspaceUpkeepPayload,
+    DossierReviewPayload,
+    PolicyDerivePayload,
+    PublicDraftPayload,
+    KnowledgeSourcePayload,
 } from "./knowledge.contracts"
+import {
+    DERIVE_POLICIES_JOB,
+    DRAFT_PUBLIC_DOCUMENT_JOB,
+    EXTRACT_FACTS_JOB,
+    INDEX_SOURCE_JOB,
+    REVIEW_DOSSIERS_JOB,
+    RUN_BRAIN_COMMAND_JOB,
+} from "./knowledge.jobs"
 
-/** The queue name: the contract between these producers, the SQL functions that enqueue knowledge sources, and the processors (the durable queue name). */
-export const KNOWLEDGE_QUEUE = "knowledge"
-
-/**
- * The index lane of the knowledge capability: the index jobs only, on workers of their own. A document is searchable as soon as it is
- * stored (`extensions.ingestionTwoPaths`), so its indexing (seconds per part) never waits for a worker that the truths work of the
- * same queue holds (facts, critique, follow-ups: minutes per document, hundreds of jobs for a big upload; brain walk 2 D-N-6 measured
- * waits of up to 20 minutes for a 2.9 s job). The job name and the dedupe key stay `knowledge.index:<source>`. The legacy SQL
- * functions `knowledge_enqueue_source` / `knowledge_retry_source` (no caller in be or fe) still name `knowledge`; their owner moves them.
- */
-export const KNOWLEDGE_INDEX_QUEUE = "knowledge_index"
+export { KNOWLEDGE_INDEX_QUEUE, KNOWLEDGE_QUEUE } from "./knowledge.contracts"
 
 @Injectable()
 /** The typed producer of the knowledge queue: the one way a knowledge job starts from the back end. */
@@ -32,26 +29,14 @@ export class KnowledgeQueue {
      * re-runs a source whose first job already ended.
      */
     enqueueIndex(payload: KnowledgeSourcePayload, tx: EntityManager, retryAt?: number): Promise<void> {
-        return this.outbox.write(tx, KNOWLEDGE_INDEX_QUEUE, payload, {
-            job: KnowledgeJob.Index,
-            dedupeKey: knowledgeDedupeKey(
-                KnowledgeJob.Index,
-                payload.sourceId,
-                retryAt === undefined ? undefined : `retry:${retryAt}`,
-            ),
-        })
+        const job: KnowledgeSourcePayload = retryAt === undefined ? payload : { ...payload, again: `retry:${String(retryAt)}` }
+        return this.outbox.write(tx, INDEX_SOURCE_JOB.queue, job, { job: INDEX_SOURCE_JOB.name, dedupeKey: INDEX_SOURCE_JOB.onceKey(job) })
     }
 
     /** Enqueues the fact extraction of an indexed source in the caller's transaction; `runAt` (epoch ms) keys one reading per indexing, so a source indexed again is read again. */
     enqueueFacts(payload: KnowledgeSourcePayload, tx: EntityManager, runAt?: number): Promise<void> {
-        return this.outbox.write(tx, KNOWLEDGE_QUEUE, payload, {
-            job: KnowledgeJob.Facts,
-            dedupeKey: knowledgeDedupeKey(
-                KnowledgeJob.Facts,
-                payload.sourceId,
-                runAt === undefined ? undefined : `run:${runAt}`,
-            ),
-        })
+        const job: KnowledgeSourcePayload = runAt === undefined ? payload : { ...payload, again: `run:${String(runAt)}` }
+        return this.outbox.write(tx, EXTRACT_FACTS_JOB.queue, job, { job: EXTRACT_FACTS_JOB.name, dedupeKey: EXTRACT_FACTS_JOB.onceKey(job) })
     }
 
     /**
@@ -59,30 +44,30 @@ export class KnowledgeQueue {
      * `step` (the text fingerprint and the windows read) keys it, so a retried job that reached the same point queues nothing twice.
      */
     enqueueFactsNext(payload: KnowledgeSourcePayload, tx: EntityManager, step: string): Promise<void> {
-        return this.outbox.write(tx, KNOWLEDGE_QUEUE, payload, {
-            job: KnowledgeJob.Facts,
-            dedupeKey: knowledgeDedupeKey(KnowledgeJob.Facts, payload.sourceId, `next:${step}`),
-        })
+        const job: KnowledgeSourcePayload = { ...payload, again: `next:${step}` }
+        return this.outbox.write(tx, EXTRACT_FACTS_JOB.queue, job, { job: EXTRACT_FACTS_JOB.name, dedupeKey: EXTRACT_FACTS_JOB.onceKey(job) })
     }
 
     /** Enqueues a run of the shop-document critic in the caller's transaction; one job per run row. */
     enqueueDossierReview(payload: DossierReviewPayload, tx: EntityManager): Promise<void> {
-        return this.outbox.write(tx, KNOWLEDGE_QUEUE, payload, {
-            job: KnowledgeJob.DossierReview,
-            dedupeKey: knowledgeDedupeKey(KnowledgeJob.DossierReview, payload.runId),
-        })
+        return this.outbox.write(tx, REVIEW_DOSSIERS_JOB.queue, payload, { job: REVIEW_DOSSIERS_JOB.name, dedupeKey: REVIEW_DOSSIERS_JOB.onceKey(payload) })
     }
 
     /** Enqueues one document revision in the caller's transaction; a repeated enqueue is the same durable job. */
     enqueuePublicDraft(payload: PublicDraftPayload, tx: EntityManager): Promise<void> {
-        return this.outbox.write(tx, KNOWLEDGE_QUEUE, payload, {
-            job: KnowledgeJob.PublicDraft,
-            dedupeKey: knowledgeDedupeKey(
-                KnowledgeJob.PublicDraft,
-                payload.documentId,
-                `revision:${payload.draftRevision}`,
-            ),
+        return this.outbox.write(tx, DRAFT_PUBLIC_DOCUMENT_JOB.queue, payload, {
+            job: DRAFT_PUBLIC_DOCUMENT_JOB.name,
+            dedupeKey: DRAFT_PUBLIC_DOCUMENT_JOB.onceKey(payload),
         })
+    }
+
+    /**
+     * Enqueues the upkeep of one workspace in the caller's transaction (the transaction that finishes the tick's job): one job per workspace
+     * and tick minute.
+     */
+    enqueueBrainUpkeep(workspaceId: string, tx: EntityManager, at: number): Promise<void> {
+        const payload: BrainWorkspaceUpkeepPayload = { upkeep: "workspace", workspaceId, at }
+        return this.outbox.write(tx, RUN_BRAIN_COMMAND_JOB.queue, payload, { job: RUN_BRAIN_COMMAND_JOB.name, dedupeKey: RUN_BRAIN_COMMAND_JOB.onceKey(payload) })
     }
 
     /**
@@ -90,9 +75,7 @@ export class KnowledgeQueue {
      * caller writes it only when no pass waits (the state row of the workspace says so), so a burst of fact changes is one job.
      */
     enqueuePolicyDerive(payload: PolicyDerivePayload, tx: EntityManager, askedAt: number): Promise<void> {
-        return this.outbox.write(tx, KNOWLEDGE_QUEUE, payload, {
-            job: KnowledgeJob.PolicyDerive,
-            dedupeKey: knowledgeDedupeKey(KnowledgeJob.PolicyDerive, payload.workspaceId, `at:${askedAt}`),
-        })
+        const job: PolicyDerivePayload = { ...payload, askedAt }
+        return this.outbox.write(tx, DERIVE_POLICIES_JOB.queue, job, { job: DERIVE_POLICIES_JOB.name, dedupeKey: DERIVE_POLICIES_JOB.onceKey(job) })
     }
 }

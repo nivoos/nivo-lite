@@ -9,7 +9,7 @@ import { ConnectionsService } from "@modules/domain/connections"
 import type { ConnectionRecord } from "@modules/domain/connections"
 import { InstallationRecordsService } from "@modules/domain/module-installations"
 import type { InstallationRecord } from "@modules/domain/module-installations"
-import { AgentRemovalService, ModuleInstallService, ModulesService } from "@modules/domain/modules"
+import { ModuleInstallService, ModulesService } from "@modules/domain/modules"
 import type { ModuleDefinition } from "@modules/domain/modules"
 import { WorkspaceMembersService } from "@modules/domain/workspace-members"
 import type { WorkspaceMember, WorkspaceRole } from "@modules/domain/workspace-members"
@@ -123,7 +123,6 @@ const build = async (role: WorkspaceRole = "owner") => {
     const setupCopy = mock<AgentSetupCopyService>()
     teachSetupCopy(setupCopy)
     const logger = mock<Logger>()
-    const removal = mock<AgentRemovalService>()
     const abilities = mock<AgentAccountsService>()
     abilities.wishProblem.mockResolvedValue(null)
     abilities.attachDefaults.mockResolvedValue({ ok: true, attached: [] })
@@ -142,7 +141,6 @@ const build = async (role: WorkspaceRole = "owner") => {
             { provide: ChannelOwnersService, useValue: owners },
             { provide: AgentSetupCopyService, useValue: setupCopy },
             { provide: AgentAccountsService, useValue: abilities },
-            { provide: AgentRemovalService, useValue: removal },
             { provide: LOGGER, useValue: logger },
             { provide: AgentWorkflowInstallService, useValue: workflows },
         ],
@@ -158,7 +156,6 @@ const build = async (role: WorkspaceRole = "owner") => {
         setupCopy,
         logger,
         abilities,
-        removal,
         workflows,
     }
 }
@@ -304,63 +301,40 @@ describe("AgentInstanceCreationService > create, a manager's provider rights", (
     })
 })
 
-describe("AgentInstanceCreationService > create is all or nothing", () => {
+describe("AgentInstanceCreationService > create moves forward only", () => {
     const COPY = { ...REQUEST, startFrom: "copy" as const, copyFrom: "inst-sibling" }
 
-    it("takes the installation back when the copy of the sibling's setup fails, and throws the failure", async () => {
-        const { service, setupCopy, removal, abilities, grants } = await build()
+    it("throws the failure of the copy of the sibling's setup and runs no later step; the installation stays", async () => {
+        const { service, setupCopy, install, abilities, grants } = await build()
         const failure = new Error("ENTITY_ENGINE_MUTATION_INVALID")
         setupCopy.copy.mockRejectedValue(failure)
 
         await expect(service.create("u1", COPY)).rejects.toBe(failure)
 
-        expect(removal.remove).toHaveBeenCalledWith("u1", "w1", "inst-minh")
+        expect(install.install).toHaveBeenCalledTimes(1)
         expect(grants.setAgentConnections).not.toHaveBeenCalled()
         expect(abilities.attachDefaults).not.toHaveBeenCalled()
     })
 
-    it("takes it back when a later write fails too: the picture, the channels, the provider rights", async () => {
+    it("throws the failure of a later write too (the picture, the provider rights) and takes nothing back", async () => {
         const failure = new Error("write refused")
         const dressed = await build()
         dressed.identity.setAvatarPreset.mockRejectedValue(failure)
         await expect(dressed.service.create("u1", { ...REQUEST, avatarPreset: "role" })).rejects.toBe(failure)
-        expect(dressed.removal.remove).toHaveBeenCalledTimes(1)
 
         const attached = await build()
         attached.abilities.attachDefaults.mockRejectedValue(failure)
         await expect(attached.service.create("u1", REQUEST)).rejects.toBe(failure)
-        expect(attached.removal.remove).toHaveBeenCalledWith("u1", "w1", "inst-minh")
+        expect(attached.install.install).toHaveBeenCalledTimes(1)
     })
 
-    it("leaves the name free: the same request succeeds once the cause is gone", async () => {
-        const { service, abilities, removal } = await build()
+    it("makes one more agent when the same request is sent again after the cause is gone: the half-made one is the owner's to finish or remove", async () => {
+        const { service, abilities, install } = await build()
         abilities.attachDefaults.mockRejectedValueOnce(new Error("once"))
 
         await expect(service.create("u1", REQUEST)).rejects.toThrow("once")
         await expect(service.create("u1", REQUEST)).resolves.toMatchObject({ agentId: "agent-minh" })
-        expect(removal.remove).toHaveBeenCalledTimes(1)
-    })
-
-    it("never removes an installation it did not make, removes nothing on success, and keeps the first failure when the removal fails", async () => {
-        const raced = await build()
-        raced.install.install.mockResolvedValue({
-            installationId: "inst-other",
-            agentId: "agent-other",
-            created: false,
-        })
-        raced.abilities.attachDefaults.mockRejectedValue(new Error("late"))
-        await expect(raced.service.create("u1", REQUEST)).rejects.toThrow("late")
-        expect(raced.removal.remove).not.toHaveBeenCalled()
-
-        const fine = await build()
-        await fine.service.create("u1", REQUEST)
-        expect(fine.removal.remove).not.toHaveBeenCalled()
-
-        const stuck = await build()
-        stuck.abilities.attachDefaults.mockRejectedValue(new Error("first"))
-        stuck.removal.remove.mockRejectedValue(new Error("removal down"))
-        await expect(stuck.service.create("u1", REQUEST)).rejects.toThrow("first")
-        expect(stuck.logger.error).toHaveBeenCalled()
+        expect(install.install).toHaveBeenCalledTimes(2)
     })
 })
 
@@ -449,13 +423,22 @@ describe("AgentInstanceCreationService > create, the workflows of the module's p
         expect(workflows.install.mock.invocationCallOrder[0]).toBeGreaterThan(attached)
     })
 
-    it("takes the installation back when the workflows cannot be made: a creation is all or nothing", async () => {
-        const { service, workflows, removal } = await build()
+    it("throws the failure of the workflows and takes the installation back nowhere", async () => {
+        const { service, workflows, install } = await build()
         const failure = new AgentInstancesError({ code: AgentInstancesErrorCode.CopySourceInvalid })
         workflows.install.mockRejectedValue(failure)
 
         await expect(service.create("u1", REQUEST)).rejects.toBe(failure)
 
-        expect(removal.remove).toHaveBeenCalledTimes(1)
+        expect(install.install).toHaveBeenCalledTimes(1)
+    })
+
+    it("finishes the workflows of an agent a failed creation left: the same step, for the agent given", async () => {
+        const { service, workflows } = await build()
+        const input = { workspaceId: "w1", installationId: "inst-minh", agentId: "agent-minh", moduleKey: "sales" }
+
+        await service.finishWorkflows(input)
+
+        expect(workflows.install.mock.calls).toEqual([[input]])
     })
 })

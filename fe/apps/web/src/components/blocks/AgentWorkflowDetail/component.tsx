@@ -16,10 +16,6 @@ import type {
 } from "@/modules/types"
 import { DetailHead, DetailPanel, TemplateNotice, type AgentWorkflowDetailCopy, type DetailTab } from "./parts"
 
-/** The step a new step goes after: the selected one, else the last of the map. */
-const afterKeyOf = (page: AgentWorkflowDetailBaseProps["props"]): string =>
-    page.selectedStep ?? page.map.nodes.at(-1)?.id ?? ""
-
 /** What the page of a workflow draws and what it does. */
 export interface AgentWorkflowDetailBaseProps {
     readonly props: {
@@ -44,7 +40,6 @@ export interface AgentWorkflowDetailBaseProps {
     }
     readonly on: {
         readonly retry: () => void
-        readonly openMap: () => void
         readonly step: (action: StepAction) => void
         readonly rollback: (number: number) => void
         readonly toggle: (status: WorkflowStatus) => void
@@ -75,11 +70,7 @@ export const AgentWorkflowDetailBase = (props: AgentWorkflowDetailBaseProps) => 
                             <>
                                 <DetailHead
                                     view={view}
-                                    copy={copy}
-                                    tab={tab}
                                     isLoading={isLoading}
-                                    onMap={props.on.openMap}
-                                    onAddStep={() => props.on.step({ kind: "add", afterKey: afterKeyOf(props.props) })}
                                     onToggle={props.on.toggle}
                                     isWriting={props.props.isWriting}
                                 />

@@ -13,6 +13,7 @@ import {
     type FactRecord,
     type NearRead,
 } from "@modules/domain/brain-facts"
+import { BrainPolicyStoreService } from "@modules/domain/brain"
 import { UsageMeterService } from "@modules/domain/knowledge"
 import { EMBEDDING_DIMENSIONS, hasStoredSize } from "@modules/domain/knowledge-chunks"
 import { KnowledgeSourcesReadService } from "@modules/domain/knowledge-sources"
@@ -39,6 +40,8 @@ import {
     BRAIN_FACTS_GET_SCHEMA,
     BRAIN_FACTS_LIST_INPUT_SCHEMA,
     BRAIN_FACTS_LIST_SCHEMA,
+    BRAIN_POLICY_LIST_INPUT_SCHEMA,
+    BRAIN_POLICY_LIST_SCHEMA,
     BRAIN_SEARCH_INPUT_SCHEMA,
     BRAIN_SEARCH_SCHEMA,
     type BrainChangeProposeInput,
@@ -46,6 +49,7 @@ import {
     type BrainDocumentsReadInput,
     type BrainFactsGetInput,
     type BrainFactsListInput,
+    type BrainPolicyListInput,
     type BrainSearchInput,
 } from "./brain-native.schema"
 import { changeAnswerOf, relatedLinesOf } from "./brain-native-graph.policy"
@@ -54,6 +58,7 @@ import { scrubbed } from "./native-scrub.policy"
 import { nativeRefusal, type NativeRefusalReason } from "./native-refusal.policy"
 import {
     evidenceLinesOf,
+    instantOf,
     isServed,
     readNowOf,
     servedLineOf,
@@ -70,6 +75,9 @@ const DOCUMENT_CHARS = 12_000
 
 /** How many facts one read looks across in the view. */
 const FACTS_WINDOW = 500
+
+/** The facts in force a policy read joins its judgements to: the store's own list bound (a workspace with more is a known gap). */
+const POLICY_FACTS_WINDOW = 2000
 
 /** The most facts the search ranks before the withheld subjects are left out. */
 const SEARCH_WINDOW = 50
@@ -129,6 +137,18 @@ export const BRAIN_MANIFEST: ToolManifest = {
             inputSchema: BRAIN_FACTS_LIST_INPUT_SCHEMA,
             argumentSchema: BRAIN_FACTS_LIST_SCHEMA,
             secretFields: ["notice", "subject", "attribute", "value"],
+            taints: true,
+            readsTruths: true,
+        },
+        {
+            name: "policy.list",
+            description:
+                "The workspace's policies in force that this agent may read: the truths the truth graph judges to be policies, each with its group, title, value, unit and until when a stated window holds, in a stable order, with how many there are in all.",
+            scope: "read",
+            defaultMode: "auto",
+            inputSchema: BRAIN_POLICY_LIST_INPUT_SCHEMA,
+            argumentSchema: BRAIN_POLICY_LIST_SCHEMA,
+            secretFields: ["notice", "group", "title", "value"],
             taints: true,
             readsTruths: true,
         },
@@ -201,6 +221,7 @@ export class BrainNativeService implements NativeToolFamily {
         private readonly changes: BrainChangeRequestsService,
         private readonly vectors: BrainFactEmbeddingsService,
         private readonly usage: UsageMeterService,
+        private readonly policies: BrainPolicyStoreService,
     ) {}
 
     /** Runs one Brain tool. */
@@ -210,6 +231,9 @@ export class BrainNativeService implements NativeToolFamily {
             return this.list(workspaceId, argumentsOf(tool, BRAIN_FACTS_LIST_SCHEMA, args), caller)
         }
         if (tool === "fact.get") return this.get(workspaceId, argumentsOf(tool, BRAIN_FACTS_GET_SCHEMA, args), caller)
+        if (tool === "policy.list") {
+            return this.policyList(workspaceId, argumentsOf(tool, BRAIN_POLICY_LIST_SCHEMA, args), caller)
+        }
         if (tool === "document.read") {
             return this.readDocument(workspaceId, argumentsOf(tool, BRAIN_DOCUMENTS_READ_SCHEMA, args), caller)
         }
@@ -324,6 +348,41 @@ export class BrainNativeService implements NativeToolFamily {
             promptChars: question.length,
         })
         return answer.vectors[0] ?? null
+    }
+
+    /**
+     * The workspace's policies in force of the view: the open judgements of the truth graph that say `policy` (what `derive-brain-policies`
+     * writes, the Second Brain's policies tab), each joined to the value in force of its truth inside the caller's lens (the same view every
+     * Brain read uses). Ordered by the judgement's group, then the truth's subject, attribute and instance: a stable key, never a time.
+     */
+    private async policyList(workspaceId: string, input: BrainPolicyListInput, caller: NativeCaller): Promise<ToolJson> {
+        const view = await this.views.of(workspaceId, caller)
+        const [judged, inView] = await Promise.all([
+            this.policies.openPolicies(view.workspaceId),
+            this.facts.forView(view.workspaceId, view.audience, view.module, view.installationId, POLICY_FACTS_WINDOW),
+        ])
+        // A judgement is kept per truth and instance: an instance's own value reads its own judgement, else the shared one.
+        const keyOf = (truth: Parameters<typeof truthKeyOf>[0], installationId: string | null): string =>
+            [truthKeyOf(truth), installationId ?? ""].join("|")
+        const judgements = new Map(judged.map((policy) => [keyOf(policy, policy.installationId), policy] as const))
+        const lines = inView
+            .filter(isServed)
+            .flatMap((fact) => {
+                const policy = judgements.get(keyOf(fact, fact.installationId)) ?? judgements.get(keyOf(fact, null))
+                if (policy === undefined) return []
+                const order = [policy.groupKey, fact.subjectKey, fact.attribute, fact.installationId ?? ""].join("\u0000")
+                const line = {
+                    id: fact.id,
+                    group: policy.groupLabel,
+                    title: policy.title,
+                    value: fact.value,
+                    unit: fact.unit,
+                    until: fact.validTo === null ? null : instantOf(fact.validTo),
+                }
+                return [{ order, line }]
+            })
+            .sort((left, right) => (left.order < right.order ? -1 : left.order > right.order ? 1 : 0))
+        return { notice: BRAIN_NOTICE, total: lines.length, policies: lines.slice(0, input.limit).map(({ line }) => line) }
     }
 
     /** The facts in force of the view, newest change first, of one subject when asked. */

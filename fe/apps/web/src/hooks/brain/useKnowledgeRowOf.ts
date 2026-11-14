@@ -8,6 +8,7 @@ import {
     isFinalFailure,
     isReadyNote,
     noteKeyOf,
+    type KnowledgeJobStateOf,
     useKnowledgeProgressViewOf,
     useLibraryCommands,
     useWorkspaceMember,
@@ -80,6 +81,9 @@ const retryActionsOf = (t: Translate, choice: RetryChoice, pending: string | und
         disabledReason: t("actionBusy"),
     }))
 
+/** No chain of jobs is followed: every row shows its stored status. */
+const NO_JOB_STATE: KnowledgeJobStateOf = () => undefined
+
 /** The view `useKnowledgeRowOf` returns. */
 export interface KnowledgeRowOfView {
     rowOf: (source: KnowledgeDocument) => DocumentRowView
@@ -92,9 +96,13 @@ export interface KnowledgeRowOfView {
 /**
  * The row of a document as every list of documents draws it: the kind, topic and date, where it stands, the plain reason it failed,
  * who may read it, the live stage with its count and bar while a worker is on it, and the retry when it may be run again.
- * `live` is what `useKnowledgeSources` gives; the facts reading comes from the Second Brain.
+ * `live` is what `useKnowledgeSources` gives; `jobOf` (from `useKnowledgeJobs`) says where the chain of jobs on a document stands;
+ * the facts reading comes from the Second Brain.
  */
-export const useKnowledgeRowOf = (live: Readonly<Record<string, LiveProgress>>): KnowledgeRowOfView => {
+export const useKnowledgeRowOf = (
+    live: Readonly<Record<string, LiveProgress>>,
+    jobOf: KnowledgeJobStateOf = NO_JOB_STATE,
+): KnowledgeRowOfView => {
     const t = useTranslations("knowledge")
     const feedback = useTranslations("toast")
     const format = useFormatter()
@@ -134,6 +142,7 @@ export const useKnowledgeRowOf = (live: Readonly<Record<string, LiveProgress>>):
             lines: [parts.join(" · "), ...(source.error === null ? [] : [t(noteKeyOf(source.error))])],
             badges: badgesOf(t, { source, status, reading }),
             progress: progressOf(source.id) ?? undefined,
+            job: jobOf(source.id),
             actions: retryActionsOf(
                 t,
                 {

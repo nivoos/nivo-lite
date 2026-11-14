@@ -12,7 +12,7 @@ tester.run("tools-defined-in-engine", rule, {
         { filename: at("be/src/modules/integrations/langgraph/replay.adapter.spec.ts"), code: DEFINE },
         { filename: at("packages/agent-sdk/src/node/tools.spec.ts"), code: DEFINE },
         { filename: at("packages/blocks-core/src/shared/vocabulary/tools.ts"), code: DEFINE },
-        { filename: at("packages/nivo-web-core/src/vocabulary/crm-tools.ts"), code: DEFINE },
+        { filename: at("packages/nivo-web-core/src/shared/vocabulary/crm-tools.ts"), code: DEFINE },
         {
             filename: at("packages/blocks-core/src/agents/sales/nodes/x.node.ts"),
             code: "const READ_SPECS = { a: {} }\nexport const r = READ_SPECS",
@@ -20,7 +20,7 @@ tester.run("tools-defined-in-engine", rule, {
     ],
     invalid: [
         {
-            filename: at("packages/nivo-web-core/src/vocabulary/mail-tools.ts"),
+            filename: at("packages/nivo-web-core/src/shared/vocabulary/mail-tools.ts"),
             code: DEFINE,
             errors: [{ messageId: "defineTool" }],
         },

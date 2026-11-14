@@ -8,4 +8,9 @@ export interface ProviderSandboxOptions {
      * `http://127.0.0.1:<port>`, the same listener the provider would reach (R58/R62). Absent in an app that sends no case.
      */
     readonly loopbackPort?: number | undefined
+    /**
+     * The origin of NIVO's own web app (`MailOptions.webOrigin`, `AUTH_WEB_ORIGIN`): a sandbox pay link's checkout address is
+     * `<webOrigin>/workspaces/<workspace id>/sandbox/pay/<link id>`. Absent: the reserved host `https://sandbox.invalid/pay/<link id>`.
+     */
+    readonly webOrigin?: string | undefined
 }

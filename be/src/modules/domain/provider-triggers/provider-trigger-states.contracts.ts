@@ -1,4 +1,5 @@
-import type { OptionalAgentId, TriggerWords } from "./provider-triggers.contracts"
+import type { OptionalAgentId } from "./provider-triggers.contracts"
+import type { TriggerWays, TriggerWithoutPoll, TriggerWords } from "./trigger-declaration.contracts"
 
 /** The person who reads or changes the triggers of an account, in the workspace the request is made in. */
 export interface TriggerActor {
@@ -25,9 +26,13 @@ export interface ProviderTriggerState {
     readonly connectionId: string
     /** The trigger name inside the provider (`transaction.received`). */
     readonly name: string
-    /** `webhook` or `poll`. */
-    readonly kind: string
-    /** What it is, in the owner's two languages, as the catalogue declares it. */
+    /** EVERY way the trigger is received (`webhook`, `poll`, `clock`, `internal`): the owner reads "received by: webhook, poll". */
+    readonly via: TriggerWays
+    /** For a trigger no poll receives: why a missed event loses nothing (the reason in the owner's two languages, and where it is stated); null when a poll receives it. */
+    readonly withoutPoll: TriggerWithoutPoll | null
+    /** Its short title `<source> · <event>`, in the owner's two languages, as the declaration words it. */
+    readonly title: TriggerWords
+    /** What it is, in the owner's two languages, as the declaration words it. */
     readonly summary: TriggerWords
     /** Whether the switch is on. */
     readonly enabled: boolean
@@ -45,7 +50,7 @@ export interface ProviderTriggerState {
     readonly deciderAgentName: string | null
     /** True while the provider's own core path hands the account's events to an agent: no other agent can be bound then. */
     readonly coreDecides: boolean
-    /** True when a switch turned on again may catch up on the events it missed (the provider recovers them). */
+    /** True when a switch turned on again may catch up on the events it missed (a poll also receives the trigger). */
     readonly canCatchUp: boolean
     /** The agents a binding may name: attached to the account, and only where the trigger is decided and no core agent decides. */
     readonly deciderChoices: ReadonlyArray<TriggerAgentChoice>

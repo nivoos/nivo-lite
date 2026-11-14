@@ -5,6 +5,7 @@ import type { CqrsReadinessService } from "@modules/platform/cqrs"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
+import { QueueError, QueueErrorCode } from "@modules/platform/queue"
 import { BaseEvent } from "./event-bus.contracts"
 import type { EventDelivery, ParsedEvent } from "./event-bus.contracts"
 import { EventBusError, EventBusErrorCode } from "./errors/event-bus.error"
@@ -99,7 +100,12 @@ class RecordingConsumer implements EventConsumer<ReceiptRecordedEvent> {
     failing = false
 
     handle(delivery: EventDelivery<ReceiptRecordedEvent>): Promise<void> {
-        if (this.failing) return Promise.reject(new EventBusError({ code: EventBusErrorCode.CorrelationInvalid }))
+        // A failure that names its class transient: the classifier leaves its message to reappear.
+        if (this.failing) {
+            return Promise.reject(
+                new QueueError({ code: QueueErrorCode.FlowFailure, params: { failureClass: "transient", reason: "ECONNRESET" } }),
+            )
+        }
         this.deliveries.push(delivery)
         return Promise.resolve()
     }
@@ -180,7 +186,7 @@ describe("EventConsumerService delivery", () => {
         expect(primary.query).toHaveBeenCalledWith(ARCHIVE, [QUEUE, "1"])
     })
 
-    it("leaves a failed delivery to reappear after its visibility timeout", async () => {
+    it("leaves a transient failure to reappear after its visibility timeout", async () => {
         const primary = mockEntityManager({ query: [READ, [{ msg_id: "1", read_ct: 2, message: envelope }]] })
         const subject = await build(primary)
         const consumer = new RecordingConsumer()

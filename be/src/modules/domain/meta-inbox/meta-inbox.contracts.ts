@@ -1,6 +1,5 @@
 import type { MetaEvent } from "@modules/integrations/meta"
 
-/** The job the intake queues for every event of a connected Page: the downstream handlers (chat turn, lead flow) take it from here. */
 /**
  * What delivering one queued Meta event did: `delivered` (handed to the one delivery function), `not_a_message` (a postback, comment,
  * mention or lead ad: its platform's trigger translates it to nothing, by design), `switched_off` (the owner turned the account's trigger
@@ -20,18 +19,6 @@ export interface MetaInboundJob {
 }
 
 export { META_INBOUND_QUEUE } from "@modules/queues/meta-inbound"
-
-/** True when a job payload is the payload of an accept-meta-event job. */
-export const isMetaInboundJob = (value: unknown): value is MetaInboundJob =>
-    typeof value === "object" &&
-    value !== null &&
-    "connectionId" in value &&
-    typeof value.connectionId === "string" &&
-    "workspaceId" in value &&
-    typeof value.workspaceId === "string" &&
-    "event" in value &&
-    typeof value.event === "object" &&
-    value.event !== null
 
 /** The raw request body the signature is computed over; undefined when the transport kept none, which is refused. */
 export type RawDelivery = Buffer | undefined

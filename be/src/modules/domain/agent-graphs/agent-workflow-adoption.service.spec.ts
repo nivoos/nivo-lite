@@ -357,10 +357,9 @@ describe("AgentWorkflowAdoptionService: every road by which a version becomes th
     })
 
     it("reaches the publish service from the doors that carry who publishes", () => {
+        // The Setup chat's apply alone (its draft is no door's to edit since R89: a template adoption); `restore` is deleted.
         expect(everywhere("publishing.publish").concat(everywhere("publishing.restore("))).toEqual([
-            "agent-graphs/agent-graph-admin.service.ts",
             "agent-graphs/agent-graph-setup.service.ts",
-            "agent-graphs/agent-graph-admin.service.ts",
         ])
         expect(everywhere(".publishCopy(")).toEqual(["agent-instances/agent-setup-copy.service.ts"])
     })

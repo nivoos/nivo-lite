@@ -5,8 +5,8 @@ import { MAX_ID } from "../../../shared/bounds"
 import { bilingualOf } from "../../../shared/messages/catalog"
 import type { NodeLocale, NodeSchema } from "../../../shared/nodes/node-schema.types"
 import { nodeGoalOf } from "../../../shared/nodes/node-ui"
-import { CARE_OPEN, ORDER_O1, PROFILE_AN, SENT_VIA_ZALO } from "./care.examples"
-import { careFactsOf, careOrderOf, customerNameOf, itemsLineOf, saleLeadListOf, saleLeadOf } from "./care.reads"
+import { ORDER_O1, PROFILE_AN, SENT_VIA_ZALO } from "./care.examples"
+import { careOrderOf, customerNameOf, itemsLineOf, saleLeadListOf, saleLeadOf } from "./care.reads"
 import { CARE_VOICE, careMessageSchema, refusalSchema, sendToContact } from "./care.steps"
 import { answered, refused } from "../../../shared/nodes/tool-answers"
 
@@ -34,7 +34,7 @@ export interface AfterSaleOutput {
     readonly leadId: string | null
     /** True when the thank-you reached the customer. */
     readonly sent: boolean
-    /** The send tool's refusal when it did not go out, else null (an opt-out is not a refusal: nothing was sent). */
+    /** The send tool's refusal when it did not go out, else null (`customer_opted_out`, when the customer asked not to be written to unprompted). */
     readonly refusal: string | null
 }
 
@@ -52,7 +52,7 @@ const output: NodeSchema<AfterSaleOutput> = z.object({
     sent: z
         .boolean()
         .describe(
-            "True when the thank-you reached the customer; false when the customer opted out or the send was refused.",
+            "True when the thank-you reached the customer; false when the send was refused.",
         ),
     refusal: refusalSchema,
 })
@@ -91,15 +91,15 @@ const THANKS_NO_TIME =
 /**
  * `sales.after-sale` (Cam on khach): once the order is paid, the agent writes the thank-you that confirms the delivery address and time the
  * ORDER holds (`nivo.tool.order.get`; lead memory is never read for this delivery) and asks for nothing; the node sends it
- * (`nivo.tool.customer.message.send` to the person, by `contactId`). A customer who asked to be left alone (`nivo.tool.lead.care.get`, on
- * the sale's record of the person: `blocks-core.sales.lead` by `contactId`) gets
- * nothing: an exact check in code before the agent. The stage and the care that follow are the next nodes'.
+ * (`nivo.tool.customer.message.send` to the person, by `contactId`). A customer who asked not to be written to unprompted
+ * is the engine's to refuse (the contact's consent, `customer_opted_out`): the node just sends and reports the refusal. The stage and the
+ * care that follow are the next nodes'.
  */
 export const salesAfterSaleNode: TemplateNode<typeof input, typeof output> = defineTemplateNode({
     id: ID,
     title: bilingualOf("nodeSalesAfterSaleTitle"),
-    description: { vi: "G\u1eedi kh\u00e1ch l\u1eddi c\u1ea3m \u01a1n sau khi \u0111\u01a1n \u0111\u00e3 thanh to\u00e1n, x\u00e1c nh\u1eadn \u0111\u1ecba ch\u1ec9 v\u00e0 gi\u1edd giao. Kh\u00f4ng g\u1eedi cho kh\u00e1ch \u0111\u00e3 d\u1eb7n \u0111\u1eebng l\u00e0m phi\u1ec1n.", en: "Sends the customer a thank-you once the order is paid, confirming the delivery address and time. Sends nothing to a customer who asked to be left alone." },
-    tools: [TOOL.orderGet, TOOL.leadCareGet, TOOL.contactGet, TOOL.customerMessageSend],
+    description: { vi: "G\u1eedi kh\u00e1ch l\u1eddi c\u1ea3m \u01a1n sau khi \u0111\u01a1n \u0111\u00e3 thanh to\u00e1n, x\u00e1c nh\u1eadn \u0111\u1ecba ch\u1ec9 v\u00e0 gi\u1edd giao.", en: "Sends the customer a thank-you once the order is paid, confirming the delivery address and time." },
+    tools: [TOOL.orderGet, TOOL.contactGet, TOOL.customerMessageSend],
     mode: "auto",
     accounts: [PROVIDER.zaloOa, PROVIDER.telegram, PROVIDER.meta],
     input,
@@ -112,14 +112,6 @@ export const salesAfterSaleNode: TemplateNode<typeof input, typeof output> = def
         const { contactId } = given
         if (contactId === null) return { orderId: order.id, orderNo: order.orderNo, contactId, leadId: null, sent: false, refusal: null }
         const leadId = await saleLeadOf(context, contactId)
-        const quiet: AfterSaleOutput = { orderId: order.id, orderNo: order.orderNo, contactId, leadId, sent: false, refusal: null }
-        // The opt-out is care's, kept on the sale's record of the person: a person the sale keeps no record of has not opted out. Care
-        // facts that cannot be read are never taken for an opt-out: the step stops for the engine's report (an unhandled case is never silent).
-        if (leadId !== null) {
-            const facts = await careFactsOf(context, leadId)
-            if (facts === null) return context.fail({ kind: "cannot", why: "the care facts of the person cannot be read" }, { leadId })
-            if (facts.optedOut) return quiet
-        }
         const name = await customerNameOf(context)
         const message = await context.agent.run({
             goal: `${nodeGoalOf(ID, "en")} ${GUIDANCE} ${CARE_VOICE}`,
@@ -150,7 +142,6 @@ export const salesAfterSaleNode: TemplateNode<typeof input, typeof output> = def
             tools: [
                 { id: TOOL.orderGet, args: { orderId: "o1" }, answer: answered({ order: PAID_ORDER }) },
                 SALE_LEAD,
-                { id: TOOL.leadCareGet, args: { leadId: "l1" }, answer: answered(CARE_OPEN) },
                 { id: TOOL.contactGet, args: {}, answer: PROFILE_AN },
                 { id: TOOL.customerMessageSend, args: { contactId: "c1", text: THANKS }, answer: SENT_VIA_ZALO },
             ],
@@ -170,34 +161,11 @@ export const salesAfterSaleNode: TemplateNode<typeof input, typeof output> = def
                     }),
                 },
                 SALE_LEAD,
-                { id: TOOL.leadCareGet, args: { leadId: "l1" }, answer: answered(CARE_OPEN) },
                 { id: TOOL.contactGet, args: {}, answer: PROFILE_AN },
                 { id: TOOL.customerMessageSend, args: { contactId: "c1", text: THANKS_NO_TIME }, answer: SENT_VIA_ZALO },
             ],
             agent: [{ answer: { text: THANKS_NO_TIME } }],
             output: { orderId: "o1", orderNo: "DH-1", contactId: "c1", leadId: "l1", sent: true, refusal: null },
-        },
-        {
-            name: "a customer who asked to be left alone is not written to",
-            params: {},
-            input: { orderId: "o1", contactId: "c1", locale: "vi" },
-            tools: [
-                { id: TOOL.orderGet, args: { orderId: "o1" }, answer: answered({ order: PAID_ORDER }) },
-                SALE_LEAD,
-                { id: TOOL.leadCareGet, args: { leadId: "l1" }, answer: answered({ ...CARE_OPEN, optedOut: true }) },
-            ],
-            output: { orderId: "o1", orderNo: "DH-1", contactId: "c1", leadId: "l1", sent: false, refusal: null },
-        },
-        {
-            name: "care facts that cannot be read are never taken for an opt-out: the step stops for the engine's report",
-            params: {},
-            input: { orderId: "o1", contactId: "c1", locale: "vi" },
-            tools: [
-                { id: TOOL.orderGet, args: { orderId: "o1" }, answer: answered({ order: PAID_ORDER }) },
-                SALE_LEAD,
-                { id: TOOL.leadCareGet, args: { leadId: "l1" }, answer: refused("not_found") },
-            ],
-            failure: { kind: "cannot", why: "the care facts of the person cannot be read" },
         },
         {
             name: "a send the tool refuses is reported in the output, never tried another way",
@@ -206,12 +174,24 @@ export const salesAfterSaleNode: TemplateNode<typeof input, typeof output> = def
             tools: [
                 { id: TOOL.orderGet, args: { orderId: "o1" }, answer: answered({ order: PAID_ORDER }) },
                 SALE_LEAD,
-                { id: TOOL.leadCareGet, args: { leadId: "l1" }, answer: answered(CARE_OPEN) },
                 { id: TOOL.contactGet, args: {}, answer: PROFILE_AN },
                 { id: TOOL.customerMessageSend, args: { contactId: "c1", text: THANKS }, answer: refused("no_channel_identity") },
             ],
             agent: [{ answer: { text: THANKS } }],
             output: { orderId: "o1", orderNo: "DH-1", contactId: "c1", leadId: "l1", sent: false, refusal: "no_channel_identity" },
+        },
+        {
+            name: "a customer who asked not to be written to unprompted: the engine refuses the send and the output says so",
+            params: {},
+            input: { orderId: "o1", contactId: "c1", locale: "vi" },
+            tools: [
+                { id: TOOL.orderGet, args: { orderId: "o1" }, answer: answered({ order: PAID_ORDER }) },
+                SALE_LEAD,
+                { id: TOOL.contactGet, args: {}, answer: PROFILE_AN },
+                { id: TOOL.customerMessageSend, args: { contactId: "c1", text: THANKS }, answer: refused("customer_opted_out") },
+            ],
+            agent: [{ answer: { text: THANKS } }],
+            output: { orderId: "o1", orderNo: "DH-1", contactId: "c1", leadId: "l1", sent: false, refusal: "customer_opted_out" },
         },
         {
             name: "an order that cannot be read stops the step for the engine's report",

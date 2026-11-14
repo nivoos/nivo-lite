@@ -100,7 +100,7 @@ const answersOf = (
 
 /**
  * A node with all seven answers. A node a branch leads to also says when the branch is taken, takes the branch's approver and
- * sources, and offers to edit the branch; the problem the checks found on the node is read first.
+ * sources; the problem the checks found on the node is read first.
  */
 export const detailViewOf = (data: AgentGraphData, nodeKey: string, ctx: AgentGraphContext): AgentGraphDetailView => {
     const { t } = ctx
@@ -113,8 +113,6 @@ export const detailViewOf = (data: AgentGraphData, nodeKey: string, ctx: AgentGr
             problemTitle: "",
             problems: [],
             answers: [],
-            editLabel: "",
-            editNodeKey: "",
             runsLabel: "",
         }
     }
@@ -126,10 +124,6 @@ export const detailViewOf = (data: AgentGraphData, nodeKey: string, ctx: AgentGr
     )
     const when: AgentGraphAnswerView | null =
         hit === null ? null : { id: "when", term: t("q_when"), kind: "text", text: hit.branch.whenFull }
-    const editNodeKey = (() => {
-        if (node.branches.length > 0) return node.key
-        return hit === null ? "" : hit.parent.key
-    })()
     const answers = answersOf(
         t,
         node,
@@ -147,8 +141,6 @@ export const detailViewOf = (data: AgentGraphData, nodeKey: string, ctx: AgentGr
         problemTitle: problems.length === 0 ? "" : t("problemTitle"),
         problems: problems.map((line) => line.text),
         answers: when === null ? answers : [when, ...answers],
-        editLabel: editNodeKey !== "" && ctx.canEdit ? t("editBranches") : "",
-        editNodeKey,
         runsLabel: hit !== null && data.runs.length > 0 ? t("viewRuns") : "",
     }
 }

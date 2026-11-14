@@ -40,14 +40,14 @@ const row = (raw: Readonly<Record<string, unknown>>, source?: string): ZaloEvent
 })
 
 describe("the Zalo message trigger", () => {
-    it("declares the zalo message verb received by webhook, keyed by the person on the account, as the provider's one trigger", async () => {
+    it("declares the zalo message verb received by webhook and poll, keyed by the person on the account, as the provider's one trigger", async () => {
         const { trigger, triggers } = await buildSubject()
 
         expect([trigger.provider, trigger.name, trigger.verb, trigger.via, trigger.key]).toEqual([
             PROVIDER.zaloOa,
             "message.received",
             TRIGGER.zaloMessageReceived,
-            "webhook",
+            ["webhook", "poll"],
             { by: "subject" },
         ])
         expect(triggers).toEqual([trigger])
@@ -188,6 +188,19 @@ describe("ZALO_MESSAGE_TRIGGER: the person's line (owner ruling R26)", () => {
             at: "2026-11-14T02:00:00.000Z",
         })
         expect(realTrigger.line).toBe(zaloLineOf)
+    })
+
+    it("is one event with two ways in: no webhook-only reason, no switch, no fact key, the zalo_oa.event type, words for every member of its data", async () => {
+        const { trigger } = await buildSubject()
+
+        expect(trigger.withoutPoll).toBeUndefined()
+        expect(trigger.switch).toBeUndefined()
+        expect(trigger.factKey).toBeUndefined()
+        expect(trigger.dataType).toBe("zalo_oa.event")
+        expect(trigger.words.title).toEqual({ vi: "Zalo · tin nhắn mới", en: "Zalo · new message" })
+        const members = Object.keys(trigger.words.members ?? {})
+        const data = trigger.data.parse({ messageKey: "zalo:m-1", text: "a", at: null, attachments: [] })
+        expect(members.every((member) => member in data)).toBe(true)
     })
 
     it("gives no line for the release door's resume (no key)", () => {

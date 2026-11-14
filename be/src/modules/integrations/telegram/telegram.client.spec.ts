@@ -89,6 +89,19 @@ describe("TelegramClient call", () => {
         })
     })
 
+    it("carries Telegram's typed refusal fields: the status, its error code and the wait it asks for", async () => {
+        const { client, http } = await build()
+        http.request.mockResolvedValue({
+            status: 429,
+            body: { ok: false, error_code: 429, description: "Too Many Requests: retry after 7", parameters: { retry_after: 7 } },
+        })
+
+        await expect(client.call("123:abc", "sendMessage")).rejects.toMatchObject({
+            code: TelegramErrorCode.Rejected,
+            params: { method: "sendMessage", status: 429, errorCode: 429, retryAfter: 7 },
+        })
+    })
+
     it("falls back to the status when the answer has no readable description", async () => {
         const { client, http } = await build()
         http.request.mockResolvedValue({ status: 502, body: undefined })

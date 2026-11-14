@@ -7,10 +7,10 @@ import {
     ProviderTriggersService,
     triggerDeciderOf,
     providerTriggerKeyOf,
-    triggersOf,
+    switchableOf,
     type ProviderTriggerCoreDeciders,
-    type ProviderTriggerDeclaration,
     type ProviderTriggerReceivers,
+    type SwitchedDeclaration,
     type TriggerSwitchView,
 } from "@modules/domain/provider-triggers"
 import type { ProviderRegistryReads } from "@modules/domain/workbench-door"
@@ -40,7 +40,7 @@ export class ProviderRegistryReadsService implements ProviderRegistryReads {
     async configOf(workspaceId: string, provider: string, connectionId: string): Promise<object | null> {
         const account = await this.accountOf(workspaceId, provider, connectionId)
         if (account === null) return null
-        const declared = triggersOf(provider)
+        const declared = switchableOf(provider)
         const switches = await this.switchesOf(workspaceId, connectionId, declared)
         return {
             connectionId,
@@ -54,7 +54,7 @@ export class ProviderRegistryReadsService implements ProviderRegistryReads {
         const board = await this.abilities.board(workspaceId)
         const spec = board.providers.find((entry) => entry.provider === provider)
         if (spec?.accounts.some((account) => account.connectionId === connectionId) !== true) return null
-        const declared = triggersOf(provider)
+        const declared = switchableOf(provider)
         const attached = new Set(
             board.attachments.filter((attachment) => attachment.connectionId === connectionId).map((attachment) => attachment.agentId),
         )
@@ -107,7 +107,7 @@ export class ProviderRegistryReadsService implements ProviderRegistryReads {
     private async switchesOf(
         workspaceId: string,
         connectionId: string,
-        declared: ReadonlyArray<ProviderTriggerDeclaration>,
+        declared: ReadonlyArray<SwitchedDeclaration>,
     ): Promise<ReadonlyArray<TriggerSwitchView>> {
         if (this.triggers !== undefined) return this.triggers.switchesOf(workspaceId, connectionId)
         return declared.map((declaration) => ({
@@ -124,12 +124,12 @@ export class ProviderRegistryReadsService implements ProviderRegistryReads {
     private async coreOf(
         provider: string,
         connectionId: string,
-        declared: ReadonlyArray<ProviderTriggerDeclaration>,
+        declared: ReadonlyArray<SwitchedDeclaration>,
     ): Promise<Readonly<Record<string, string | null>>> {
         const entries = await Promise.all(
             declared.map(async (declaration): Promise<readonly [string, string | null]> => [
                 declaration.name,
-                declaration.decided ? ((await this.coreDeciders?.coreDeciderOf(provider, declaration.name, connectionId)) ?? null) : null,
+                declaration.switch.decided ? ((await this.coreDeciders?.coreDeciderOf(provider, declaration.name, connectionId)) ?? null) : null,
             ]),
         )
         return Object.fromEntries(entries)
@@ -143,7 +143,7 @@ export class ProviderRegistryReadsService implements ProviderRegistryReads {
         workspaceId: string,
         agentId: string,
         connectionId: string,
-        declared: ReadonlyArray<ProviderTriggerDeclaration>,
+        declared: ReadonlyArray<SwitchedDeclaration>,
         core: Readonly<Record<string, string | null>>,
     ): Promise<ReadonlyArray<string>> {
         const names: Array<string> = []

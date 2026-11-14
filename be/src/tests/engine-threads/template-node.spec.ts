@@ -2,7 +2,7 @@ import { TOOL } from "@nivo-lite/agent-sdk/names"
 import type { GraphSpec } from "@nivo-lite/agent-sdk/graph"
 import type { NodeToolDoor } from "@modules/domain/graph-nodes"
 import { INSTALLED, TEMPLATE_IF_STEP } from "@modules/domain/installed-plugins"
-import { isTemplateFlow, templateFlowProblems } from "@modules/domain/agent-graphs/policies/flow.policy"
+import { templateFlowProblems } from "@modules/domain/agent-graphs/policies/flow.policy"
 import {
     TMPL_FOLLOWUP,
     TMPL_INTAKE,
@@ -118,15 +118,13 @@ describe("a template agent installed beside the core (GraphSpec @2)", () => {
         expect(flow.grant.tools).toEqual(expect.arrayContaining([TMPL_READ, TMPL_WRITE]))
         expect(flow.nodes.find((one) => one.key === "triage")).toMatchObject({ kind: "condition", routes: { order: "note", question: "rogue" } })
         expect(flowOf(TMPL_FOLLOWUP).nodes.find((one) => one.key === "check")?.step).toBe(TEMPLATE_IF_STEP)
-        // The save checks of @2 (with the engine's lookups) judge both graphs, and find nothing.
-        expect(isTemplateFlow(flow)).toBe(true)
+        // The save checks (with the engine's lookups) judge both graphs, and find nothing.
         expect(templateFlowProblems(flow)).toEqual([])
         expect(templateFlowProblems(flowOf(TMPL_FOLLOWUP))).toEqual([])
         // A graph changed outside its package is no installed template graph any more.
         expect(templateFlowProblems({ ...flow, nodes: flow.nodes.slice(0, 2) })).toEqual([{ code: "GRAPH_TEMPLATE_EDITED", at: "tmpl" }])
         // Since the flip (2026-11-12) a core graph is one of them too (the core's agents are template agents): the shipped front desk is
-        // judged by the same @2 checks, and saves as clean.
-        expect(isTemplateFlow(flowOf("chatbot.front-desk"))).toBe(true)
+        // judged by the same checks, and saves as clean.
         expect(templateFlowProblems(flowOf("chatbot.front-desk"))).toEqual([])
     })
 

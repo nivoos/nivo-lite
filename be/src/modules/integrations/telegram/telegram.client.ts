@@ -6,6 +6,19 @@ import type { TelegramParams, TelegramPhoto } from "./telegram.contracts"
 import { InjectTelegramOptions } from "./telegram.decorators"
 import type { TelegramOptions } from "./telegram.options"
 
+/**
+ * The typed fields of a Bot API refusal (`{ ok: false, error_code, parameters: { retry_after } }`): `errorCode` = Telegram's own code (429 =
+ * too many requests: nothing was sent), `retryAfter` = the seconds Telegram asks to wait. Absent when the answer does not carry them.
+ */
+const typedRefusalOf = (body: unknown): { errorCode?: number; retryAfter?: number } => {
+    if (!isRecord(body)) return {}
+    const parameters = isRecord(body.parameters) ? body.parameters : {}
+    return {
+        ...(typeof body.error_code === "number" ? { errorCode: body.error_code } : {}),
+        ...(typeof parameters.retry_after === "number" ? { retryAfter: parameters.retry_after } : {}),
+    }
+}
+
 @Injectable()
 /** The one place that talks to api.telegram.org. The token is always explicit (the bot of one connection) and never logged. */
 export class TelegramClient {
@@ -33,7 +46,12 @@ export class TelegramClient {
                     isRecord(answer.body) && answer.body.ok === false
                         ? TelegramErrorCode.Rejected
                         : TelegramErrorCode.Unavailable,
-                params: { method, reason: typeof description === "string" ? description : String(answer.status) },
+                params: {
+                    method,
+                    reason: typeof description === "string" ? description : String(answer.status),
+                    status: answer.status,
+                    ...typedRefusalOf(answer.body),
+                },
             })
         }
         return answer.body.result

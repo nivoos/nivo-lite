@@ -2,8 +2,8 @@ import { defineInstallation } from "@nivo-lite/agent-sdk/installation"
 import { DEFAULT_AI_READ_TOOLS, DEFAULT_NODE_TOOLS } from "@nivo-lite/agent-sdk/names"
 import * as root from "./index"
 import { plugin } from "./plugin"
-import { crmTools } from "./vocabulary/crm-tools"
-import { CRM_NIVOWEB } from "./crm/nivoweb/api.generated"
+import { crmTools } from "./shared/vocabulary/crm-tools"
+import { CRM_NIVOWEB } from "./shared/crm/nivoweb/api.generated"
 
 /** The six agents of the plugin, in catalogue order, each with its graphs (the workflow templates the engine installs), primary first. */
 const AGENTS: ReadonlyArray<readonly [string, ReadonlyArray<string>]> = [

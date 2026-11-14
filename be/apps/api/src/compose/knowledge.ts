@@ -26,8 +26,7 @@ import {
     KnowledgeModule,
     VectorEmbedderService,
 } from "@modules/domain/knowledge"
-import { TeamChatNoticesService } from "@modules/domain/team-chat"
-import { VectorSyncModule } from "@modules/domain/vector-sync"
+import { VECTOR_SYNC_ERROR_KINDS, VECTOR_SYNC_MESSAGES, VectorSyncModule } from "@modules/domain/vector-sync"
 import {
     KNOWLEDGE_SOURCES_ERROR_KINDS,
     KNOWLEDGE_SOURCES_MESSAGES,
@@ -67,13 +66,11 @@ export const knowledgeModules = (options: ApiOptions): Array<DynamicModule> => [
     KnowledgeModule.register({
         isGlobal: true,
         driveAccess: DriveGrantService,
-        indexChunkDelayMs: options.knowledge.indexChunkDelayMs,
     }),
     BrainFactsModule.register({ isGlobal: true }),
     VectorSyncModule.register({
         isGlobal: true,
         embedder: VectorEmbedderService,
-        driftReporter: TeamChatNoticesService,
     }),
     DossierReviewAiModule.register({ isGlobal: true }),
     DossierReviewModule.register({ isGlobal: true, model: DossierReasonerService }),
@@ -97,6 +94,7 @@ export const knowledgeErrorKinds: ReadonlyArray<Readonly<Record<string, ErrorKin
     NIVO_KNOWLEDGE_ERROR_KINDS,
     PUBLIC_DOCUMENTS_ERROR_KINDS,
     QDRANT_ERROR_KINDS,
+    VECTOR_SYNC_ERROR_KINDS,
     DOCUMENT_READERS_ERROR_KINDS,
 ]
 
@@ -111,5 +109,6 @@ export const knowledgeMessages: ReadonlyArray<MessageBundle> = [
     NIVO_KNOWLEDGE_MESSAGES,
     PUBLIC_DOCUMENTS_MESSAGES,
     QDRANT_MESSAGES,
+    VECTOR_SYNC_MESSAGES,
     DOCUMENT_READERS_MESSAGES,
 ]

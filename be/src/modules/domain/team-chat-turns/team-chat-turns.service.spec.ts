@@ -122,6 +122,7 @@ const build = async () => {
             status: "delivered",
             events: 1,
             dropped: 0,
+            sameFact: 0,
             woken: [{ agentId: input.agentId ?? "", workflowId: "w-team-chat", eventId, wakeId: "wake-1" }],
             repeats: 0,
             untaken: 0,

@@ -6,9 +6,11 @@ import { UsageMeterService } from "@modules/domain/knowledge"
 import type { SourceRecord } from "@modules/domain/knowledge-sources"
 import { InjectAi, NATURE_EFFORT, spendOf, type AiChatAttempt, type AiMessage, type AiService } from "@modules/integrations/ai"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
+import { InjectEffects, onceAnswered, type Effects } from "@modules/platform/effects"
+import type { ClaimedJob } from "@modules/platform/jobs"
 import { InjectLogger, withWorkStep, type Logger } from "@modules/platform/logging"
 import { eachInOrder } from "@modules/platform/primitives"
-import { KnowledgeQueue } from "@modules/queues/knowledge"
+import { KnowledgeQueue, MODEL_EFFECT } from "@modules/queues/knowledge"
 import {
     NATURE_MAX_TOKENS,
     NATURE_PROMPT,
@@ -40,7 +42,7 @@ import { DocumentPartsService } from "./document-parts.service"
 import { FactReadingLogEvent } from "./fact-reading.log-events"
 import { INGESTION_TARGET } from "./ingestion-model.policy"
 import { ModelJsonService } from "./model-json.service"
-import { wroteNothingUsable } from "./truth-window.policy"
+import { outageOf, refusalOf } from "./truth-window.policy"
 
 /** How long the model may take for the map of one document. */
 const CALL_TIMEOUT_MS = 180_000
@@ -57,12 +59,11 @@ const SIBLINGS_SHOWN = 6
 
 /**
  * Where the judgement of a document stands for a stage: `ready` with the judgement its passages inherit and the calls it took;
- * `blocked`: the credit pool is empty (the reading waits); `retry`: the model did not answer at all (the queue tries the job again).
+ * `blocked`: the credit pool is empty (the reading waits). A model that does not answer throws (the runner retries or dead-letters).
  */
 export type NatureOutcome =
     | { readonly kind: "ready"; readonly nature: NatureInForce; readonly calls: number }
     | { readonly kind: "blocked" }
-    | { readonly kind: "retry" }
 
 @Injectable()
 /**
@@ -85,10 +86,16 @@ export class DocumentNatureService {
         private readonly parts: DocumentPartsService,
         private readonly queue: KnowledgeQueue,
         @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
+        @InjectEffects() private readonly effects: Effects,
     ) {}
 
     /** The judgement a document's passages inherit for this text, reading the document first when this text has none. */
-    async natureFor(source: SourceRecord, passages: ReadonlyArray<TruthPassage>, contentHash: string): Promise<NatureOutcome> {
+    async natureFor(
+        source: SourceRecord,
+        passages: ReadonlyArray<TruthPassage>,
+        contentHash: string,
+        job: ClaimedJob,
+    ): Promise<NatureOutcome> {
         const stored = await this.extractions.natureOf(source.workspaceId, source.id)
         const override = storedOverrideOf(stored.override)
         const known = storedReadingOf(stored.reading)
@@ -106,8 +113,7 @@ export class DocumentNatureService {
         const index = whole.indexOf(source.id)
         const part = whole.length > 1 && index >= 0 ? { number: index + 1, of: whole.length } : undefined
         const map: DocumentMap = { ...mapOf(source.title, source.storagePath, texts), mates, ...(part === undefined ? {} : { part }) }
-        const read = await this.read(source, map, contentHash)
-        if (read === null) return { kind: "retry" }
+        const read = await this.read(source, map, contentHash, job)
         // A fallback (no readable answer, or one that contradicted itself twice) is no judgement: it disagrees with nobody.
         const disagrees = read.reading.by === "model" ? disagreeingOf(read.reading.nature, mates) : []
         const reading: NatureReading = { ...read.reading, form, evidence: evidenceIn(read.reading.evidence ?? [], texts), disagreesWith: disagrees }
@@ -237,16 +243,19 @@ export class DocumentNatureService {
 
     /**
      * Asks the model for the map's judgement; once more with its own answer in front of it when that could not be read. Answers the
-     * reading and the calls made, a `fallback` reading when no answer could be read, or null when the model did not answer at all.
+     * reading and the calls made, or a `fallback` reading when no answer could be read. A model that could not be reached, or that
+     * wrote nothing, throws a typed brain error (the runner retries the outage on its ladder, dead-letters the refusal).
      */
     private async read(
         source: SourceRecord,
         map: DocumentMap,
         contentHash: string,
-    ): Promise<{ readonly reading: NatureReading; readonly calls: number } | null> {
+        job: ClaimedJob,
+    ): Promise<{ readonly reading: NatureReading; readonly calls: number }> {
         const prompt = naturePrompt(map)
-        const first = await this.ask(source, [{ role: "user", content: prompt }], 1)
-        if (!first.ok && !wroteNothingUsable(first)) return null
+        const first = await this.ask(source, [{ role: "user", content: prompt }], 1, job)
+        const gone = outageOf(first) ?? refusalOf(first)
+        if (gone !== null) throw gone
         const parsed = first.ok ? parseNature(this.json.jsonOf(first.answer.text, source.workspaceId), map, contentHash) : null
         if (parsed !== null && !contradictsItself(parsed)) return { reading: parsed, calls: 1 }
         // Unreadable: asked again with its own answer; readable but contradicting itself: asked again with the contradiction named.
@@ -257,7 +266,9 @@ export class DocumentNatureService {
                   { role: "user", content: parsed === null ? FOLLOW_UP : recheckPrompt(parsed) },
               ]
             : [{ role: "user", content: prompt }]
-        const second = await this.ask(source, turns, 2)
+        const second = await this.ask(source, turns, 2, job)
+        const goneAgain = outageOf(second) ?? refusalOf(second)
+        if (goneAgain !== null) throw goneAgain
         const again = second.ok ? parseNature(this.json.jsonOf(second.answer.text, source.workspaceId), map, contentHash) : null
         if (again !== null && !contradictsItself(again)) return { reading: again, calls: 2 }
         const contradicting = again ?? parsed
@@ -271,21 +282,24 @@ export class DocumentNatureService {
     }
 
     /** One call, metered as `brain` on the `nature` step of the document's reading. */
-    private ask(source: SourceRecord, turns: ReadonlyArray<AiMessage>, tryNumber: number): Promise<AiChatAttempt> {
+    private ask(source: SourceRecord, turns: ReadonlyArray<AiMessage>, tryNumber: number, job: ClaimedJob): Promise<AiChatAttempt> {
         return withWorkStep("nature", "document_read", async () => {
-            const tried = await this.ai.attempt({
-                messages: [{ role: "system", content: NATURE_PROMPT, cacheMark: true }, ...turns],
-                json: false,
-                schema: null,
-                timeoutMs: CALL_TIMEOUT_MS,
-                budget: { effort: NATURE_EFFORT, maxTokens: NATURE_MAX_TOKENS },
-                // The answer as the API's structured output where the route has it; the text is parsed the same way either way.
-                outputSchema: NATURE_SCHEMA,
-                context: null,
-                affinity: source.workspaceId,
-                // What a document is, is a decision of meaning: the strong model (owner 2026-11-12).
-                target: INGESTION_TARGET,
-            })
+            // An outside act keyed by the job and the try: a call whose outcome a crash lost is made again (it changes nothing outside).
+            const tried = await onceAnswered(this.effects, `${job.jobId}:model:nature:${String(tryNumber)}`, MODEL_EFFECT, () =>
+                this.ai.attempt({
+                    messages: [{ role: "system", content: NATURE_PROMPT, cacheMark: true }, ...turns],
+                    json: false,
+                    schema: null,
+                    timeoutMs: CALL_TIMEOUT_MS,
+                    budget: { effort: NATURE_EFFORT, maxTokens: NATURE_MAX_TOKENS },
+                    // The answer as the API's structured output where the route has it; the text is parsed the same way either way.
+                    outputSchema: NATURE_SCHEMA,
+                    context: null,
+                    affinity: source.workspaceId,
+                    // What a document is, is a decision of meaning: the strong model (owner 2026-11-12).
+                    target: INGESTION_TARGET,
+                }),
+            )
             const spend = spendOf(tried)
             if (spend !== null) {
                 await this.usage.record({

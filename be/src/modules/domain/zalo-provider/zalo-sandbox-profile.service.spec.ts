@@ -18,7 +18,7 @@ describe("ZaloSandboxProfileService", () => {
 
         expect(await service.profileOf("conn-z", "8800110022")).toEqual({
             name: "Nguyen Van An",
-            picture: "https://s75-ava-talk.zadn.vn/sandbox/an.jpg",
+            picture: "https://sandbox.invalid/zalo/an.jpg",
         })
     })
 

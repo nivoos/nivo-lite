@@ -34,7 +34,7 @@ export class PublicApiModule extends ConfigurableModuleClass {
                 PublicApiLedgerService,
                 PublicConversationsService,
             ],
-            exports: [PublicEventsService, PublicKnowledgeService, PublicMessagesService, PublicApiProcessingService],
+            exports: [PublicEventsService, PublicKnowledgeService, PublicMessagesService, PublicApiProcessingService, PublicMessageDeliveryService],
         }
     }
 }

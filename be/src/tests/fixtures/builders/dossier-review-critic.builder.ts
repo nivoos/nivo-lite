@@ -1,3 +1,4 @@
+import { aiChainProviders, aiEffectsLedger, claimedAiJob } from "./brain-ai-effects.builder"
 import { Test } from "@nestjs/testing"
 import { FakeClock, builder, mock, type MockOf } from "@starci/jest-preset"
 import { BrainExtractionsService, type ExtractionRecord } from "@modules/domain/brain-extractions"
@@ -301,8 +302,10 @@ export const buildCriticSubject = async (): Promise<Subject> => {
     const usage = mock<UsageMeterService>()
     usage.blockedBy.mockResolvedValue(false)
     const vectorSync = mock<VectorSyncService>()
+    const chain = aiChainProviders()
     const moduleRef = await Test.createTestingModule({
         providers: [
+            ...chain.providers,
             DocumentCriticService,
             CritiqueScopeService,
             DocumentCritiqueReadService,
@@ -325,7 +328,7 @@ export const buildCriticSubject = async (): Promise<Subject> => {
     const hook = mock<CritiqueChangedHook>()
     hook.critiqued.mockImplementation((_workspaceId: string, _sourceId: string) => Promise.resolve(true))
     critic.whenChanged(hook)
-    return { world, ...scriptedAnswers, usage, hook, vectorSync, critic, read: moduleRef.get(DocumentCritiqueReadService) }
+    return { world, ...scriptedAnswers, usage, hook, vectorSync, critic, ledger: chain.ledger, read: moduleRef.get(DocumentCritiqueReadService) }
 }
 
 /** Everything one spec drives. */
@@ -338,6 +341,8 @@ export interface Subject extends ReturnType<typeof scriptedModel> {
     readonly hook: MockOf<CritiqueChangedHook>
     /** The vector sync double. */
     readonly vectorSync: MockOf<VectorSyncService>
+    /** The effects ledger the critic's model calls are keyed on. */
+    readonly ledger: ReturnType<typeof aiEffectsLedger>
     /** The critic under test. */
     readonly critic: DocumentCriticService
     /** The read side of the critique. */
@@ -349,10 +354,28 @@ export const uploadAndReview = async (subject: Subject, text: string, facts: (wo
     subject.world.upload(text)
     subject.world.facts = facts(subject.world)
     await subject.critic.request(WS, SRC)
-    await subject.critic.runWaiting(WS)
+    await subject.critic.runWaiting(WS, claimedAiJob())
     const view = await subject.read.view(WS, SRC, ["open", "answered", "skipped", "gone"])
     if (view === null) throw worldError("no view")
     return view
+}
+
+/** One upload whose review run FAILS (the model is down): the failure the run threw, and the critique as the page reads it afterwards. */
+export const uploadAndFailReview = async (
+    subject: Subject,
+    text: string,
+    facts: (world: World) => Array<FactRecord>,
+): Promise<{ readonly failure: unknown; readonly view: CritiqueView }> => {
+    subject.world.upload(text)
+    subject.world.facts = facts(subject.world)
+    await subject.critic.request(WS, SRC)
+    const failure = await subject.critic.runWaiting(WS, claimedAiJob()).then(
+        () => null,
+        (cause: unknown) => cause,
+    )
+    const view = await subject.read.view(WS, SRC, ["open", "answered", "skipped", "gone"])
+    if (view === null) throw worldError("no view")
+    return { failure, view }
 }
 
 /** A point as origin:group:kind:severity:state. */

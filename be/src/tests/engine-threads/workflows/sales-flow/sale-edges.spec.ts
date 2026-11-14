@@ -38,7 +38,7 @@ describe("R37: erasing a contact ends the sale parked on their route", () => {
         const wakes = new DeliveredWakesService(mock<AgentWakeService>({ ...wakeQueueOf(db.chat) }))
         const runs = subjectRunReadsOf(db)
         const adapter = new ErasedContactRunsAdapter(
-            new ErasedSubjectRunsService(mock<AgentRunsService>({ endParkedOfSubjects: runs.endParkedOfSubjects }), wakes, mock<Logger>()),
+            new ErasedSubjectRunsService(mock<AgentRunsService>({ endParkedOfSubjects: runs.endParkedOfSubjects }), wakes, undefined, mock<Logger>()),
             db.chat.routes,
         )
 

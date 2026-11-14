@@ -47,4 +47,12 @@ export class AccountDataEntity extends AbstractEntity {
     /** A `wakes` type: when its consumer completed it (null while pending). Null for the other types. */
     @Column({ name: "processed_at", type: "timestamptz", nullable: true })
     processedAt!: Date | null
+
+    /** The fact the row reports, as `<verb>:<the source's own identity of it>` (a trigger declaring `factKey`); null for every other row. */
+    @Column({ name: "fact_key", type: "text", nullable: true })
+    factKey!: string | null
+
+    /** The id of the earlier row of the workspace that reported the same fact; null on the first row of a fact. */
+    @Column({ name: "same_fact_of", type: "uuid", nullable: true })
+    sameFactOf!: string | null
 }

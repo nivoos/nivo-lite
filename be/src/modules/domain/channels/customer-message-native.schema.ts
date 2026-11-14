@@ -13,6 +13,11 @@ export const THREAD_TEXT_MAX = 1000
 const askedMembers = {
     limit: z.number().int().min(1).max(THREAD_LIST_MAX).optional(),
     since: z.iso.datetime().optional(),
+    /**
+     * True when the caller reads what the person said that it TAKES as its own to handle (rule QB-P5 C-4: an unread read, not a read for
+     * context): the newest person line it gets is the step's pending read, consumed when the step ends. Absent or false: a peek.
+     */
+    consume: z.boolean().optional(),
 }
 
 /**

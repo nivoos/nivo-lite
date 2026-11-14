@@ -20,7 +20,10 @@ export const TRIGGER = {
     websiteMessageReceived: "nivo.trigger.website.message.received",
     /** A bank credit arrived (providers `sepay`, `casso`). */
     paymentCreditReceived: "nivo.trigger.payment.credit.received",
-    /** A mail arrived in an attached mailbox (provider `imap`). */
+    /**
+     * A person mailed an attached mailbox: their line on the mail channel (MAIL-IN), on the route of the mailbox account (an `imap` inbound
+     * half, or a mailbox `smtp` account holding it); a mail no person wrote (an auto-reply, a list, a bounce) is none.
+     */
     mailMessageReceived: "nivo.trigger.mail.message.received",
     /**
      * A render a compose provider was asked for finished, done or failed (providers `shotstack`, `creatomate`, `json2video`). Supplies

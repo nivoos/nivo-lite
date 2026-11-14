@@ -2,6 +2,7 @@ import { ACCOUNT_DATA_RETENTION_QUEUE } from "@modules/queues/account-data-reten
 import { AGENT_TURN_QUEUE, AgentTurnJob } from "@modules/queues/agent-turn"
 import { CONNECTION_POLL_QUEUE, POLL_DUE_CONNECTIONS_JOB } from "@modules/queues/connection-poll"
 import { CONNECTION_HEALTH_QUEUE } from "@modules/queues/connection-health"
+import { DATA_COPIES_QUEUE, DataCopiesJob } from "@modules/queues/data-copies"
 import { DATA_SYNC_QUEUE } from "@modules/queues/data-sync"
 import { KNOWLEDGE_QUEUE, KnowledgeJob } from "@modules/queues/knowledge"
 import { REALTIME_RETENTION_QUEUE } from "@modules/queues/realtime-retention"
@@ -31,7 +32,7 @@ export const JOB_TICKS: Readonly<Record<string, JobTick>> = {
     },
     "agent-work-sweep": { queue: AGENT_TURN_QUEUE, job: AgentTurnJob.Sweep, payload: {}, minutes: 1 },
     // The truth graph's timed upkeep (BR1, platform/jobs `brain-upkeep`): the brain command job of the knowledge queue with the literal
-    // upkeep payload (domain brain `BRAIN_UPKEEP_PAYLOAD`); `maintain` is idempotent, so a manual tick beside the timed one changes nothing twice.
+    // upkeep payload (queue knowledge `BRAIN_UPKEEP_PAYLOAD`); `maintain` is idempotent, so a manual tick beside the timed one changes nothing twice.
     "brain-upkeep": { queue: KNOWLEDGE_QUEUE, job: KnowledgeJob.BrainCommand, payload: { upkeep: "brain" }, minutes: 5 },
     "connection-health-tick": {
         queue: CONNECTION_HEALTH_QUEUE,
@@ -45,6 +46,8 @@ export const JOB_TICKS: Readonly<Record<string, JobTick>> = {
         payload: {},
         minutes: 1,
     },
+    "data-backup-tick": { queue: DATA_COPIES_QUEUE, job: DataCopiesJob.BackupDue, payload: { tick: true }, minutes: 60 },
+    "data-verify-tick": { queue: DATA_COPIES_QUEUE, job: DataCopiesJob.Verify, payload: { tick: true }, minutes: 1440 },
     "data-sync-tick": { queue: DATA_SYNC_QUEUE, job: DATA_SYNC_QUEUE, payload: { tick: true }, minutes: 1 },
     "realtime-retention-tick": {
         queue: REALTIME_RETENTION_QUEUE,

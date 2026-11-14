@@ -1,12 +1,15 @@
 import { Injectable } from "@nestjs/common"
+import type { EntityManager } from "typeorm"
 import { BrainFactsReadService, BrainFactsService, windowEndsBeforeStart, type FactRecord, type ProposeResult } from "@modules/domain/brain-facts"
 import { BrainLessonsService, type LessonRecord } from "@modules/domain/brain-lessons"
 import { KnowledgeGapsService } from "@modules/domain/knowledge-gaps"
 import { KnowledgeSourcesService } from "@modules/domain/knowledge-sources"
 import { WorkspaceMembersService, type WorkspaceMember } from "@modules/domain/workspace-members"
 import { InjectClock, type Clock } from "@modules/platform/clock"
+import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { eachInOrder } from "@modules/platform/primitives"
+import { KnowledgeQueue } from "@modules/queues/knowledge"
 import type { FactDecision, FactForm, KeepCurrentInput, LessonDecision, LessonForm } from "./brain.contracts"
 import { BrainLogEvent } from "./brain.log-events"
 import { BrainError, BrainErrorCode } from "./errors/brain.error"
@@ -22,16 +25,13 @@ const trimmedNoteOf = (note: string | null | undefined): string | undefined => {
 /** The most workspaces one upkeep pass keeps current; the rest wait for the next tick. */
 const UPKEEP_WORKSPACES = 200
 
-/** What one pass of the timed upkeep did. */
+/** One minute, in milliseconds: the tick's minute keys the upkeep job of each workspace. */
+const MINUTE_MS = 60_000
+
+/** What one pass of the timed upkeep tick did. */
 export interface BrainUpkeep {
-    /** Workspaces whose upkeep was due. */
+    /** Workspaces whose upkeep was due (each queued as its own job). */
     readonly workspaces: number
-    /** Scheduled facts that came in force. */
-    readonly activated: number
-    /** Facts in force whose end had passed. */
-    readonly expired: number
-    /** Workspaces whose upkeep failed (retried at the next tick). */
-    readonly failed: number
     /** Document readings that waited for credits and go on now that their workspace has credits again. */
     readonly readingsResumed: number
 }
@@ -54,6 +54,8 @@ export class BrainService {
         private readonly sources: KnowledgeSourcesService,
         private readonly documentFacts: DocumentFactsService,
         private readonly reads: BrainFactsReadService,
+        private readonly queue: KnowledgeQueue,
+        @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
     ) {}
 
     /**
@@ -180,43 +182,36 @@ export class BrainService {
     }
 
     /**
-     * The TIMED upkeep (BR1; tick `brain-upkeep` of the one app scheduler, every 5 minutes): in every workspace where a scheduled fact's
-     * start has come or a fact's end has passed, the same `maintain` the Second Brain page runs, as the brain itself (no person): the
-     * scheduled value comes in force (the value it replaces is superseded, relations carried), ended values expire, and a fact that came
-     * in force gets its vector and answers its gaps, exactly as on the page. Idempotent: `maintain` promotes only rows still
-     * `scheduled` and expires only rows still `active`, so a second tick, the page and the change door racing it change nothing twice.
-     * One failing workspace is logged and retried at the next tick; the others go on. A fact left with no point (the rest of a bulk
-     * apply, a write where no vector listener ran) is the vector reconcile's (tick `vector-reconcile`), never this tick's.
+     * The TIMED upkeep TICK (BR1; tick `brain-upkeep` of the one app scheduler, every 5 minutes): each workspace where a scheduled
+     * fact's start has come or a fact's end has passed becomes its own job (`upkeepWorkspace`), all queued in ONE transaction, so one
+     * workspace that fails retries and parks alone and never holds the others back. Then documents stored word-only for want of
+     * credits are indexed again, and readings that waited for credits go on by themselves, once the workspace has credits again
+     * (nothing waits for a button). A failure is thrown: the tick is a job the runner judges. A fact left with no point (the rest of a
+     * bulk apply, a write where no vector listener ran) is the vector reconcile's (tick `vector-reconcile`), never this tick's.
      */
     async upkeep(): Promise<BrainUpkeep> {
         const due = await this.reads.dueWorkspaces(UPKEEP_WORKSPACES)
-        let activated = 0
-        let expired = 0
-        let failed = 0
-        await eachInOrder(due, async (workspaceId) => {
-            try {
-                const done = await this.facts.maintain(workspaceId)
-                activated += done.activated.length
-                expired += done.expired
-                await eachInOrder(done.activated, (fact) => this.answered(workspaceId, fact))
-            } catch (cause) {
-                failed += 1
-                this.logger.error(BrainLogEvent.UpkeepFailed, cause, { workspaceId })
-            }
+        const at = Math.floor(this.clock.now().getTime() / MINUTE_MS) * MINUTE_MS
+        await this.entityManager.transaction(async (tx) => {
+            await eachInOrder(due, (workspaceId) => this.queue.enqueueBrainUpkeep(workspaceId, tx, at))
         })
-        // Documents stored word-only for want of credits are indexed again, and readings that waited for credits go on by themselves,
-        // once the workspace has credits again (nothing waits for a button).
         await this.documentFacts.resumeIndexing()
         const readingsResumed = await this.documentFacts.resumeParked()
-        const result = {
-            workspaces: due.length,
-            activated,
-            expired,
-            failed,
-            readingsResumed,
-        }
+        const result = { workspaces: due.length, readingsResumed }
         this.logger.info(BrainLogEvent.UpkeepDone, { ...result })
         return result
+    }
+
+    /**
+     * The upkeep of ONE workspace (the job the tick queued for it): the same `maintain` the Second Brain page runs, as the brain itself
+     * (no person): the scheduled value comes in force (the value it replaces is superseded, relations carried), ended values expire, and
+     * a fact that came in force gets its vector and answers its gaps, exactly as on the page. Idempotent: `maintain` promotes only rows
+     * still `scheduled` and expires only rows still `active`, so a second run, the page and the change door racing it change nothing
+     * twice. A failure is thrown, so a run again finishes what it left.
+     */
+    async upkeepWorkspace(workspaceId: string): Promise<void> {
+        const done = await this.facts.maintain(workspaceId)
+        await eachInOrder(done.activated, (fact) => this.answered(workspaceId, fact))
     }
 
     /** The proof that the caller may change the brain, with the name decisions are filed under. */
@@ -248,8 +243,9 @@ export class BrainService {
     }
 
     /**
-     * A public fact in force answers the open gaps reported under its own subject and attribute (exact keys); a failure here never blocks the fact. (Its vector came with the
-     * facts store's announcement of the write, for that fact alone.)
+     * A public fact in force answers the open gaps reported under its own subject and attribute (exact keys); a failure here never blocks
+     * the fact (the gap stays open and the next fact or page action answers it). (Its vector came with the facts store's announcement of
+     * the write, for that fact alone.)
      */
     private async answered(workspaceId: string, fact: FactRecord): Promise<void> {
         if (fact.status !== "active" || fact.scope !== "public") return

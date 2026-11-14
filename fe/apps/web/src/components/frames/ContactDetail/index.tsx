@@ -23,6 +23,7 @@ interface ContactDetailProps {
         | "openMerge"
         | "askUnlink"
         | "askDelete"
+        | "askConsent"
         | "askMergeSuggestion"
         | "dismissSuggestion"
         | "forget"
@@ -51,6 +52,7 @@ export const ContactDetail = (props: ContactDetailProps) => (
                 merge: props.on.openMerge,
                 unlink: props.on.askUnlink,
                 remove: props.on.askDelete,
+                consent: props.on.askConsent,
             }}
         />
         {props.history === null ? null : (

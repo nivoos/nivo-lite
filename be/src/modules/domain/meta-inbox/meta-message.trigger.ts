@@ -3,6 +3,7 @@ import { z } from "zod"
 import type { DeclaredLine, OptionalCanonicalEvent, TriggerDeclaration } from "@modules/domain/provider-triggers"
 import type { MetaEvent } from "@modules/integrations/meta"
 import { isMetaEvent } from "./meta-account.policy"
+import { metaEvent } from "./meta.data-types"
 
 /** Facebook or Instagram, as the event names it. */
 type MetaPlatform = MetaEvent["platform"]
@@ -78,17 +79,49 @@ const CHAT_SETTLE = { windowMs: 6000, maxWaitMs: 20_000 } as const
 export const metaLineOf = (data: MetaMessageData): DeclaredLine | null =>
     data.messageKey === "" ? null : { key: data.messageKey, text: data.text, at: data.at }
 
+/** What the owner's pages call each platform, by the platform's own word. */
+const PLATFORM_WORDS: Readonly<Record<MetaPlatform, TriggerDeclaration["words"]["title"]>> = {
+    facebook: { vi: "Facebook", en: "Facebook" },
+    instagram: { vi: "Instagram", en: "Instagram" },
+}
+
 const messageTriggerOf = (platform: MetaPlatform, verb: TriggerVerb): TriggerDeclaration<MetaEventRow, MetaMessageData> => ({
     provider: PROVIDER.meta,
     name: `${platform}.${META_MESSAGE_RECEIVED}`,
     verb,
-    via: "webhook",
+    via: ["webhook"],
+    // Verified 2026-11-14 (developers.facebook.com/docs/graph-api/webhooks/getting-started): a failed delivery is retried "immediately", then
+    // "a few more times with decreasing frequency over the next 36 hours"; after that it is dropped. NOT VERIFIED: that the Conversations API
+    // message id equals the webhook `mid` (the `meta.event` row key is `dm:<mid>`), so no poll receiver is built (a wrong key would store
+    // every polled message twice); see the TL-S2 finding in R4-NOTES.
+    withoutPoll: {
+        reason: {
+            vi: "Meta gửi lại ngay khi lỗi, rồi thưa dần trong 36 giờ; quá hạn đó thì bỏ. Chưa có cách đọc lại tin theo cùng mã tin.",
+            en: "Meta retries a failed delivery at once, then with decreasing frequency over 36 hours, then drops it; no read-back by the same message key is verified.",
+        },
+        source: "https://developers.facebook.com/docs/graph-api/webhooks/getting-started",
+    },
+    words: {
+        title: { vi: `${PLATFORM_WORDS[platform].vi} · Tin nhắn đến`, en: `${PLATFORM_WORDS[platform].en} · Message received` },
+        summary: {
+            vi: `Một người nhắn trực tiếp cho ${platform === "facebook" ? "Trang Facebook" : "tài khoản Instagram"} của bạn.`,
+            en: `A person sends a direct message to your ${platform === "facebook" ? "Facebook Page" : "Instagram account"}.`,
+        },
+        members: {
+            messageKey: { vi: "Mã tin nhắn", en: "The message's key" },
+            text: { vi: "Nội dung người đó viết", en: "What the person wrote" },
+            at: { vi: "Thời điểm gửi", en: "When it was sent" },
+        },
+    },
+    dataType: metaEvent.name,
     raw: META_EVENT_ROW,
     data: META_MESSAGE_DATA,
     translate: (row) => messageOf(row.raw, platform),
     line: metaLineOf,
     key: { by: "subject" },
     settle: CHAT_SETTLE,
+    // The person's lines append to the route's stream: held lines are ONE marker the workflow reads the stream from (rule Q-4).
+    combine: "stream",
 })
 
 /** A Facebook Page's direct message. */

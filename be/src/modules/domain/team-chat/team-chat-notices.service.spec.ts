@@ -126,6 +126,54 @@ describe("TeamChatNoticesService > postBackgroundStopped: one card per episode",
     })
 })
 
+describe("TeamChatNoticesService > postJobParked: one card per job and episode", () => {
+    const JOB = "44444444-4444-4444-8444-444444444444"
+    const PARKED = { jobId: JOB, job: "index-knowledge-source", failureClass: "input", reason: "KNOWLEDGE_SOURCE_UNREADABLE", episode: 0 } as const
+
+    it("posts ONE system line with the typed job.parked card in the founder's NIVO room, keyed by the job and the episode", async () => {
+        const { notices, store } = await build()
+        store.roomByDirectKey.mockResolvedValue(roomOf(ROOM))
+        store.insertLine.mockResolvedValue("m-1")
+
+        await expect(notices.postJobParked(WS, PARKED)).resolves.toBe("posted")
+
+        expect(store.insertLine).toHaveBeenCalledWith({
+            workspaceId: WS,
+            roomId: ROOM,
+            authorAgentId: null,
+            body: "index-knowledge-source · KNOWLEDGE_SOURCE_UNREADABLE",
+            key: `job-parked:${JOB}:0`,
+            agentMessage: JSON.stringify({
+                kind: "job.parked",
+                intent: "notify",
+                title: "index-knowledge-source",
+                summary: "index-knowledge-source · KNOWLEDGE_SOURCE_UNREADABLE",
+                payload: { version: 1, jobId: JOB, job: "index-knowledge-source", failureClass: "input", reason: "KNOWLEDGE_SOURCE_UNREADABLE", episode: 0, since: NOW },
+                options: [],
+            }),
+        })
+    })
+
+    it("the same episode again writes nothing new; a person's resume (the next episode) is a new key", async () => {
+        const { notices, store } = await build()
+        store.roomByDirectKey.mockResolvedValue(roomOf(ROOM))
+        store.insertLine.mockResolvedValueOnce(null).mockResolvedValueOnce("m-2")
+
+        await expect(notices.postJobParked(WS, PARKED)).resolves.toBe("already")
+        await expect(notices.postJobParked(WS, { ...PARKED, episode: 1 })).resolves.toBe("posted")
+
+        expect(store.insertLine).toHaveBeenNthCalledWith(1, expect.objectContaining({ key: `job-parked:${JOB}:0` }))
+        expect(store.insertLine).toHaveBeenNthCalledWith(2, expect.objectContaining({ key: `job-parked:${JOB}:1` }))
+    })
+
+    it("a workspace with no owner gets nothing", async () => {
+        const { notices, store } = await build(null)
+
+        await expect(notices.postJobParked(WS, PARKED)).resolves.toBe("no_owner")
+        expect(store.insertLine).not.toHaveBeenCalled()
+    })
+})
+
 describe("TeamChatNoticesService > postNotice", () => {
     const NOTICE = { key: "usage-notice:warn:2026-10-01", body: "M\u1ee9c d\u00f9ng AI \u0111\u00e3 \u0111\u1ea1t 80%." }
 

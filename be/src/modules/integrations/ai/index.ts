@@ -18,6 +18,9 @@ export type {
     AiChatAnswer,
     AiAgentTurns,
     AiChatAttempt,
+    AiChatRequest,
+    AiRunner,
+    ChainReply,
     AiChatModel,
     AiContext,
     AiCutSpend,
@@ -29,7 +32,8 @@ export type {
     AiTurnRequest,
     AiUsage,
 } from "./ai.contracts"
-export { InjectAi, AI } from "./ai.decorators"
+export { InjectAi, AI, AI_RUNNER_ROUTE, InjectAiRunnerRoute } from "./ai.decorators"
+export type { AiCallOwner, AiRunnerRoute } from "./ai-runner-route.port"
 export { AiModule } from "./ai.module"
 export { MeteredEmbeddings } from "./metered-embeddings.adapter"
 export { PassageRetriever, RETRIEVER_POOL } from "./passage-retriever.adapter"

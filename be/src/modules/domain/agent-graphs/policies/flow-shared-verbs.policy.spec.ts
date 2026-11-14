@@ -21,7 +21,7 @@ describe("TRIGGER_VERB_SHARED over the installed template agents", () => {
         const raised = agents.flatMap((agent) =>
             INSTALLED.templatesOf(agent.key).flatMap((template) =>
                 template.versions.flatMap((version) =>
-                    (templateFlowProblems(version.graph) ?? [])
+                    templateFlowProblems(version.graph)
                         .filter((problem) => problem.code === "TRIGGER_VERB_SHARED")
                         .map((problem) => `${template.id}@${String(version.version)} ${problem.at}`),
                 ),

@@ -3,13 +3,16 @@ import { BrainFactsReadService } from "@modules/domain/brain-facts"
 import { UsageMeterService } from "@modules/domain/knowledge"
 import { DERIVE_EFFORT, InjectAi, spendOf, type AiBudget, type AiService } from "@modules/integrations/ai"
 import { InjectClock, type Clock } from "@modules/platform/clock"
+import { InjectEffects, onceAnswered, type Effects } from "@modules/platform/effects"
+import type { ClaimedJob } from "@modules/platform/jobs"
 import { InjectLogger, withWorkScope, type Logger } from "@modules/platform/logging"
-import { isPolicyDerivePayload } from "@modules/queues/knowledge"
+import { MODEL_EFFECT, isPolicyDerivePayload } from "@modules/queues/knowledge"
 import { BrainPolicyCandidatesService, type TruthKey } from "./brain-policy-candidates.service"
 import { BrainPolicyDerivationsService } from "./brain-policy-derivations.service"
 import { BrainPolicyStoreService, type JudgedFact } from "./brain-policy-store.service"
 import { BrainError, BrainErrorCode } from "./errors/brain.error"
 import { ModelJsonService } from "./model-json.service"
+import { outageOf, refusalOf } from "./truth-window.policy"
 import { PolicyDeriveLogEvent } from "./policy-derive.log-events"
 import {
   DERIVE_BATCH,
@@ -35,9 +38,6 @@ const RETIRE_PER_PASS = 1000
 /** The most groups in use the prompt lists (the policy's own bound). */
 const GROUPS_MAX = 30
 
-/** An AI failure gets three tries in total (owner rule for every AI call), then the pass is given up and the tab says so. */
-const MAX_ATTEMPTS = 3
-
 /** How long the model may take to judge one batch. */
 const BATCH_TIMEOUT_MS = 45_000
 
@@ -54,9 +54,9 @@ export const POLICY_DERIVE_WORK = "policy_derive"
 
 /**
  * How a pass ended: `done` (nothing left to judge), `more` (the bound was reached: a follow-up pass is queued), `blocked` (no credits),
- * `failed` (given up after three tries, or no AI endpoint) or `skipped` (a payload of another shape).
+ * or `blocked` (no credits). A model that gives no answer throws: the runner retries on its ladder, then dead-letters.
  */
-export type PolicyDeriveOutcome = "done" | "more" | "blocked" | "failed" | "skipped"
+export type PolicyDeriveOutcome = "done" | "more" | "blocked"
 
 /** What one pass did. */
 export interface PolicyDerivePass {
@@ -112,34 +112,32 @@ export class BrainPolicyDeriveService {
         private readonly derivations: BrainPolicyDerivationsService,
         private readonly usage: UsageMeterService,
         private readonly json: ModelJsonService,
+        @InjectEffects() private readonly effects: Effects,
     ) {}
 
-    /** Runs the pass a derive job names; a payload of another shape is logged and dropped. */
-    async run(payload: object): Promise<PolicyDeriveOutcome> {
-        if (!isPolicyDerivePayload(payload)) {
-            this.logger.warn(PolicyDeriveLogEvent.PayloadRefused, { job: "policies" })
-            return "skipped"
-        }
-        return (await this.pass(payload.workspaceId)).outcome
-    }
-
-    /** The job ended as failed (the queue's retries ran out): the state says so, for the tab. */
-    async giveUp(payload: object): Promise<void> {
-        if (!isPolicyDerivePayload(payload)) return
-        await this.derivations.failed(payload.workspaceId, "gave_up")
-        this.logger.error(PolicyDeriveLogEvent.GaveUp, new BrainError({ code: BrainErrorCode.ModelUnavailable }), {
-            workspaceId: payload.workspaceId,
-        })
+    /** Runs the pass the claimed derive job names (its payload was checked against the job's declaration by the runner). */
+    async run(job: ClaimedJob): Promise<PolicyDeriveOutcome> {
+        if (!isPolicyDerivePayload(job.payload)) throw new BrainError({ code: BrainErrorCode.PayloadInvalid })
+        return (await this.pass(job.payload.workspaceId, job)).outcome
     }
 
     /**
-     * One pass over a workspace. Throws `BRAIN_MODEL_UNAVAILABLE` when the model gave no usable answer and tries are left: the queue
-     * runs the job again; what earlier batches of the pass stored is kept. Retires the judgements nothing holds, then pages over the
+     * The derive job was dead-lettered (its ONE item is the runner's): the state of the workspace says so, for the tab. The state is
+     * left resumable: a resume (or the tab's door) runs a pass again over what is left.
+     */
+    async failed(payload: object): Promise<void> {
+        if (!isPolicyDerivePayload(payload)) return
+        await this.derivations.stopped(payload.workspaceId)
+    }
+
+    /**
+     * One pass over a workspace. Throws `BRAIN_MODEL_UNAVAILABLE` when the model could not be reached (the runner retries the job on
+     * its ladder) and `BRAIN_MODEL_REFUSED` when it wrote nothing; what earlier batches of the pass stored is kept. Retires the judgements nothing holds, then pages over the
      * candidate truths only: each page re-binds what follows its truth with no model call and collects what the model must judge, until a
      * pass's worth of asks (`DERIVE_BATCH` x `DERIVE_MAX_CALLS`) or `DERIVE_PAGES_PER_PASS` pages; then it judges.
      */
-    async pass(workspaceId: string): Promise<PolicyDerivePass> {
-        const { startedAt, attempts } = await this.derivations.started(workspaceId)
+    async pass(workspaceId: string, job: ClaimedJob): Promise<PolicyDerivePass> {
+        const { startedAt } = await this.derivations.started(workspaceId)
         const orphaned = await this.store.orphaned(workspaceId, RETIRE_PER_PASS)
         await this.store.retire(workspaceId, orphaned)
         const read = await this.candidatesOf(workspaceId)
@@ -154,12 +152,9 @@ export class BrainPolicyDeriveService {
             await this.derivations.finished(workspaceId, startedAt)
             return this.ended(workspaceId, { outcome: "done", judged: 0, calls: 0, ...moved })
         }
-        if (!this.ai.available()) {
-            await this.derivations.failed(workspaceId, "model")
-            return this.ended(workspaceId, { outcome: "failed", judged: 0, calls: 0, ...moved })
-        }
+        if (!this.ai.available()) throw new BrainError({ code: BrainErrorCode.ModelUnconfigured })
         if (await this.usage.blockedBy(workspaceId, "brain", true)) {
-            await this.derivations.failed(workspaceId, "credits")
+            await this.derivations.waitingForCredits(workspaceId)
             return this.ended(workspaceId, { outcome: "blocked", judged: 0, calls: 0, ...moved })
         }
         const batches = deriveBatchesOf(read.ask)
@@ -170,29 +165,16 @@ export class BrainPolicyDeriveService {
         // Booked to the workspace's policy layer: the first derive of a workspace, or the comparison of a change.
         const stepKey = judgedBefore ? "rederive" : "derive"
         const judged = await withWorkScope({ kind: POLICY_DERIVE_WORK, ref: `workspace:${workspaceId}`, stepKey }, () =>
-            this.judgeAll(workspaceId, batches, groups),
+            this.judgeAll(workspaceId, batches, groups, job),
         )
         if (judged.count === 0) {
             if (judged.blocked) {
-                await this.derivations.failed(workspaceId, "credits")
+                await this.derivations.waitingForCredits(workspaceId)
                 return this.ended(workspaceId, { outcome: "blocked", judged: 0, calls: judged.calls, ...moved })
             }
-            // No batch gave one usable judgement: a failed try, never a silent end.
-            const tries = attempts + 1
-            this.logger.warn(PolicyDeriveLogEvent.BatchFailed, { workspaceId, tries })
-            if (tries >= MAX_ATTEMPTS) {
-                await this.derivations.failed(workspaceId, "model", tries)
-                this.logger.error(
-                    PolicyDeriveLogEvent.GaveUp,
-                    new BrainError({ code: BrainErrorCode.ModelUnavailable }),
-                    {
-                        workspaceId,
-                    },
-                )
-                return this.ended(workspaceId, { outcome: "failed", judged: 0, calls: judged.calls, ...moved })
-            }
-            await this.derivations.retrying(workspaceId, tries)
-            throw new BrainError({ code: BrainErrorCode.ModelUnavailable })
+            // No batch gave one usable judgement (every batch was cut down to one fact and still cut): the same prompt would be cut again.
+            this.logger.warn(PolicyDeriveLogEvent.BatchFailed, { workspaceId })
+            throw new BrainError({ code: BrainErrorCode.ModelRefused })
         }
         if (judged.count < read.ask.length || more) {
             await this.derivations.more(workspaceId)
@@ -236,15 +218,16 @@ export class BrainPolicyDeriveService {
     /**
      * Judges the batches one after the other, each with the groups the ones before added; the credit pool is checked before EVERY call
      * after the first (the pass checked it before the first). A batch cut at the token cap is split in two halves judged next; a single
-     * fact still cut is left unjudged (the pass then says `more`). Stops at the first batch the model does not answer at all (the rest
-     * waits for the next try) or when the pool is empty. Answers the facts judged, the calls made, and whether the pool stopped it.
+     * fact still cut is left unjudged (the pass then says `more`). A batch the model does not answer throws. Stops when the pool is
+     * empty. Answers the facts judged, the calls made, and whether the pool stopped it.
      */
     private judgeAll(
         workspaceId: string,
         batches: ReadonlyArray<ReadonlyArray<DeriveAsk>>,
         groups: ReadonlyArray<string>,
+        job: ClaimedJob,
     ): Promise<JudgedRun> {
-        return this.judgeNext(workspaceId, batches, groups, { count: 0, calls: 0, blocked: false })
+        return this.judgeNext(workspaceId, batches, groups, { count: 0, calls: 0, blocked: false }, job)
     }
 
     /** The first batch of the queue, then the rest (a cut batch's halves first). */
@@ -253,50 +236,51 @@ export class BrainPolicyDeriveService {
         queue: ReadonlyArray<ReadonlyArray<DeriveAsk>>,
         groups: ReadonlyArray<string>,
         run: JudgedRun,
+        job: ClaimedJob,
     ): Promise<JudgedRun> {
         const [batch, ...rest] = queue
         if (batch === undefined) return run
         if (run.calls > 0 && (await this.usage.blockedBy(workspaceId, "brain", true))) return { ...run, blocked: true }
-        const found = await this.ask(workspaceId, batch, groups)
+        const found = await this.ask(workspaceId, batch, groups, job)
         const called = { ...run, calls: run.calls + 1 }
         if (found === "cut") {
             if (batch.length === 1) this.logger.warn(PolicyDeriveLogEvent.BatchCut, { workspaceId, facts: 1 })
             const half = Math.ceil(batch.length / 2)
             const halves = batch.length > 1 ? [batch.slice(0, half), batch.slice(half)] : []
-            return this.judgeNext(workspaceId, [...halves, ...rest], groups, called)
+            return this.judgeNext(workspaceId, [...halves, ...rest], groups, called, job)
         }
-        // The model stopped answering: the rest of the pass waits for the next try rather than spending more calls.
-        if (found === null) return called
         const judged = await this.store.save(workspaceId, found)
         const added = found.filter((one) => one.judgement.policy).map((one) => one.judgement.group)
-        return this.judgeNext(workspaceId, rest, [...new Set([...groups, ...added])], {
-            ...called,
-            count: called.count + judged,
-        })
+        return this.judgeNext(workspaceId, rest, [...new Set([...groups, ...added])], { ...called, count: called.count + judged }, job)
     }
 
     /**
      * One model call over one batch: the judgements it gave, `cut` when the answer was cut at the token cap (booked with what it spent:
-     * a call that returned tokens is ALWAYS booked, D-BR-15), or null when it did not answer. Metered as `brain`.
+     * a call that returned tokens is ALWAYS booked, D-BR-15). A call the model did not answer throws. Metered as `brain`.
      */
     private async ask(
         workspaceId: string,
         batch: ReadonlyArray<DeriveAsk>,
         groups: ReadonlyArray<string>,
-    ): Promise<ReadonlyArray<JudgedFact> | "cut" | null> {
+        job: ClaimedJob,
+    ): Promise<ReadonlyArray<JudgedFact> | "cut"> {
         const prompt = derivePrompt(batch, groups)
-        const tried = await this.ai.attempt({
-            messages: [
-                { role: "system", content: DERIVE_SYSTEM },
-                { role: "user", content: prompt },
-            ],
-            json: false,
-            schema: null,
-            timeoutMs: BATCH_TIMEOUT_MS,
-            budget: DERIVE_BUDGET,
-            context: null,
-            affinity: workspaceId,
-        })
+        // An outside act keyed by the job and the fact the batch starts at: a call whose outcome a crash lost is made again (it changes nothing outside).
+        const key = `${job.jobId}:model:derive:${batch[0]?.fact.id ?? ""}:${String(batch.length)}`
+        const tried = await onceAnswered(this.effects, key, MODEL_EFFECT, () =>
+            this.ai.attempt({
+                messages: [
+                    { role: "system", content: DERIVE_SYSTEM },
+                    { role: "user", content: prompt },
+                ],
+                json: false,
+                schema: null,
+                timeoutMs: BATCH_TIMEOUT_MS,
+                budget: DERIVE_BUDGET,
+                context: null,
+                affinity: workspaceId,
+            }),
+        )
         const spend = spendOf(tried)
         if (spend !== null) {
             await this.usage.record({
@@ -307,8 +291,9 @@ export class BrainPolicyDeriveService {
                 ...spend,
             })
         }
+        const gone = outageOf(tried) ?? refusalOf(tried)
+        if (gone !== null) throw gone
         if (!tried.ok) {
-            if (tried.failure !== "length") return null
             this.logger.warn(PolicyDeriveLogEvent.BatchCut, { workspaceId, facts: batch.length })
             return "cut"
         }

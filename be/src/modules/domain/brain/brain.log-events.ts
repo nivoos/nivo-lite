@@ -6,6 +6,7 @@ export enum BrainLogEvent {
     FilingFailed = "brain.extraction.filing_failed",
     /** Answering the gaps a fact or document covers failed; the fact or document is stored all the same. */
     GapsFailed = "brain.gaps.resolve_failed",
+    /** Answering the gaps a fact or document covers failed; the fact or document is stored all the same. */
     /** A model answer could not be read at all: no object or list in it parses (one event per answer; length and slices tried, no text). */
     AnswerUnreadable = "brain.model.answer_unreadable",
     /** One slice of a model answer did not parse but another did: the answer was read (the slice kinds only). */
@@ -14,18 +15,12 @@ export enum BrainLogEvent {
     CommandRan = "brain.command.ran",
     /** A command was refused by the services; the row carries the stored code. */
     CommandRefused = "brain.command.refused",
-    /** Asking for the dossier review of a document that was read, given up or deleted failed; the facts job goes on. */
-    ReviewRequestFailed = "brain.dossier_review.request_failed",
     /** One fact of a bulk apply could not be applied (it was decided meanwhile, or the write failed); the others go on. */
     BulkFactSkipped = "brain.bulk.fact_skipped",
-    /** A job arrived with a payload of another shape and was dropped. */
-    PayloadRefused = "brain.job.payload_refused",
     /** Linking the facts of one document into the truth graph failed; the facts stand without edges. */
     RelationsFailed = "brain.relations.link_failed",
     /** Embedding the changed facts failed; they stay searchable by words and the vector reconcile embeds them. */
     EmbeddingsFailed = "brain.embeddings.refresh_failed",
-    /** The timed upkeep of one workspace failed (scheduled facts not yet active, ended facts not yet expired); the next tick retries it, the others go on. */
-    UpkeepFailed = "brain.upkeep.workspace_failed",
-    /** One pass of the timed brain upkeep ended: workspaces kept current, facts that came in force, facts that expired. */
+    /** One pass of the timed brain upkeep tick ended: the workspaces it queued, the readings it resumed. */
     UpkeepDone = "brain.upkeep.done",
 }

@@ -1,39 +1,28 @@
 import { Test } from "@nestjs/testing"
-import { BANK_TRIGGER_WORDS } from "./messages/provider-triggers.messages"
-import { PROVIDER_TRIGGERS } from "./provider-triggers.catalogue"
-import { canCatchUpOf, namedAgentsOf, triggerStatesOf } from "./provider-trigger-states.policy"
-import type { ProviderTriggerDeclaration } from "./provider-triggers.contracts"
+import { bankTriggerOf, mailTriggerOf, renderTriggerOf } from "@tests/fixtures/builders/trigger-declaration.builder"
+import { namedAgentsOf, triggerStatesOf } from "./provider-trigger-states.policy"
+import { canCatchUpOf, type SwitchedDeclaration } from "./trigger-declarations.policy"
 
 const SUBJECT = Symbol("provider-trigger-states.policy")
 
 const build = async () => {
     const moduleRef = await Test.createTestingModule({
-        providers: [{ provide: SUBJECT, useValue: { canCatchUpOf, namedAgentsOf, triggerStatesOf } }],
+        providers: [{ provide: SUBJECT, useValue: { namedAgentsOf, triggerStatesOf } }],
     }).compile()
     return moduleRef.get<typeof import("./provider-trigger-states.policy")>(SUBJECT)
 }
 
-/** A bank trigger as the catalogue declares it, and one whose provider recovers nothing (no catalogue entry is such today). */
-const BANK: ProviderTriggerDeclaration = {
-    provider: "sepay",
-    name: "transaction.received",
-    kind: "webhook",
-    description: BANK_TRIGGER_WORDS.trigger,
-    payload: [],
-    batching: { mode: "each" },
-    recovery: "reconcile",
-    decided: true,
-}
-const LOST: ProviderTriggerDeclaration = { ...BANK, name: "lost.received", recovery: "none" }
+/** The fixtures that carry a switch, as the states read them. */
+const BANK = bankTriggerOf() as SwitchedDeclaration
+const MAIL = mailTriggerOf() as SwitchedDeclaration
+const RENDER = renderTriggerOf() as SwitchedDeclaration
 
 describe("provider-trigger-states.policy", () => {
-    it("lets a switch catch up only where the provider recovers a missed event", async () => {
-        const policy = await build()
-
-        expect(policy.canCatchUpOf(BANK)).toBe(true)
-        expect(policy.canCatchUpOf(LOST)).toBe(false)
-        // The bank feeds and the mailbox recover; a render completion does not (the run that waits for it reads the render's status).
-        expect(PROVIDER_TRIGGERS.map((declaration) => policy.canCatchUpOf(declaration))).toEqual([true, true, true, true, false, false, false])
+    it("lets a switch catch up only where a poll also receives the trigger", () => {
+        expect(canCatchUpOf(BANK)).toBe(true)
+        expect(canCatchUpOf(MAIL)).toBe(true)
+        // A render completion is received by its webhook alone: the run that waits for it reads the render's status.
+        expect(canCatchUpOf(RENDER)).toBe(false)
     })
 
     it("offers the attached agents the directory knows as choices, and none while a core agent decides", async () => {
@@ -50,6 +39,27 @@ describe("provider-trigger-states.policy", () => {
         expect(free).toMatchObject({ enabled: false, deciderAgentId: null, coreDecides: false })
         expect(free?.deciderChoices).toEqual([{ agentId: "plugin", name: "Renewals" }])
         expect(held).toMatchObject({ deciderAgentId: "core", deciderAgentName: "Accounting", coreDecides: true, deciderChoices: [] })
+    })
+
+    it("gives every state its short title `<source> · <event>` from the declaration's words, and the ways it is received", async () => {
+        const policy = await build()
+
+        for (const declaration of [BANK, MAIL, RENDER]) {
+            expect(declaration.words.title.vi).toMatch(/^.+ · .+$/u)
+            expect(declaration.words.title.en).toMatch(/^.+ · .+$/u)
+        }
+        const states = policy.triggerStatesOf({
+            connectionId: "conn-1",
+            declared: [BANK, MAIL, RENDER],
+            switches: [],
+            attached: [],
+            names: new Map(),
+            coreDeciders: {},
+        })
+        expect(states[0]?.title).toEqual({ vi: "Ngân hàng · tiền vào tài khoản", en: "Bank · money received" })
+        expect(states.map((state) => state.via)).toEqual([["webhook", "poll"], ["poll"], ["webhook"]])
+        expect(states.map((state) => state.withoutPoll?.source ?? null)).toEqual([null, null, "nivo:wait-timeout"])
+        expect(states[2]?.withoutPoll?.reason.en).toMatch(/waiting run/u)
     })
 
     it("names every agent a state may name once: core and bound deciders and the attached agents", async () => {

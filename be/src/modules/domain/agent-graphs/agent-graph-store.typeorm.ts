@@ -4,27 +4,16 @@ import type { QueryDeepPartialEntity } from "typeorm/query-builder/QueryPartialE
 import type { ScopedTx } from "@modules/domain/entity-engine"
 import type { AgentGraphStore, GraphLookup } from "./agent-graph-store.port"
 import { AgentGraphsError, AgentGraphsErrorCode } from "./errors/agent-graphs.error"
-import { graphRecordOf, proposalRecordOf, sourceRecordOf, versionRecordOf } from "./agent-graphs.mapper"
+import { graphRecordOf, versionRecordOf } from "./agent-graphs.mapper"
 import type {
     EnsuredGraph,
     GraphInsert,
     GraphPatch,
     GraphRecord,
-    GraphSourceRecord,
-    ProposalInsert,
-    ProposalPatch,
-    ProposalRecord,
-    ProposalStatusFilter,
-    SourceInsert,
     VersionInsert,
     VersionRecord,
 } from "./agent-graphs-records.contracts"
-import {
-    AgentGraphEntity,
-    AgentGraphProposalEntity,
-    AgentGraphSourceEntity,
-    AgentGraphVersionEntity,
-} from "./persistence/entities"
+import { AgentGraphEntity, AgentGraphVersionEntity } from "./persistence/entities"
 
 const unreadable = (): AgentGraphsError => new AgentGraphsError({ code: AgentGraphsErrorCode.RecordUnreadable })
 
@@ -41,13 +30,6 @@ const graphColumnsOf = (patch: GraphPatch): QueryDeepPartialEntity<AgentGraphEnt
     ...(patch.mode === undefined ? {} : { mode: patch.mode }),
     ...(patch.modeSetBy === undefined ? {} : { modeSetBy: patch.modeSetBy }),
     ...(patch.modeSetAt === undefined ? {} : { modeSetAt: instantOf(patch.modeSetAt) }),
-})
-
-const proposalColumnsOf = (patch: ProposalPatch): QueryDeepPartialEntity<AgentGraphProposalEntity> => ({
-    ...(patch.status === undefined ? {} : { status: patch.status }),
-    ...(patch.decidedBy === undefined ? {} : { decidedBy: patch.decidedBy }),
-    ...(patch.decidedAt === undefined ? {} : { decidedAt: new Date(patch.decidedAt) }),
-    ...(patch.resultVersionId === undefined ? {} : { resultVersionId: patch.resultVersionId }),
 })
 
 @Injectable()
@@ -135,76 +117,6 @@ export class TypeormAgentGraphStore implements AgentGraphStore {
             where: { workspaceId: tx.workspaceId, agentId: version.agentId, number: version.number },
         })
         return row === null ? null : versionRecordOf(row)
-    }
-
-    /** Writes one source row of a version unless it exists: true when this call wrote it. */
-    insertSource(tx: ScopedTx, source: SourceInsert): Promise<boolean> {
-        return this.insertIgnoring(tx.manager, AgentGraphSourceEntity, { workspaceId: tx.workspaceId, ...source })
-    }
-
-    /** The source rows of the given kind for the given versions, at most `limit`. */
-    async sources(
-        tx: ScopedTx,
-        kind: string,
-        versionIds: ReadonlyArray<string>,
-        limit: number,
-    ): Promise<ReadonlyArray<GraphSourceRecord>> {
-        if (versionIds.length === 0) return []
-        const rows = await tx.manager.find(AgentGraphSourceEntity, {
-            where: { workspaceId: tx.workspaceId, kind, versionId: In([...versionIds]) },
-            order: { versionId: "ASC", id: "ASC" },
-            take: limit,
-        })
-        return rows.map((item) => sourceRecordOf(item))
-    }
-
-    /** One proposal by id, or null. */
-    async proposal(tx: ScopedTx, id: string): Promise<ProposalRecord | null> {
-        const row = await tx.manager.findOne(AgentGraphProposalEntity, { where: { workspaceId: tx.workspaceId, id } })
-        return row === null ? null : proposalRecordOf(row)
-    }
-
-    /** The proposals of an agent that match the status filter, at most `limit`. */
-    async proposals(tx: ScopedTx, filter: ProposalStatusFilter, limit: number): Promise<ReadonlyArray<ProposalRecord>> {
-        const rows = await tx.manager.find(AgentGraphProposalEntity, {
-            where: {
-                workspaceId: tx.workspaceId,
-                agentId: filter.agentId,
-                status: In([...filter.statuses]),
-                ...(filter.kind === undefined ? {} : { kind: filter.kind }),
-            },
-            order: filter.byStatus ? { status: "ASC", id: "ASC" } : { createdAt: "DESC", id: "DESC" },
-            take: limit,
-        })
-        return rows.map((item) => proposalRecordOf(item))
-    }
-
-    /** Writes an open proposal unless its dedupe key holds one: true when this call wrote it. */
-    raiseProposal(tx: ScopedTx, proposal: ProposalInsert): Promise<boolean> {
-        return this.insertIgnoring(tx.manager, AgentGraphProposalEntity, {
-            workspaceId: tx.workspaceId,
-            agentId: proposal.agentId,
-            dedupeKey: proposal.dedupeKey,
-            kind: proposal.kind,
-            status: "open",
-            baseVersionId: proposal.baseVersionId,
-            nodeKey: proposal.nodeKey,
-            branchKey: proposal.branchKey,
-            patch: structuredClone({ ...proposal.patch }),
-            widens: proposal.widens,
-            evidence: { ids: [...proposal.evidence.ids] },
-        })
-    }
-
-    /** Applies a patch to a proposal when `fence` still matches: the new row, or null when the fence moved. */
-    async patchProposal(
-        tx: ScopedTx,
-        id: string,
-        fence: string,
-        patch: ProposalPatch,
-    ): Promise<ProposalRecord | null> {
-        const moved = await this.fenced(tx, AgentGraphProposalEntity, id, fence, proposalColumnsOf(patch))
-        return moved ? this.proposal(tx, id) : null
     }
 
     /** Inserts one row unless a unique key holds it already (`ON CONFLICT DO NOTHING`): true when this call wrote it. */

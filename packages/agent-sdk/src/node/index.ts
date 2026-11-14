@@ -13,6 +13,7 @@ export type {
     NodeModel,
     NodeModelDecision,
     NodeModelRequest,
+    PromptOpening,
     NodeData,
     NodeGrant,
     NodeQuery,

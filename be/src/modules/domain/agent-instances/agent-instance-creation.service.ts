@@ -7,7 +7,7 @@ import { ConnectionGrantsService, purposeFor } from "@modules/domain/connection-
 import { ConnectionsService } from "@modules/domain/connections"
 import { ToolsError, ToolsErrorCode, AgentAccountsService } from "@modules/domain/tools"
 import { InstallationRecordsService, type InstallationRecord } from "@modules/domain/module-installations"
-import { AgentRemovalService, ModuleInstallService, ModulesService } from "@modules/domain/modules"
+import { ModuleInstallService, ModulesService } from "@modules/domain/modules"
 import { WorkspaceMembersService, type WorkspaceMember } from "@modules/domain/workspace-members"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { AgentInstancesLogEvent } from "./agent-instances.log-events"
@@ -18,15 +18,13 @@ import type {
     CopiedGrant,
     CreateAgentInstanceRequest,
     CreatedAgent,
+    FinishWorkflowsRequest,
 } from "./agent-instances.contracts"
 import { AgentSetupCopyService, type CopyOutcome, type CopyTarget } from "./agent-setup-copy.service"
 import { AgentInstancesError, AgentInstancesErrorCode } from "./errors/agent-instances.error"
 
 /** The installation a creation made and the agent behind it, when it has one. */
 type MadeInstallation = { readonly installationId: string; readonly agentId: string | null }
-
-/** The installation a creation made and whether this call created it. */
-type CreatedInstallation = { readonly installationId: string; readonly created: boolean }
 
 /** What the copy of a sibling setup is asked to give the new agent. */
 type CopyAsk = {
@@ -45,9 +43,10 @@ const GOVERNORS = ["owner", "manager"] as const
  * exactly one agent of a role, so a channel another agent of the role answers is refused before anything is written. Managers create
  * agents; only the owner gives an agent connections. The new agent is attached to the working accounts of the providers its module's
  * template lists, or to the accounts of the owner's edit of that proposal (checked before anything is written); these attachments are
- * then the workspace's (nivo-frame `rights`: an attachment carries no mode). A creation is all or nothing as far as anyone can see: when
- * a step after the installation fails (the copy, a channel, the attachments), the installation is removed again through the removal door
- * and the failure is thrown.
+ * then the workspace's (nivo-frame `rights`: an attachment carries no mode). A creation moves FORWARD only: when a step after the
+ * installation fails (the copy, a channel, the attachments), nothing is taken back. The installation stays in the agents list as an agent
+ * that still needs its setup (`needs_setup`), the failure is thrown with its own typed code, and the owner finishes it or removes it
+ * through the removal door; a front door that failed is finished by the next connect of its channel (`finishWorkflows`, the attach).
  */
 export class AgentInstanceCreationService {
     constructor(
@@ -62,7 +61,6 @@ export class AgentInstanceCreationService {
         private readonly owners: ChannelOwnersService,
         private readonly setupCopy: AgentSetupCopyService,
         private readonly accounts: AgentAccountsService,
-        private readonly removal: AgentRemovalService,
         @InjectLogger() private readonly logger: Logger,
         @Optional() private readonly workflows?: AgentWorkflowInstallService,
     ) {}
@@ -104,16 +102,12 @@ export class AgentInstanceCreationService {
             agent: { name: judged.value.name, handle: judged.value.handle },
         })
         const agentId = made.agentId
-        // Everything after the installation exists either all holds or the installation is taken back: a creation that fails half way
-        // leaves no agent in any list and its name free.
+        // Forward only: a step after the installation that fails throws and takes nothing back (the installation stays, needing its setup).
         const outcome = await this.furnished(principalId, member, request, source, made, {
             avatar: judged.value.avatar,
             channels: wanted,
             rights,
             moduleKey: module.key,
-        }).catch(async (cause: unknown) => {
-            await this.undone(principalId, request.workspaceId, made)
-            throw cause
         })
         if (agentId === null) throw new AgentInstancesError({ code: AgentInstancesErrorCode.CopySourceInvalid })
         const shared = member.role === "owner" ? (outcome?.grants ?? []) : []
@@ -134,7 +128,7 @@ export class AgentInstanceCreationService {
 
     /**
      * Gives the installation just made everything the request asks for: the picture, the sibling's setup, the channels and shared
-     * connections, the rights on the connected providers, and a workflow from each template its plugin ships. Any failure is thrown for `create` to take the installation back.
+     * connections, the rights on the connected providers, and a workflow from each template its plugin ships. Any failure is thrown and nothing is taken back.
      */
     private async furnished(
         principalId: string,
@@ -168,29 +162,11 @@ export class AgentInstanceCreationService {
     }
 
     /**
-     * Takes back an installation this creation made and could not finish, through the same door a person removes an agent with: the
-     * installation is removed, its agent paused and its rights switched off, so it is in no list, serves nobody and its name is free
-     * again. An installation the creation did not make itself (another tab made it first) is left alone. A removal that fails is
-     * logged with the installation, never thrown over the failure that caused it.
+     * Makes the workflows the agent's module ships where the agent holds none of them yet (the same step a creation ends with). It adds
+     * only what is missing, so a creation that failed before this step is finished by running it again, and a finished one is unchanged.
      */
-    private async undone(
-        principalId: string,
-        workspaceId: string,
-        made: CreatedInstallation,
-    ): Promise<void> {
-        if (!made.created) return
-        try {
-            await this.removal.remove(principalId, workspaceId, made.installationId)
-            this.logger.warn(AgentInstancesLogEvent.CreationUndone, {
-                workspaceId,
-                installationId: made.installationId,
-            })
-        } catch (cause) {
-            this.logger.error(AgentInstancesLogEvent.CreationUndoFailed, cause, {
-                workspaceId,
-                installationId: made.installationId,
-            })
-        }
+    async finishWorkflows(input: FinishWorkflowsRequest): Promise<void> {
+        await this.workflows?.install(input)
     }
 
     private async choicesOf(workspaceId: string, moduleKey: string): Promise<ReadonlyArray<ChannelChoice>> {

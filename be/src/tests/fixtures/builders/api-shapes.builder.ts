@@ -33,7 +33,6 @@ export type BuildWiringProofResultOptionsConnectionPollScheduleShape = {
     unavailableRecheckMs: number
     batchSize: number
     leaseMs: number
-    maxInlineWaitMs: number
     backfillChunkPages: number
 }
 /** The build wiring proof result options connection poll record the builders hand out and the specs expect. */
@@ -54,8 +53,6 @@ export type BuildWiringProofResultOptionsEntityEngineShape = { cursorKey: Secret
 /** The build wiring proof result options agent work record the builders hand out and the specs expect. */
 /** The build wiring proof result options zalo provider record the builders hand out and the specs expect. */
 export type BuildWiringProofResultOptionsZaloProviderShape = { replyWindowMs: number; staleAfterMs: number }
-/** The build wiring proof result options knowledge record the builders hand out and the specs expect. */
-export type BuildWiringProofResultOptionsKnowledgeShape = { indexChunkDelayMs: number }
 /** The settings of the vector store a wiring proof builds with. */
 export type BuildWiringProofResultOptionsQdrantShape = {
     url: string | null
@@ -337,7 +334,6 @@ export type BuildWiringProofResultOptionsShape = {
     misaAmis: ReturnType<typeof parseMisaAmisConfig>
     misaMeinvoice: ReturnType<typeof parseMisaMeinvoiceConfig>
     toolsConfig: BuildWiringProofResultOptionsToolsConfigShape
-    knowledge: BuildWiringProofResultOptionsKnowledgeShape
     qdrant: BuildWiringProofResultOptionsQdrantShape
 }
 /** The build wiring proof result record the builders hand out and the specs expect. */

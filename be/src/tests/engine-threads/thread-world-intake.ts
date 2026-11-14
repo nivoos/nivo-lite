@@ -3,7 +3,7 @@ import type { EntityManager } from "typeorm"
 import type { EffectCall, EffectPayload, SubjectRef } from "@nivo-lite/agent-sdk/node"
 import { AccountDataReadService, AccountDataTypesService } from "@modules/domain/account-data"
 import type { AccountDataInput, AccountDataTypeDef, StoredRow } from "@modules/domain/account-data"
-import { ChannelDeliveryService } from "@modules/domain/channels"
+import { ChannelDeliveryService, type PersonDeliveryRequest } from "@modules/domain/channels"
 import { ChannelSendExecutorService } from "@modules/domain/chat-node-ports"
 import { ConnectionBindingsReadService, type ConnectionRecord } from "@modules/domain/connections"
 import { ContactsService } from "@modules/domain/contacts/contacts.service"
@@ -12,7 +12,15 @@ import { ChannelDeliveriesService, CustomerMessagesService, CustomerRoutesServic
 import { AgentWakeService } from "@modules/domain/agent-work"
 import { burstFor } from "@modules/domain/agent-work/agent-work.policy"
 import type { AgentBurstWindow } from "@modules/domain/agent-work/agent-work.port"
-import type { AgentWake, PendingScopeWake } from "@modules/domain/agent-work"
+import type { AgentWake, CombineSet, PendingScopeWake } from "@modules/domain/agent-work"
+import {
+    COALESCED_REASON,
+    REPLACED_REASON,
+    isLatestWake,
+    isStreamWake,
+    latestReplacingOf,
+    streamCoalescingOf,
+} from "@modules/domain/agent-work/agent-wake-coalesce.policy"
 import { AgentWorkflowTriggerReceiversService } from "@modules/domain/agent-graphs/agent-workflow-trigger-receivers.service"
 import type { GraphNodeRegistryService, NodeEffectExecutor, NodeTurn } from "@modules/domain/graph-nodes"
 import { ProviderTriggersService, triggerDeclarations } from "@modules/domain/provider-triggers"
@@ -100,12 +108,12 @@ const happenedOf = (def: AccountDataTypeDef, value: Readonly<Record<string, unkn
 }
 
 /** The connection record a connected account of the world stands for (the shape `ConnectionBindingsReadService.recordOf` answers). */
-export const connectionRecordOf = (workspaceId: string, account: Pick<Account, "id" | "provider">): ConnectionRecord => ({
+export const connectionRecordOf = (workspaceId: string, account: Pick<Account, "id" | "provider" | "meta">): ConnectionRecord => ({
     id: account.id,
     workspaceId,
     provider: account.provider,
     name: account.id,
-    meta: {},
+    meta: account.meta ?? {},
     status: "connected",
     lastError: null,
     environment: "live",
@@ -126,7 +134,61 @@ const pendingOf = (chat: ChatWorld, agentId: string, scopeKey: string): Readonly
  * (`pendingOfScope`) and the closing of those a step took (`claimQueued`: each still pending or held becomes `queued:<run>`, one already closed is
  * left as it is). The process's wake double answers them from here.
  */
-export const wakeQueueOf = (chat: ChatWorld): Pick<AgentWakeService, "pendingOfScope" | "claimQueued" | "reoffer" | "dropWaiting" | "releaseWaiting" | "waitingCountOf" | "heldBehind" | "runsHeldBehind"> => ({
+export const wakeQueueOf = (chat: ChatWorld): Pick<AgentWakeService, "pendingOfScope" | "claimQueued" | "reoffer" | "dropWaiting" | "releaseWaiting" | "waitingCountOf" | "heldBehind" | "runsHeldBehind" | "coalesce" | "replaceOlder"> => ({
+    // Rule Q-4 `stream` (QB-P5 C-2), as the table does it (`AgentWakeService.coalesce`, the same pure decision): the un-run wakes (pending,
+    // or held `waiting:<run>`) of one agent, scope, declaration and registration that no run handed back are ONE marker, the oldest; the
+    // others close `coalesced:<marker>` (state `queued` in this table: closed, begins nothing) and are counted on it. The settle window has
+    // no clock here (see burst-coalescing).
+    coalesce: (_tx: unknown, set: CombineSet): Promise<string | null> => {
+        const unrun = chat.wakes.filter(
+            (wake) =>
+                wake.agentId === set.agentId &&
+                wake.scopeKey === set.scopeKey &&
+                isStreamWake(wake.context) &&
+                wake.context.declaration === set.declaration &&
+                (wake.context.workflowId ?? "") === (set.workflowId ?? "") &&
+                wake.context.handedBackJson === undefined &&
+                (wake.state === "pending" || (wake.state === "held" && wake.reason?.startsWith("waiting:") === true)),
+        )
+        const coalescing = streamCoalescingOf(unrun.map((wake) => ({ id: wake.id, context: wake.context, createdAt: wake.createdAt })))
+        if (coalescing === null) return Promise.resolve(null)
+        for (const wake of chat.wakes) {
+            if (coalescing.closed.includes(wake.id)) {
+                wake.state = "queued"
+                wake.reason = `${COALESCED_REASON}${coalescing.markerId}`
+            }
+            if (wake.id === coalescing.markerId) Object.assign(wake, { context: coalescing.context })
+        }
+        return Promise.resolve(coalescing.markerId)
+    },
+    // Rule Q-4 `latest` (QB-LATEST), as the table does it (`AgentWakeService.replaceOlder`, the same pure decision): the wake just written
+    // replaces every other un-run wake (pending, or held `waiting:<run>`) of its agent, scope, declaration and registration that no run handed
+    // back; each closes `replaced:<newest>` (state `queued` in this table: closed, begins nothing) and the newest counts them.
+    replaceOlder: (_tx: unknown, set: CombineSet, newestId: string): Promise<number> => {
+        const unrun = chat.wakes.filter(
+            (wake) =>
+                wake.agentId === set.agentId &&
+                wake.scopeKey === set.scopeKey &&
+                isLatestWake(wake.context) &&
+                wake.context.declaration === set.declaration &&
+                (wake.context.workflowId ?? "") === (set.workflowId ?? "") &&
+                wake.context.handedBackJson === undefined &&
+                (wake.state === "pending" || (wake.state === "held" && wake.reason?.startsWith("waiting:") === true)),
+        )
+        const replacing = latestReplacingOf(
+            unrun.map((wake) => ({ id: wake.id, context: wake.context, createdAt: wake.createdAt })),
+            newestId,
+        )
+        if (replacing === null) return Promise.resolve(0)
+        for (const wake of chat.wakes) {
+            if (replacing.closed.includes(wake.id)) {
+                wake.state = "queued"
+                wake.reason = `${REPLACED_REASON}${replacing.keptId}`
+            }
+            if (wake.id === replacing.keptId) Object.assign(wake, { context: replacing.context })
+        }
+        return Promise.resolve(replacing.closed.length)
+    },
     // The run a subject's events waited behind has ended: every wake held `waiting:<run>` is pending again, in the order it came.
     releaseWaiting: (_manager: unknown, _workspaceId: string, runId: string): Promise<number> => {
         let released = 0
@@ -388,8 +450,11 @@ export const nextTurnOf = (among: ReadonlyArray<HeardWake>): HeardWake | undefin
 /** The double of the provider's push: every line it delivers is a `Line` of the world, tagged as the ledger says who told it. */
 const channelOf = (outside: Pick<Outside, "clock" | "lines" | "chat">): ChannelDeliveryService =>
     mock<ChannelDeliveryService>({
-        deliverToPerson: async (request: { readonly workspaceId: string; readonly routeId: string; readonly sendKey: string; readonly text: string }) => {
+        deliverToPerson: async (request: PersonDeliveryRequest) => {
             if (outside.chat.channelOutcome === "ambiguous") return { delivered: false, failure: null, outcome: "ambiguous" as const }
+            // A channel the world composed a REAL delivery for answers through it first (rule QB-SEND); a delivered push is a line below.
+            const real = await outside.chat.channelDeliveries.get(request.channel)?.deliverToPerson(request)
+            if (real !== undefined && !real.delivered) return real
             const claimed = await outside.chat.ledger.byKey(request.workspaceId, request.sendKey)
             const line: Line = {
                 conversationId: request.routeId,
@@ -400,6 +465,14 @@ const channelOf = (outside: Pick<Outside, "clock" | "lines" | "chat">): ChannelD
             }
             outside.lines.push(line)
             return { delivered: true, failure: null, outcome: "acknowledged" as const }
+        },
+        // Rule MI-3: a channel the world composed a REAL delivery for judges its accounts' entrance; any other account is one.
+        entranceOf: async (workspaceId: string, accountId: string | null) => {
+            for (const real of outside.chat.channelDeliveries.values()) {
+                const missing = await real.entranceOf(workspaceId, accountId)
+                if (missing !== null) return missing
+            }
+            return null
         },
     })
 
@@ -420,7 +493,6 @@ export const sendExecutorOf = (
         channelOf(outside),
         registry,
         accounts,
-        undefined,
         undefined,
         // `lines`: the engine's conversation store (R26): the Zalo reply window reads the person's last heard line.
         services.messages,

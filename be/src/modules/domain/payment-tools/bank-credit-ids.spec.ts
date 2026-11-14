@@ -82,10 +82,11 @@ describe("a bank credit: the id the trigger hands a run is the id the credit rea
     it.each(FEEDS)("%s: intake row -> trigger event -> payment.credit.get by the event's own transactionId", async (door, provider, type, eventId) => {
         const connectionId = `conn-${provider}`
         // The intake: one webhook credit becomes the feed's transaction row, kept under its type's key; the database gives it a uuid.
-        const [input] = feedTransactionRowsOf(door, {
-            connection: connectionId,
-            credits: [{ amount: 250000, content: "CK DH-20261114-0001", eventId, fallbackBankName: "Bank", occurredAt: "2026-11-14T02:42:49.000Z" }],
-        })
+        const [input] = feedTransactionRowsOf(
+            door,
+            [{ amount: 250000, content: "CK DH-20261114-0001", eventId, fallbackBankName: "Bank", occurredAt: "2026-11-14T02:42:49.000Z" }],
+            "webhook",
+        )
         expect(input?.type).toBe(type.name)
         const value = Object.fromEntries(Object.entries(input?.value ?? {}))
         const kept: Kept = { id: "0b8f6a2e-1c4d-4e5f-8a9b-000000000042", connectionId, type: type.name, key: accountKeyOf(type, value), value }

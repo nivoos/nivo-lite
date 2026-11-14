@@ -2,7 +2,13 @@
 
 import { useFormatter, useTranslations } from "next-intl"
 import { useState } from "react"
-import { useDocsAddress, useKnowledgeDocIdeas, useKnowledgeSources, useNivoKnowledge } from "@/hooks/knowledge"
+import {
+    useDocsAddress,
+    useKnowledgeDocIdeas,
+    useKnowledgeJobs,
+    useKnowledgeSources,
+    useNivoKnowledge,
+} from "@/hooks/knowledge"
 import { isWaitingOf, loadingSlot } from "@/hooks/slot"
 import { brainGridOf } from "@/modules/brain"
 import { docsCopyOf, docsMainViewOf, docsNivoSlotOf, docsTrailOf, nivoOpenedOf } from "@/modules/documents"
@@ -38,7 +44,8 @@ export const useKnowledgeDocs = (input: KnowledgeDocsInput): KnowledgeDocsView =
     const format = useFormatter()
     const address = useDocsAddress()
     const sources = useKnowledgeSources()
-    const row = useKnowledgeRowOf(sources.live)
+    const jobOf = useKnowledgeJobs(sources.sources)
+    const row = useKnowledgeRowOf(sources.live, jobOf)
     const nivo = useNivoKnowledge()
     const ideas = useKnowledgeDocIdeas(useFailureToast())
     const waiting = useWaitingFactCount()

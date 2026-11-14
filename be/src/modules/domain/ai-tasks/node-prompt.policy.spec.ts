@@ -76,22 +76,49 @@ describe("node-prompt policy", () => {
     })
 })
 
-describe("node-prompt policy: the shared opening of a node's call (ENG1)", () => {
-    const LAYERED = { ...ASK, instructions: "CRAFT TOOLS\n\nSHOP\n\nSTEP", sharedLength: "CRAFT TOOLS\n\nSHOP".length }
+describe("node-prompt policy: the four layers of a node's call (PROMPT-CACHE)", () => {
+    const LAYERED = { ...ASK, instructions: "STEP", opening: { craft: "CRAFT TOOLS", policies: "WORKSPACE POLICIES" } }
 
-    it("sends L1 + L2 and L3 as two marked system messages, the text cut at the blank line and nothing else changed", () => {
+    it("sends L1, L2 and L3 as three marked system messages, in that order, each text as the host wrote it", () => {
         expect(nodePromptOf(LAYERED).stable).toEqual([
-            { role: "system", content: "CRAFT TOOLS\n\nSHOP", cacheMark: true },
+            { role: "system", content: "CRAFT TOOLS", cacheMark: true },
+            { role: "system", content: "WORKSPACE POLICIES", cacheMark: true },
             { role: "system", content: "STEP", cacheMark: true },
         ])
-        expect(nodePromptOf(LAYERED, ITEMS_SCHEMA).stable[1]?.content.startsWith("STEP\n\nAnswer with one JSON object")).toBe(true)
+        expect(nodePromptOf(LAYERED, ITEMS_SCHEMA).stable[2]?.content.startsWith("STEP\n\nAnswer with one JSON object")).toBe(true)
     })
 
-    it("keeps one marked message when the length names no layer end of the instructions", () => {
-        for (const sharedLength of [undefined, 0, 3, 2.5, 999]) {
-            expect(nodePromptOf({ ...LAYERED, sharedLength }).stable).toEqual([
-                { role: "system", content: LAYERED.instructions, cacheMark: true },
-            ])
-        }
+    it("sends no message and no mark for a layer with no text: no policies, no craft, no opening", () => {
+        expect(nodePromptOf({ ...LAYERED, opening: { craft: "CRAFT TOOLS", policies: "" } }).stable).toEqual([
+            { role: "system", content: "CRAFT TOOLS", cacheMark: true },
+            { role: "system", content: "STEP", cacheMark: true },
+        ])
+        expect(nodePromptOf({ ...LAYERED, opening: { craft: "", policies: "WORKSPACE POLICIES" } }).stable).toHaveLength(2)
+        expect(nodePromptOf(ASK).stable).toEqual([{ role: "system", content: "Rules", cacheMark: true }])
+    })
+
+    it("changes L2 alone when a workspace policy changes: L1, L3 and the volatile part keep their bytes", () => {
+        const before = nodePromptOf(LAYERED, ITEMS_SCHEMA)
+        const after = nodePromptOf({ ...LAYERED, opening: { craft: "CRAFT TOOLS", policies: "WORKSPACE POLICIES, CHANGED" } }, ITEMS_SCHEMA)
+        expect(after.stable[0]).toEqual(before.stable[0])
+        expect(after.stable[1]).not.toEqual(before.stable[1])
+        expect(after.stable[2]).toEqual(before.stable[2])
+        expect(after.volatile).toEqual(before.volatile)
+    })
+
+    it("appends each earlier turn of a loop as its own user message after the input: a later turn only adds at the end", () => {
+        const first = nodeMessagesOf({ ...LAYERED, input: { input: 1, turnsLeft: 2 } })
+        const second = nodeMessagesOf({ ...LAYERED, input: { input: 1, turnsLeft: 2 }, turns: [{ tool: "t", ok: true, turnsLeft: 1 }] })
+        const third = nodeMessagesOf({
+            ...LAYERED,
+            input: { input: 1, turnsLeft: 2 },
+            turns: [
+                { tool: "t", ok: true, turnsLeft: 1 },
+                { done: "refused", turnsLeft: 0 },
+            ],
+        })
+        expect(second.slice(0, first.length)).toEqual(first)
+        expect(third.slice(0, second.length)).toEqual(second)
+        expect(third.at(-1)).toEqual({ role: "user", content: '{"done":"refused","turnsLeft":0}' })
     })
 })

@@ -76,6 +76,15 @@
             "outputs": []
         },
         {
+            "key": "stopped",
+            "label": "stopped",
+            "title": {
+                "vi": "Khách xin ngừng nhắn tin",
+                "en": "Asked not to be messaged"
+            },
+            "outputs": []
+        },
+        {
             "key": "owner",
             "label": "owner",
             "title": {
@@ -110,6 +119,7 @@
     },
     "grant": {
         "tools": [
+            "nivo.tool.contact.update",
             "nivo.tool.conversation.message.list",
             "nivo.tool.customer.message.send",
             "nivo.tool.lead.order.list",
@@ -181,6 +191,7 @@
                 "book": "to-booking",
                 "paid": "to-payment",
                 "complaint": "complaint-reply",
+                "stop": "stop-keep",
                 "question": "answer"
             },
             "mode": "auto",
@@ -262,6 +273,82 @@
                         "default": null
                     }
                 }
+            }
+        },
+        {
+            "key": "stop-keep",
+            "kind": "execute",
+            "step": "chatbot.stop-keep",
+            "params": {
+                "contactId": {
+                    "$ref": "trigger.contactId",
+                    "default": null
+                },
+                "reason": {
+                    "$ref": "steps.understand.output.summary"
+                }
+            },
+            "next": "stop-reply",
+            "mode": "auto",
+            "accounts": [],
+            "unsuccessful": {
+                "then": "end",
+                "outcome": "declined",
+                "facts": []
+            }
+        },
+        {
+            "key": "stop-reply",
+            "kind": "execute",
+            "step": "chatbot.stop-reply",
+            "params": {
+                "conversationId": {
+                    "$ref": "steps.hear.output.conversationId"
+                },
+                "text": {
+                    "$ref": "steps.hear.output.text"
+                },
+                "since": {
+                    "$ref": "steps.hear.output.startedAt"
+                }
+            },
+            "model": "claude-sonnet-5-5",
+            "next": "stopped",
+            "mode": "auto",
+            "accounts": [
+                {
+                    "kind": "messaging",
+                    "provider": "zalo_oa",
+                    "connectionId": null
+                },
+                {
+                    "kind": "messaging",
+                    "provider": "telegram",
+                    "connectionId": null
+                },
+                {
+                    "kind": "messaging",
+                    "provider": "meta",
+                    "connectionId": null
+                }
+            ],
+            "unsuccessful": {
+                "then": "end",
+                "outcome": "declined",
+                "facts": []
+            }
+        },
+        {
+            "key": "stopped",
+            "kind": "output",
+            "step": "core.outcome",
+            "params": {
+                "outcome": "stopped",
+                "outputs": {}
+            },
+            "label": {
+                "vi": "Khách xin ngừng nhắn tin",
+                "en": "Asked not to be messaged"
             }
         },
         {

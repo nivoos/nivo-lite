@@ -108,6 +108,7 @@ const build = async (held: Held = {}) => {
     return {
         service: moduleRef.get(ChannelFrontDoorService),
         connections,
+        installations,
         creation,
         workspaces,
         logger,
@@ -216,12 +217,76 @@ describe("ChannelFrontDoorService > ensureForConnection", () => {
         expect(logger.error).toHaveBeenCalledWith(AgentInstancesLogEvent.FrontDoorFailed, cause, expect.anything())
     })
 
-    it("still throws the install failure when marking the connection fails too", async () => {
+    it("throws the failure of marking the connection too: nothing is swallowed, the next run marks it again", async () => {
         const { service, creation, connections } = await build()
         creation.create.mockRejectedValue(new Error("boom"))
-        connections.patch.mockRejectedValue(new Error("db down"))
+        const marking = new Error("db down")
+        connections.patch.mockRejectedValue(marking)
+
+        await expect(service.ensureForConnection(ACTOR, "c1")).rejects.toBe(marking)
+    })
+
+    it("finishes the workflows of the front door it attaches: an install that failed before them left the agent without", async () => {
+        const { service, creation } = await build({ installed: [installationOf("chatbot", "agent-held")] })
+
+        await service.ensureForConnection(ACTOR, "c1")
+
+        expect(creation.finishWorkflows.mock.calls).toEqual([
+            [{ workspaceId: "w1", installationId: "inst-chatbot", agentId: "agent-held", moduleKey: "chatbot" }],
+        ])
+    })
+
+    it("forward only: a failed install takes nothing back, and the same call run again finishes the half-made agent from what exists", async () => {
+        const { service, creation, connections, installations, grants, abilities } = await build()
+        creation.create.mockRejectedValueOnce(new Error("rights down"))
 
         await expect(service.ensureForConnection(ACTOR, "c1")).rejects.toBeInstanceOf(AgentInstancesError)
+        expect(connections.patch.mock.calls).toEqual([
+            ["w1", "c1", { status: "error", lastError: AgentInstancesErrorCode.FrontDoorFailed }],
+        ])
+
+        // The installation the failed creation made is in the workspace; the connection reads failing.
+        installations.list.mockResolvedValue([installationOf("chatbot", "agent-half")])
+        connections.get.mockResolvedValue({
+            ...connectionOf("telegram"),
+            status: "error",
+            lastError: AgentInstancesErrorCode.FrontDoorFailed,
+        })
+        connections.patch.mockClear()
+
+        await expect(service.ensureForConnection(ACTOR, "c1")).resolves.toEqual({
+            kind: "attached",
+            module: "chatbot",
+            agentId: "agent-half",
+        })
+
+        expect(creation.create).toHaveBeenCalledTimes(1)
+        expect(grants.setGrant).toHaveBeenCalledWith({ principalId: "owner-1", workspaceId: "w1" }, "c1", "agent-half", true)
+        expect(abilities.attachDefaults).toHaveBeenCalledTimes(1)
+        expect(creation.finishWorkflows).toHaveBeenCalledTimes(1)
+        expect(connections.patch.mock.calls).toEqual([["w1", "c1", { status: "connected", lastError: null }]])
+    })
+
+    it("clears the error an earlier failed run left on the connection once the front door is there", async () => {
+        const { service, connections } = await build({ installed: [installationOf("chatbot", "agent-held")] })
+        connections.get.mockResolvedValue({
+            ...connectionOf("telegram"),
+            status: "error",
+            lastError: AgentInstancesErrorCode.FrontDoorFailed,
+        })
+
+        await service.ensureForConnection(ACTOR, "c1")
+
+        expect(connections.patch.mock.calls).toEqual([["w1", "c1", { status: "connected", lastError: null }]])
+    })
+
+    it("leaves an error that is not the front door's alone", async () => {
+        const { service, connections } = await build({ installed: [installationOf("chatbot", "agent-held")] })
+        connections.get.mockResolvedValue({ ...connectionOf("telegram"), status: "error", lastError: "WEBHOOK_REFUSED" })
+
+        await service.ensureForConnection(ACTOR, "c1")
+
+        expect(connections.patch).not.toHaveBeenCalled()
     })
 
     it("fails when the workspace has no owner to install for", async () => {

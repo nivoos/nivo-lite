@@ -66,17 +66,23 @@ export class TypeormNodeEffectStore implements NodeEffectStore {
         return Array.isArray(returned) && returned.length > 0
     }
 
-    /** Settles again a row kept as outcome-unknown, in one conditional statement: true when this call moved it. */
-    async resettle(workspaceId: string, effectKey: string, unknownKind: string, subject: EffectResettle): Promise<boolean> {
+    /** Settles a row still of kind `fromKind` (an intent, an unknown outcome), in one conditional statement: true when this call moved it. */
+    async resettle(workspaceId: string, effectKey: string, fromKind: string, subject: EffectResettle): Promise<boolean> {
         const result = await this.entityManager.update(
             NodeEffectEntity,
-            { workspaceId, effectKey, subjectEntity: unknownKind },
+            { workspaceId, effectKey, subjectEntity: fromKind },
             {
                 subjectEntity: subject.subjectEntity,
                 subjectId: subject.subjectId,
                 facts: subject.facts === null ? null : structuredClone({ ...subject.facts }),
             },
         )
+        return (result.affected ?? 0) > 0
+    }
+
+    /** Deletes the row of a key while it is still of kind `kind`, in one conditional statement: true when this call deleted it. */
+    async release(workspaceId: string, effectKey: string, kind: string): Promise<boolean> {
+        const result = await this.entityManager.delete(NodeEffectEntity, { workspaceId, effectKey, subjectEntity: kind })
         return (result.affected ?? 0) > 0
     }
 }

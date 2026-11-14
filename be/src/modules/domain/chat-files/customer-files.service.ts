@@ -1,9 +1,12 @@
 import { Injectable, Optional } from "@nestjs/common"
 import type { StorageAssetsPort, StorageObjectsPort } from "@modules/integrations/object-storage"
-import { InjectRemoteFiles, type RemoteFiles } from "@modules/integrations/remote-files"
+import { InjectRemoteFiles, type RemoteFileAnswer, type RemoteFiles } from "@modules/integrations/remote-files"
 import { RemoteFilesError, RemoteFilesErrorCode } from "@modules/integrations/remote-files/errors/remote-files.error"
+import { InjectEffects, type Effects } from "@modules/platform/effects"
 import { InjectErrorReporter, isDomainError, type ErrorReporter } from "@modules/platform/errors"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
+import { classifyFailure } from "@modules/platform/queue"
+import { KEEP_FILE_EFFECT } from "@modules/queues/inbound-delivery"
 import { CHAT_FILE_BUCKET, CHAT_FILE_MAX_BYTES, chatFileNameOf, sniffChatFile } from "./chat-file.policy"
 import type { CustomerAttachment, OptionalCustomerFileBytes } from "./chat-files.contracts"
 import { InjectChatFilesAssets, InjectChatFilesStorage } from "./chat-files.decorators"
@@ -13,7 +16,9 @@ import {
     CUSTOMER_FILES_MAX,
     customerFilePathOf,
     customerObjectPathOf,
+    fileOfKept,
     isCustomerFilePath,
+    keptFileOf,
     unreadFileOf,
     type CustomerFile,
     type FileNotKept,
@@ -24,6 +29,15 @@ const NOT_KEPT_SCOPE = "chat_files.customer_file_not_kept"
 
 /** How long one file may take to come from the channel, milliseconds. */
 const FETCH_TIMEOUT_MS = 15_000
+
+/** The job a delivery keeps its files under: the effect keys of its files are `<jobId>:file:<index>`. */
+export interface FileKeepJob {
+    /** The id of the delivery job row (stable across its retries and resumes). */
+    readonly jobId: string
+}
+
+/** What reading a channel's address came to: the answer, or the failure of a read no later try fixes. */
+type ChannelRead = { readonly kind: "answer"; readonly answer: RemoteFileAnswer } | { readonly kind: "refused"; readonly cause: unknown }
 
 /** The media type of a `content-type` value, without its parameters. */
 const mediaTypeOf = (declared: string): string => declared.split(";", 1).join("").trim().toLowerCase()
@@ -48,12 +62,19 @@ export class CustomerFilesService {
         @InjectLogger() private readonly logger: Logger,
         @InjectRemoteFiles() private readonly remote: RemoteFiles,
         @InjectChatFilesStorage() private readonly storage: StorageObjectsPort,
+        @InjectEffects() private readonly effects: Effects,
         @Optional() @InjectChatFilesAssets() private readonly assets?: StorageAssetsPort,
         @Optional() @InjectErrorReporter() private readonly errors?: ErrorReporter,
     ) {}
 
-    /** The files of one customer message as its line keeps them, in the order sent; at most `CUSTOMER_FILES_MAX`. */
+    /**
+     * The files of one customer message as its line keeps them, in the order sent; at most `CUSTOMER_FILES_MAX`. Each file is one outside
+     * effect keyed by the delivery job and the file's place (`<jobId>:file:<index>`): a retried or resumed delivery gets the entry kept the
+     * first time without reading the channel again. A read that failed on the way or on a busy channel THROWS (the job runner retries it on
+     * its ladder, then dead-letters it with one item); a file the channel or the store refuses for good is a typed not-kept entry.
+     */
     keep(
+        job: FileKeepJob,
         workspaceId: string,
         channelEventId: string,
         attachments: ReadonlyArray<CustomerAttachment>,
@@ -61,7 +82,7 @@ export class CustomerFilesService {
         return Promise.all(
             attachments
                 .slice(0, CUSTOMER_FILES_MAX)
-                .map((attachment, index) => this.keptOne(workspaceId, channelEventId, index, attachment)),
+                .map((attachment, index) => this.keptOne(job, workspaceId, channelEventId, index, attachment)),
         )
     }
 
@@ -75,7 +96,8 @@ export class CustomerFilesService {
         return contentType === null ? null : { contentType, bytes: stored.value.bytes }
     }
 
-    private async keptOne(
+    private keptOne(
+        job: FileKeepJob,
         workspaceId: string,
         channelEventId: string,
         index: number,
@@ -83,7 +105,41 @@ export class CustomerFilesService {
     ): Promise<CustomerFile> {
         const at: NotKeptAt = { workspaceId, channelEventId, index, kind: attachment.kind, name: attachment.name }
         if (attachment.url === "") return this.notKept(at, "no_address", null)
-        if (this.assets === undefined) return this.notKept(at, "no_store", null)
+        const { assets } = this
+        if (assets === undefined) return this.notKept(at, "no_store", null)
+        return this.effects.once(`${job.jobId}:file:${String(index)}`, KEEP_FILE_EFFECT, {
+            act: () => this.readAndStore(assets, at, attachment),
+            keep: keptFileOf,
+            from: (kept) => fileOfKept(kept, index, attachment.kind, attachment.name),
+        })
+    }
+
+    /** Reads the channel's address once and writes the checked copy; a transient failure of the read or of the store throws, a refusal is a typed not-kept entry. */
+    private async readAndStore(assets: StorageAssetsPort, at: NotKeptAt, attachment: CustomerAttachment): Promise<CustomerFile> {
+        const read = await this.read(attachment)
+        if (read.kind === "refused") return this.notKept(at, "fetch_failed", read.cause)
+        const { answer } = read
+        const bytes = answer.bytes
+        const contentType = bytes === null ? null : sniffChatFile(bytes)
+        if (bytes === null || contentType === null) {
+            if (classifyFailure({ status: answer.status }) === "transient") {
+                throw new RemoteFilesError({ code: RemoteFilesErrorCode.Unavailable, params: { status: answer.status } })
+            }
+            return this.notKept(at, `refused_${answer.status}`, null)
+        }
+        const path = customerObjectPathOf(at.workspaceId, at.channelEventId, at.index, contentType)
+        const written = await assets.upload(CHAT_FILE_BUCKET, path, bytes, contentType)
+        if (written.error !== null) {
+            if (classifyFailure(written.error) === "transient") {
+                throw new RemoteFilesError({ code: RemoteFilesErrorCode.Unavailable, cause: written.error })
+            }
+            return this.notKept(at, "store_failed", written.error)
+        }
+        return { id: path, url: `${CUSTOMER_FILE_REF}${path}`, name: chatFileNameOf(at.name, path), contentType }
+    }
+
+    /** What the channel's address answered, or the failure of a read no later try fixes (to be recorded as not kept); a transient failure throws. */
+    private async read(attachment: CustomerAttachment): Promise<ChannelRead> {
         try {
             const answer = await this.remote.read({
                 url: attachment.url,
@@ -91,15 +147,10 @@ export class CustomerFilesService {
                 timeoutMs: FETCH_TIMEOUT_MS,
                 accepts: isWanted,
             })
-            const bytes = answer.bytes
-            const contentType = bytes === null ? null : sniffChatFile(bytes)
-            if (bytes === null || contentType === null) return this.notKept(at, `refused_${answer.status}`, null)
-            const path = customerObjectPathOf(workspaceId, channelEventId, index, contentType)
-            const written = await this.assets.upload(CHAT_FILE_BUCKET, path, bytes, contentType)
-            if (written.error !== null) return this.notKept(at, "store_failed", written.error)
-            return { id: path, url: `${CUSTOMER_FILE_REF}${path}`, name: chatFileNameOf(attachment.name, path), contentType }
+            return { kind: "answer", answer }
         } catch (cause) {
-            return this.notKept(at, "fetch_failed", cause)
+            if (classifyFailure(cause) === "transient") throw cause
+            return { kind: "refused", cause }
         }
     }
 

@@ -4,9 +4,11 @@ import { chatbotAnswerNode } from "./answer.node"
 import { chatbotComplaintNotifyNode } from "./complaint-notify.node"
 import { chatbotComplaintReplyNode } from "./complaint-reply.node"
 import { chatbotHearNode } from "./hear.node"
+import { chatbotStopKeepNode } from "./stop-keep.node"
+import { chatbotStopReplyNode } from "./stop-reply.node"
 import { chatbotUnderstandNode } from "./understand.node"
 
-/** The five front-desk nodes: each definition is clean and every worked example holds against the SDK's example runner. */
+/** The front-desk nodes: each definition is clean and every worked example holds against the SDK's example runner. */
 describe("chatbot template nodes", () => {
     it.each([
         ["chatbot.hear", chatbotHearNode],
@@ -14,6 +16,8 @@ describe("chatbot template nodes", () => {
         ["chatbot.answer", chatbotAnswerNode],
         ["chatbot.complaint-reply", chatbotComplaintReplyNode],
         ["chatbot.complaint-notify", chatbotComplaintNotifyNode],
+        ["chatbot.stop-keep", chatbotStopKeepNode],
+        ["chatbot.stop-reply", chatbotStopReplyNode],
     ])("%s conforms", async (id, node) => {
         expect(node.id).toBe(id)
         expect(await checkTemplateNode(node)).toEqual([])
@@ -29,7 +33,7 @@ describe("chatbot template nodes", () => {
     })
 
     it("understand routes by its branch, five ways", () => {
-        expect(chatbotUnderstandNode.routes).toEqual({ by: "branch", names: ["buy", "book", "paid", "complaint", "question"] })
+        expect(chatbotUnderstandNode.routes).toEqual({ by: "branch", names: ["buy", "book", "paid", "complaint", "stop", "question"] })
     })
 
     it("the complaint notice is a side step; the replies block", () => {

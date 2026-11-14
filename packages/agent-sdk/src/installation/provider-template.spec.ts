@@ -56,6 +56,33 @@ describe("defineProviderTemplate", () => {
     })
 })
 
+describe("defineProviderTemplate sandbox answers", () => {
+    const OP = "nivo.api.crm.shopcrm.get.products"
+    const sandboxRefusal = (sandbox: ProviderTemplate["sandbox"]): unknown => refusal({ sandbox })
+
+    it("takes a default answer with its refusal and failure, by the operation's one name", () => {
+        const sandbox = {
+            [OP]: { status: 200, body: { items: [] }, refused: { status: 404, body: { code: "none" } }, failed: { status: 503, body: {} } },
+        }
+        expect(defineProviderTemplate({ ...template, sandbox }).sandbox).toBe(sandbox)
+    })
+
+    it("refuses an operation the document does not serve, and a status or a state of the wrong kind", () => {
+        const at = "provider:crm:shopcrm"
+        const refused = { code: "PROVIDER_SANDBOX_INVALID", params: { at } }
+        expect(sandboxRefusal({ "nivo.api.crm.shopcrm.get.orders": { status: 200, body: {} } })).toMatchObject(refused)
+        expect(sandboxRefusal({ [OP]: { status: 404, body: {} } })).toMatchObject(refused)
+        expect(sandboxRefusal({ [OP]: { status: 200, body: {}, refused: { status: 500, body: {} } } })).toMatchObject(refused)
+        expect(sandboxRefusal({ [OP]: { status: 200, body: {}, failed: { status: 422, body: {} } } })).toMatchObject(refused)
+        expect(
+            sandboxRefusal({
+                [OP]: { status: 200, body: {}, keeps: { collection: "a", keyField: "id" }, listsBack: { collection: "a", listField: "items" } },
+            }),
+        ).toMatchObject(refused)
+        expect(sandboxRefusal({ [OP]: { status: 200, body: {}, readsBack: { collection: "", keyParam: "id" } } })).toMatchObject(refused)
+    })
+})
+
 describe("an installation's provider templates", () => {
     it("lists each template once and names the plugin that declares it", () => {
         const installed = defineInstallation([{ key: "core" }, { key: "shop", providers: [template] }], "")

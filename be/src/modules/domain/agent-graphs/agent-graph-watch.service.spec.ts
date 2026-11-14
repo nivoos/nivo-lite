@@ -1,29 +1,10 @@
 import { Test } from "@nestjs/testing"
 import { mock } from "@starci/jest-preset"
-import { BrainFactsService } from "@modules/domain/brain-facts"
-import type { FactRecord } from "@modules/domain/brain-facts"
 import { InstallationRecordsService } from "@modules/domain/module-installations"
-import { WorkspacesService } from "@modules/domain/workspaces"
 import { stateOf } from "@tests/fixtures/builders/agent-graph.builder"
-import { AgentGraphProposalsService } from "./agent-graph-proposals.service"
 import { AgentGraphSeedService } from "./agent-graph-seed.service"
 import { AgentGraphWatchService } from "./agent-graph-watch.service"
 import { AgentGraphsService } from "./agent-graphs.service"
-import type { BrainSourceInForce } from "./agent-graphs.service"
-import { valueHashOf } from "./policies/conflict.policy"
-
-const SOURCE: BrainSourceInForce = {
-    workspaceId: "ws-1",
-    agentId: "agent-1",
-    versionId: "version-1",
-    nodeKey: "decide",
-    branchKey: "middle",
-    factId: "fact-1",
-    valueHash: valueHashOf("Over 5tr ask Dinh"),
-}
-
-const factOf = (id: string, status: string, value: string): FactRecord =>
-    Object.assign(mock<FactRecord>(), { id, status, value, subjectKey: "policy", attribute: "approval" })
 
 interface Row {
     id: string
@@ -46,9 +27,6 @@ const build = async (
         missing?: ReadonlyArray<string>
         seeded?: boolean
         state?: ReturnType<typeof stateOf> | null
-        sources?: ReadonlyArray<BrainSourceInForce>
-        cited?: FactRecord | null
-        successor?: FactRecord | null
     } = {},
 ) => {
     const pages = options.pages ?? [[rowOf("inst-1", "agent-1")]]
@@ -63,41 +41,17 @@ const build = async (
         stateOfAgent: jest
             .fn()
             .mockResolvedValue(options.state === undefined ? stateOf({ mode: "enforced" }) : options.state),
-        brainSourcesInForce: jest.fn().mockResolvedValue(options.sources ?? []),
     })
     const seed = mock<AgentGraphSeedService>({
         ensureFor: jest.fn().mockResolvedValue(options.seeded === false ? null : stateOf()),
         refresh: jest.fn().mockResolvedValue(options.moved ?? false),
     })
-    const proposals = mock<AgentGraphProposalsService>({
-        raiseConflict: jest.fn().mockResolvedValue(true),
-    })
-    const brain = mock<BrainFactsService>({
-        get: jest
-            .fn()
-            .mockResolvedValue(
-                options.cited === undefined ? factOf("fact-1", "superseded", "Over 5tr ask Dinh") : options.cited,
-            ),
-        byKey: jest
-            .fn()
-            .mockResolvedValue(
-                options.successor === null
-                    ? []
-                    : [options.successor ?? factOf("fact-2", "active", "Over 8tr ask Dinh")],
-            ),
-    })
-    const workspaces = mock<WorkspacesService>({
-        list: jest.fn().mockResolvedValue([{ id: "ws-1", name: "Shop" }]),
-    })
     const moduleRef = await Test.createTestingModule({
         providers: [
             AgentGraphWatchService,
-            { provide: WorkspacesService, useValue: workspaces },
             { provide: InstallationRecordsService, useValue: installations },
             { provide: AgentGraphsService, useValue: graphs },
             { provide: AgentGraphSeedService, useValue: seed },
-            { provide: AgentGraphProposalsService, useValue: proposals },
-            { provide: BrainFactsService, useValue: brain },
         ],
     }).compile()
     return {
@@ -105,9 +59,6 @@ const build = async (
         installations,
         graphs,
         seed,
-        proposals,
-        brain,
-        workspaces,
     }
 }
 
@@ -184,39 +135,11 @@ describe("AgentGraphWatchService refreshing", () => {
     })
 })
 
-describe("AgentGraphWatchService the Brain rules", () => {
-    it("raises a conflict when the rule a node cites was replaced by one that says something else, and changes no graph", async () => {
-        const { service, proposals, graphs } = await build({ missing: [], sources: [SOURCE] })
+describe("AgentGraphWatchService proposes nothing", () => {
+    it("answers only what it seeded and refreshed: a stored graph is a template version, so no Brain rule raises a graph proposal", async () => {
+        const { service } = await build({ missing: [], moved: true })
 
-        await expect(service.tick()).resolves.toMatchObject({ conflicts: 1 })
-
-        expect(proposals.raiseConflict).toHaveBeenCalledWith("ws-1", "agent-1", "version-1", {
-            nodeKey: "decide",
-            branchKey: "middle",
-            oldFactId: "fact-1",
-            newFactId: "fact-2",
-            newValueHash: valueHashOf("Over 8tr ask Dinh"),
-            dedupeKey: "conflict:decide:fact-2",
-        })
-        expect(graphs.brainSourcesInForce).toHaveBeenCalledWith("ws-1", 500)
-    })
-
-    it("raises nothing while the cited rule is in force, is gone, has no successor, or the proposal already exists", async () => {
-        const inForce = await build({
-            missing: [],
-            sources: [SOURCE],
-            cited: factOf("fact-1", "active", "Over 5tr ask Dinh"),
-        })
-        const gone = await build({ missing: [], sources: [SOURCE], cited: null })
-        const alone = await build({ missing: [], sources: [SOURCE], successor: null })
-        const known = await build({ missing: [], sources: [SOURCE] })
-        known.proposals.raiseConflict.mockResolvedValue(false)
-
-        for (const built of [inForce, gone, alone]) {
-            await expect(built.service.tick()).resolves.toMatchObject({ conflicts: 0 })
-            expect(built.proposals.raiseConflict).not.toHaveBeenCalled()
-        }
-        await expect(known.service.tick()).resolves.toMatchObject({ conflicts: 0 })
+        await expect(service.tick()).resolves.toEqual({ seeded: 0, refreshed: 1 })
     })
 })
 
@@ -235,22 +158,5 @@ describe("AgentGraphWatchService the workspaces of a tick", () => {
             ["ws-1", ["agent-1", "agent-3"]],
             ["ws-2", ["agent-2"]],
         ])
-    })
-
-    it("visits a slice of workspaces per tick and starts over after the last one", async () => {
-        const full = Array.from({ length: 50 }, (_unused, index) => ({ id: `ws-${index}`, name: "Shop" }))
-        const { service, workspaces, graphs } = await build({ missing: [] })
-        workspaces.list.mockResolvedValueOnce(full).mockResolvedValueOnce([{ id: "ws-99", name: "Shop" }])
-
-        await service.tick()
-        await service.tick()
-        await service.tick()
-
-        expect(workspaces.list.mock.calls).toEqual([
-            [50, undefined],
-            [50, "ws-49"],
-            [50, undefined],
-        ])
-        expect(graphs.brainSourcesInForce).toHaveBeenCalledTimes(50 + 1 + 1)
     })
 })

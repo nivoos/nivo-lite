@@ -6,7 +6,6 @@ import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { unwrapOutcome } from "@modules/platform/primitives"
 import { InjectKnowledgeQueue, type KnowledgeQueue } from "@modules/queues/knowledge"
 import { KnowledgeSourcesError, KnowledgeSourcesErrorCode } from "./errors/knowledge-sources.error"
-import { KnowledgeProgressService } from "./knowledge-progress.service"
 import {
     PUBLIC_DOCUMENT_ORIGIN,
     type PublishedSourceInput,
@@ -31,7 +30,6 @@ export class PublishedSourcesService {
         @InjectClock() private readonly clock: Clock,
         @InjectKnowledgeQueue() private readonly queue: KnowledgeQueue,
         private readonly quota: SourceQuotaService,
-        private readonly progress: KnowledgeProgressService,
         @Optional() private readonly vectorSync?: VectorSyncService,
     ) {}
 
@@ -71,7 +69,6 @@ export class PublishedSourcesService {
             return { id }
         }
         const ref = manager === undefined ? await this.entityManager.transaction(write) : await write(manager)
-        if (manager === undefined) await this.announce(workspaceId, ref.id)
         return ref
     }
 
@@ -95,7 +92,6 @@ export class PublishedSourcesService {
         }
         if (manager === undefined) await this.entityManager.transaction(write)
         else await write(manager)
-        if (manager === undefined) await this.announce(workspaceId, sourceId)
         return { id: sourceId }
     }
 
@@ -108,11 +104,6 @@ export class PublishedSourcesService {
         })
         // The vector index lets go of its points in the same transaction (QDRANT-2 contract).
         await this.vectorSync?.changedSource(workspaceId, sourceId, manager)
-    }
-
-    /** Announces the committed source after the caller's approval transaction has finished. */
-    announce(workspaceId: string, sourceId: string): Promise<void> {
-        return this.progress.announce(workspaceId, sourceId)
     }
 
     /** The id the insert answered; a write that answered none is a source that is not there. */

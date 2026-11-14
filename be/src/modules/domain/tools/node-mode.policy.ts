@@ -13,7 +13,7 @@ export interface NodeRequestAccount {
     readonly kind: string
     /** The provider key as nodes name it (`google`, `sepay`, a source key such as `crm`). */
     readonly provider: string
-    /** Always null in a template; a stored `@1` node may pin one account. */
+    /** The account the shop chose for this provider on its copy (node settings: an entry per chosen account, in try order); null: none chosen. */
     readonly connectionId: string | null
 }
 

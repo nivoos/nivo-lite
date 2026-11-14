@@ -41,6 +41,7 @@ const build = async () => {
         status: "delivered",
         events: 1,
         dropped: 0,
+        sameFact: 0,
         woken: [{ agentId: "sales-1", workflowId: "wf-consult", eventId: "e", wakeId: "wake-9" }],
         repeats: 0,
         untaken: 0,
@@ -112,7 +113,7 @@ describe("AgentTagEffectService", () => {
 
     it("answers a repeat of the same call with its event key", async () => {
         const { executor, triggers } = await build()
-        triggers.deliver.mockResolvedValue({ status: "delivered", events: 1, dropped: 0, woken: [], repeats: 1, untaken: 0, held: 0 })
+        triggers.deliver.mockResolvedValue({ status: "delivered", events: 1, dropped: 0, sameFact: 0, woken: [], repeats: 1, untaken: 0, held: 0 })
 
         await expect(
             executor.execute(
@@ -134,7 +135,7 @@ describe("AgentTagEffectService", () => {
             refusal(AgentsErrorCode.TagRefused),
         )
         expect(triggers.deliver).not.toHaveBeenCalled()
-        triggers.deliver.mockResolvedValueOnce({ status: "delivered", events: 1, dropped: 0, woken: [], repeats: 0, untaken: 1, held: 0 })
+        triggers.deliver.mockResolvedValueOnce({ status: "delivered", events: 1, dropped: 0, sameFact: 0, woken: [], repeats: 0, untaken: 1, held: 0 })
         await expect(executor.execute(TURN, { toModuleKey: "sales", text: "consult", context: CALLED }, CALL)).rejects.toMatchObject(
             refusal(AgentsErrorCode.TagRefused),
         )

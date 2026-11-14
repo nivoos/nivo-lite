@@ -20,7 +20,6 @@ export {
     slotOf,
 } from "./fakes"
 export { AMOUNT_FACT, OWNER_BRANCHES, amountIs, approverOf, branchOf, graphOf, nodeOf } from "./graph"
-export { CREATOR, PARAMETERS, SECRET_IN_ENV, draftOf, leakyGraph, packageOf, withExtraBranch } from "./package"
 export { sampleVocabulary } from "./vocabulary"
 export { ACME_TICKET_GET, ACME_TICKET_LIST, ACME_TICKET_UPDATE, OTHER_THING_LIST } from "./connector-tools"
 export type { FakeExecuted, FakeNodePorts, FakeNodePortsOptions, FakeToolCall, FakeWrite } from "./node-ports"

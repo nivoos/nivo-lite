@@ -1,7 +1,6 @@
-import type { ClaimedJob, JobClaims } from "@modules/platform/jobs"
+import { payloadOfJob, type ClaimedJob, type JobClaims } from "@modules/platform/jobs"
 import {
-    isSepayDeliveryRecorded,
-    SEPAY_DELIVERY_QUEUE,
+    DELIVER_SEPAY_JOB,
     type SepayDeliveryRecorded,
 } from "@modules/queues/sepay-delivery"
 import { InjectEntityInbox, type EntityInbox } from "@modules/platform/inbox"
@@ -87,21 +86,22 @@ export class SepayTransactionsService {
             })
             if (receiptId === undefined) return
             const message: SepayDeliveryRecorded = { deliveryId }
-            await this.outbox.write(manager, SEPAY_DELIVERY_QUEUE, message, {
-                dedupeKey: `${SEPAY_DELIVERY_QUEUE}:${deliveryId}`,
+            await this.outbox.write(manager, DELIVER_SEPAY_JOB.queue, message, {
+                job: DELIVER_SEPAY_JOB.name,
+                dedupeKey: DELIVER_SEPAY_JOB.onceKey(message),
             })
         })
     }
 
-    /** Validates the receipt before advancing its live fence, then consumes the committed receipt. */
+    /** Records the step with the live fence, then consumes the committed receipt (the runner already refused a payload the declaration does not accept). */
     async processClaimedDelivery(job: ClaimedJob, claims: JobClaims): Promise<void> {
-        if (!isSepayDeliveryRecorded(job.payload)) return
+        const message = payloadOfJob(DELIVER_SEPAY_JOB, job)
         await claims.advance({
             jobId: job.jobId,
             expectedFencingToken: job.fencingToken,
             step: "sepay-delivery",
         })
-        await this.processRecordedDelivery(job.payload)
+        await this.processRecordedDelivery(message)
     }
 
     /** Settles one committed receipt and completes it in the same retryable transaction. */

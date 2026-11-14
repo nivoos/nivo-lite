@@ -1,7 +1,9 @@
 import { Test } from "@nestjs/testing"
 import {
     customerObjectPathOf,
+    fileOfKept,
     isCustomerFilePath,
+    keptFileOf,
     picturesNotSeenOf,
     withPicturesNotSeen,
 } from "./customer-files.policy"
@@ -14,7 +16,7 @@ const build = async () => {
         providers: [
             {
                 provide: SUBJECT,
-                useValue: { customerObjectPathOf, isCustomerFilePath, picturesNotSeenOf, withPicturesNotSeen },
+                useValue: { customerObjectPathOf, fileOfKept, isCustomerFilePath, keptFileOf, picturesNotSeenOf, withPicturesNotSeen },
             },
         ],
     }).compile()
@@ -44,5 +46,22 @@ describe("customer files policy", () => {
         expect(policy.isCustomerFilePath("ws-1", path)).toBe(true)
         expect(policy.isCustomerFilePath("ws-2", path)).toBe(false)
         expect(policy.isCustomerFilePath("ws-1", "ws-1/chat/customer/../office/x.png")).toBe(false)
+    })
+
+    it("keeps a file entry on the ledger as JSON and reads the same entry back, a not-kept one with its reason", async () => {
+        const policy = await build()
+        const kept = { id: "ws-1/chat/customer/k-0.jpg", url: "chat-file:ws-1/chat/customer/k-0.jpg", name: "k-0.jpg", contentType: "image/jpeg" }
+        const refused = { id: "unread:refused_404:1", url: "", name: "", contentType: "image/*", notKept: "refused_404" as const }
+
+        expect(policy.fileOfKept(policy.keptFileOf(kept), 0, "image", "")).toEqual(kept)
+        expect(policy.fileOfKept(policy.keptFileOf(refused), 1, "image", "")).toEqual(refused)
+        expect(policy.keptFileOf(kept)).not.toHaveProperty("notKept")
+    })
+
+    it("reads a ledger row no code wrote as a file that was not kept, never as a kept address", async () => {
+        const policy = await build()
+
+        expect(policy.fileOfKept({ url: 7 }, 2, "file", "a.pdf")).toMatchObject({ id: "unread:store_failed:2", url: "", name: "a.pdf" })
+        expect(policy.fileOfKept(null, 0, "image", "")).toMatchObject({ url: "", notKept: "store_failed" })
     })
 })

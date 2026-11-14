@@ -15,9 +15,6 @@ export const POLL_PAGE_SIZE = 200
 /** The most pages one connection reads in one run. */
 export const POLL_MAX_PAGES = 20
 
-/** The pause between two calls to a provider. */
-export const POLL_PAUSE_MS = 600
-
 /** The newest instant the poll has read for a connection, or undefined when it never read one or the fact is unreadable. */
 export const cursorOf = (meta: Readonly<Record<string, string>>): Date | undefined => {
     const text = meta[POLL_CURSOR_KEY]
@@ -60,3 +57,17 @@ export const metaWithCursor = (
     ...meta,
     [POLL_CURSOR_KEY]: seenAt.toISOString(),
 })
+
+/**
+ * The rows of a walk in the provider's TIME ORDER, oldest first (pages are read newest first): a row with no time keeps its place after
+ * the timed rows it was read with. Stable: two rows of one instant keep the order the provider listed them in, reversed with their page.
+ */
+export const inTimeOrder = <Row extends { readonly at: Date | null }>(rows: ReadonlyArray<Row>): ReadonlyArray<Row> =>
+    rows
+        .map((row, index) => ({ row, index }))
+        .sort((left, right) => {
+            const a = left.row.at?.getTime() ?? Number.POSITIVE_INFINITY
+            const b = right.row.at?.getTime() ?? Number.POSITIVE_INFINITY
+            return a === b ? right.index - left.index : a - b
+        })
+        .map((entry) => entry.row)

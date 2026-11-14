@@ -57,6 +57,16 @@ const query1: Document = gql`
                     at
                 }
             }
+            doNotContact {
+                doNotContact
+                at
+                by {
+                    kind
+                    id
+                    name
+                }
+                reason
+            }
             suggestions {
                 contactId
                 displayName

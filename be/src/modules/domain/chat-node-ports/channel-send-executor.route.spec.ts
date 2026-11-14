@@ -1,6 +1,6 @@
 import type { RouteHold } from "@modules/domain/customer-routes"
 import type { NodeTurn } from "@modules/domain/graph-nodes"
-import type { LeadMemoryService } from "@modules/domain/lead-memory"
+import type { ContactConsent } from "@modules/domain/contacts"
 import { CALL, PERSON, TELEGRAM_ACCOUNT, TURN, WHERE, build, contact, identity } from "@tests/fixtures/builders/channel-send-executor.builder"
 import { ChatNodePortsError } from "./errors/chat-node-ports.error"
 
@@ -25,7 +25,8 @@ const withHolds = (world: World): Map<string, RouteHold> => {
     return holds
 }
 
-const optedOut = { lead: { careOptOut: true } } as unknown as Awaited<ReturnType<LeadMemoryService["snapshot"]>>
+/** The contact's consent fact: the person may not be written to first. */
+const optedOut: ContactConsent = { doNotContact: true, at: "2026-11-04T08:00:00.000Z", by: { kind: "member", memberId: "m-owner" }, reason: "asked to stop" }
 
 describe("ChannelSendExecutorService: a send addressed by a route (rule S-2)", () => {
     it("before: a run that serves nobody, naming no route, has nobody to speak to", async () => {
@@ -43,21 +44,22 @@ describe("ChannelSendExecutorService: a send addressed by a route (rule S-2)", (
         expect(world.delivery.deliverToPerson).toHaveBeenCalledWith(
             expect.objectContaining({ routeId: WHERE.routeId, channel: "telegram", accountId: TELEGRAM_ACCOUNT, userId: "555" }),
         )
-        expect(world.memory.snapshot).toHaveBeenCalled()
+        expect(world.contacts.consentOf).toHaveBeenCalledWith("ws-1", PERSON)
         expect(world.ledger.rows).toEqual([expect.objectContaining({ sendKey: CALL.key, routeId: WHERE.routeId, contactId: PERSON })])
     })
 
     it("the same consent: a person who opted out of unprompted messages is not written to", async () => {
         const world = await build()
-        world.memory.snapshot.mockResolvedValue(optedOut)
+        world.contacts.consentOf.mockResolvedValue(optedOut)
         await expect(world.executor.execute(NOBODY, BY_ROUTE, CALL)).resolves.toMatchObject({ kind: "refused", id: "customer_opted_out" })
         expect(world.delivery.deliverToPerson).not.toHaveBeenCalled()
     })
 
     it("a reply on the run's own woken route is a reply (no opt-out read), whichever way it is addressed", async () => {
         const world = await build()
-        world.memory.snapshot.mockResolvedValue(optedOut)
+        world.contacts.consentOf.mockResolvedValue(optedOut)
         await expect(world.executor.execute(TURN, BY_ROUTE, CALL)).resolves.toMatchObject({ kind: "message" })
+        expect(world.contacts.consentOf).not.toHaveBeenCalled()
     })
 
     it("the same hold: a route a member holds refuses `route_held`, in the check and in the send", async () => {

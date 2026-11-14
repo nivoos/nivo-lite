@@ -33,6 +33,7 @@ export const chatbotModule: ModuleDeclaration = defineModule({
     agent: {
         tools: [
             TOOL.agentTag,
+            TOOL.contactUpdate,
             TOOL.customerMessageSend,
             TOOL.teamMessagePost,
             TOOL.brainChangePropose,

@@ -195,17 +195,13 @@ export class SourceQuotaService {
         if (path !== null && refusedBySize) await this.storage.remove(KNOWLEDGE_UPLOAD_BUCKET, [path])
     }
 
-    /**
-     * After a requeue is written: removes the object a new upload replaced (a storage failure only leaves it behind) and waits for the
-     * announcement of the source.
-     */
-    async settleReplaced(replaced: MaybeStoragePath, announced: Promise<void>): Promise<void> {
+    /** After a requeue is written: removes the object a new upload replaced (a storage failure only leaves it behind). */
+    async settleReplaced(replaced: MaybeStoragePath): Promise<void> {
         if (replaced !== null) {
             await this.storage.remove(KNOWLEDGE_UPLOAD_BUCKET, [replaced]).catch((cause: unknown) => {
                 this.logger.error(KnowledgeSourcesLogEvent.ReplacedObjectKept, cause, { path: replaced })
             })
         }
-        await announced
     }
 
     /**

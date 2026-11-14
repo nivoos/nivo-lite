@@ -144,10 +144,29 @@ const Outcomes = (props: PartProps<WorkflowOverviewView["outcomes"]>) => (
     />
 )
 
+/** What the origin section draws. */
+interface OriginProps {
+    readonly origin: NonNullable<WorkflowOverviewView["origin"]>
+    readonly isLoading: boolean
+}
+
+/** Where the graph came from: the template, its package and version as label / value rows, and the one sentence under them. */
+const Origin = (props: OriginProps) => (
+    <Section
+        kind="list"
+        title={props.origin.title}
+        headingLevel={2}
+        caption={props.origin.note}
+        isLoading={props.isLoading}
+        empty={null}
+        items={props.origin.rows.map((row) => ({ id: row.id, title: row.label, value: <Text>{row.value}</Text> }))}
+    />
+)
+
 /**
  * The overview of a workflow ("In and Out"), one section per question, each with its head and count: what starts it, the input it
  * needs and who may call it, what it ends with, and which workflow each hand-off calls with the params it hands over (and where each
- * comes from). A lone table or list is its own surface, so no card wraps it.
+ * comes from), and where the graph came from (the template, package and version; the graph is the package's and is only read). A lone table or list is its own surface, so no card wraps it.
  */
 export const AgentWorkflowOverview = (props: AgentWorkflowOverviewProps) => {
     const { copy, view, isLoading } = props.props
@@ -159,6 +178,7 @@ export const AgentWorkflowOverview = (props: AgentWorkflowOverviewProps) => {
             {view.calls.map((call) => (
                 <CallCard key={call.id} copy={copy} call={call} isLoading={isLoading} />
             ))}
+            {view.origin === null ? null : <Origin origin={view.origin} isLoading={isLoading} />}
         </Stack>
     )
 }

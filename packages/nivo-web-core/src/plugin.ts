@@ -1,13 +1,13 @@
 import { definePlugin, type Plugin } from "@nivo-lite/agent-sdk/installation"
-import type { AgentBundle } from "./modules/agent-bundle"
-import { WEBBOOKS_BUNDLE } from "./modules/webbooks"
-import { webdesk } from "./modules/webdesk"
-import { WEBDOCS_BUNDLE } from "./modules/webdocs"
-import { WEBMAIL_BUNDLE } from "./modules/webmail"
-import { WEBRENEW_BUNDLE } from "./modules/webrenew"
-import { websales } from "./modules/websales"
-import { CRM_TOOL_LABELS, crmToolWordsOf, crmTools } from "./vocabulary/crm-tools"
-import { NIVOWEB_CRM } from "./crm/nivoweb/template"
+import type { AgentBundle } from "./shared/agent-bundle"
+import { WEBBOOKS_BUNDLE } from "./agents/webbooks"
+import { webdesk } from "./agents/webdesk"
+import { WEBDOCS_BUNDLE } from "./agents/webdocs"
+import { WEBMAIL_BUNDLE } from "./agents/webmail"
+import { WEBRENEW_BUNDLE } from "./agents/webrenew"
+import { websales } from "./agents/websales"
+import { CRM_TOOL_LABELS, crmToolWordsOf, crmTools } from "./shared/vocabulary/crm-tools"
+import { NIVOWEB_CRM } from "./shared/crm/nivoweb/template"
 
 /** The agents of NIVO Web, in catalogue order. */
 const AGENTS: ReadonlyArray<AgentBundle> = [

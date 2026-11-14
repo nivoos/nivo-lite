@@ -26,7 +26,7 @@ import { z } from "zod"
 // on SMALL GENERIC GRAPHS of the generic fixture's check node, judged by the engine's own pure functions as the router, the trigger takers
 // and the agent page read them (`triggerBindingOf`, `triggerFiringOf`, `graphReadinessOf`) and by the SDK's save checks
 // (`templateGraphProblems`, `sharedVerbProblems`) with the engine's trigger lookup. The provider-backed verb is the core mail road
-// (`mail.message.received` on IMAP): core provider plumbing, no business. The wake dedupe (one event = one run) is NOT proved here: the
+// (`mail.message.received` on a mailbox account): core provider plumbing, no business. The wake dedupe (one event = one run) is NOT proved here: the
 // world's wake table is a fake (`thread-world-process.ts` `workProvidersOf`); see the report.
 
 
@@ -42,8 +42,8 @@ const graphOf = (key: string, triggers: Parameters<typeof defineTemplateGraph>[0
         nodes: { check: node(checkNode, { input: { noteId: "n1" }, next: "done" }), done: outcome({ name: "done" }) },
     })
 
-/** The mailbox graph: woken by a mail on any attached IMAP account (each one source per mailbox). */
-const mailGraph = graphOf("tcore.mail", [trigger(TRIGGER.mailMessageReceived, { accounts: [PROVIDER.imap] })])
+/** The mailbox graph: woken by a mail on any attached mailbox account (kind smtp, its inbound half read by imap) (each one source per mailbox). */
+const mailGraph = graphOf("tcore.mail", [trigger(TRIGGER.mailMessageReceived, { accounts: [PROVIDER.smtp] })])
 
 /** The clock graph: woken by the engine's own road (no account). */
 const clockGraph = graphOf("tcore.clock", [trigger(TRIGGER.clockTick, { args: { every: "1h" } })])
@@ -56,16 +56,16 @@ const engineOf = (graph: TemplateGraph): GraphSpec => graphOfSpecV2(graph.spec, 
 /** Two attached mailboxes and their public facts (the stream each reads is its address). */
 const mailboxes = (first: string, second: string): TriggerReadinessFacts => ({
     attachments: [
-        { provider: PROVIDER.imap, connectionId: "imap-1" },
-        { provider: PROVIDER.imap, connectionId: "imap-2" },
+        { provider: PROVIDER.smtp, connectionId: "mailbox-1" },
+        { provider: PROVIDER.smtp, connectionId: "mailbox-2" },
     ],
     publicFacts: new Map([
-        ["imap-1", { email: first }],
-        ["imap-2", { email: second }],
+        ["mailbox-1", { email: first }],
+        ["mailbox-2", { email: second }],
     ]),
     switches: new Map([
-        ["imap-1", [{ triggerName: "mail.received", enabled: true }]],
-        ["imap-2", [{ triggerName: "mail.received", enabled: true }]],
+        ["mailbox-1", [{ triggerName: "mail.received", enabled: true }]],
+        ["mailbox-2", [{ triggerName: "mail.received", enabled: true }]],
     ]),
 })
 
@@ -80,8 +80,8 @@ describe("one source per stream", () => {
 
         const binding = triggerBindingOf(graph, facts)
         expect(binding.sources.map((one) => [one.connectionId, one.stream])).toEqual([
-            ["imap-1", "mailbox:cto@shop.vn"],
-            ["imap-2", "mailbox:ketoan@shop.vn"],
+            ["mailbox-1", "mailbox:cto@shop.vn"],
+            ["mailbox-2", "mailbox:ketoan@shop.vn"],
         ])
         expect(binding.contested).toEqual([])
         expect(readinessOf(graph, facts)).toMatchObject({ hidden: false })
@@ -95,21 +95,21 @@ describe("one source per stream", () => {
         expect(triggerBindingOf(graph, facts).sources).toEqual([])
         expect(triggerFiringOf(graph, facts)).toEqual({
             canFire: false,
-            blocked: [{ provider: PROVIDER.imap, verb: TRIGGER.mailMessageReceived, reason: "needs_pick", stream: "mailbox:ketoan@shop.vn", connectionIds: ["imap-1", "imap-2"] }],
+            blocked: [{ provider: PROVIDER.smtp, verb: TRIGGER.mailMessageReceived, reason: "needs_pick", stream: "mailbox:ketoan@shop.vn", connectionIds: ["mailbox-1", "mailbox-2"] }],
         })
-        expect(readinessOf(graph, facts)).toMatchObject({ hidden: true, waitingFor: [PROVIDER.imap] })
+        expect(readinessOf(graph, facts)).toMatchObject({ hidden: true, waitingFor: [PROVIDER.smtp] })
     })
 
     it("after the founder's pick ONE account wakes it: the other is muted, the graph shows", () => {
         const graph = engineOf(mailGraph)
         const facts: TriggerReadinessFacts = {
             ...mailboxes("ketoan@shop.vn", "ketoan@shop.vn"),
-            picks: [{ verb: TRIGGER.mailMessageReceived, stream: "mailbox:ketoan@shop.vn", connectionId: "imap-2" }],
+            picks: [{ verb: TRIGGER.mailMessageReceived, stream: "mailbox:ketoan@shop.vn", connectionId: "mailbox-2" }],
         }
 
         const binding = triggerBindingOf(graph, facts)
-        expect(binding.sources.map((one) => one.connectionId)).toEqual(["imap-2"])
-        expect(binding.muted.map((one) => one.connectionId)).toEqual(["imap-1"])
+        expect(binding.sources.map((one) => one.connectionId)).toEqual(["mailbox-2"])
+        expect(binding.muted.map((one) => one.connectionId)).toEqual(["mailbox-1"])
         expect(readinessOf(graph, facts)).toMatchObject({ hidden: false })
     })
 })
@@ -120,13 +120,13 @@ describe("a graph none of whose triggers can fire is hidden", () => {
 
         expect(readinessOf(graph, { attachments: [] })).toMatchObject({
             hidden: true,
-            blocked: [{ provider: PROVIDER.imap, verb: TRIGGER.mailMessageReceived, reason: "not_connected" }],
+            blocked: [{ provider: PROVIDER.smtp, verb: TRIGGER.mailMessageReceived, reason: "not_connected" }],
         })
         const off: TriggerReadinessFacts = {
-            attachments: [{ provider: PROVIDER.imap, connectionId: "imap-1" }],
-            switches: new Map([["imap-1", [{ triggerName: "mail.received", enabled: false }]]]),
+            attachments: [{ provider: PROVIDER.smtp, connectionId: "mailbox-1" }],
+            switches: new Map([["mailbox-1", [{ triggerName: "mail.received", enabled: false }]]]),
         }
-        expect(readinessOf(graph, off)).toMatchObject({ hidden: true, blocked: [{ provider: PROVIDER.imap, verb: TRIGGER.mailMessageReceived, reason: "trigger_off" }] })
+        expect(readinessOf(graph, off)).toMatchObject({ hidden: true, blocked: [{ provider: PROVIDER.smtp, verb: TRIGGER.mailMessageReceived, reason: "trigger_off" }] })
     })
 
     it("a verb of the engine's own road (clock.tick) needs no account: it always fires", () => {
@@ -147,7 +147,7 @@ describe("the save checks of triggers, with the engine's trigger lookup", () => 
     })
 
     it("the same verb on two graphs of one agent: refused with no `where`, taken with exactly disjoint `where`", () => {
-        const bare: readonly [TemplateGraph, ...Array<TemplateGraph>] = [mailGraph, graphOf("tcore.mail-2", [trigger(TRIGGER.mailMessageReceived, { accounts: [PROVIDER.imap] })])]
+        const bare: readonly [TemplateGraph, ...Array<TemplateGraph>] = [mailGraph, graphOf("tcore.mail-2", [trigger(TRIGGER.mailMessageReceived, { accounts: [PROVIDER.smtp] })])]
         expect(sharedVerbProblems({ key: "tcore", graphs: bare }).map((one) => one.code)).toEqual([
             "TRIGGER_VERB_SHARED",
             "TRIGGER_VERB_SHARED",
@@ -155,7 +155,7 @@ describe("the save checks of triggers, with the engine's trigger lookup", () => 
 
         const keyed = (key: string, mailbox: string) =>
             graphOf(key, [
-                trigger(TRIGGER.mailMessageReceived, { accounts: [PROVIDER.imap], where: [{ param: "mailbox", op: "equals", value: mailbox }] }),
+                trigger(TRIGGER.mailMessageReceived, { accounts: [PROVIDER.smtp], where: [{ param: "mailbox", op: "equals", value: mailbox }] }),
             ])
         const disjoint: readonly [TemplateGraph, ...Array<TemplateGraph>] = [keyed("tcore.cto", "cto@shop.vn"), keyed("tcore.ketoan", "ketoan@shop.vn")]
         expect(sharedVerbProblems({ key: "tcore", graphs: disjoint })).toEqual([])

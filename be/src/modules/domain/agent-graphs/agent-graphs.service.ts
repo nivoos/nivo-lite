@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto"
 import { Injectable, Optional } from "@nestjs/common"
 import { EntityEngineService, type ScopedTx } from "@modules/domain/entity-engine"
-import { InjectClock, type Clock } from "@modules/platform/clock"
 import { eachInOrder } from "@modules/platform/primitives"
 import { AgentGraphRecordsService } from "./agent-graph-records.service"
 import { AgentWorkflowRecordsService } from "./agent-workflow-records.service"
@@ -17,7 +16,6 @@ import type {
     GraphVersionView,
 } from "./agent-graphs.contracts"
 import { withoutStrayStops } from "./policies/stray-stops.policy"
-import { sourcesIndexOf } from "./policies/sources-index.policy"
 import { EMPTY_GRANT, ownRunGrantOf, workflowRunGrantOf, type RunGrant } from "./policies/workflow-grant.policy"
 import { agentToolsOf } from "./policies/flow.policy"
 
@@ -26,9 +24,6 @@ const VERSION_LIMIT = 100
 
 /** The most agents one lookup of "which hold a graph" asks the engine about. */
 const AGENT_CHUNK = 100
-
-/** The most graphs of one workspace the Brain comparison reads. */
-const GRAPH_LIMIT = 100
 
 /** One graph with the version that decides, read and validated. */
 export interface GraphState {
@@ -50,24 +45,6 @@ export interface GraphState {
     readonly active: GraphDocument | null
     /** How the version that decides came to be; null before the first. A `seed` is one no person published. */
     readonly activeKind: GraphChangeKind | null
-}
-
-/** A Brain rule behind the version that decides. */
-export interface BrainSourceInForce {
-    /** The workspace. */
-    readonly workspaceId: string
-    /** The agent. */
-    readonly agentId: string
-    /** The version that cites it. */
-    readonly versionId: string
-    /** The node that cites it. */
-    readonly nodeKey: string
-    /** The branch that cites it, or an empty text for the node itself. */
-    readonly branchKey: string
-    /** The Brain fact. */
-    readonly factId: string
-    /** The hash of its value when the owner confirmed it. */
-    readonly valueHash: string
 }
 
 /** A version with its number. */
@@ -121,15 +98,13 @@ const conflict = (): AgentGraphsError => new AgentGraphsError({ code: AgentGraph
 @Injectable()
 /**
  * The store of the action graph, on the entity engine: the draft of each agent under a revision check (and the record version as the
- * fence of every write), the immutable versions the owner publishes (written once, never updated), the index of their sources, and the
- * mode that says whether a graph decides or only records. Every graph read back is validated, and one that does not parse is no graph.
+ * fence of every write), the immutable versions published (written once, never updated) and the index of their sources. Every graph read back is validated, and one that does not parse is no graph.
  * Each method names the workspace: the engine scopes a transaction to one.
  */
 export class AgentGraphsService {
     constructor(
         private readonly engine: EntityEngineService,
         private readonly records: AgentGraphRecordsService,
-        @InjectClock() private readonly clock: Clock,
         @Optional() private readonly workflows?: AgentWorkflowRecordsService,
     ) {}
 
@@ -195,19 +170,6 @@ export class AgentGraphsService {
         return this.require(workspaceId, agentId)
     }
 
-    /** Saves the draft when nobody saved after it was read; a stale revision is refused. */
-    saveDraft(workspaceId: string, agentId: string, rev: number, draft: unknown): Promise<GraphState> {
-        const parsed = graphDocumentSchema.safeParse(draft)
-        if (!parsed.success) return Promise.reject(new AgentGraphsError({ code: AgentGraphsErrorCode.DocumentInvalid }))
-        return this.engine.scoped(workspaceId, async (tx) => {
-            const graph = await this.records.graphOf(tx, agentId)
-            if (graph?.draftRev !== rev) throw conflict()
-            const saved = await this.records.patchGraph(tx, graph, { draft: jsonOf(parsed.data), draftRev: rev + 1 })
-            if (saved === null) throw conflict()
-            return this.stateRequired(tx, saved)
-        })
-    }
-
     /** Freezes a graph as the next version, makes it the one that decides and keeps it as the draft. Checks are the caller's. */
     publish(input: PublishInput): Promise<GraphVersionView> {
         if (!graphDocumentSchema.safeParse(input.document).success)
@@ -262,27 +224,6 @@ export class AgentGraphsService {
             found.forEach((agentId) => held.add(agentId))
         })
         return agentIds.filter((id) => !held.has(id))
-    }
-
-    /** The Brain rules behind the versions that decide in a workspace, with the hash they held when the owner confirmed them; at most `limit`. */
-    brainSourcesInForce(workspaceId: string, limit: number): Promise<ReadonlyArray<BrainSourceInForce>> {
-        return this.engine.scoped(workspaceId, async (tx) => {
-            const graphs = await this.records.graphsOfWorkspace(tx, GRAPH_LIMIT)
-            const versionIds = graphs.flatMap((graph) =>
-                graph.activeVersionId === null ? [] : [graph.activeVersionId],
-            )
-            if (versionIds.length === 0) return []
-            const sources = await this.records.sourcesOf(tx, "brain", versionIds, limit)
-            return sources.map((row) => ({
-                workspaceId: row.workspaceId,
-                agentId: row.agentId,
-                versionId: row.versionId,
-                nodeKey: row.nodeKey,
-                branchKey: row.branchKey,
-                factId: row.ref,
-                valueHash: row.valueHash,
-            }))
-        })
     }
 
     /** One version with its number and its graph, for the trace of a run; refused when it is not the agent's or cannot be read. */
@@ -345,29 +286,8 @@ export class AgentGraphsService {
               }
     }
 
-    /** Sets whether the graph decides (`enforced`) or only records (`shadow`), and keeps who set it; a publish never touches this. */
-    setMode(workspaceId: string, agentId: string, mode: GraphMode, memberId: string): Promise<GraphState> {
-        return this.engine.scoped(workspaceId, async (tx) => {
-            const graph = await this.records.graphOf(tx, agentId)
-            if (graph === null) throw new AgentGraphsError({ code: AgentGraphsErrorCode.GraphNotFound })
-            const changed = await this.records.patchGraph(tx, graph, {
-                mode,
-                modeSetBy: memberId,
-                modeSetAt: this.clock.now().toISOString(),
-            })
-            if (changed === null) throw conflict()
-            return this.stateRequired(tx, changed)
-        })
-    }
-
     private async require(workspaceId: string, agentId: string): Promise<GraphState> {
         const state = await this.stateOfAgent(workspaceId, agentId)
-        if (state === null) throw new AgentGraphsError({ code: AgentGraphsErrorCode.GraphNotFound })
-        return state
-    }
-
-    private async stateRequired(tx: ScopedTx, graph: GraphRecord): Promise<GraphState> {
-        const state = await this.stateOf(tx, graph)
         if (state === null) throw new AgentGraphsError({ code: AgentGraphsErrorCode.GraphNotFound })
         return state
     }
@@ -390,7 +310,7 @@ export class AgentGraphsService {
         }
     }
 
-    /** Inserts the next version of the agent and indexes its sources. */
+    /** Inserts the next version of the agent. */
     private async insertVersion(tx: ScopedTx, input: PublishInput): Promise<VersionRecord> {
         const last = await this.records.latestVersion(tx, input.agentId)
         const next = input.version ?? (last?.number ?? 0) + 1
@@ -406,17 +326,6 @@ export class AgentGraphsService {
             publishedBy: input.memberId,
         })
         if (version === null) throw conflict()
-        await eachInOrder(sourcesIndexOf(input.document), (row) =>
-            this.records.insertSource(tx, {
-                versionId: version.id,
-                agentId: input.agentId,
-                nodeKey: row.nodeKey,
-                branchKey: row.branchKey,
-                kind: row.kind,
-                ref: row.ref,
-                valueHash: row.valueHash,
-            }),
-        )
         return version
     }
 }

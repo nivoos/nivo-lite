@@ -1,5 +1,6 @@
 import type {
     Contact,
+    ContactConsent,
     ContactIdentity,
     ContactMemoryPort,
     ContactMemoryView,
@@ -21,6 +22,9 @@ export const CONTACTS_WORKSPACE = "11111111-1111-4111-8111-111111111111"
 
 /** Another workspace: nothing of it ever meets the first. */
 export const OTHER_WORKSPACE = "22222222-2222-4222-8222-222222222222"
+
+/** The consent of a contact nobody ever set it on. */
+export const NO_CONSENT: ContactConsent = { doNotContact: false, at: null, by: null, reason: null }
 
 const keyText = (key: IdentityKey): string => `${key.kind}|${key.provider}|${key.account}|${key.value}`
 const view = (row: StoredContact): Contact => ({ ...row, tags: [...row.tags] })
@@ -64,6 +68,8 @@ export class MemoryContactsStore implements ContactsStore {
     readonly merges: Array<MergeRow> = []
     readonly tokens: Array<TokenRow> = []
     readonly events: Array<ContactEventWrite & { readonly workspaceId: string }> = []
+    /** The consent fact of each contact a write set, by id (a contact absent here was never set). */
+    readonly consents = new Map<string, ContactConsent>()
     private next = 1
     private tick = 0
 
@@ -276,6 +282,18 @@ export class MemoryContactsStore implements ContactsStore {
                             one.createdAt < to.toISOString(),
                     ).length,
                 ),
+            consentsOf: (workspaceId, ids) =>
+                Promise.resolve(
+                    new Map(
+                        this.contacts
+                            .filter((one) => one.workspaceId === workspaceId && ids.includes(one.id))
+                            .map((one) => [one.id, this.consents.get(one.id) ?? NO_CONSENT]),
+                    ),
+                ),
+            setConsent: (_workspaceId, id, consent) => {
+                this.consents.set(id, consent)
+                return Promise.resolve()
+            },
             byNamePrefix: (workspaceId, prefix, size) =>
                 Promise.resolve(
                     this.contacts

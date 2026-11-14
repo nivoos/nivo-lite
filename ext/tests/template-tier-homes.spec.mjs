@@ -25,7 +25,7 @@ tester.run("template-tier-homes", rule, {
             errors: [{ messageId: "nodeTier" }],
         },
         {
-            filename: at("packages/nivo-web-core/src/nodes/webdesk/ticket.node.ts"),
+            filename: at("packages/nivo-web-core/src/agents/webdesk/nodes/ticket.node.ts"),
             code: DEFINE_NODE,
             errors: [{ messageId: "nodeTier" }],
         },

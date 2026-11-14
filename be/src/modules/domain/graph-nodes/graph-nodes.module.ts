@@ -11,6 +11,7 @@ import {
     GRAPH_NODES_OPTIONS,
     GRAPH_NODE_MODEL,
     GRAPH_NODE_ROUTES,
+    GRAPH_NODE_WORKSPACE_POLICIES,
     GRAPH_NODE_TOOL_DOOR,
 } from "./graph-nodes.decorators"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./graph-nodes.module-definition"
@@ -37,6 +38,7 @@ export class GraphNodesModule extends ConfigurableModuleClass {
                         tools: options.tools,
                         agentLoop: options.agentLoop,
                         routes: options.routes,
+                        policies: options.policies,
                     },
                 },
                 { provide: GRAPH_NODE_MODEL, useExisting: options.model },
@@ -53,6 +55,7 @@ export class GraphNodesModule extends ConfigurableModuleClass {
                     ? []
                     : [{ provide: GRAPH_NODE_AGENT_LOOPS, useExisting: options.agentLoop.loops }]),
                 ...(options.routes === undefined ? [] : [{ provide: GRAPH_NODE_ROUTES, useExisting: options.routes }]),
+                ...(options.policies === undefined ? [] : [{ provide: GRAPH_NODE_WORKSPACE_POLICIES, useExisting: options.policies }]),
             ],
             exports: [
                 GraphNodeRegistryService,

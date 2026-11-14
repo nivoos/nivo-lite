@@ -12,7 +12,6 @@ import { AgentWorkflowStoreService, VERSION_LIMIT, WORKFLOW_LIMIT } from "./agen
 import type {
     ActiveWorkflowGraph,
     AgentWorkflowGraph,
-    BlankWorkflow,
     DiffAgainst,
     ExpectedLatest,
     SnapshotDiff,
@@ -39,7 +38,7 @@ import {
 } from "./policies/node-rights-gate.policy"
 import { workflowGraphEntryOf } from "./policies/workflow-graph.policy"
 import { workflowDiffOf } from "./policies/workflow-diff.policy"
-import { blankGraphOf, templateMergeOf } from "./policies/workflow-template-merge.policy"
+import { templateMergeOf } from "./policies/workflow-template-merge.policy"
 import { statusAllowed, workflowKeyOf } from "./policies/workflow-version.policy"
 import {
     againstGraphOf,
@@ -252,30 +251,6 @@ export class AgentWorkflowsService {
         return made.view
     }
 
-    /** Makes a draft workflow from scratch: version 1 holds a graph of the agent's module with one step that ends the run. */
-    createBlank(
-        workspaceId: string,
-        agentId: string,
-        blank: BlankWorkflow,
-        author: WorkflowAuthor,
-        locale: Locale,
-    ): Promise<WorkflowView> {
-        const graph = blankGraphOf(blank.moduleKey)
-        return this.engine.scoped(workspaceId, async (tx) => {
-            const made = await this.firstVersion(tx, {
-                agentId,
-                key: workflowKeyOf(blank.name, await this.store.keysOf(tx, agentId)),
-                name: blank.name,
-                link: null,
-                graph,
-                author,
-                locale,
-                rights: undefined,
-            })
-            return made.view
-        })
-    }
-
     /**
      * Seeds the workflows of an agent: its own graph adopted as the primary workflow, then a workflow from each other template of its
      * module it holds none of yet (a demo shop's), copied from the template's newest version: active when the template is a link of the
@@ -309,7 +284,10 @@ export class AgentWorkflowsService {
         return this.adoption.copyWorkflows(workspaceId, copy, author)
     }
 
-    /** Publishes a graph as the next version of a workflow (an edit by the owner or a proposal of NIVO), after judging it. */
+    /**
+     * Writes a graph as the next version of a workflow, after judging it (`requireSoundFlow`: a template workflow's graph must be the
+     * template's copy, its node settings aside): the road of the node settings door, the only change a shop makes to a graph.
+     */
     publish(
         workspaceId: string,
         workflowId: string,
@@ -337,7 +315,10 @@ export class AgentWorkflowsService {
         })
     }
 
-    /** Rolls a workflow back: a NEW version that copies the snapshot of an older one, so history only grows. */
+    /**
+     * Rolls a workflow back: a NEW version that copies the snapshot of an older one, so history only grows. Judged like every write: an
+     * older TEMPLATE version (with the settings it had) comes back; a hand-edited graph does not.
+     */
     rollback(
         workspaceId: string,
         workflowId: string,
@@ -358,6 +339,9 @@ export class AgentWorkflowsService {
         return this.version(workspaceId, workflowId, asked, async (tx, workflow) => {
             const source = await sourceOf(tx)
             if (source.id === workflow.activeVersionId) throw workflowRefused("already-running")
+            // An older version comes back only as the copy of a template version the installation still ships (its settings aside):
+            // a stored graph that is no template's copy any more is refused `GRAPH_TEMPLATE_EDITED`, as every other write is.
+            this.store.requireSound(snapshotOf(source))
             return {
                 graph: snapshotOf(source),
                 kind: "rollback",

@@ -93,7 +93,7 @@ export const salesPaidClaimReplyNode: TemplateNode<typeof input, typeof output> 
             return context.fail({ kind: "cannot", why: "the answer was reached with no conversation or no words" })
         // What the person said is every line since the shop last spoke (the engine's thread of the run's route, pictures included), not
         // only the words the hand-off carried: lines said after the front desk heard them are answered too (R73).
-        const rows = await threadRowsOf(context)
+        const rows = await threadRowsOf(context, { consume: true })
         const unread = unreadTextOf(rows)
         const heard = unread === "" ? text : unread
         const message = await context.agent.run({

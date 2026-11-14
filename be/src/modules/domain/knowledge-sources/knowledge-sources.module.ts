@@ -2,7 +2,6 @@ import { Module, type DynamicModule } from "@nestjs/common"
 import { KnowledgeQueueModule } from "@modules/queues/knowledge"
 import { ApiKnowledgeSourcesService } from "./api-knowledge-sources.service"
 import { BlockedSourcesService } from "./blocked-sources.service"
-import { KnowledgeProgressService } from "./knowledge-progress.service"
 import { KNOWLEDGE_STORAGE } from "./knowledge-sources.decorators"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./knowledge-sources.module-definition"
 import { KnowledgeSourcesService } from "./knowledge-sources.service"
@@ -61,7 +60,6 @@ export class KnowledgeSourcesModule extends ConfigurableModuleClass {
                 { provide: KNOWLEDGE_STORAGE, useExisting: options.storage },
                 KnowledgeSourcesService,
                 BlockedSourcesService,
-                KnowledgeProgressService,
                 SourceCriticStageService,
                 SourceQuotaService,
                 SourceReadingsService,
@@ -70,6 +68,7 @@ export class KnowledgeSourcesModule extends ConfigurableModuleClass {
                 SourceCategoriesService,
                 ApiKnowledgeSourcesService,
                 PublishedSourcesService,
+                ProfileSourcesService,
             ],
             exports: [
                 KnowledgeQueueModule,
@@ -79,7 +78,6 @@ export class KnowledgeSourcesModule extends ConfigurableModuleClass {
                 KnowledgeSourceCitesService,
                 KnowledgeSourcesService,
                 BlockedSourcesService,
-                KnowledgeProgressService,
                 SourceCriticStageService,
                 SourceQuotaService,
                 SourceReadingsService,
@@ -88,6 +86,7 @@ export class KnowledgeSourcesModule extends ConfigurableModuleClass {
                 SourceCategoriesService,
                 ApiKnowledgeSourcesService,
                 PublishedSourcesService,
+                ProfileSourcesService,
             ],
         }
     }

@@ -69,21 +69,19 @@ describe("PublicMessageHoldsService: a held public-API message is an unhandled c
         })
     })
 
-    it("logs, and never throws, when the team chat cannot take the report", async () => {
+    it("logs when this app composes no team-chat post tool, and THROWS when the team chat cannot take the report (the request job retries it, then parks it)", async () => {
+        const down = new Error("down")
         const broken = mock<NodeEffectExecutor>({ effect: TOOL.teamMessagePost })
-        broken.execute.mockRejectedValue(new Error("down"))
+        broken.execute.mockRejectedValue(down)
         const absent = await build(undefined)
         const failing = await build(broken)
 
         await expect(absent.holds.report(HELD)).resolves.toBeUndefined()
-        await expect(failing.holds.report(HELD)).resolves.toBeUndefined()
+        await expect(failing.holds.report(HELD)).rejects.toBe(down)
         expect(absent.logger.warn).toHaveBeenCalledWith(PublicApiLogEvent.HeldReportSkipped, {
             workspaceId: "ws-1",
             requestId: "req-1",
         })
-        expect(failing.logger.error).toHaveBeenCalledWith(PublicApiLogEvent.HeldReportSkipped, expect.any(Error), {
-            workspaceId: "ws-1",
-            requestId: "req-1",
-        })
+        expect(failing.logger.error).not.toHaveBeenCalled()
     })
 })

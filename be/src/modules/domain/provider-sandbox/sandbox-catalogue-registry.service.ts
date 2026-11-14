@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common"
-import type { SandboxCase, SandboxCatalogue, SandboxPrefill } from "./provider-sandbox.contracts"
+import type { SandboxCase, SandboxCatalogue, SandboxPayLinks, SandboxPrefill } from "./provider-sandbox.contracts"
 
 @Injectable()
 /**
@@ -9,6 +9,7 @@ import type { SandboxCase, SandboxCatalogue, SandboxPrefill } from "./provider-s
 export class SandboxCatalogueRegistryService {
     private readonly catalogues = new Map<string, ReadonlyArray<SandboxCase>>()
     private readonly prefills = new Map<string, SandboxPrefill>()
+    private readonly payLinks = new Map<string, SandboxPayLinks>()
 
     /**
      * Adds a catalogue's cases under its provider key, MERGED with what other capabilities of the same account provider registered
@@ -19,6 +20,12 @@ export class SandboxCatalogueRegistryService {
         const kept = (this.catalogues.get(catalogue.provider) ?? []).filter((one) => !ids.has(one.id))
         this.catalogues.set(catalogue.provider, [...kept, ...catalogue.cases])
         if (catalogue.prefill !== undefined) this.prefills.set(catalogue.provider, catalogue.prefill)
+        if (catalogue.payLinks !== undefined) this.payLinks.set(catalogue.provider, catalogue.payLinks)
+    }
+
+    /** How the providers that issue pay links resolve a link id, by provider key, in registration order. */
+    payLinkProviders(): ReadonlyArray<readonly [string, SandboxPayLinks]> {
+        return [...this.payLinks.entries()]
     }
 
     /** Where a provider's inbound inputs are prefilled from (R62), or null when it takes no request of the agent's. */

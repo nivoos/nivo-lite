@@ -7,6 +7,7 @@ import {
     ONE_CALL_REFUSAL,
     TOOL_CALL_REFUSAL,
     TOOL_CALL_REQUIRED,
+    openingContentOf,
     openingTextOf,
     stepBoundOf,
     systemContentOf,
@@ -90,13 +91,50 @@ describe("loop-frame.policy: the refusals the loop makes itself", () => {
     })
 })
 
-describe("systemContentOf: the system message of a step's agent (ENG1)", () => {
-    it("is one text part with a breakpoint on Anthropic's client, and the text itself on any other", () => {
-        expect(systemContentOf("CRAFT SHOP", "anthropic")).toEqual([
-            { type: "text", text: "CRAFT SHOP", cache_control: { type: "ephemeral" } },
+describe("systemContentOf: the system message of a step's agent, L1 and L2 (PROMPT-CACHE)", () => {
+    it("is one text part per layer, each with a breakpoint, on Anthropic's client; one text, the layers a blank line apart, on any other", () => {
+        expect(systemContentOf("CRAFT", "RULES", "anthropic")).toEqual([
+            { type: "text", text: "CRAFT", cache_control: { type: "ephemeral" } },
+            { type: "text", text: "RULES", cache_control: { type: "ephemeral" } },
         ])
-        expect(systemContentOf("CRAFT SHOP", "openai")).toBe("CRAFT SHOP")
-        expect(systemContentOf("CRAFT SHOP", "fake")).toBe("CRAFT SHOP")
+        expect(systemContentOf("CRAFT", "RULES", "openai")).toBe("CRAFT\n\nRULES")
+        expect(systemContentOf("CRAFT", "RULES", "fake")).toBe("CRAFT\n\nRULES")
+    })
+
+    it("has no L2 part, and no mark for one, when the workspace has no policies", () => {
+        expect(systemContentOf("CRAFT", "", "anthropic")).toEqual([
+            { type: "text", text: "CRAFT", cache_control: { type: "ephemeral" } },
+        ])
+        expect(systemContentOf("CRAFT", undefined, "anthropic")).toHaveLength(1)
+        expect(systemContentOf("CRAFT", undefined, "openai")).toBe("CRAFT")
+    })
+})
+
+describe("openingContentOf: the first user message, L3 then L4 (PROMPT-CACHE)", () => {
+    const LOOP = { step: "STEP", volatile: " RULES ", input: { input: 1 } }
+
+    it("ends the step with a breakpoint and sends the try as a part of its own on Anthropic's client", () => {
+        expect(openingContentOf(LOOP, "anthropic")).toEqual([
+            { type: "text", text: "STEP", cache_control: { type: "ephemeral" } },
+            { type: "text", text: 'RULES\n\n{"input":1}' },
+        ])
+    })
+
+    it("is the one text of openingTextOf on any other client: the same words, no marker", () => {
+        expect(openingContentOf(LOOP, "openai")).toBe(openingTextOf(LOOP))
+    })
+
+    it("keeps the step part byte for byte whatever the try carries: two runs of one step share L3", () => {
+        const first = openingContentOf(LOOP, "anthropic")
+        const second = openingContentOf({ ...LOOP, volatile: "", input: { input: 2, thread: ["hi"] } }, "anthropic")
+        expect(JSON.stringify(Array.isArray(second) ? second[0] : null)).toBe(JSON.stringify(Array.isArray(first) ? first[0] : null))
+    })
+
+    it("carries three marks at most with the system message: with the automatic one, Anthropic's four", () => {
+        const marks = [...systemContentOf("CRAFT", "RULES", "anthropic"), ...openingContentOf(LOOP, "anthropic")].filter(
+            (part) => typeof part !== "string" && part.cache_control !== undefined,
+        )
+        expect(marks).toHaveLength(3)
     })
 })
 
@@ -111,7 +149,7 @@ describe("loop-frame.policy: a search result never sits in a cached layer", () =
         const subject = await build()
         const names = toolNamesOf(PASSAGE_TOOLS.map((tool) => tool.name), false)
         // Two turns of one step: before any search, and after a search answered (the answer is a tool message, appended to the run).
-        const stable = () => JSON.stringify([systemContentOf("CRAFT SHOP", "anthropic"), subject.wireToolsOf(PASSAGE_TOOLS, names)])
+        const stable = () => JSON.stringify([systemContentOf("CRAFT", "POLICIES", "anthropic"), subject.wireToolsOf(PASSAGE_TOOLS, names)])
         const before = stable()
         const answered = { notice: "…", legs: ["words"], hits: [{ id: "p1", snippet: SNIPPET }], next: null }
         const after = stable()

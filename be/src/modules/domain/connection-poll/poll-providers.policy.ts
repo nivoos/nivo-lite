@@ -9,24 +9,23 @@ import {
     type PollRandom,
 } from "./connection-poll.decorators"
 import type { ConnectionPollOptions, PollRedisOptions } from "./connection-poll.options"
-import { FirstPollEnqueueService } from "./first-poll-enqueue.service"
 import { MemoryPollLimiterStore } from "./memory-poll-limiter.adapter"
 import { PollLimiterService } from "./poll-limiter.service"
 import { PollOwnerNoticeService } from "./poll-owner-notice.service"
 import { PollScheduleService } from "./poll-schedule.service"
 import { PollSchedulerService } from "./poll-scheduler.service"
-import { PollSourceRegistryService } from "./poll-source-registry.service"
+import { PollBootPassService } from "./poll-boot-pass.service"
+import { PollReceiptsService } from "./poll-receipts.service"
 import { RedisPollLimiterStore } from "./redis-poll-limiter.client"
 
 /** How many equal steps the random source divides [0, 1) into. */
 const RANDOM_STEPS = 1_000_000
 
-/** What other modules call: the schedule, the scheduler, the source registry and the limiter. */
+/** What other modules call: the schedule, the scheduler, the generic store and the limiter. */
 export const POLL_EXPORTED: ReadonlyArray<Type> = [
-    FirstPollEnqueueService,
     PollScheduleService,
     PollSchedulerService,
-    PollSourceRegistryService,
+    PollReceiptsService,
     PollLimiterService,
 ]
 
@@ -54,4 +53,5 @@ export const pollProvidersOf = (options: ConnectionPollOptions): Array<Provider>
     ...limiterStoreProvidersOf(options.redis),
     ...POLL_EXPORTED,
     PollOwnerNoticeService,
+    PollBootPassService,
 ]

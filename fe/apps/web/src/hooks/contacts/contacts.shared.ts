@@ -35,6 +35,15 @@ export const LINK_OUTCOME_KEYS = {
 export const linkOutcomeKeyOf = (outcome: string): (typeof LINK_OUTCOME_KEYS)[keyof typeof LINK_OUTCOME_KEYS] =>
     outcome === "proposed" || outcome === "merged" ? LINK_OUTCOME_KEYS[outcome] : LINK_OUTCOME_KEYS.linked
 
+/** The catalog key that says what setting or clearing the "do not message first" mark did: `unchanged` says it was already so. */
+export const consentOutcomeKeyOf = (
+    outcome: string,
+    doNotContact: boolean,
+): "consentUnchanged" | "consentSetDone" | "consentClearDone" => {
+    if (outcome === "unchanged") return "consentUnchanged"
+    return doNotContact ? "consentSetDone" : "consentClearDone"
+}
+
 /** What the detail of a person is worded and filtered with. */
 interface DetailSlotOptions {
     readonly canDelete: boolean

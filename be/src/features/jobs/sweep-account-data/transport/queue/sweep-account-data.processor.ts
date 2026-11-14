@@ -1,12 +1,13 @@
 import { Injectable } from "@nestjs/common"
-import { FencedProcessor, type ClaimedJob } from "@modules/platform/jobs"
-import { ACCOUNT_DATA_RETENTION_QUEUE } from "@modules/queues/account-data-retention"
+import { FencedProcessor, type ClaimedJob, type JobDefinition } from "@modules/platform/jobs"
+import { ACCOUNT_DATA_RETENTION_QUEUE, SWEEP_ACCOUNT_DATA_JOB, type AccountDataSweepPayload } from "@modules/queues/account-data-retention"
 import { SweepAccountDataStep } from "../../steps/sweep-account-data.step"
 
 @Injectable()
 /** The processor of the sweep-account-data job: the runner claims and settles every end-of-day tick; `process` delegates to the one step. */
 export class SweepAccountDataProcessor extends FencedProcessor {
-    readonly queue: "account_data_retention" = ACCOUNT_DATA_RETENTION_QUEUE
+    override readonly queue: "account_data_retention" = ACCOUNT_DATA_RETENTION_QUEUE
+    override readonly definition: JobDefinition<AccountDataSweepPayload> = SWEEP_ACCOUNT_DATA_JOB
 
     constructor(private readonly sweep: SweepAccountDataStep) {
         super()

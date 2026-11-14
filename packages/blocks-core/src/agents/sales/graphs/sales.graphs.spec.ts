@@ -30,11 +30,11 @@ const timerOf = (kind: string): unknown => ({
 describe("sales.after-sale", () => {
     const stepOf = (key: string): unknown => salesAfterSaleGraph.spec.nodes.find((step) => step.key === key)
 
-    it("is version 17, called by the sale once the order is paid (no reminder left to cancel), and keeps the thank-you's key", () => {
+    it("is version 18, called by the sale once the order is paid (no reminder left to cancel), and keeps the thank-you's key", () => {
         expect(salesAfterSaleGraph.key).toBe("sales.after-sale")
         // Version 15 (R45): a thank-you the send did not deliver tells the team. Version 16 (R49): a customer the sale keeps no record of
         // yet skips `stage`. Version 17 (R68): pure business: the engine tells the team (the `thank-unsent` pair is gone).
-        expect(versionOf(salesAfterSaleGraph)).toBe(17)
+        expect(versionOf(salesAfterSaleGraph)).toBe(18)
         expect(salesAfterSaleGraph.spec.triggers).toEqual([{ verb: TRIGGER.workflowCalled }])
         expect(keysOf(salesAfterSaleGraph)).toEqual([
             "thank",
@@ -96,9 +96,9 @@ describe("sales.after-sale", () => {
 })
 
 describe("sales.delivery-check", () => {
-    it("is version 10, woken by the delivery-check timer, and routes the wait to the check-in or an outcome", () => {
+    it("is version 11, woken by the delivery-check timer, and routes the wait to the check-in or an outcome", () => {
         // ledger 2026-11-13 (`nivo-frame.rights`): every graph's catalogue version + 1 (one mode per node changed every compiled document).
-        expect(versionOf(salesDeliveryCheckGraph)).toBe(10)
+        expect(versionOf(salesDeliveryCheckGraph)).toBe(11)
         expect(salesDeliveryCheckGraph.spec.triggers).toEqual([timerOf("delivery-check")])
         expect(keysOf(salesDeliveryCheckGraph)).toEqual(["wait", "check", "checked", "waiting", "closed", "declined"])
         expect(salesDeliveryCheckGraph.spec.nodes[0]).toMatchObject({
@@ -109,9 +109,9 @@ describe("sales.delivery-check", () => {
 })
 
 describe("sales.occasion", () => {
-    it("is version 11, woken by the occasion timer: the suggestion, then next year's timer", () => {
+    it("is version 12, woken by the occasion timer: the suggestion, then next year's timer", () => {
         // ledger 2026-11-13 (`nivo-frame.rights`): every graph's catalogue version + 1 (one mode per node changed every compiled document).
-        expect(versionOf(salesOccasionGraph)).toBe(11)
+        expect(versionOf(salesOccasionGraph)).toBe(12)
         expect(salesOccasionGraph.spec.triggers).toEqual([timerOf("occasion")])
         expect(keysOf(salesOccasionGraph)).toEqual([
             "wait",

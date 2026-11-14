@@ -171,12 +171,8 @@ describe("ChannelSendExecutorService the delivery ledger", () => {
     })
 
     it("records a refusal as a ledger row with the words not told, and a later try of the same key is claimed again", async () => {
-        const { executor, delivery, ledger, memory } = await build()
-        memory.snapshot.mockResolvedValue({
-            subject: { key: "contact:k-1", contactId: PERSON, conversationId: null },
-            lead: { careOptOut: true },
-            workflows: {},
-        })
+        const { executor, delivery, ledger, contacts } = await build()
+        contacts.consentOf.mockResolvedValue({ doNotContact: true, at: "2026-11-04T08:00:00.000Z", by: { kind: "member", memberId: "m-owner" }, reason: "asked to stop" })
         const unprompted = { ...SEND, contactId: PERSON, channel: "telegram" }
         await expect(executor.execute({ ...TURN, conversationId: null }, unprompted, CALL)).resolves.toMatchObject({
             kind: "refused",
@@ -185,7 +181,7 @@ describe("ChannelSendExecutorService the delivery ledger", () => {
         })
         expect(ledger.rows[0]).toMatchObject({ sendKey: "run:1", state: "refused", reason: "customer_opted_out", text: "Hello" })
 
-        memory.snapshot.mockResolvedValue(null)
+        contacts.consentOf.mockResolvedValue(null)
         await expect(executor.execute({ ...TURN, conversationId: null }, unprompted, CALL)).resolves.toMatchObject({
             kind: "message",
         })
@@ -194,14 +190,14 @@ describe("ChannelSendExecutorService the delivery ledger", () => {
         expect(ledger.rows[0]?.state).toBe("delivered")
     })
 
-    it("settles a busy token refresh as refused and throws, so the run engine's retry claims the key again and sends", async () => {
+    it("settles the port's not-sent answer as refused and throws, so the run engine's retry claims the key again and sends", async () => {
         const { executor, delivery, ledger } = await build()
-        delivery.deliverToPerson.mockRejectedValueOnce(new ChannelsError({ code: ChannelsErrorCode.ZaloRefreshBusy }))
+        delivery.deliverToPerson.mockRejectedValueOnce(new ChannelsError({ code: ChannelsErrorCode.SendUnavailable }))
 
         await expect(executor.execute(TURN, SEND, CALL)).rejects.toMatchObject({
             code: ChatNodePortsErrorCode.DeliveryRateLimited,
         })
-        expect(ledger.rows[0]?.state).toBe("refused")
+        expect(ledger.rows[0]).toMatchObject({ state: "refused", reason: "channel_busy" })
 
         await expect(executor.execute(TURN, SEND, CALL)).resolves.toMatchObject({ kind: "message", facts: { state: "delivered" } })
         expect(ledger.rows).toHaveLength(1)
@@ -313,14 +309,25 @@ describe("ChannelSendExecutorService channel verdicts", () => {
         expect(ledger.rows[0]).toMatchObject({ state: "refused", reason })
     })
 
-    it("throws for a channel that is not taking messages for now, so the run engine tries again", async () => {
+    it("throws for the port's not-sent answer (any channel), carrying the provider's word and wait, so the run engine tries again", async () => {
         const { executor, delivery, ledger } = await build()
-        delivery.deliverToPerson.mockResolvedValue({ delivered: false, failure: "zalo_quota", outcome: "rejected" })
+        delivery.deliverToPerson.mockRejectedValue(
+            new ChannelsError({ code: ChannelsErrorCode.SendUnavailable, params: { reason: "telegram_rate_limited", retryAfterSeconds: 7 } }),
+        )
 
         await expect(executor.execute(TURN, SEND, CALL)).rejects.toMatchObject({
             code: ChatNodePortsErrorCode.DeliveryRateLimited,
+            params: { reason: "telegram_rate_limited", retryAfterSeconds: 7 },
         })
-        expect(ledger.rows[0]).toMatchObject({ state: "refused", reason: "zalo_quota" })
+        expect(ledger.rows[0]).toMatchObject({ state: "refused", reason: "telegram_rate_limited" })
+    })
+
+    it("reads no channel's own words: a refused receipt whatever its failure word is a refusal, never a retry", async () => {
+        const { executor, delivery, ledger } = await build()
+        delivery.deliverToPerson.mockResolvedValue({ delivered: false, failure: "zalo_quota", outcome: "rejected" })
+
+        await expect(executor.execute(TURN, SEND, CALL)).resolves.toMatchObject({ kind: "refused", id: "not_delivered" })
+        expect(ledger.rows[0]).toMatchObject({ state: "refused" })
     })
 
     it("carries the Zalo route that took the message (consultation, zns) in the receipt", async () => {
@@ -391,11 +398,7 @@ describe("ChannelSendExecutorService addressed by the person", () => {
             kind: "message",
             facts: { routeId: "route-2", channel: "zalo" },
         })
-        world.memory.snapshot.mockResolvedValue({
-            subject: { key: "contact:k-1", contactId: PERSON, conversationId: null },
-            lead: { careOptOut: true },
-            workflows: {},
-        })
+        world.contacts.consentOf.mockResolvedValue({ doNotContact: true, at: "2026-11-04T08:00:00.000Z", by: { kind: "member", memberId: "m-owner" }, reason: "asked to stop" })
         await expect(world.executor.execute(TURN, { ...SEND, channel: "zalo" }, { key: "run:2", dedupeKey: null })).resolves.toMatchObject({
             id: "customer_opted_out",
         })
@@ -484,7 +487,7 @@ describe("ChannelSendExecutorService refusalFor: what it would refuse, judged be
         expect(detached.access.judgeSend).not.toHaveBeenCalled()
 
         const optedOut = await build()
-        optedOut.memory.snapshot.mockResolvedValue({ lead: { careOptOut: true } } as never)
+        optedOut.contacts.consentOf.mockResolvedValue({ doNotContact: true, at: "2026-11-04T08:00:00.000Z", by: { kind: "member", memberId: "m-owner" }, reason: "asked to stop" })
         await expect(optedOut.executor.refusalFor({ ...TURN, conversationId: null }, SEND, CALL)).resolves.toMatchObject({ id: "customer_opted_out" })
 
         const nobody = await build()

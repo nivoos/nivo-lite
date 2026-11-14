@@ -2,6 +2,7 @@ import type { EntityManager } from "typeorm"
 import type {
     Contact,
     ContactActor,
+    ContactConsent,
     ContactIdentity,
     IdentityKey,
     IdentityMatch,
@@ -44,7 +45,7 @@ export interface ContactEventWrite {
     /** The contact. */
     readonly contactId: string
     /** What was done. */
-    readonly action: "identity_linked" | "identity_unlinked" | "merged" | "updated" | "memory_forgotten" | "erased"
+    readonly action: "identity_linked" | "identity_unlinked" | "merged" | "updated" | "memory_forgotten" | "erased" | "consent_changed"
     /** Ids and kinds of what changed. */
     readonly detail: Readonly<Record<string, unknown>>
     /** Who decided. */
@@ -125,6 +126,10 @@ export interface ContactsTx {
     page(workspaceId: string, ask: ContactsPageAsk): Promise<ReadonlyArray<Contact>>
     /** How many active contacts were created in `[from, to)`. */
     countCreated(workspaceId: string, from: Date, to: Date): Promise<number>
+    /** The consent fact of each of these contacts that exists (any state), by id. */
+    consentsOf(workspaceId: string, ids: ReadonlyArray<string>): Promise<ReadonlyMap<string, ContactConsent>>
+    /** Writes the consent fact of a contact as given (the service judges who may write what). */
+    setConsent(workspaceId: string, id: string, consent: ContactConsent): Promise<void>
     /** The active contacts whose display name starts with the prefix (lower-cased), bounded. */
     byNamePrefix(workspaceId: string, prefix: string, size: number): Promise<ReadonlyArray<Contact>>
 }

@@ -12,7 +12,7 @@ const STEP = { nodeKey: "send-qr", versionId: "v-7", workflowId: "wf-consult" }
 const lineOf = (over: Partial<EffectRightLine> = {}): EffectRightLine => ({
     workspaceId: "ws-1",
     agentId: "agent-sales",
-    effect: TOOL.mailMessageSend,
+    effect: TOOL.paymentLinkCreate,
     verdict: { kind: "allow", provider: "sepay", connectionId: "mb" },
     seen: { origin: "node", node: STEP },
     runId: "run-1",
@@ -43,7 +43,7 @@ describe("EffectRightAuditService: one audit line per rights verdict of an effec
         expect(callLog.append).toHaveBeenCalledWith({
             workspaceId: "ws-1",
             connector: EFFECT_RIGHTS_CONNECTOR,
-            tool: TOOL.mailMessageSend,
+            tool: TOOL.paymentLinkCreate,
             agentId: "agent-sales",
             conversationId: "conv-1",
             workItemId: null,
@@ -102,7 +102,7 @@ describe("EffectRightAuditService: one audit line per rights verdict of an effec
         expect(logger.error).toHaveBeenCalledWith(ToolsLogEvent.EffectRightAuditFailed, cause, {
             workspaceId: "ws-1",
             agentId: "agent-sales",
-            effect: TOOL.mailMessageSend,
+            effect: TOOL.paymentLinkCreate,
         })
     })
 })

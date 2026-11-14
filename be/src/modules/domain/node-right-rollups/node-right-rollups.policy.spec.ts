@@ -229,6 +229,7 @@ describe("node-right-rollups.policy: the triggers of a provider", () => {
         const trigger = {
             name: "transaction.received",
             kind: "webhook" as const,
+            title: { vi: "Ngan hang", en: "Bank" },
             summary,
             payload: [],
             batching: { mode: "each" as const, maxEvents: null },
@@ -310,7 +311,7 @@ describe("node-right-rollups.policy: what a template asks for before install", (
     it("lists each operation its nodes ask for with the mode each node declares", async () => {
         const subject = await build()
         const send = "nivo.tool.customer.message.send"
-        const mail = "nivo.tool.mail.message.send"
+        const mail = "nivo.tool.invoice.create"
         const graph: Pick<GraphSpec, "nodes"> = {
             nodes: [
                 {

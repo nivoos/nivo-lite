@@ -54,6 +54,13 @@ export const useContactWords = (names: ContactNames): ContactWords => {
             noteUnknownWork: t("noteUnknownWork"),
             noteRound: (round) => t("noteRound", { round }),
             hold: (name) => (name === null ? t("holdStaff") : t("holdBy", { name })),
+            consentAllowed: t("consentAllowed"),
+            consentRefused: t("consentRefused"),
+            consentSince: (when) => t("consentSince", { when }),
+            consentBy: (by, name) => {
+                if (by === "agent") return name === null ? t("consentByAgentUnknown") : t("consentByAgent", { name })
+                return name === null ? t("consentByMemberUnknown") : t("consentByMember", { name })
+            },
         }),
         [t, format, now, names],
     )

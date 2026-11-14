@@ -12,6 +12,9 @@ import { CUSTOMER_ROUTE_STORE } from "./customer-route-store.port"
 import { TypeormCustomerRouteStore } from "./customer-route-store.typeorm"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./customer-routes.module-definition"
 import { CustomerRoutesService } from "./customer-routes.service"
+import { STREAM_CURSOR_STORE } from "./stream-cursor-store.port"
+import { TypeormStreamCursorStore } from "./stream-cursor-store.typeorm"
+import { StreamCursorService } from "./stream-cursor.service"
 
 @Module({})
 /**
@@ -40,6 +43,10 @@ export class CustomerRoutesModule extends ConfigurableModuleClass {
                 TypeormContactConversationStore,
                 { provide: CONTACT_CONVERSATION_STORE, useExisting: TypeormContactConversationStore },
                 ContactConversationService,
+                // The stream cursor of the routes (rule QB-P5 C-4): what a run consumed of a route's lines.
+                TypeormStreamCursorStore,
+                { provide: STREAM_CURSOR_STORE, useExisting: TypeormStreamCursorStore },
+                StreamCursorService,
             ],
             exports: [
                 CustomerRoutesService,
@@ -49,6 +56,8 @@ export class CustomerRoutesModule extends ConfigurableModuleClass {
                 CUSTOMER_ROUTE_STORE,
                 CHANNEL_DELIVERY_STORE,
                 CUSTOMER_LINE_STORE,
+                StreamCursorService,
+                STREAM_CURSOR_STORE,
             ],
         }
     }

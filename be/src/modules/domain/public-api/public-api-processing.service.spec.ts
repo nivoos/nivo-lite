@@ -1,5 +1,5 @@
 import { Test } from "@nestjs/testing"
-import { builder, fakeInbox, fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
+import { builder, fakeInbox, fakeTransaction, mock, mockEntityManager, recordingQueueOutbox } from "@starci/jest-preset"
 import type { MockEntityManager } from "@starci/jest-preset"
 import { answerQueryBuilders, fakeQueryBuilder } from "@tests/fixtures/builders/fake-query-builder.builder"
 import { PROCESSED_LEDGER_ROW, ledgerRowOf, ledgerRowOfKind } from "@tests/fixtures/builders/public-api-ledger.builder"
@@ -10,13 +10,13 @@ import { DomainError } from "@modules/platform/errors"
 import { INBOX } from "@modules/platform/inbox"
 import type { Inbox } from "@modules/platform/inbox"
 import type { ClaimedJob, JobClaims, JobFenceService } from "@modules/platform/jobs"
+import { QUEUE_OUTBOX } from "@modules/platform/queue"
 import type { QueueDelivery } from "@modules/platform/queue"
 import { PublicApiQueueJob, PUBLIC_API_QUEUE } from "@modules/queues/public-api"
 import { PublicApiError, PublicApiErrorCode } from "./errors/public-api.error"
 import { PublicApiProcessingService } from "./public-api-processing.service"
 import { PublicApiEntity } from "./persistence/entities"
 import { PublicApiLedgerService } from "./public-api-ledger.service"
-import { PublicMessageDeliveryService } from "./public-message-delivery.service"
 import { PublicMessageFulfillmentService } from "./public-message-fulfillment.service"
 
 const WORKSPACE = "11111111-1111-4111-8111-111111111111"
@@ -75,7 +75,7 @@ const build = async (manager: MockEntityManager = mockEntityManager()) => {
     })
     const messages = mock<PublicMessageFulfillmentService>({ fulfill: jest.fn().mockResolvedValue(null) })
     const events = mock<EventsService>({ record: jest.fn().mockResolvedValue(undefined) })
-    const delivery = mock<PublicMessageDeliveryService>({ send: jest.fn().mockResolvedValue(undefined) })
+    const outbox = recordingQueueOutbox()
     const moduleRef = await Test.createTestingModule({
         providers: [
             PublicApiProcessingService,
@@ -84,7 +84,7 @@ const build = async (manager: MockEntityManager = mockEntityManager()) => {
             { provide: ApiKnowledgeSourcesService, useValue: knowledge },
             { provide: PublicMessageFulfillmentService, useValue: messages },
             { provide: EventsService, useValue: events },
-            { provide: PublicMessageDeliveryService, useValue: delivery },
+            { provide: QUEUE_OUTBOX, useValue: outbox },
             PublicApiLedgerService,
         ],
     }).compile()
@@ -96,7 +96,7 @@ const build = async (manager: MockEntityManager = mockEntityManager()) => {
         knowledge,
         messages,
         events,
-        delivery,
+        outbox,
     }
 }
 
@@ -127,7 +127,7 @@ describe("PublicApiProcessingService / fenced execution", () => {
         expectCompleted(tx, complete)
     })
 
-    it("sends the message only after the fence transaction returned", async () => {
+    it("writes the reply's send job in the fence transaction (once per send key), so it commits with the request or not at all", async () => {
         const built = await build()
         const { tx } = managerWith(ledgerRowOfKind("message", { ...messageBody, requireApproval: false }))
         const pending = {
@@ -143,14 +143,39 @@ describe("PublicApiProcessingService / fenced execution", () => {
         built.messages.fulfill.mockResolvedValue(pending)
         const claims = mock<JobClaims>()
         const fence = mock<JobFenceService>()
-        fence.write.mockImplementation(async (_job, action) => {
-            await action(tx)
-            expect(built.delivery.send).not.toHaveBeenCalled()
-        })
+        fence.write.mockImplementation((_job, action) => action(tx))
 
         await built.service.processFenced(claimedJobOf(), claims, fence)
 
-        expect(built.delivery.send).toHaveBeenCalledWith(pending)
+        expect(built.outbox.jobs).toEqual([{ queue: PUBLIC_API_QUEUE, payload: pending }])
+        // The send job is written with the transaction the fence supplied: it commits with the completion of the request.
+        expect(built.outbox.entries[0]?.tx).toBe(tx)
+    })
+
+    it("killed after the fence committed: the reply's send job is already in the outbox, and a run again of the processed request writes no second one", async () => {
+        const built = await build()
+        const pending = {
+            workspaceId: WORKSPACE,
+            sendKey: `api.message:${REQUEST}`,
+            routeId: CONVERSATION,
+            contactId: "contact-1",
+            agentId: "agent-1",
+            channel: "zalo",
+            accountId: "conn-1",
+            text: "Exact caller draft",
+        }
+        built.messages.fulfill.mockResolvedValue(pending)
+        const fence = mock<JobFenceService>()
+        const first = managerWith(ledgerRowOfKind("message", { ...messageBody, requireApproval: false }))
+        fence.write.mockImplementationOnce((_job, action) => action(first.tx))
+
+        await built.service.processFenced(claimedJobOf(), mock<JobClaims>(), fence)
+        // The process dies here, after the commit. The broker delivers the job again: the ledger row is processed.
+        fence.write.mockImplementationOnce((_job, action) => action(managerWith(PROCESSED_LEDGER_ROW).tx))
+        await built.service.processFenced(claimedJobOf(), mock<JobClaims>(), fence)
+
+        expect(built.outbox.jobs).toEqual([{ queue: PUBLIC_API_QUEUE, payload: pending }])
+        expect(built.messages.fulfill).toHaveBeenCalledTimes(1)
     })
 
     it("sends nothing when the message was held", async () => {
@@ -162,7 +187,7 @@ describe("PublicApiProcessingService / fenced execution", () => {
         await built.service.processFenced(claimedJobOf(), mock<JobClaims>(), fence)
 
         expect(built.messages.fulfill).toHaveBeenCalledTimes(1)
-        expect(built.delivery.send).not.toHaveBeenCalled()
+        expect(built.outbox.jobs).toEqual([])
     })
 
     it("rejects an unsupported name before advancing or entering the fence", async () => {
@@ -227,7 +252,7 @@ describe("PublicApiProcessingService / ledger admissions", () => {
         await built.service.process(ledgerJob, tx)
 
         expect(built.messages.fulfill).toHaveBeenCalledWith(WORKSPACE, REQUEST, messageBody, ADMITTED_AT, "key-1", tx)
-        expect(built.delivery.send).not.toHaveBeenCalled()
+        expect(built.outbox.jobs).toEqual([])
         expectCompleted(tx, complete)
     })
 })

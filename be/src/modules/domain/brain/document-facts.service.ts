@@ -17,12 +17,12 @@ import { KnowledgeSourcesService, StoredNote, type SourceRecord } from "@modules
 import { TeamChatNoticesService, type BackgroundStopReason } from "@modules/domain/team-chat"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
+import type { ClaimedJob } from "@modules/platform/jobs"
 import { InjectLogger, withWorkScope, type Logger } from "@modules/platform/logging"
 import { eachInOrder } from "@modules/platform/primitives"
 import { KnowledgeQueue } from "@modules/queues/knowledge"
 import { sourcePayloadOf } from "./brain-payload.policy"
 import type { FactsOutcome } from "./brain.contracts"
-import { BrainLogEvent } from "./brain.log-events"
 import { DocumentRelationsService } from "./document-relations.service"
 import { DocumentReviewService } from "./document-review.service"
 import { DocumentSettleService } from "./document-settle.service"
@@ -106,39 +106,34 @@ export class DocumentFactsService implements OnModuleInit, CritiqueChangedHook {
         this.critic?.whenChanged(this)
     }
 
-    /** Works on the truths of the document a job names; a payload of another shape is logged and dropped. */
-    async run(payload: object): Promise<FactsOutcome> {
-        const run = sourcePayloadOf(payload)
-        if (run === null) {
-            this.logger.warn(BrainLogEvent.PayloadRefused, { job: "facts" })
-            return "skipped"
-        }
+    /** Works on the truths of the document the claimed job names (its payload was checked against the job's declaration by the runner). */
+    async run(job: ClaimedJob): Promise<FactsOutcome> {
+        const run = sourcePayloadOf(job.payload)
+        if (run === null) throw new BrainError({ code: BrainErrorCode.PayloadInvalid })
         // A settle asked for by a change of the critic's verdict: a reading that ended or waits since the job was queued (the settle it
         // interrupted finished meanwhile) is opened again here, so this job settles with the verdict as it stands now.
         if (run.settleAgain === true) await this.extractions.reopen(run.workspaceId, run.sourceId)
         const source = await this.indexing.sourceForFacts(run.workspaceId, run.sourceId)
-        return source === null ? "skipped" : this.read(source)
+        return source === null ? "skipped" : this.read(source, job)
     }
 
-    /** The job ended as failed (the retries ran out): the document stays searchable, its truths are marked unread, and the founder is told. */
-    async giveUp(payload: object): Promise<void> {
+    /**
+     * The facts job was dead-lettered (its ONE item is the runner's): the document stays searchable, its truths are marked unread and the
+     * critic is asked to read it. The row stays resumable: a resume runs the job again, and `read` starts a failed reading anew
+     * (it withdraws nothing when the text is the same).
+     */
+    async failed(payload: object): Promise<void> {
         const run = sourcePayloadOf(payload)
         if (run === null) return
         await this.extractions.fail(run.workspaceId, run.sourceId, ExtractionNote.Aborted)
         await this.sources.ready(run.workspaceId, run.sourceId, StoredNote.FactsUnread)
         await this.reviews.requestForSource(run.workspaceId, run.sourceId)
-        const source = await this.sources.sourceOf(run.workspaceId, run.sourceId)
-        if (source !== null) await this.report(source, "gave_up")
     }
 
     /** Takes back what a deleted document contributed and proposes to retire the truths that lost their last evidence. */
     async withdraw(workspaceId: string, sourceId: string, title: string): Promise<void> {
-        try {
-            const orphans = await this.facts.withdrawSource(workspaceId, sourceId, "source changed")
-            await this.facts.finalizeOrphans(workspaceId, orphans, this.goneEvidence(sourceId, title, "was deleted"))
-        } catch (cause) {
-            this.logger.error(BrainLogEvent.WithdrawFailed, cause, { sourceId })
-        }
+        const orphans = await this.facts.withdrawSource(workspaceId, sourceId, "source changed")
+        await this.facts.finalizeOrphans(workspaceId, orphans, this.goneEvidence(sourceId, title, "was deleted"))
         await this.reviews.requestForGoneSource(workspaceId, sourceId)
     }
 
@@ -188,31 +183,26 @@ export class DocumentFactsService implements OnModuleInit, CritiqueChangedHook {
     /**
      * The upkeep tick: every reading that waits (at most `RESUME_MAX`, the longest-waiting first) goes on when what it waits for is
      * there: credits again, room under the ceiling. Its row leaves the waiting state and a job is queued in the
-     * same transaction (only one tick can move a row). Never throws. Answers how many went on.
+     * same transaction (only one tick can move a row). A failure is thrown: the tick that runs it is a job the runner retries. Answers how many went on.
      */
     async resumeParked(): Promise<number> {
         await this.resumeCritiques()
-        try {
-            const waiting = await this.extractions.parked(RESUME_MAX)
-            const at = this.clock.now().getTime()
-            const count = { resumed: 0 }
-            await eachInOrder(waiting, async (row) => {
-                if (!(await this.mayGoOn(row.workspaceId, row.status))) return
-                const moved = await this.entityManager.transaction(async (tx) => {
-                    if (!(await this.extractions.resume(row.workspaceId, row.sourceId, tx))) return false
-                    const step = `resume:${row.contentHash ?? ""}:${row.status}:${String(at)}`
-                    await this.queue.enqueueFactsNext({ sourceId: row.sourceId, workspaceId: row.workspaceId }, tx, step)
-                    return true
-                })
-                if (!moved) return
-                this.logger.info(FactReadingLogEvent.ReadingResumed, { sourceId: row.sourceId, waitedFor: row.status })
-                count.resumed += 1
+        const waiting = await this.extractions.parked(RESUME_MAX)
+        const at = this.clock.now().getTime()
+        const count = { resumed: 0 }
+        await eachInOrder(waiting, async (row) => {
+            if (!(await this.mayGoOn(row.workspaceId, row.status))) return
+            const moved = await this.entityManager.transaction(async (tx) => {
+                if (!(await this.extractions.resume(row.workspaceId, row.sourceId, tx))) return false
+                const step = `resume:${row.contentHash ?? ""}:${row.status}:${String(at)}`
+                await this.queue.enqueueFactsNext({ sourceId: row.sourceId, workspaceId: row.workspaceId }, tx, step)
+                return true
             })
-            return count.resumed
-        } catch (cause) {
-            this.logger.error(FactReadingLogEvent.ResumeFailed, cause, {})
-            return 0
-        }
+            if (!moved) return
+            this.logger.info(FactReadingLogEvent.ReadingResumed, { sourceId: row.sourceId, waitedFor: row.status })
+            count.resumed += 1
+        })
+        return count.resumed
     }
 
     /**
@@ -223,15 +213,11 @@ export class DocumentFactsService implements OnModuleInit, CritiqueChangedHook {
      */
     private async resumeCritiques(): Promise<void> {
         if (this.critic === undefined) return
-        try {
-            const stopped = await this.critic.stopped(RESUME_MAX)
-            await eachInOrder(stopped, async (one) => {
-                if (await this.usage.blockedBy(one.workspaceId, "brain", false)) return
-                await this.reviews.requestForSource(one.workspaceId, one.sourceId, { resume: true })
-            })
-        } catch (cause) {
-            this.logger.error(FactReadingLogEvent.ResumeFailed, cause, {})
-        }
+        const stopped = await this.critic.stopped(RESUME_MAX)
+        await eachInOrder(stopped, async (one) => {
+            if (await this.usage.blockedBy(one.workspaceId, "brain", false)) return
+            await this.reviews.requestForSource(one.workspaceId, one.sourceId, { resume: true })
+        })
     }
 
     /**
@@ -246,7 +232,7 @@ export class DocumentFactsService implements OnModuleInit, CritiqueChangedHook {
     }
 
     /** Opens or resumes the truths work of a document and carries it as far as this job may. */
-    private async read(source: SourceRecord): Promise<FactsOutcome> {
+    private async read(source: SourceRecord, job: ClaimedJob): Promise<FactsOutcome> {
         const workspaceId = source.workspaceId
         const hash = hashOf(source.content)
         const passages = await this.chunks.truthPassagesOf(workspaceId, source.id)
@@ -263,7 +249,7 @@ export class DocumentFactsService implements OnModuleInit, CritiqueChangedHook {
             const resumes = same && known.status !== "done" && known.status !== "failed"
             if (!resumes) await this.restart(source, hash, passages, same ? null : known, known)
             const row = resumes ? known : await this.extractions.get(workspaceId, source.id)
-            return row === null ? "skipped" : this.work(source, hash, passages, row)
+            return row === null ? "skipped" : this.work(source, hash, passages, row, job)
         })
     }
 
@@ -310,38 +296,33 @@ export class DocumentFactsService implements OnModuleInit, CritiqueChangedHook {
         hash: string,
         passages: ReadonlyArray<TruthPassage>,
         row: ExtractionRecord,
+        job: ClaimedJob,
     ): Promise<FactsOutcome> {
         const state: Reading = {
             hash,
             done: row.windowsDone,
             filed: row.factsProposed,
-            attempts: row.status === "failed" ? 0 : row.attempts,
+            attempts: 0,
             orphans: row.orphanFactIds,
             model: "",
         }
         if (row.stage === "settle" && !passages.some((passage) => needsWork(passage))) {
             return this.settle(source, passages, state)
         }
-        const judged = await this.stages.triage({ source, passages, state })
+        const judged = await this.stages.triage({ job, source, passages, state })
         if (judged.end !== "done") return this.stopped(source, judged, "triage")
-        const read = await this.stages.extract({ source, passages: judged.passages, state: judged.state })
+        const read = await this.stages.extract({ job, source, passages: judged.passages, state: judged.state })
         if (read.end !== "done") return this.stopped(source, read, "extract")
         return this.extracted(source, read.passages, read.state)
     }
 
-    /** A stage did not finish in this job: the reading waits for credits, hands over, is retried by the queue, or is given up. */
+    /** A stage did not finish in this job: the reading waits for credits or hands over to a follow-up job. A call that gave nothing usable threw. */
     private async stopped(source: SourceRecord, result: StageResult, stage: ExtractionStage): Promise<FactsOutcome> {
         if (result.end === "blocked") {
             await this.report(source, "credits")
             return "blocked"
         }
-        if (result.end === "budget") return this.handOver(source, result.state, stage, result.left)
-        if (result.end === "retry") throw new BrainError({ code: BrainErrorCode.ModelUnavailable })
-        await this.sources.ready(source.workspaceId, source.id, StoredNote.FactsUnread)
-        await this.reviews.requestForSource(source.workspaceId, source.id)
-        await this.report(source, "model")
-        this.logger.warn(FactReadingLogEvent.ReadingGivenUp, { sourceId: source.id, stage })
-        return "failed"
+        return this.handOver(source, result.state, stage, result.left)
     }
 
     /**
@@ -389,21 +370,18 @@ export class DocumentFactsService implements OnModuleInit, CritiqueChangedHook {
     /**
      * Tells the founder that the truths of a document stopped, once per version of the document and reason; the CEILING is told once
      * per episode of the workspace, however many documents stop at it (each still shows its own `at_ceiling` state): the episode is
-     * named by when its first reading stopped, and a new one starts once there was room again. Logged, never thrown.
+     * named by when its first reading stopped, and a new one starts once there was room again. Only the business waits report here (no
+     * credits, the ceiling): a failure is the runner's dead letter and its own item.
      */
     private async report(source: SourceRecord, reason: BackgroundStopReason, place: number = REASON_PLACE[reason]): Promise<void> {
         if (this.notices === undefined) return
-        try {
-            const since = reason === "ceiling" ? await this.extractions.ceilingSince(source.workspaceId) : null
-            const posted = await this.notices.postBackgroundStopped(source.workspaceId, {
-                work: "brain.documents.truths",
-                reason,
-                episode: since ?? new Date(Date.parse(source.updatedAt) + place),
-            })
-            this.logger.info(FactReadingLogEvent.StopReported, { sourceId: source.id, reason, posted })
-        } catch (cause) {
-            this.logger.error(FactReadingLogEvent.StopReportFailed, cause, { sourceId: source.id })
-        }
+        const since = reason === "ceiling" ? await this.extractions.ceilingSince(source.workspaceId) : null
+        const posted = await this.notices.postBackgroundStopped(source.workspaceId, {
+            work: "brain.documents.truths",
+            reason,
+            episode: since ?? new Date(Date.parse(source.updatedAt) + place),
+        })
+        this.logger.info(FactReadingLogEvent.StopReported, { sourceId: source.id, reason, posted })
     }
 
     /** The note a truth keeps when its last supporting document is gone. */

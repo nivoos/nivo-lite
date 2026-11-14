@@ -13,6 +13,6 @@ export class DeliverStartStep implements JobStep {
     /** Records the step with the token this worker holds FIRST, so a stale token stops here before any effect; then delivers. */
     async run(job: ClaimedJob): Promise<void> {
         await this.claims.advance({ jobId: job.jobId, expectedFencingToken: job.fencingToken, step: "deliver" })
-        await this.starts.deliverJob(job.payload)
+        await this.starts.deliverJob(job)
     }
 }

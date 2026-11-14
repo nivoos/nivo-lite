@@ -132,7 +132,7 @@
     {
       "id": "crm-names",
       "run": "ext/checks/crm-names.mjs",
-      "why": "A CRM provider via OpenAPI: every package's api.generated.ts equals what its pinned src/crm/<id>/openapi.json gives, every nivo.api.crm.<id>.* it names is an operation of its own pin, declared sources have their document, CRM ids are unique across packages, and no nivo.tool.crm.* is hand-named (.starciwork/concepts/tools.md, providers.md)."
+      "why": "A CRM provider via OpenAPI: every package's api.generated.ts equals what its pinned src/shared/crm/<id>/openapi.json gives, every nivo.api.crm.<id>.* it names is an operation of its own pin, declared sources have their document, CRM ids are unique across packages, and no nivo.tool.crm.* is hand-named (.starciwork/concepts/tools.md, providers.md)."
     },
     {
       "id": "record-names",
@@ -163,6 +163,11 @@
       "id": "engine-business-contracts",
       "run": "ext/checks/engine-business-contracts.mjs",
       "why": "The engine and agent-sdk name only the service contracts listed as generic in layers.md (no contract of one module's business, no domain module wrapping one), and a provider module (one that registers itself in a provider registry at boot) imports among the domain pieces only the table of providers.md (.starciwork/concepts/layers.md rule 14, providers.md rule 13)."
+    },
+    {
+      "id": "seed-standards",
+      "run": "ext/checks/seed-standards.mjs",
+      "why": "Every seed standard the stack brings up is a COMPLETE workspace at its pinned commit: a valid document of the one seed schema, no generated identity, every secret value sealed (read by name, never decrypted), and READY by what the installed templates declare (plugins at their versions, primary templates, an account for every node step, an entrance, knowledge); the default load lists only seed standards (.starciwork/concepts/seeds-and-data.md)."
     },
     {
       "id": "template-tools",

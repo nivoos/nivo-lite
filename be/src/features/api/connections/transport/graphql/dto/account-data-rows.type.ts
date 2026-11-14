@@ -47,6 +47,10 @@ export class AccountDataRowType {
     /** The value. */
     @Field(() => GraphqlJsonObject)
     value!: object
+
+    /** The id of the earlier row that reported the same fact (the engine did not deliver this one again); null otherwise. */
+    @Field(() => String, { nullable: true })
+    sameFactOf!: string | null
 }
 
 @ObjectType()

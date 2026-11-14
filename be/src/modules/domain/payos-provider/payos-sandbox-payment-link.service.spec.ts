@@ -32,15 +32,15 @@ describe("PayosSandboxPaymentLinkService", () => {
         const second = await service.create(CONNECTION, REQUEST)
 
         expect(first).toEqual({
-            linkId: "sbx-payos-link-000001",
+            linkId: "sbx-payos-conn-p-000001",
             orderCode: 1780000000001,
-            checkoutUrl: "https://pay.payos.vn/web/sbx-payos-link-000001",
+            checkoutUrl: "https://sandbox.invalid/pay/sbx-payos-conn-p-000001",
             qrPayload: "00020101021238570010A000000727sandbox",
             amountVnd: 150000,
             description: "DH001",
             status: "PENDING",
         })
-        expect([second.linkId, second.orderCode]).toEqual(["sbx-payos-link-000002", 1780000000002])
+        expect([second.linkId, second.orderCode]).toEqual(["sbx-payos-conn-p-000002", 1780000000002])
         const calls = await sandbox.calls(ACCOUNT, "create")
         expect(calls).toHaveLength(2)
         expect(calls[0]).toMatchObject({ operation: "create", key: "DH001", request: REQUEST, result: { outcome: "answered", value: first } })
@@ -61,7 +61,7 @@ describe("PayosSandboxPaymentLinkService", () => {
         expect(providerRefusalDetail(thrown)).toBe("order already exists")
         expect(proofOf(thrown)).toBeNull()
         await sandbox.setNextCase(ACCOUNT, "create", PAYOS_SANDBOX_CASE.created)
-        expect((await service.create(CONNECTION, REQUEST)).linkId).toBe("sbx-payos-link-000002")
+        expect((await service.create(CONNECTION, REQUEST)).linkId).toBe("sbx-payos-conn-p-000002")
         expect(await sandbox.calls(ACCOUNT, "create")).toHaveLength(2)
     })
 
@@ -87,7 +87,7 @@ describe("PayosSandboxPaymentLinkService", () => {
         const byCode = await service.get(CONNECTION, { orderCode: link.orderCode })
 
         expect(byId).toEqual({
-            linkId: "sbx-payos-link-000001",
+            linkId: "sbx-payos-conn-p-000001",
             orderCode: 1780000000001,
             amountVnd: 150000,
             amountPaidVnd: 0,
@@ -145,7 +145,7 @@ describe("PayosSandboxPaymentLinkService", () => {
         expect(events[0]?.body).toMatchObject({
             code: "00",
             success: true,
-            data: { orderCode: 1780000000001, amount: 150000, paymentLinkId: "sbx-payos-link-000001", reference: expect.any(String) },
+            data: { orderCode: 1780000000001, amount: 150000, paymentLinkId: "sbx-payos-conn-p-000001", reference: expect.any(String) },
             signature: expect.any(String),
         })
         const outbound = PAYOS_SANDBOX_CATALOGUE.cases.filter((one) => one.operation !== undefined)
@@ -169,7 +169,7 @@ describe("PayosSandboxPaymentLinkService", () => {
                 orderCode: 1780000000002,
                 amount: 99000,
                 description: "DH001",
-                paymentLinkId: "sbx-payos-link-000002",
+                paymentLinkId: "sbx-payos-conn-p-000002",
                 reference: "SBXPAYOS000001",
                 transactionDateTime: "2026-11-14 10:00:00",
             },

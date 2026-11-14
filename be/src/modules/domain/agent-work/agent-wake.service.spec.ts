@@ -1,6 +1,6 @@
 import { Test } from "@nestjs/testing"
 import { mock, mockEntityManager } from "@starci/jest-preset"
-import { agentWakeOf as wake } from "@tests/fixtures/builders/agent-work.builder"
+import { agentWakeOf as wake, agentWakeRowOf } from "@tests/fixtures/builders/agent-work.builder"
 import { queueQueryBuilders } from "@tests/fixtures/builders/entity-query-builder-fake.builder"
 import type { QueryBuilderAnswers } from "@tests/fixtures/builders/entity-query-builder-fake.builder"
 import { LOGGER } from "@modules/platform/logging"
@@ -207,5 +207,81 @@ describe("AgentWakeService.superseded", () => {
             { id: "wake-held", workspaceId: "ws-1", status: "held" },
             { status: "skipped", reason: "replayed:wake-replay" },
         )
+    })
+})
+
+describe("AgentWakeService.replaceOlder: rule Q-4 `latest` (QB-LATEST), the wake just written replaces the older un-run wakes of its set", () => {
+    const set = { workspaceId: "ws-1", agentId: "agent-1", scopeKey: "key:data.taskId=t-1", declaration: "nivo:timer.due", workflowId: "wf-1" }
+    const latest = (id: string, minute: number, extra: Record<string, string> = {}) =>
+        agentWakeRowOf({
+            id,
+            scopeKey: set.scopeKey,
+            status: id === "w-3" ? "pending" : "held",
+            reason: id === "w-3" ? null : "waiting:run-1",
+            createdAt: new Date(Date.UTC(2026, 10, 14, 10, minute)),
+            context: { combine: "latest", declaration: set.declaration, workflowId: "wf-1", eventId: `e-${id}`, ...extra },
+        })
+    /** The door over a set read as `rows`: the lock statement and the newest's context write answer as the table does. */
+    const door = async (rows: ReadonlyArray<ReturnType<typeof latest>>) => {
+        const built = await build({ getMany: rows })
+        built.tx.query.mockResolvedValue([])
+        built.tx.update.mockResolvedValue({ affected: 1, raw: [], generatedMaps: [] })
+        return built
+    }
+
+    it("reads the set under the scope's lock, closes the older ones `replaced:<newest>` and counts them on the newest", async () => {
+        const { service, tx, fake, logger } = await door([latest("w-1", 0), latest("w-2", 1, { count: "2" }), latest("w-3", 2)])
+        const [close] = queueQueryBuilders(tx, [{ execute: { affected: 2 } }])
+
+        await expect(service.replaceOlder(tx, set, "w-3")).resolves.toBe(2)
+
+        expect(tx.query).toHaveBeenCalledWith("SELECT pg_advisory_xact_lock(hashtext($1))", ["wake-stream:agent-1:key:data.taskId=t-1"])
+        // The set: un-run (pending, or held behind a run), this mode, this declaration, this registration, never a handed-back wake.
+        expect(fake?.callsOf("andWhere")).toEqual(
+            expect.arrayContaining([
+                ["(w.status = 'pending' OR (w.status = 'held' AND w.reason LIKE :waiting))", { waiting: "waiting:%" }],
+                ["w.context ->> 'combine' = :latest", { latest: "latest" }],
+                ["w.context ->> 'declaration' = :declaration", { declaration: "nivo:timer.due" }],
+                ["COALESCE(w.context ->> 'workflowId', '') = :workflowId", { workflowId: "wf-1" }],
+                ["w.context ->> 'handedBackJson' IS NULL"],
+            ]),
+        )
+        expect(fake?.callsOf("setLock")).toEqual([["pessimistic_write"]])
+        expect(close?.callsOf("set")).toEqual([[{ status: "skipped", reason: "replaced:w-3", finishedAt: expect.any(Function) }]])
+        expect(close?.callsOf("where")).toEqual([
+            ["workspace_id = :workspaceId AND status IN ('pending', 'held') AND id IN (:...ids)", { workspaceId: "ws-1", ids: ["w-1", "w-2"] }],
+        ])
+        // The newest keeps its own event and stands for 1 + 1 + 2 events.
+        expect(tx.update).toHaveBeenCalledWith(expect.anything(), { workspaceId: "ws-1", id: "w-3" }, {
+            context: { combine: "latest", declaration: "nivo:timer.due", workflowId: "wf-1", eventId: "e-w-3", count: "4" },
+        })
+        expect(logger.info).toHaveBeenCalledWith("agent_work.wake_replaced", expect.objectContaining({ kept: "w-3", replaced: 2, count: "4" }))
+    })
+
+    it("a set of one replaces nothing and writes nothing", async () => {
+        const { service, tx } = await door([latest("w-3", 2)])
+
+        await expect(service.replaceOlder(tx, set, "w-3")).resolves.toBe(0)
+
+        expect(tx.createQueryBuilder).toHaveBeenCalledTimes(1)
+        expect(tx.update).not.toHaveBeenCalled()
+    })
+
+    it("the newest no longer in the set (begun or closed meanwhile) decides nothing: the older ones stay", async () => {
+        const { service, tx } = await door([latest("w-1", 0), latest("w-2", 1)])
+
+        await expect(service.replaceOlder(tx, set, "w-3")).resolves.toBe(0)
+
+        expect(tx.createQueryBuilder).toHaveBeenCalledTimes(1)
+        expect(tx.update).not.toHaveBeenCalled()
+    })
+
+    it("older wakes already closed by another delivery: nothing counted on the newest", async () => {
+        const { service, tx } = await door([latest("w-1", 0), latest("w-3", 2)])
+        queueQueryBuilders(tx, [{ execute: { affected: 0 } }])
+
+        await expect(service.replaceOlder(tx, set, "w-3")).resolves.toBe(0)
+
+        expect(tx.update).not.toHaveBeenCalled()
     })
 })

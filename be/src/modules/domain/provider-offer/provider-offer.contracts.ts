@@ -1,7 +1,9 @@
+import type { TriggerWays } from "@modules/domain/provider-triggers"
+
 /**
  * WHAT A PROVIDER OFFERS, as its page documents it: the three levels of the provider of one connected account, read from the
  * registries alone (the interface reads, the gateway's tool specs with the plugins' declarations and the pinned OpenAPI document, the
- * trigger catalogue). It holds no figure, list or live datum of the account: those are the workbench's. Words are the registry's own
+ * trigger declarations). It holds no figure, list or live datum of the account: those are the workbench's. Words are the registry's own
  * (bilingual where it has them, null where it has none); nothing here is written for the page.
  */
 
@@ -17,19 +19,19 @@ export interface OfferWords {
 export interface OfferedMember {
     /** Its name, as a caller sends it or a reader finds it. */
     readonly name: string
-    /** Its JSON type as the schema declares it (`string`, `integer`, `string|null`, `array<object>`; `id`, `integer`, `choice` for a trigger), or null when the schema says none. */
+    /** Its JSON type as the schema declares it (`string`, `integer`, `string|null`, `array<object>`), or null when the schema says none. */
     readonly type: string | null
     /** Its JSON format (`uuid`, `date-time`), or null. */
     readonly format: string | null
-    /** True when the caller must send it (a trigger payload member is always present). */
+    /** True when the caller must send it (a trigger member: when the data schema makes it present in every event). */
     readonly required: boolean
     /** The closed values it takes, empty when it is not a closed choice. */
     readonly choices: ReadonlyArray<string>
-    /** What it means in the owner's two languages, when the registry declares that (trigger payloads); else null. */
+    /** What it means in the owner's two languages, when the registry declares that (a trigger's `words.members`); else null. */
     readonly label: OfferWords | null
     /** What it means in the one language the schema declares it in, or null. */
     readonly description: string | null
-    /** True when a workflow's trigger filter may compare it; false for every member that is no trigger payload member. */
+    /** True when a workflow's trigger filter may compare it; a closed choice of a trigger's data; false for every member that is no trigger member. */
     readonly filterable: boolean
 }
 
@@ -94,29 +96,29 @@ export interface OfferedTool {
     readonly operation: OfferedOperation | null
 }
 
-/** How the events of one emission are grouped into runs. */
-export interface OfferedBatching {
-    /** `each`: one run per event; `list`: one run per emission with the event ids. */
-    readonly mode: "each" | "list"
-    /** The most events one `list` run takes; null for `each`. */
-    readonly maxEvents: number | null
+/** Why a trigger no poll receives loses no event: the reason in the owner's two languages, and where the guarantee is stated. */
+export interface OfferedWithoutPoll {
+    /** The reason: the provider's re-delivery guarantee, or the sweep of NIVO that brings a missed one back. */
+    readonly reason: OfferWords
+    /** The provider's document URL, or `nivo:<sweep>`. */
+    readonly source: string
 }
 
 /** One trigger of level 3 (the provider's background work emits it; a workflow may register on it). */
 export interface OfferedTrigger {
     /** Its name inside the provider (`transaction.received`). */
     readonly name: string
-    /** How the provider learns of it. */
-    readonly kind: "webhook" | "poll"
+    /** EVERY way the trigger is received (`webhook`, `poll`, `clock`, `internal`): the page reads "received by: webhook, poll". */
+    readonly via: TriggerWays
+    /** For a trigger no poll receives: why a missed event loses nothing; null when a poll receives it. */
+    readonly withoutPoll: OfferedWithoutPoll | null
+    /** Its short title `<source> · <event>`, in the owner's two languages: what a drawer or card names the trigger by. */
+    readonly title: OfferWords
     /** What it is, in the owner's two languages. */
     readonly summary: OfferWords
-    /** The members of one event's payload. */
+    /** The members of one event's data, derived from the declaration's data schema. */
     readonly payload: ReadonlyArray<OfferedMember>
-    /** How events are grouped into runs. */
-    readonly batching: OfferedBatching
-    /** How a missed event is recovered: the reader's cursor, the provider's reconcile pass, or nothing. */
-    readonly recovery: "cursor" | "reconcile" | "none"
-    /** True when one agent decides on its events and every other registered one is only told. */
+    /** True when one agent decides on its events and every other registered one is only told (its switch says so). */
     readonly decided: boolean
 }
 

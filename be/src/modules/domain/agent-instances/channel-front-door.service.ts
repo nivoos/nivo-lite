@@ -26,6 +26,9 @@ const FRONT_DOOR_LOCALE: Locale = "vi"
 /** The channel already has its front door: left exactly as it is. */
 type HeldFrontDoor = { readonly kind: "held"; readonly module: string; readonly agentId: string | null }
 
+/** The front door the workspace already holds, with the installation behind it. */
+type HeldInstallation = { readonly door: HeldFrontDoor; readonly installationId: string }
+
 /**
  * What making sure a customer channel has an owning agent found or did: no installed template declares a front door for the channel (nobody
  * can answer it: the capability is missing), the channel already has its front door (left exactly as it is), the workspace's existing front
@@ -47,8 +50,9 @@ export type FrontDoorOutcome =
  * agents page uses (the installation, its workflows, the rights on the connected providers, the connection's inbound grant); when it
  * already holds some, the best of the ones it holds is ATTACHED to the new connection with the same writers (the inbound binding, the
  * rights on the connected providers); a connection that already has its front door is left as it is. Idempotent. A failure to install or
- * attach is thrown (`FrontDoorFailed`) and marks the connection in error, so a channel is never left connected with nobody behind it. The
- * raw delivery is stored by the intake whether or not an agent answers.
+ * attach is thrown (`FrontDoorFailed`) and marks the connection in error, so a channel is never left connected with nobody behind it; what a
+ * failed install made stays (forward only) and the next run finds it as the held front door and finishes it (rights, workflows). The raw
+ * delivery is stored by the intake whether or not an agent answers.
  */
 export class ChannelFrontDoorService {
     constructor(
@@ -71,7 +75,12 @@ export class ChannelFrontDoorService {
     async ensureForConnection(actor: ConnectionActor, connectionId: string): Promise<FrontDoorOutcome> {
         const connection = await this.connections.get(actor.workspaceId, connectionId)
         if (!customerChannelProviders().has(connection.provider)) return { kind: "none" }
-        return this.ensure(actor.workspaceId, connection.provider, connection.id)
+        const outcome = await this.ensure(actor.workspaceId, connection.provider, connection.id)
+        // The error an earlier failed run left on the connection says its front door could not be made: it has one now, so the error clears.
+        if (outcome.kind !== "none" && connection.status === "error" && connection.lastError === AgentInstancesErrorCode.FrontDoorFailed) {
+            await this.connections.patch(actor.workspaceId, connection.id, { status: "connected", lastError: null })
+        }
+        return outcome
     }
 
     /** Makes sure the workspace's website form has its front door installed: the form has no connection to attach. */
@@ -93,8 +102,8 @@ export class ChannelFrontDoorService {
         try {
             const held = await this.heldOf(workspaceId, open)
             if (held === null) return await this.installed(workspaceId, channel, wanted, connectionId)
-            if (connectionId === null || held.agentId === null) return held
-            return await this.attached(workspaceId, held.module, held.agentId, connectionId)
+            if (connectionId === null || held.door.agentId === null) return held.door
+            return await this.attached(workspaceId, held, connectionId)
         } catch (cause: unknown) {
             this.logger.error(AgentInstancesLogEvent.FrontDoorFailed, cause, { workspaceId, channel, module: wanted })
             if (connectionId !== null) await this.markInError(workspaceId, connectionId)
@@ -123,12 +132,9 @@ export class ChannelFrontDoorService {
      * front door on one stream) and the rights on the connected providers (the attach the creation makes, which leaves a right the agent
      * already holds as it is). A connection that already has its front door is left as it is: that agent is the answer.
      */
-    private async attached(
-        workspaceId: string,
-        module: string,
-        agentId: string,
-        connectionId: string,
-    ): Promise<FrontDoorOutcome> {
+    private async attached(workspaceId: string, held: HeldInstallation, connectionId: string): Promise<FrontDoorOutcome> {
+        const { module, agentId } = held.door
+        if (agentId === null) return held.door
         const ownerId = await this.requireOwner(workspaceId, module)
         const holder = await this.bindings.owningAgentOf(workspaceId, connectionId)
         if (holder === null) {
@@ -138,6 +144,8 @@ export class ChannelFrontDoorService {
         if (!rights.ok) {
             throw new AgentInstancesError({ code: AgentInstancesErrorCode.FrontDoorFailed, params: { module } })
         }
+        // An install that failed before its workflows left the agent without them: they are made now, and only the missing ones.
+        await this.creation.finishWorkflows({ workspaceId, installationId: held.installationId, agentId, moduleKey: module })
         if (holder !== null) return { kind: "held", module, agentId: holder }
         this.logger.info(AgentInstancesLogEvent.FrontDoorAttached, { workspaceId, connectionId, module })
         return { kind: "attached", module, agentId }
@@ -158,11 +166,11 @@ export class ChannelFrontDoorService {
     }
 
     /** The agent of the best of these modules the workspace already holds (not removed), or null when it holds none. */
-    private async heldOf(workspaceId: string, modules: ReadonlyArray<string>): Promise<HeldFrontDoor | null> {
+    private async heldOf(workspaceId: string, modules: ReadonlyArray<string>): Promise<HeldInstallation | null> {
         const installed = await this.installations.list(workspaceId)
         for (const module of modules) {
             const found = installed.find((record) => record.moduleKey === module)
-            if (found !== undefined) return { kind: "held", module, agentId: found.agentId }
+            if (found !== undefined) return { door: { kind: "held", module, agentId: found.agentId }, installationId: found.id }
         }
         return null
     }
@@ -193,15 +201,11 @@ export class ChannelFrontDoorService {
         })
     }
 
-    /** Marks the connection failing for the owner to see; a failure to mark it is logged, never thrown over the install failure. */
+    /** Marks the connection failing for the owner to see: the typed failed row of a front door that could not be made. */
     private async markInError(workspaceId: string, connectionId: string): Promise<void> {
-        try {
-            await this.connections.patch(workspaceId, connectionId, {
-                status: "error",
-                lastError: AgentInstancesErrorCode.FrontDoorFailed,
-            })
-        } catch (cause: unknown) {
-            this.logger.error(AgentInstancesLogEvent.FrontDoorFailed, cause, { workspaceId, connectionId })
-        }
+        await this.connections.patch(workspaceId, connectionId, {
+            status: "error",
+            lastError: AgentInstancesErrorCode.FrontDoorFailed,
+        })
     }
 }

@@ -40,7 +40,7 @@ describe("a plugin removed from the array is removed from everything the engine 
         expect(installed.effects.has(FIXTURE_TOOL)).toBe(false)
         expect(MODULE_CATALOG.map((module) => module.key)).not.toContain(FIXTURE_MODULE)
         // A workflow of the removed plugin is refused: its step is no installed node.
-        expect(() => requireSoundFlow(FIXTURE_PRIMARY.versions[0]!.graph, installed)).toThrow()
+        expect(() => requireSoundFlow(FIXTURE_PRIMARY.versions[0]!.graph)).toThrow()
     })
 
     it("reads the first plugin's declarations through the array exactly as the plugin declares them", () => {

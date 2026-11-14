@@ -295,6 +295,36 @@ describe("ToolRunnerService", () => {
         expect(world.execute).toHaveBeenCalled()
     })
 
+    it("QB-P3 rule I-1: an earlier write kept as an INTENT with no result (the process died after the act) is an unknown outcome", async () => {
+        const intent: KeptRecord = {
+            effect: TOOL.agentTag,
+            args: { orderId: "o-1" },
+            subject: { kind: "intent", id: "intent" },
+            at: "2026-11-11T23:59:00.000Z",
+        }
+        const world = worldOf({}, [intent])
+
+        // Other arguments at the same position: the step's receipt answers (the same arguments are the ledger's, under their own key).
+        await expect(world.runner.run(effectOf({ orderId: "o-2" }, { effect: TOOL.agentTag }))).rejects.toMatchObject({
+            code: "tool_outcome_unknown",
+            params: { effect: TOOL.agentTag, open: "intent" },
+        })
+        expect(world.execute).not.toHaveBeenCalled()
+    })
+
+    it("QB-P3 rule I-3: an intent with no result of a repeatable tool (the customer send) is made again", async () => {
+        const intent: KeptRecord = {
+            effect: "nivo.tool.customer.message.send",
+            args: { conversationId: "conv-1", text: "x" },
+            subject: { kind: "intent", id: "intent" },
+            at: "2026-11-11T23:59:00.000Z",
+        }
+        const world = worldOf({}, [intent])
+
+        await world.runner.run(effectOf({ conversationId: "conv-1", text: "x" })).catch(() => undefined)
+        expect(world.execute).toHaveBeenCalled()
+    })
+
     it("hands the executor the approver of exactly this call, and nobody for an approval of another call", async () => {
         const world = worldOf()
         const payload = { orderId: "o-1" }
@@ -407,6 +437,104 @@ const toolOf = (tool: string) => ({
 const failedWith = (proof: "not_sent" | "unknown"): GraphNodesError =>
     new GraphNodesError({ code: GraphNodesErrorCode.ToolFailed, params: { tool: "t", reason: "unavailable", proof } })
 
+describe("ToolRunnerService confirmBy (R81-3, QB-P3 rules I-3/I-4): an unknown outcome settled by the write's declared read", () => {
+    const RENEW = {
+        road: "tool" as const,
+        token: "tok",
+        tool: TOOL.domainRenewalCreate,
+        args: { name: "a.vn", years: 1 },
+        key: "run-1:renew:abc",
+        approval: null,
+        turn: TURN,
+    }
+    /** What the door's tool road throws for a write whose outcome is unknown (a pending receipt after a crash, a timeout). */
+    const unknownOutcome = (): GraphNodesError =>
+        new GraphNodesError({ code: GraphNodesErrorCode.ToolFailed, params: { tool: TOOL.domainRenewalCreate, reason: "unknown_outcome" } })
+
+    /** A door that answers the before read, the renewal and the renewal check as scripted, and lists the tools it was called with. */
+    const doorWorld = (renewal: () => Promise<unknown>, check: () => Promise<unknown>) => {
+        const world = worldOf()
+        world.door.call.mockImplementation((call: NodeToolCall) => {
+            if (call.tool === TOOL.domainGet) return Promise.resolve({ name: "a.vn", expiresOn: "2026-12-14" })
+            if (call.tool === TOOL.domainRenewalCreate) return renewal()
+            if (call.tool === TOOL.domainRenewalGet) return check()
+            return Promise.reject(new Error(`unexpected ${call.tool}`))
+        })
+        const called = (): ReadonlyArray<string> => world.door.call.mock.calls.map(([call]) => call.tool)
+        return { world, called }
+    }
+
+    it("reads the expiry BEFORE the renewal (kept once under <key>:before) and hands the renewal's answer as it was", async () => {
+        const answered = { outcome: "renewed", expiresOn: "2027-12-14" }
+        const { world, called } = doorWorld(() => Promise.resolve(answered), () => Promise.reject(new Error("no check")))
+
+        await expect(world.runner.run(RENEW)).resolves.toEqual({ road: "tool", value: answered })
+
+        expect(called()).toEqual([TOOL.domainGet, TOOL.domainRenewalCreate])
+        expect(world.ledger.kept.get(`${RENEW.key}:before`)).toMatchObject({ kind: "before", facts: { expiresOn: "2026-12-14" } })
+    })
+
+    it("unknown outcome, the check says it HAPPENED: the step gets the check's answer, kept under <key>:confirm; no second renewal", async () => {
+        const check = { name: "a.vn", outcome: "renewed", expiresBefore: "2026-12-14", expiresOn: "2027-12-14", reference: null }
+        const { world, called } = doorWorld(() => Promise.reject(unknownOutcome()), () => Promise.resolve(check))
+
+        await expect(world.runner.run(RENEW)).resolves.toEqual({ road: "tool", value: check })
+
+        expect(called()).toEqual([TOOL.domainGet, TOOL.domainRenewalCreate, TOOL.domainRenewalGet])
+        expect(world.door.call.mock.calls[2]?.[0]).toMatchObject({
+            tool: TOOL.domainRenewalGet,
+            args: { name: "a.vn", expiresBefore: "2026-12-14", reference: null },
+            approval: null,
+        })
+        expect(world.ledger.kept.get(`${RENEW.key}:confirm`)).toMatchObject({ kind: "confirmed", facts: check })
+
+        // A re-drive: the renewal still answers unknown (its pending receipt), the kept confirmation answers: nothing is read again.
+        await expect(world.runner.run(RENEW)).resolves.toEqual({ road: "tool", value: check })
+        expect(called().filter((tool) => tool === TOOL.domainRenewalGet)).toHaveLength(1)
+        expect(called().filter((tool) => tool === TOOL.domainGet)).toHaveLength(1)
+    })
+
+    it("unknown outcome, the check says NOT happened: ONE typed outcome-unknown (a person decides), never a second renewal", async () => {
+        const { world, called } = doorWorld(() => Promise.reject(unknownOutcome()), () => Promise.resolve({ outcome: "pending" }))
+
+        await expect(world.runner.run(RENEW)).rejects.toMatchObject({
+            code: "tool_outcome_unknown",
+            params: { effect: TOOL.domainRenewalCreate, confirm: "not_happened" },
+        })
+        expect(called().filter((tool) => tool === TOOL.domainRenewalCreate)).toHaveLength(1)
+        // Not kept: a later re-drive asks the check again (a pending order may still move).
+        expect(world.ledger.kept.has(`${RENEW.key}:confirm`)).toBe(false)
+    })
+
+    it("a check that fails TRANSIENTLY is the step's failure as it is (the step parks and runs again); any other is unknown", async () => {
+        const down = Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" })
+        const transient = doorWorld(() => Promise.reject(unknownOutcome()), () => Promise.reject(down))
+        await expect(transient.world.runner.run(RENEW)).rejects.toBe(down)
+
+        const refused = new GraphNodesError({ code: GraphNodesErrorCode.ToolFailed, params: { tool: TOOL.domainRenewalGet, reason: "tool_error" } })
+        const other = doorWorld(() => Promise.reject(unknownOutcome()), () => Promise.reject(refused))
+        await expect(other.world.runner.run(RENEW)).rejects.toMatchObject({ code: "tool_outcome_unknown", params: { confirm: "unreadable" } })
+    })
+
+    it("a before read that failed never blocks the renewal; an unknown outcome is then unconfirmable: ONE outcome-unknown", async () => {
+        const world = worldOf()
+        world.door.call.mockImplementation((call: NodeToolCall) =>
+            call.tool === TOOL.domainGet ? Promise.reject(new Error("read failed")) : Promise.reject(unknownOutcome()),
+        )
+
+        await expect(world.runner.run(RENEW)).rejects.toMatchObject({ code: "tool_outcome_unknown", params: { confirm: "unconfirmable" } })
+        expect(world.door.call.mock.calls.map(([call]) => call.tool)).toEqual([TOOL.domainGet, TOOL.domainRenewalCreate])
+    })
+
+    it("any other failure of the write is thrown as it was: no confirmation read", async () => {
+        const failed = new GraphNodesError({ code: GraphNodesErrorCode.ToolFailed, params: { tool: TOOL.domainRenewalCreate, reason: "unavailable", proof: "not_sent" } })
+        const { world, called } = doorWorld(() => Promise.reject(failed), () => Promise.resolve({ outcome: "renewed" }))
+
+        await expect(world.runner.run(RENEW)).rejects.toBe(failed)
+        expect(called()).toEqual([TOOL.domainGet, TOOL.domainRenewalCreate])
+    })
+})
+
 describe("ToolRunnerService accounts", () => {
     const withAccounts = (accounts: ReadonlyArray<BoundAccount>) => {
         const boundAccountsOf = jest.fn(() => Promise.resolve(accounts))
@@ -416,14 +544,14 @@ describe("ToolRunnerService accounts", () => {
     it("hands a write the node's first bound account, asked for the step's node, and answers via it", async () => {
         const { world, boundAccountsOf } = withAccounts([C1, C2])
 
-        const answer = await world.runner.run(toolOf(TOOL.mailMessageSend))
+        const answer = await world.runner.run(toolOf(TOOL.paymentLinkCreate))
 
         expect(answer).toEqual({ road: "tool", value: { value: 1 }, via: C1 })
         // The run the call is made in rides along: the account of its trigger and of its earlier calls are read by it.
         expect(boundAccountsOf).toHaveBeenCalledWith(
             "ws-1",
             "agent-1",
-            TOOL.mailMessageSend,
+            TOOL.paymentLinkCreate,
             { origin: "node", node: STEP },
             { runId: "run-1" },
         )
@@ -442,14 +570,14 @@ describe("ToolRunnerService accounts", () => {
             },
         })
 
-        const refused = await world.runner.run(toolOf(TOOL.mailMessageSend)).catch((cause: unknown) => cause)
+        const refused = await world.runner.run(toolOf(TOOL.paymentLinkCreate)).catch((cause: unknown) => cause)
 
         expect(refused).toBeInstanceOf(ToolsError)
         expect(refused).toMatchObject({
             code: ToolsErrorCode.AccountNeedsPick,
-            params: { tool: TOOL.mailMessageSend, provider: "bank", connectionIds: "live,sandbox" },
+            params: { tool: TOOL.paymentLinkCreate, provider: "bank", connectionIds: "live,sandbox" },
         })
-        expect(pickNeeded).toHaveBeenCalledWith("ws-1", "agent-1", TOOL.mailMessageSend, { origin: "node", node: STEP }, { runId: "run-1" })
+        expect(pickNeeded).toHaveBeenCalledWith("ws-1", "agent-1", TOOL.paymentLinkCreate, { origin: "node", node: STEP }, { runId: "run-1" })
         expect(world.door.call).not.toHaveBeenCalled()
     })
 
@@ -462,9 +590,9 @@ describe("ToolRunnerService accounts", () => {
                 pickNeeded,
             },
         })
-        await expect(none.runner.run(toolOf(TOOL.mailMessageSend))).rejects.toMatchObject({
+        await expect(none.runner.run(toolOf(TOOL.paymentLinkCreate))).rejects.toMatchObject({
             code: GraphNodesErrorCode.ToolNotConnected,
-            params: { tool: TOOL.mailMessageSend },
+            params: { tool: TOOL.paymentLinkCreate },
         })
 
         const askedNever = jest.fn(() => Promise.resolve({ provider: "bank", connectionIds: ["live", "sandbox"] }))
@@ -475,14 +603,14 @@ describe("ToolRunnerService accounts", () => {
                 pickNeeded: askedNever,
             },
         })
-        await expect(bound.runner.run(toolOf(TOOL.mailMessageSend))).resolves.toEqual({ road: "tool", value: { value: 1 }, via: C1 })
+        await expect(bound.runner.run(toolOf(TOOL.paymentLinkCreate))).resolves.toEqual({ road: "tool", value: { value: 1 }, via: C1 })
         expect(askedNever).not.toHaveBeenCalled()
     })
 
     it("goes on to the next account on a write failure proved not_sent, and stops on one whose outcome is unknown", async () => {
         const moved = withAccounts([C1, C2])
         moved.world.door.call.mockRejectedValueOnce(failedWith("not_sent"))
-        await expect(moved.world.runner.run(toolOf(TOOL.mailMessageSend))).resolves.toEqual({
+        await expect(moved.world.runner.run(toolOf(TOOL.paymentLinkCreate))).resolves.toEqual({
             road: "tool",
             value: { value: 1 },
             via: C2,
@@ -495,7 +623,7 @@ describe("ToolRunnerService accounts", () => {
         const stopped = withAccounts([C1, C2])
         const unknown = failedWith("unknown")
         stopped.world.door.call.mockRejectedValueOnce(unknown)
-        await expect(stopped.world.runner.run(toolOf(TOOL.mailMessageSend))).rejects.toBe(unknown)
+        await expect(stopped.world.runner.run(toolOf(TOOL.paymentLinkCreate))).rejects.toBe(unknown)
         expect(stopped.world.door.call).toHaveBeenCalledTimes(1)
     })
 
@@ -521,7 +649,7 @@ describe("ToolRunnerService accounts", () => {
             params: { tool: "t", fingerprint: "f", reason: "ask_mode", args: "{}" },
         })
         asked.world.door.call.mockRejectedValueOnce(ask)
-        await expect(asked.world.runner.run(toolOf(TOOL.mailMessageSend))).rejects.toBe(ask)
+        await expect(asked.world.runner.run(toolOf(TOOL.paymentLinkCreate))).rejects.toBe(ask)
         expect(asked.world.door.call).toHaveBeenCalledTimes(1)
     })
 
@@ -539,7 +667,7 @@ describe("ToolRunnerService accounts", () => {
     it("judges an effect on its account, hands the executor the account, and audits where it ran", async () => {
         const { world } = withAccounts([{ provider: "smtp", connectionId: "bank-1" }])
 
-        const answer = await world.runner.run(effectOf({ orderId: "o-1" }, { effect: TOOL.mailMessageSend }))
+        const answer = await world.runner.run(effectOf({ orderId: "o-1" }, { effect: TOOL.paymentLinkCreate }))
 
         expect(answer).toEqual({ road: "effect", subject: SENT, via: { provider: "smtp", connectionId: "bank-1" } })
         expect(world.door.effectRight.mock.calls[0]).toEqual([

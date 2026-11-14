@@ -30,6 +30,7 @@ import {
 import { RedisModule } from "@modules/integrations/redis"
 import { PROVIDER_SANDBOX_ERROR_KINDS, PROVIDER_SANDBOX_MESSAGES, ProviderSandboxModule } from "@modules/domain/provider-sandbox"
 import { CassoProviderModule } from "@modules/domain/casso-provider"
+import { ModelProviderModule } from "@modules/domain/model-provider"
 import { SepayProviderModule } from "@modules/domain/sepay-provider"
 import { AgentDirectoryService } from "@modules/domain/agents"
 import { TeamChatNoticesService } from "@modules/domain/team-chat"
@@ -44,12 +45,14 @@ import type { MessageBundle } from "@modules/platform/i18n"
 export const billingModules = (options: ApiOptions): Array<DynamicModule> => [
     PaymentOrdersModule.register({ isGlobal: true }),
     ProviderRegistryModule.register({ isGlobal: true }),
-    ProviderSandboxModule.register({ isGlobal: true, sandbox: options.providerSandbox, loopbackPort: options.server.port }),
+    ProviderSandboxModule.register({ isGlobal: true, sandbox: options.providerSandbox, loopbackPort: options.server.port, webOrigin: options.mail.webOrigin }),
     RedisModule.register({ isGlobal: true, ...options.redis }),
     ConnectionPollModule.register({ isGlobal: true, ...options.connectionPoll }),
     BankFeedInboxModule.register({ isGlobal: true }),
     SepayProviderModule.register({ isGlobal: true, feedWebhook: true }),
     CassoProviderModule.register({ isGlobal: true }),
+    // The model endpoint as a provider: with the sandbox switch on, a workspace's sandbox model account serves its model calls.
+    ModelProviderModule.register({ isGlobal: true, sandbox: options.providerSandbox }),
     BillingModule.register({ isGlobal: true, ...options.billing }),
     ProviderTriggersModule.register({ isGlobal: true, ports: { agentNames: AgentDirectoryService } }),
     BillingGraphqlModule.register({}),

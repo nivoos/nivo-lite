@@ -59,7 +59,7 @@ export const SALES_TOOL_DECLARATIONS: ReadonlyArray<PluginToolDeclaration> = [
     {
         id: TOOL.leadCareGet,
         description:
-            "What care knows of the customer this run serves: whether they asked not to be written to, who receives, and the dates they mentioned. Takes no customer id.",
+            "What care knows of the customer this run serves: who receives, and the dates they mentioned. Takes no customer id.",
         scope: "read",
         defaultMode: "auto",
         inputSchema: LEAD_CARE_GET_INPUT_SCHEMA,

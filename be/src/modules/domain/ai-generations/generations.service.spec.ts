@@ -1,10 +1,8 @@
 import { Test } from "@nestjs/testing"
 import { withRunScope, withWorkScope } from "@modules/platform/logging"
 import { evaluatedValues } from "@tests/fixtures/builders/evaluated-calls.builder"
-import { In } from "typeorm"
-import { FakeClock, builder, fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
+import { builder, fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
 import type { FakeTransaction } from "@starci/jest-preset"
-import { CLOCK } from "@modules/platform/clock"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { MESSAGE_CATALOG } from "@modules/platform/i18n"
 import type { MessageCatalog } from "@modules/platform/i18n"
@@ -15,19 +13,16 @@ import { queueQueryBuilders } from "@tests/fixtures/builders/entity-query-builde
 import { AGENTS_QUEUE_PRODUCER } from "@modules/queues/agents"
 import type { AgentsQueue } from "@modules/queues/agents"
 import type { GenerateParams } from "./ai-generations.contracts"
-import { AI_GENERATIONS_OPTIONS, AI_GENERATIONS_USAGE } from "./ai-generations.decorators"
+import { AI_GENERATIONS_USAGE } from "./ai-generations.decorators"
 import { AiGenerationsLogEvent } from "./ai-generations.log-events"
-import type { AiGenerationsOptions } from "./ai-generations.options"
 import type { UsageGate } from "./ai-generations.port"
 import { WorkspaceMembersService } from "@modules/domain/workspace-members"
-import { PauseClient } from "@modules/domain/agents"
 import { AI } from "@modules/integrations/ai"
 import type { AiService } from "@modules/integrations/ai"
 import { AiGenerationsErrorCode } from "./errors/ai-generations.error"
+import { GenerationRunnerService } from "./generation-runner.service"
 import { GenerationsService } from "./generations.service"
 import { AiGenerationEntity } from "./persistence/entities"
-
-const OPTIONS: Omit<AiGenerationsOptions, "usage"> = { pollMs: 400 }
 
 const paramsOf = builder<GenerateParams>({
     workspaceId: "w1",
@@ -38,7 +33,6 @@ const paramsOf = builder<GenerateParams>({
     module: "office",
 })
 
-const QUEUED = generationRow()
 const DONE = generationRow({ status: "done", output: { text: "hello" }, timings: { total_ms: 12 } })
 
 /** The prompt a queued generation stores; `context` is there only when the request carried one. */
@@ -67,7 +61,6 @@ interface Setup {
 
 const build = async (setup: Setup = {}) => {
     const progress = setup.progress ?? [DONE]
-    const clock = new FakeClock("2026-10-12T10:00:00.000Z")
     const tx: FakeTransaction = fakeTransaction(
         mockEntityManager({
             insert: [AiGenerationEntity, { identifiers: [{ id: "g1" }] }],
@@ -83,12 +76,7 @@ const build = async (setup: Setup = {}) => {
         blockedBy: jest.fn(() => Promise.resolve(setup.blocked === undefined ? null : { message: setup.blocked })),
     })
     const ai = mock<AiService>({ available: jest.fn(() => setup.available ?? true) })
-    const pause = mock<PauseClient>({
-        wait: jest.fn((ms: number) => {
-            clock.advance(ms)
-            return Promise.resolve()
-        }),
-    })
+    const runner = mock<GenerationRunnerService>({ run: jest.fn(() => Promise.resolve("done" as const)) })
     const members = mock<WorkspaceMembersService>()
     const logger = mock<Logger>()
     const catalog = mock<MessageCatalog>({ get: jest.fn((key: string) => `[${key}]`) })
@@ -96,18 +84,16 @@ const build = async (setup: Setup = {}) => {
         providers: [
             GenerationsService,
             { provide: AGENTS_QUEUE_PRODUCER, useValue: queue },
-            { provide: AI_GENERATIONS_OPTIONS, useValue: OPTIONS },
             { provide: PRIMARY_ENTITY_MANAGER, useValue: tx.em },
-            { provide: CLOCK, useValue: clock },
             { provide: LOGGER, useValue: logger },
             { provide: MESSAGE_CATALOG, useValue: catalog },
             { provide: AI_GENERATIONS_USAGE, useValue: usage },
             { provide: AI, useValue: ai },
-            { provide: PauseClient, useValue: pause },
+            { provide: GenerationRunnerService, useValue: runner },
             { provide: WorkspaceMembersService, useValue: members },
         ],
     }).compile()
-    return { service: moduleRef.get(GenerationsService), tx, queue, usage, pause, logger, catalog, members, ai }
+    return { service: moduleRef.get(GenerationsService), tx, queue, usage, runner, logger, catalog, members, ai }
 }
 
 describe("GenerationsService generateFor", () => {
@@ -152,12 +138,12 @@ describe("GenerationsService requestFor", () => {
     })
 
     it("authorizes the member and returns the queued id without polling", async () => {
-        const { service, members, tx, queue, pause } = await build()
+        const { service, members, tx, queue, runner } = await build()
         await expect(service.requestFor("u1", paramsOf())).resolves.toEqual({ ok: true, generationId: "g1" })
         expect(members.require).toHaveBeenCalledWith("u1", "w1")
         expect(queue.enqueueGenerate).toHaveBeenCalledWith({ generationId: "g1", workspaceId: "w1" }, expect.anything())
         expect(tx.commits).toBe(1)
-        expect(pause.wait).not.toHaveBeenCalled()
+        expect(runner.run).not.toHaveBeenCalled()
     })
 
     it("returns the localized refusal of a missing AI endpoint without enqueueing", async () => {
@@ -405,8 +391,10 @@ describe("GenerationsService prepare", () => {
 })
 
 describe("GenerationsService generate", () => {
-    it("writes the row and its job in one transaction and answers the text once the job filled it", async () => {
-        const { service, tx, queue, pause } = await build({ progress: [QUEUED, DONE] })
+    const POLLED = { where: { id: "g1", workspaceId: "w1" }, select: { status: true, error: true, output: true, usage: true, timings: true } }
+
+    it("writes the row, runs it in the caller's own process under the row's key and answers the text (no job, no polling)", async () => {
+        const { service, tx, queue, runner } = await build({ progress: [DONE] })
 
         const outcome = await service.generate(paramsOf({ responseFormat: "json", timeoutMs: 60_000 }))
 
@@ -418,15 +406,21 @@ describe("GenerationsService generate", () => {
             usage: null,
         })
         expect(tx.em.insert).toHaveBeenCalledWith(AiGenerationEntity, insertedAs("relay", promptOf(60000, "json")))
-        expect(queue.enqueueGenerate).toHaveBeenCalledWith({ generationId: "g1", workspaceId: "w1" }, expect.anything())
-        expect(tx.commits).toBe(1)
-        expect(pause.wait).toHaveBeenCalledTimes(2)
-        expect(pause.wait).toHaveBeenCalledWith(400)
-        expect(tx.em.findOne).toHaveBeenNthCalledWith(2, AiGenerationEntity, pollOptions("g1", "w1"))
+        expect(runner.run).toHaveBeenCalledWith({ generationId: "g1", workspaceId: "w1" }, "generation:g1:generate")
+        expect(tx.em.findOne).toHaveBeenCalledWith(AiGenerationEntity, POLLED)
+        expect(queue.enqueueGenerate).not.toHaveBeenCalled()
+    })
+
+    it("keys the model call by the caller's own key when the caller is a job that may run again", async () => {
+        const { service, runner } = await build({ progress: [DONE] })
+
+        await service.generate(paramsOf({ effectKey: "job-9:turn" }))
+
+        expect(runner.run).toHaveBeenCalledWith({ generationId: "g1", workspaceId: "w1" }, "job-9:turn")
     })
 
     it("refuses a workspace over its allowance with the allowance's own sentence", async () => {
-        const { service, tx, usage } = await build({ blocked: "Over the plan" })
+        const { service, tx, usage, runner } = await build({ blocked: "Over the plan" })
 
         await expect(service.generate(paramsOf({ locale: "en" }))).resolves.toEqual({
             ok: false,
@@ -435,6 +429,7 @@ describe("GenerationsService generate", () => {
         })
         expect(usage.blockedBy).toHaveBeenCalledWith("w1", "relay", "en")
         expect(tx.em.insert).not.toHaveBeenCalled()
+        expect(runner.run).not.toHaveBeenCalled()
     })
 
     it("says the AI endpoint is not configured with the busy sentence", async () => {
@@ -449,10 +444,8 @@ describe("GenerationsService generate", () => {
         expect(missing.tx.em.insert).not.toHaveBeenCalled()
     })
 
-    it("fails with error when the row ends in error or is cancelled", async () => {
-        const { service, logger } = await build({
-            progress: [generationRow({ status: "error" })],
-        })
+    it("fails with error when the row ended in error", async () => {
+        const { service, logger } = await build({ progress: [generationRow({ status: "error", error: "no_answer" })] })
 
         await expect(service.generate(paramsOf())).resolves.toMatchObject({ ok: false, reason: "error" })
         expect(logger.warn).toHaveBeenCalledWith(AiGenerationsLogEvent.GenerationErrored, {
@@ -460,45 +453,34 @@ describe("GenerationsService generate", () => {
             generationId: "g1",
         })
     })
-})
 
-describe("GenerationsService generate", () => {
-    it("cancels the row and fails with timeout once the deadline passed", async () => {
-        const { service, tx } = await build({ progress: Array.from({ length: 13 }, () => QUEUED) })
-
-        const outcome = await service.generate(paramsOf({ timeoutMs: 5000 }))
-
-        expect(outcome).toMatchObject({ ok: false, reason: "timeout" })
-        expect(tx.em.update).toHaveBeenLastCalledWith(
-            AiGenerationEntity,
-            { id: "g1", workspaceId: "w1", status: In(["queued", "running"]) },
-            { status: "cancelled", error: "timeout", finishedAt: new Date("2026-10-12T10:00:05.200Z") },
-        )
-    })
-
-    it("treats a vanished row as too slow", async () => {
-        const { service } = await build({ progress: [] })
+    it("fails with timeout when the row was cancelled for its deadline", async () => {
+        const { service } = await build({ progress: [generationRow({ status: "cancelled", error: "timeout" })] })
 
         await expect(service.generate(paramsOf())).resolves.toMatchObject({ ok: false, reason: "timeout" })
     })
 
-    it("fails with error and logs when the row cannot be written", async () => {
-        const { service, tx, logger } = await build()
+    it("fails with error when the row vanished", async () => {
+        const { service } = await build({ progress: [] })
+
+        await expect(service.generate(paramsOf())).resolves.toMatchObject({ ok: false, reason: "error" })
+    })
+
+    it("throws what is not a typed end of the generation: a row that cannot be written is not swallowed", async () => {
+        const { service, tx, runner } = await build()
         const failure = new Error("database down")
         tx.em.insert.mockRejectedValue(failure)
 
-        await expect(service.generate(paramsOf())).resolves.toMatchObject({ ok: false, reason: "error" })
-        expect(logger.error).toHaveBeenCalledWith(AiGenerationsLogEvent.GenerationFailed, failure, {
-            purpose: "relay",
-        })
+        await expect(service.generate(paramsOf())).rejects.toBe(failure)
+        expect(runner.run).not.toHaveBeenCalled()
     })
 
-    it("fails with error when the insert answers no row", async () => {
-        const { service, tx, queue } = await build()
+    it("throws the typed error when the insert answers no row", async () => {
+        const { service, tx, runner } = await build()
         tx.em.insert.mockResolvedValueOnce({ identifiers: [], generatedMaps: [], raw: [] })
 
-        await expect(service.generate(paramsOf())).resolves.toMatchObject({ ok: false, reason: "error" })
-        expect(queue.enqueueGenerate).not.toHaveBeenCalled()
+        await expect(service.generate(paramsOf())).rejects.toMatchObject({ code: AiGenerationsErrorCode.NotCreated })
+        expect(runner.run).not.toHaveBeenCalled()
     })
 })
 

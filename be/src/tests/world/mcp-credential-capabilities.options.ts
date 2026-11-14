@@ -13,9 +13,10 @@ import { TOOLS_ERROR_KINDS, TOOLS_MESSAGES, ToolsModule } from "@modules/domain/
 import { TOOL_RECEIPTS_ERROR_KINDS, TOOL_RECEIPTS_MESSAGES } from "@modules/domain/tool-receipts"
 import { DataRecordsModule } from "@modules/domain/data-records"
 import { InboundEventsModule } from "@modules/domain/inbound-events"
-import { EntityEngineModule, ReadOnlyEngineAlertsService } from "@modules/domain/entity-engine"
+import { EntityEngineModule } from "@modules/domain/entity-engine"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { JobsModule } from "@modules/platform/jobs"
+import { EffectsModule } from "@modules/platform/effects"
 import { StaffModule } from "@modules/domain/staff"
 import { WorkspaceMembersModule } from "@modules/domain/workspace-members"
 import { MCP_ENDPOINT_ERROR_KINDS, MCP_ENDPOINT_MESSAGES, McpEndpointModule } from "@modules/domain/mcp-endpoint"
@@ -74,9 +75,9 @@ export const MCP_CREDENTIAL_MODULES: Array<DynamicModule> = [
         leaseMs: 1000,
         scheduler: { enabled: false },
     }),
+    EffectsModule.register({ isGlobal: true, connection: PRIMARY_ENTITY_MANAGER }),
     EntityEngineModule.register({
         isGlobal: true,
-        alerts: ReadOnlyEngineAlertsService,
         entities: INSTALLED.entities(),
         jobs: [],
         cursorKey: MCP_PROOF_TOKEN_KEY,

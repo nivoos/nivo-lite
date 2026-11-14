@@ -6,7 +6,6 @@ import { branchOf, graphOf, stateOf } from "@tests/fixtures/builders/agent-graph
 import { LOGGER, type Logger } from "@modules/platform/logging"
 import { AgentGraphsLogEvent } from "./agent-graphs.log-events"
 import { AgentWorkflowInstallService } from "./agent-workflow-install.service"
-import { AgentGraphContractSetupService } from "./agent-graph-contract-setup.service"
 import { AgentGraphPublishService } from "./agent-graph-publish.service"
 import { AgentGraphSetupService } from "./agent-graph-setup.service"
 import { AgentGraphsError, AgentGraphsErrorCode } from "./errors/agent-graphs.error"
@@ -41,7 +40,6 @@ const build = async (options: Options = {}) => {
             .fn()
             .mockResolvedValue(options.seat === false ? null : { memberId: "boss", role: "owner" }),
     })
-    const contracts = mock<AgentGraphContractSetupService>({ proposeFor: jest.fn().mockResolvedValue(2) })
     const workflows = mock<AgentWorkflowInstallService>()
     const logger = mock<Logger>()
     const moduleRef = await Test.createTestingModule({
@@ -51,12 +49,11 @@ const build = async (options: Options = {}) => {
             { provide: InstallationRecordsService, useValue: installations },
             { provide: AgentGraphPublishService, useValue: publishing },
             { provide: WorkspaceMemberSeatsService, useValue: seats },
-            { provide: AgentGraphContractSetupService, useValue: contracts },
             { provide: AgentWorkflowInstallService, useValue: workflows },
             { provide: LOGGER, useValue: logger },
         ],
     }).compile()
-    return { service: moduleRef.get(AgentGraphSetupService), graphs, publishing, contracts, workflows, logger }
+    return { service: moduleRef.get(AgentGraphSetupService), graphs, publishing, workflows, logger }
 }
 
 describe("AgentGraphSetupService.publish", () => {
@@ -94,16 +91,6 @@ describe("AgentGraphSetupService.publish", () => {
 
         expect(none.publishing.publishDraft).not.toHaveBeenCalled()
         expect(seatless.publishing.publishDraft).not.toHaveBeenCalled()
-    })
-})
-
-describe("AgentGraphSetupService.proposeContracts", () => {
-    it("hands the applied setup to the proposals of the contracts", async () => {
-        const { service, contracts } = await build()
-
-        await expect(service.proposeContracts(APPLIER)).resolves.toBe(2)
-
-        expect(contracts.proposeFor).toHaveBeenCalledWith(APPLIER)
     })
 })
 

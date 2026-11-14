@@ -10,6 +10,12 @@ export interface CustomerSendRequest extends DeliveryRequest {
     readonly at: Date
 }
 
+/** The half an account misses to be a customer ENTRANCE (MAIL-IN rule MI-3): it does not receive, or it does not send, on its channel. */
+export type EntranceMissing = "inbound" | "outbound"
+
+/** What an account misses to be an entrance, or null when it both receives and sends. */
+export type OptionalEntranceMissing = EntranceMissing | null
+
 /**
  * A messaging provider's customer SEND on one of its accounts (the API operation "send a message to a person", level 1 of providers rule
  * 13). The account decides the implementation: the registry's `portFor(account)` answers the live route (the provider's real host, its
@@ -36,6 +42,11 @@ export interface CustomerSendPort {
     sendToPerson?(account: ConnectionRecord, request: PersonMessage): Promise<void>
     /** The person's name on the channel, or an empty text when the channel will not say. A provider without it names nobody. */
     nameOf?(account: ConnectionRecord, personId: string): Promise<string>
+    /**
+     * What the account misses to be a customer ENTRANCE (MAIL-IN rule MI-3: an account that both receives and sends on its channel), or
+     * null when it is one. A provider whose every account both receives and sends (a chat OA, a bot) declares nothing.
+     */
+    entranceOf?(account: ConnectionRecord): OptionalEntranceMissing
     /** Shows "typing" in the person's chat while the AI works; a provider without it has none. A failure here never stops the reply. */
     showTyping?(account: ConnectionRecord, personId: string): Promise<void>
 }

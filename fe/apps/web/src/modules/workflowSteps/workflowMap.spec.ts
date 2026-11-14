@@ -1,6 +1,6 @@
 import { graphSpecSchema } from "@nivo-lite/agent-sdk/graph"
-import { graphViewOfSpec } from "@nivo-lite/blocks-core/graph"
-import { stepsFlowOf, stepsLegendOf } from "@nivo-lite/blocks-core/client"
+import { graphViewOfSpec } from "@/modules/plugin-registry"
+import { stepsFlowOf, stepsLegendOf } from "@/modules/plugin-registry/client"
 import sale from "./__fixtures__/sale-consult.v1.json"
 import { dressedGraphOf, framedFlowOf, legendOf } from "./workflowMap"
 import { mapWordsOf } from "./workflowMap.words"

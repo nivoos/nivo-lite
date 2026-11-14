@@ -1,0 +1,8 @@
+{"data":{},"findings":[],"hash":"794de5c1f08df148b1c4a67d0d75c23b90836e53ec39d3a58de7feb44aaa68e5","path":"gallery/.gitignore","step":"file-rules"}
+{"data":{},"findings":[],"hash":"9f08dc80f39307f71b6a626ce8433d93313cce23e38ccaade1e2a9a91c082584","path":"gallery/README.md","step":"file-rules"}
+{"data":{},"findings":[],"hash":"a58c84aafd6bc6461baad5229970994f07b5c2dc1352dfc397326f1edd4d2434","path":"gallery/flow.html","step":"file-rules"}
+{"data":{},"findings":[],"hash":"a38f0ee89c76c6abe5bfbaae60b813351afeb0ccc1e8e340cf692bf010b736e8","path":"gallery/flows.json","step":"file-rules"}
+{"data":{},"findings":[],"hash":"3238774fab8fec1f84fef202f6ca9bcb0bb60a5b43d1fc4b33731aa76f7be29d","path":"gallery/index.html","step":"file-rules"}
+{"data":{},"findings":[],"hash":"17fabac3021ffc32fdf5909810f8302eb8b1778400f6d0c65f71ff43d2e2ae3a","path":"gallery/package-lock.json","step":"file-rules"}
+{"data":{},"findings":[],"hash":"924e0fc807fcc1372f472cc7b410e4122f35d16c7b5744cf3a24e8dedb768473","path":"gallery/package.json","step":"file-rules"}
+{"data":{},"findings":[],"hash":"6f5d3a54a44c6b6b0ce56a82fc2c1cab7cacdaea3630838e358df4b1266de393","path":"gallery/vite.config.js","step":"file-rules"}

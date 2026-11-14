@@ -33,4 +33,19 @@ export class CustomerRouteEntity extends UuidAbstractEntity {
     /** When that member took it, or null when nobody holds it (both null or both set). */
     @Column({ name: "held_at", type: "timestamptz", nullable: true })
     heldAt!: Date | null
+
+    /**
+     * THE STREAM CURSOR (rule QB-P5 C-4): the insertion order (`customer_messages.seq`, bigint as text) of the newest person line a step of a
+     * run read and then ended; null while no run consumed the route. A reader of the stream takes the person's lines after it.
+     */
+    @Column({ name: "consumed_seq", type: "bigint", nullable: true })
+    consumedSeq!: string | null
+
+    /** The newest person line the pending read returned (both null, or both set with `readBy`). */
+    @Column({ name: "read_seq", type: "bigint", nullable: true })
+    readSeq!: string | null
+
+    /** The call key of the pending read (`<run>:<step>:...`): the end of that step folds `readSeq` into the cursor. */
+    @Column({ name: "read_by", type: "text", nullable: true })
+    readBy!: string | null
 }

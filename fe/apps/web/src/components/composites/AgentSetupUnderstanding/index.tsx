@@ -1,4 +1,3 @@
-import type { ReactNode } from "react"
 import { Cluster, EmptyNotice, Stack, SurfaceCard, Text, type ListRowData } from "@starci/grammar/common"
 import { SetupGateBody } from "@/components/branches/SetupGateBody"
 import type { AgentSetupCopy, SetupSideGate, SetupSideView } from "@/modules/types"
@@ -11,7 +10,7 @@ interface AgentSetupUnderstandingCommands {
     readonly editText: (value: string) => void
 }
 
-/** The anatomy of the card: the read of the side, the words, and the progress with the publish control in its foot. */
+/** The anatomy of the card: the read of the side, the words, and the progress in its foot. */
 interface AgentSetupUnderstandingProps {
     readonly view: SetupSideView
     readonly isLoading: boolean
@@ -19,8 +18,6 @@ interface AgentSetupUnderstandingProps {
     readonly status: string
     /** The version in use, as the one chip of the graph versions says it ("Version 2 · in use"); empty before the first one. */
     readonly chip: string
-    /** The publish control; null while the version in use is the running one (the chip already says it). */
-    readonly publish: ReactNode
     readonly on: AgentSetupUnderstandingCommands
 }
 
@@ -28,7 +25,7 @@ interface AgentSetupUnderstandingProps {
 type ItemsProps = Pick<AgentSetupUnderstandingProps, "view" | "isLoading" | "copy" | "on">
 
 /** What the caption under the list draws. */
-type CaptionProps = Pick<AgentSetupUnderstandingProps, "view" | "status" | "publish">
+type CaptionProps = Pick<AgentSetupUnderstandingProps, "view" | "status">
 
 /** The row of one item: its rule text, its status chip and "Edit", or the editor when it is being edited. */
 const rowOf = (props: ItemsProps, gate: SetupSideGate): ListRowData => {
@@ -76,14 +73,11 @@ const ItemsView = (props: ItemsProps) => (
     />
 )
 
-/** The caption under the list: where the draft stands in words, and the publish control only while there is one to press. */
+/** The caption under the list: where the setup stands in words. */
 const CaptionView = (props: CaptionProps) => (
-    <Cluster gap="inline" justify="between">
-        <Text size="xs" tone="muted">
-            {[props.view.gates.progressLabel, props.status].filter((part) => part !== "").join(" · ")}
-        </Text>
-        {props.publish}
-    </Cluster>
+    <Text size="xs" tone="muted">
+        {[props.view.gates.progressLabel, props.status].filter((part) => part !== "").join(" · ")}
+    </Text>
 )
 
 /**
@@ -103,7 +97,7 @@ export const AgentSetupUnderstanding = (props: AgentSetupUnderstandingProps) => 
                 </Text>
             </Cluster>
             <ItemsView view={props.view} isLoading={props.isLoading} copy={props.copy} on={props.on} />
-            <CaptionView view={props.view} status={props.status} publish={props.publish} />
+            <CaptionView view={props.view} status={props.status} />
         </Stack>
     )
 }

@@ -30,6 +30,12 @@ export enum PublicDocumentsErrorCode {
     DraftUnavailable = "PUBLIC_DOCUMENTS_DRAFT_UNAVAILABLE",
     /** The chosen documents hold nothing to write the text from. */
     NothingLeft = "PUBLIC_DOCUMENTS_NOTHING_LEFT",
+    /** The model wrote nothing, or something that is not the answer asked for: the same prompt gets the same answer, so no retry helps. */
+    DraftRefused = "PUBLIC_DOCUMENTS_DRAFT_REFUSED",
+    /** No model endpoint is configured: nothing can be drafted until a setting is made. */
+    DraftUnconfigured = "PUBLIC_DOCUMENTS_CONFIG_DRAFT_UNCONFIGURED",
+    /** A draft job reached its domain method with a payload its declaration refuses: a bug of the producer. */
+    PayloadInvalid = "PUBLIC_DOCUMENTS_PAYLOAD_INVALID",
 }
 
 /** How each public-documents code travels. */
@@ -48,6 +54,9 @@ export const PUBLIC_DOCUMENTS_ERROR_KINDS: Record<PublicDocumentsErrorCode, Erro
     [PublicDocumentsErrorCode.NoInternalRight]: "forbidden",
     [PublicDocumentsErrorCode.DraftUnavailable]: "unavailable",
     [PublicDocumentsErrorCode.NothingLeft]: "invalid",
+    [PublicDocumentsErrorCode.DraftRefused]: "invalid",
+    [PublicDocumentsErrorCode.DraftUnconfigured]: "internal",
+    [PublicDocumentsErrorCode.PayloadInvalid]: "invalid",
 }
 
 /** The one error class of the public-documents capability. */

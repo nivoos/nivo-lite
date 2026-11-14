@@ -22,8 +22,6 @@ export interface LeadCareOccasion {
 export interface LeadCare {
     /** The customer. */
     readonly leadId: string
-    /** True only when the customer asked not to be written to unprompted; anything unreadable is false. */
-    readonly optedOut: boolean
     /** Who the purchase is for, or null. */
     readonly recipient: string | null
     /** When the customer wants the order, in their words, or null. */
@@ -60,16 +58,15 @@ const occasionOf = (value: unknown): LeadCareOccasion | null => {
 }
 
 /**
- * What care reads from a customer's lead facts, however much of it is there: `careOptOut` counts only when it is `true`, the receiver is
- * read from `recipientName`, an occasion counts only with a label and a valid `MM-DD` / `YYYY-MM-DD` date, and anything unreadable is
- * "not known", never an opt-out. Each occasion gets a stable `occasionId`.
+ * What care reads from a customer's lead facts, however much of it is there: the receiver is read from `recipientName`, an occasion
+ * counts only with a label and a valid `MM-DD` / `YYYY-MM-DD` date, and anything unreadable is "not known". Whether the customer may be
+ * written to unprompted is the contact's consent, not a lead fact: the engine's send door judges it. Each occasion gets a stable `occasionId`.
  */
 export const leadCareOf = (leadId: string, stored: unknown): LeadCare => {
-    if (!isObject(stored)) return { leadId, optedOut: false, recipient: null, deliveryAt: null, address: null, occasions: [] }
+    if (!isObject(stored)) return { leadId, recipient: null, deliveryAt: null, address: null, occasions: [] }
     const listed: ReadonlyArray<unknown> = Array.isArray(stored["occasions"]) ? stored["occasions"] : []
     return {
         leadId,
-        optedOut: stored["careOptOut"] === true,
         recipient: textOf(stored["recipientName"]),
         deliveryAt: textOf(stored["deliveryAt"]),
         address: textOf(stored["address"]),

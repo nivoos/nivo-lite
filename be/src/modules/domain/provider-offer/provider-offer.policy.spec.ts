@@ -1,7 +1,7 @@
 import { API } from "@nivo-lite/agent-sdk/names"
 import { Test } from "@nestjs/testing"
 import { pinOf, type OpenApiToolDeclaration } from "@modules/domain/openapi-tools"
-import { triggersOf } from "@modules/domain/provider-triggers"
+import { bankTriggerOf, mailTriggerOf, renderTriggerOf } from "@tests/fixtures/builders/trigger-declaration.builder"
 import {
     infoReadOf,
     interfaceReadOf,
@@ -286,28 +286,42 @@ describe("level 2", () => {
 })
 
 describe("level 3", () => {
-    it("documents the bank and mailbox triggers as the catalogue declares them", async () => {
+    it("documents the bank and mailbox triggers as their declarations say: every way received, the words, the members of the data", async () => {
         const policy = await build()
-        const sepay = policy.offeredTriggersOf(triggersOf("sepay"))
-        const imap = policy.offeredTriggersOf(triggersOf("imap"))
+        const [sepay] = policy.offeredTriggersOf([bankTriggerOf()])
+        const [imap] = policy.offeredTriggersOf([mailTriggerOf()])
 
-        expect(sepay).toEqual([
-            expect.objectContaining({
-                name: "transaction.received",
-                kind: "webhook",
-                batching: { mode: "each", maxEvents: null },
-                recovery: "reconcile",
-                decided: true,
-            }),
+        expect(sepay).toMatchObject({
+            name: "transaction.received",
+            via: ["webhook", "poll"],
+            withoutPoll: null,
+            title: { vi: "Ngân hàng · tiền vào tài khoản", en: "Bank · money received" },
+            decided: true,
+        })
+        // The members come from the data schema: the type, the closed choices of a z.enum (the only filterable ones), the words beside.
+        expect(sepay?.payload.map((member) => [member.name, member.type, member.choices, member.filterable])).toEqual([
+            ["transactionId", "string", [], false],
+            ["direction", "string", ["in", "out"], true],
         ])
-        expect(sepay[0]?.payload.map((member) => [member.name, member.type, member.choices, member.filterable])).toEqual([
-            ["transactionId", "id", [], false],
-            ["direction", "choice", ["in", "out"], true],
-        ])
-        expect(sepay[0]?.payload.every((member) => member.label !== null && member.required)).toBe(true)
-        expect(imap).toEqual([
-            expect.objectContaining({ name: "mail.received", kind: "poll", batching: { mode: "list", maxEvents: 50 }, recovery: "cursor", decided: false }),
-        ])
+        expect(sepay?.payload.every((member) => member.label !== null && member.required)).toBe(true)
+        expect(imap).toMatchObject({ name: "mail.received", via: ["poll"], withoutPoll: null, decided: false })
         expect(policy.offeredTriggersOf([])).toEqual([])
+    })
+
+    it("says why a trigger no poll receives loses no event: the reason in both languages and where it is stated", async () => {
+        const policy = await build()
+        const [render] = policy.offeredTriggersOf([renderTriggerOf()])
+
+        expect(render).toMatchObject({ via: ["webhook"], decided: false })
+        expect(render?.withoutPoll?.source).toBe("nivo:wait-timeout")
+        expect(render?.withoutPoll?.reason.vi).not.toBe("")
+        expect(render?.withoutPoll?.reason.en).not.toBe("")
+    })
+
+    it("leaves a member the declaration has no words for unlabelled", async () => {
+        const policy = await build()
+        const [bank] = policy.offeredTriggersOf([bankTriggerOf({ words: { ...bankTriggerOf().words, members: undefined } })])
+
+        expect(bank?.payload.every((member) => member.label === null)).toBe(true)
     })
 })

@@ -1,6 +1,7 @@
 "use client"
 
-import useSWR from "swr"
+import { useRef } from "react"
+import useSWR, { useSWRConfig } from "swr"
 import { useWorkspaceKey } from "@/hooks/workspaceKey"
 import {
     queryKnowledgeSources,
@@ -8,6 +9,10 @@ import {
 } from "@/modules/api/graphql/queries/query-knowledge-sources"
 import type { ReadResponse } from "@/hooks/workspaceread"
 import type { KnowledgeSourcesQuery } from "@/modules/api"
+import { matchesSwrKey } from "@/modules/utils"
+import { QUERY_BRAIN_SWR_KEY } from "./useQueryBrainSwr"
+import { QUERY_BRAIN_TODO_SWR_KEY } from "./useQueryBrainTodoSwr"
+import { QUERY_KNOWLEDGE_USAGE_SWR_KEY } from "./useQueryKnowledgeUsageSwr"
 
 /** The SWR key of the documents list; mutations that change it revalidate the keys that lead with it. */
 export const QUERY_KNOWLEDGE_SOURCES_SWR_KEY = "QUERY_KNOWLEDGE_SOURCES_SWR"
@@ -23,17 +28,26 @@ const ACTIVE_STATUSES: ReadonlySet<string> = new Set(["pending", "queued", "read
 /** The truths states of a document that still move on their own (INGEST-2: no stream frame is sent for the truths work). */
 const ACTIVE_TRUTHS: ReadonlySet<string> = new Set(["running", "awaiting_critique", "blocked_credits"])
 
+/** The reads a settled document changes besides the list: the Second Brain (a document that settled is never drawn as unread) and the raw data used. */
+const STALE_AFTER_SETTLE: ReadonlyArray<string> = [
+    QUERY_BRAIN_SWR_KEY,
+    QUERY_BRAIN_TODO_SWR_KEY,
+    QUERY_KNOWLEDGE_USAGE_SWR_KEY,
+]
+
 /**
  * The documents of the active workspace, optionally filtered to one module or to the origin they came from (`google_drive`)
  * (the back end `knowledgeSources` query).
- * Polls while a worker is on a document (every `pollMs`: a slow check, which catches a frame the stream lost, while the progress
- * stream is open), so status and progress move on their own; nothing is read while `enabled` is false.
+ * Polls while a worker is on a document (every `pollMs`), so status and progress move on their own; nothing is read while
+ * `enabled` is false. When a document a worker was on has settled, the Second Brain and the usage are read again.
  */
 export const useQueryKnowledgeSourcesSwr = (
     input?: QueryKnowledgeSourcesRequest,
     pollMs: number = ACTIVE_POLL_MS,
     enabled = true,
 ): ReadResponse<KnowledgeSourcesQuery["knowledgeSources"]> => {
+    const { mutate } = useSWRConfig()
+    const active = useRef<ReadonlySet<string>>(new Set())
     const key = useWorkspaceKey(
         QUERY_KNOWLEDGE_SOURCES_SWR_KEY,
         [input?.module ?? null, input?.origin ?? null],
@@ -52,6 +66,12 @@ export const useQueryKnowledgeSourcesSwr = (
             return result.data.knowledgeSources
         },
         {
+            onSuccess: (data) => {
+                const now = new Set(data.filter((one) => ACTIVE_STATUSES.has(one.status)).map((one) => one.id))
+                const isSettled = [...active.current].some((id) => !now.has(id))
+                active.current = now
+                if (isSettled) for (const name of STALE_AFTER_SETTLE) void mutate(matchesSwrKey(name))
+            },
             refreshInterval: (data) =>
                 data?.some(
                     (one) => ACTIVE_STATUSES.has(one.status) || (one.truths !== null && ACTIVE_TRUTHS.has(one.truths.state)),

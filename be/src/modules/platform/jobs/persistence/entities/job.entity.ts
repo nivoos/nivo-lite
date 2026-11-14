@@ -67,4 +67,28 @@ export class JobEntity extends UuidAbstractEntity {
     /** How many times the job was handed back to its queue. */
     @Column({ name: "resume_count", type: "integer", default: () => "0" })
     resumeCount!: number
+
+    /** The progress topic the job's state changes and step reports go to (`job-progress:<workspace>:<root>`); null when the job declares none. */
+    @Column({ name: "progress_topic", type: "text", nullable: true })
+    progressTopic!: string | null
+
+    /** Units done of the current step as the last report said, or null before one. */
+    @Column({ name: "progress_done", type: "integer", nullable: true })
+    progressDone!: number | null
+
+    /** Units the current step has in all as the last report said, or null before one. */
+    @Column({ name: "progress_total", type: "integer", nullable: true })
+    progressTotal!: number | null
+
+    /** The label KEY of the last report (the fe's catalogue words it, never this row), or null before one. */
+    @Column({ name: "progress_label", type: "text", nullable: true })
+    progressLabel!: string | null
+
+    /** When the last report was made, or null before one. */
+    @Column({ name: "progress_at", type: "timestamptz", nullable: true })
+    progressAt!: Date | null
+
+    /** When the retry of a failed job runs again, as the runner scheduled it, or null while none waits (cleared when the job runs). */
+    @Column({ name: "progress_retry_at", type: "timestamptz", nullable: true })
+    progressRetryAt!: Date | null
 }

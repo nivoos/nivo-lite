@@ -41,9 +41,8 @@ export const AgentWorkflowGraph = (props: AgentWorkflowGraphProps) => {
                 slot: graph.slot,
                 labels: labels(t("title", { name: "" })),
                 isLoading: "isLoading" in graph.slot,
-                positions: graph.positions,
             }}
-            on={{ retry: graph.retry, move: graph.savePositions }}
+            on={{ retry: graph.retry }}
         />
     )
 }

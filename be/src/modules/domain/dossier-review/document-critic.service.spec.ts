@@ -1,3 +1,4 @@
+import { claimedAiJob } from "@tests/fixtures/builders/brain-ai-effects.builder"
 import { workInScope } from "@modules/platform/logging"
 import {
     answered,
@@ -6,12 +7,14 @@ import {
     pointWith,
     scripted,
     sectionsOf,
+    uploadAndFailReview,
     uploadAndReview,
     v1Facts,
     v2Facts,
 } from "@tests/fixtures/builders/dossier-review-critic.builder"
 import { NOW, OWNER, SRC, V1, V2, V3, W, WS } from "@tests/fixtures/builders/dossier-review-world.builder"
 import fx from "./document-critic.acceptance.fixtures.json"
+import { DossierReviewErrorCode } from "./errors/dossier-review.error"
 import type { CritiqueTry } from "./document-critic.port"
 import { DOSSIER_REVIEW_MESSAGES } from "./messages/dossier-review.messages"
 
@@ -131,17 +134,18 @@ describe("shop-document critic: the second version of tiem-hoa-quy-dinh v2 (acce
     })
 })
 
-describe("shop-document critic: three failed tries (acceptance)", () => {
-    it("three failed tries: the critique is NOT done (reason model), shown honestly; the changed passage stays withheld from customers, the reviewed ones stay served; a release serves nothing unreviewed", async () => {
+describe("shop-document critic: a model that is down (acceptance)", () => {
+    it("a model that is down: the run throws the typed outage (the job's ladder decides, no try is counted here), the critique is left NOT done (reason model), shown honestly; the changed passage stays withheld from customers, the reviewed ones stay served; a release serves nothing unreviewed", async () => {
         const subject = await buildCriticSubject()
         subject.script.push(() => answered([]))
         await uploadAndReview(subject, V2, v1Facts)
         expect(subject.world.chunkWith(W.payment).customerReady).toBe(true)
 
-        const view = await uploadAndReview(subject, V3, v1Facts)
-        expect(subject.model.critique).toHaveBeenCalledTimes(4)
-        // The three tries are the calls above; `attempts` counts runs without progress (D-V-1): nothing new was reviewed, so 1.
-        expect(view.review).toEqual(expect.objectContaining({ state: "not_done", reason: "model", attempts: 1 }))
+        const { failure, view } = await uploadAndFailReview(subject, V3, v1Facts)
+        expect(failure).toMatchObject({ code: DossierReviewErrorCode.ModelUnavailable })
+        // One call in the first upload, ONE in this one: nothing asks the same model three times.
+        expect(subject.model.critique).toHaveBeenCalledTimes(2)
+        expect(view.review).toEqual(expect.objectContaining({ state: "not_done", reason: "model", attempts: 0 }))
         expect(subject.world.chunkWith(W.cod).customerReady).toBe(false)
         expect(subject.world.chunkWith(fx.newRush).customerReady).toBe(true)
 
@@ -159,7 +163,7 @@ describe("shop-document critic: three failed tries (acceptance)", () => {
         // Its review finishes clean: the critic re-gates at the end of the critique and the passage is served.
         subject.script.push(() => answered([]))
         await subject.critic.request(WS, SRC)
-        await subject.critic.runWaiting(WS)
+        await subject.critic.runWaiting(WS, claimedAiJob())
         expect(subject.world.chunkWith(W.cod).customerReady).toBe(true)
         expect(subject.world.chunkWith(W.basket).customerReady).toBe(false)
 
@@ -167,6 +171,23 @@ describe("shop-document critic: three failed tries (acceptance)", () => {
         const open = (await subject.read.view(WS, SRC, ["open"]))?.points ?? []
         await subject.read.skip(WS, pointWith(open, W.basketTruth).id, OWNER, W.skipReason)
         expect(subject.world.chunkWith(W.basket).customerReady).toBe(true)
+    })
+
+    it("a person's resume (or a run again by the ladder) hands the critique back: it waits again and the next run reads it", async () => {
+        const subject = await buildCriticSubject()
+        subject.script.push(() => answered([]))
+        await uploadAndReview(subject, V2, v1Facts)
+        await uploadAndFailReview(subject, V3, v1Facts)
+
+        // A run again by the ladder takes back only what failed since its own start; this one failed before it, so a later run leaves it.
+        await expect(subject.critic.retryFailed(WS, new Date(new Date(NOW).getTime() + 60_000))).resolves.toBe(0)
+        // A job handed back by a person takes back every critique of the workspace the model could not read.
+        await expect(subject.critic.retryFailed(WS, null)).resolves.toBe(1)
+
+        subject.script.push(() => answered([]))
+        await subject.critic.runWaiting(WS, claimedAiJob())
+        const view = await subject.read.view(WS, SRC, ["open"])
+        expect(view?.review).toMatchObject({ state: "done", reason: null })
     })
 })
 
@@ -224,11 +245,12 @@ describe("shop-document critic: a part larger than one call is reviewed to its e
         expect(view.serving).toMatchObject({ state: "served", withheldPassages: 0 })
     })
 
-    it("a later call that fails: not done (reason model), the passages read so far are reviewed and served, the rest are counted as waiting", async () => {
+    it("a later call that fails: the run throws, the critique is left not done (reason model), the passages read so far are reviewed and served, the rest are counted as waiting", async () => {
         const subject = await buildCriticSubject()
         subject.script.push(empty)
-        const view = await uploadAndReview(subject, LONG, () => [])
+        const { failure, view } = await uploadAndFailReview(subject, LONG, () => [])
 
+        expect(failure).toMatchObject({ code: DossierReviewErrorCode.ModelUnavailable })
         const firstCall = subject.bundles[0]?.changed.length ?? 0
         expect(firstCall).toBeGreaterThan(0)
         expect(view.review.state).toBe("not_done")
@@ -240,7 +262,7 @@ describe("shop-document critic: a part larger than one call is reviewed to its e
         subject.script.push(empty, empty, empty, empty)
         const before = subject.bundles.length
         await subject.critic.request(WS, SRC)
-        await subject.critic.runWaiting(WS)
+        await subject.critic.runWaiting(WS, claimedAiJob())
         const again = await subject.read.view(WS, SRC, ["open"])
         expect(again?.review).toMatchObject({ state: "done", waitingPassages: 0 })
         const reread = subject.bundles.slice(before).flatMap((bundle) => bundle.changed.map((item) => item.text))

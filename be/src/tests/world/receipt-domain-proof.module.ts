@@ -4,11 +4,11 @@ import { ACCOUNT_DATA_CATALOG } from "@modules/domain/account-data-catalog"
 import { chatRecordsModules } from "./chat-records-modules"
 import { AgentConnectionsModule } from "@modules/domain/agent-connections"
 import { AGENTS_INSTALLATIONS, AgentDirectoryService, AgentsModule } from "@modules/domain/agents"
-import { ZaloCredentialsService, ZaloWebhookGateService } from "@modules/domain/channels"
+import { ZaloCredentialsService } from "@modules/domain/channels"
 import { CHANNELS_OPTIONS } from "../../modules/domain/channels/channels.decorators"
 import { ConnectionSecretsModule } from "@modules/domain/connection-secrets"
 import { ConnectionsModule } from "@modules/domain/connections"
-import { EntityEngineModule, ReadOnlyEngineAlertsService } from "@modules/domain/entity-engine"
+import { EntityEngineModule } from "@modules/domain/entity-engine"
 import { EventsModule } from "@modules/domain/events"
 import { StaffModule } from "@modules/domain/staff"
 import { WorkspaceMembersModule } from "@modules/domain/workspace-members"
@@ -45,7 +45,6 @@ const billingOptions = (): BillingOptions => ({
         { provide: INBOX, useClass: InboxService },
         ZaloDeliveryQueue,
         ZaloCredentialsService,
-        ZaloWebhookGateService,
         QUIET_CUSTOMER_FILES,
         QUIET_PROVIDER_TRIGGERS,
         QUIET_INSTALLATIONS,
@@ -60,7 +59,6 @@ const billingOptions = (): BillingOptions => ({
         InboundEventsService,
         SepayTransactionsService,
         ZaloDeliveryQueue,
-        ZaloWebhookGateService,
     ],
 })
 /** Composes real receipt consumers and their dependencies; these proofs make no provider network calls. */
@@ -78,7 +76,6 @@ export const RECEIPT_DOMAIN_MODULES: ReadonlyArray<DynamicModule> = [
     AccountDataModule.register({ isGlobal: true, types: ACCOUNT_DATA_CATALOG }),
     EntityEngineModule.register({
         isGlobal: true,
-        alerts: ReadOnlyEngineAlertsService,
         entities: INSTALLED.entities(),
         jobs: INSTALLED.jobs(),
         cursorKey: tokenKey,

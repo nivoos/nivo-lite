@@ -1,4 +1,5 @@
 import { slotOfSwr } from "@/hooks/slot"
+import { SANDBOX_SCOPE_ALL } from "@/modules/sandbox"
 import type { ReadResponse } from "@/hooks/workspaceread"
 import type { DataSlot, SandboxPanesBaseProps } from "@/modules/types"
 import { mutate } from "@/modules/viewer-cache"
@@ -91,17 +92,22 @@ const agentActionsOf = (input: SandboxActionsInput) => ({
 /** The commands on the open account: its inputs, its cases, its log, its key. */
 const accountActionsOf = (input: SandboxActionsInput) => ({
     setInput: input.state.setInput,
+    setDropWebhook: input.state.setDropWebhook,
     send: (caseId: string) => {
         if (input.selectedId === undefined) return
         void input.caseCommands.send({
             connectionId: input.selectedId,
             caseId,
+            ...(input.state.dropWebhook ? { dropWebhook: true } : {}),
             inputs: sendInputsOf(input.reads),
         })
     },
     choose: (caseId: string) => {
-        if (input.selectedId !== undefined) void input.caseCommands.choose(input.selectedId, caseId)
+        if (input.selectedId === undefined) return
+        const scope = input.reads.casesData?.scope?.selectedId
+        void input.caseCommands.choose(input.selectedId, caseId, scope === undefined || scope === SANDBOX_SCOPE_ALL ? undefined : scope)
     },
+    chooseScope: (scopeId: string) => input.state.setScope(scopeId === SANDBOX_SCOPE_ALL ? null : scopeId),
     moreCalls: input.state.moreCalls,
     askClear: () => input.askClear(true),
     cancelClear: () => input.askClear(false),

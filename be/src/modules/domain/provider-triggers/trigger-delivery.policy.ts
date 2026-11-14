@@ -106,3 +106,23 @@ export const eventScopeOf = (input: {
     ...(input.routeId === null ? {} : { routeId: input.routeId }),
     data: input.files.length === 0 ? input.data : { ...input.data, [FILES_MEMBER]: input.files },
 })
+
+/** The trigger scope members a `stream` marker adds to the one-event shape (rule Q-4): when the marker was taken, and how many it stands for. */
+export interface StreamScopeMembers {
+    readonly since?: string
+    readonly count?: number
+}
+
+/**
+ * The members a wake of a `stream` declaration adds to the trigger scope its run or round receives (rule Q-4, QB-P5 C-2): `since` = when
+ * the engine took the marker's event (the wake's own time), `count` = how many events it stands for (1 when nothing was folded into it).
+ * Nothing for a wake of any other mode: an `each` event is its own.
+ */
+export const streamScopeOf = (
+    context: { readonly combine?: string | undefined; readonly count?: string | undefined },
+    at: Date,
+): StreamScopeMembers => {
+    if (context.combine !== "stream") return {}
+    const count = Number(context.count)
+    return { since: at.toISOString(), count: Number.isInteger(count) && count >= 1 ? count : 1 }
+}

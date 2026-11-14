@@ -4,7 +4,7 @@ import { at, tester } from "./tester.mjs"
 const nodeFile = at("packages/blocks-core/src/agents/sales/nodes/example.node.ts")
 const controlFile = at("packages/blocks-core/src/shared/nodes/core/if.node.ts")
 const controlSpec = at("packages/blocks-core/src/shared/nodes/core/call-workflow.node.spec.ts")
-const pluginControlLike = at("packages/nivo-web-core/src/nodes/core/hand-off.node.ts")
+const pluginControlLike = at("packages/nivo-web-core/src/shared/nodes/core/hand-off.node.ts")
 const plainFile = at("packages/blocks-core/src/agents/sales/example.ts")
 
 const NAMES = 'import { PROVIDER, TOOL } from "@nivo-lite/agent-sdk/names"\n'

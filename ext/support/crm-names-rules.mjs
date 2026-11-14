@@ -14,7 +14,7 @@ export const sameJson = (a, b) => {
 
 /**
  * The findings on the declared templates of every package: `packages` = [{ name, templates: [{ kind, id, openapi }], pinned: Map<id, document> }]
- * (`pinned` = the `src/crm/<id>/openapi.json` files the package holds). A finding: a template id declared by two packages (or twice by one),
+ * (`pinned` = the `src/shared/crm/<id>/openapi.json` files the package holds). A finding: a template id declared by two packages (or twice by one),
  * a template whose `src/<kind>/<id>/openapi.json` is missing, a template whose `openapi` is not that pinned file, and a pinned folder no
  * template of the package declares. Each finding is `{ pkg, text }`, in package then declaration order.
  */
@@ -34,13 +34,13 @@ export const templateFindings = (packages) => {
         for (const template of pkg.templates) {
             const document = pkg.pinned.get(template.id)
             if (document === undefined) {
-                findings.push({ pkg: pkg.name, text: `template \`${template.kind}.${template.id}\` has no pinned src/${template.kind}/${template.id}/openapi.json` })
+                findings.push({ pkg: pkg.name, text: `template \`${template.kind}.${template.id}\` has no pinned src/shared/${template.kind}/${template.id}/openapi.json` })
             } else if (!sameJson(template.openapi, document)) {
-                findings.push({ pkg: pkg.name, text: `template \`${template.kind}.${template.id}\`: its \`openapi\` is not the pinned src/${template.kind}/${template.id}/openapi.json` })
+                findings.push({ pkg: pkg.name, text: `template \`${template.kind}.${template.id}\`: its \`openapi\` is not the pinned src/shared/${template.kind}/${template.id}/openapi.json` })
             }
         }
         for (const id of pkg.pinned.keys()) {
-            if (!declared.has(id)) findings.push({ pkg: pkg.name, text: `src/crm/${id}/openapi.json is pinned but no \`defineProviderTemplate\` of the plugin declares \`${id}\`` })
+            if (!declared.has(id)) findings.push({ pkg: pkg.name, text: `src/shared/crm/${id}/openapi.json is pinned but no \`defineProviderTemplate\` of the plugin declares \`${id}\`` })
         }
     }
     return findings

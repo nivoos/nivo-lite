@@ -1,4 +1,4 @@
-import { agentMessageViews, type AgentMessageWords } from "@nivo-lite/plugin-registry/client"
+import { agentMessageViews, type AgentMessageWords } from "@/modules/plugin-registry/client"
 import type { ContactHistoryOrderView, ContactHistoryOrderWords } from "@/modules/types"
 import { lineOrderOf } from "./contacts.order"
 

@@ -57,7 +57,7 @@ export interface OccasionDue {
 export interface CareOccasionWaitOutput {
     /** The customer, echoed. */
     readonly leadId: string
-    /** `due` write now; `later` the timer moved to the lead time; `closed` nothing to do (no such date, gone, opted out, no paid order); `declined` a person declined moving the timer on its card. */
+    /** `due` write now; `later` the timer moved to the lead time; `closed` nothing to do (no such date, gone, no paid order); `declined` a person declined moving the timer on its card. */
     readonly route: (typeof OCCASION_WAIT_ROUTES)[number]
     /** The occasion to write about, on `due`; null otherwise. */
     readonly due: OccasionDue | null
@@ -112,13 +112,13 @@ const standingFor = (standing: OccasionStanding, dueAt: string | null, at: strin
 /**
  * `sales.care-occasion-wait` (Cho den dip): exact timing, so code, no AI. Woken by the occasion timer, it finds the occasion by its id in
  * `nivo.tool.lead.care.get` and routes: `later` (still before the lead time: ONE re-arm to `occasionLeadDays` before it), `due` (inside
- * the lead time, or "run now"), `closed` (no such date, a one-off that passed, opted out, or no paid order to suggest something like:
+ * the lead time, or "run now"), `closed` (no such date, a one-off that passed, or no paid order to suggest something like:
  * `nivo.tool.lead.order.list`).
  */
 export const salesCareOccasionWaitNode: TemplateNode<typeof input, typeof output, typeof params> = defineTemplateNode({
     id: "sales.care-occasion-wait",
     title: { key: "nodeSalesCareOccasionWaitTitle" },
-    description: { vi: "Ch\u1edd \u0111\u1ebfn g\u1ea7n d\u1ecbp c\u1ee7a kh\u00e1ch (sinh nh\u1eadt, k\u1ef7 ni\u1ec7m) r\u1ed3i m\u1edbi g\u1ee3i \u00fd; ch\u01b0a t\u1edbi th\u00ec h\u1eb9n l\u1ea1i, kh\u00f4ng c\u00f2n d\u1ecbp ho\u1eb7c kh\u00e1ch t\u1eeb ch\u1ed1i th\u00ec d\u1eebng.", en: "Waits until a customer's occasion (birthday, anniversary) is near before suggesting anything: books it again if early, and stops if the date is gone or the customer opted out." },
+    description: { vi: "Ch\u1edd \u0111\u1ebfn g\u1ea7n d\u1ecbp c\u1ee7a kh\u00e1ch (sinh nh\u1eadt, k\u1ef7 ni\u1ec7m) r\u1ed3i m\u1edbi g\u1ee3i \u00fd; ch\u01b0a t\u1edbi th\u00ec h\u1eb9n l\u1ea1i, kh\u00f4ng c\u00f2n d\u1ecbp th\u00ec d\u1eebng.", en: "Waits until a customer's occasion (birthday, anniversary) is near before suggesting anything: books it again if early, and stops if the date is gone." },
     tools: [TOOL.leadCareGet, TOOL.leadOrderList],
     mode: "auto",
     accounts: [],
@@ -132,7 +132,7 @@ export const salesCareOccasionWaitNode: TemplateNode<typeof input, typeof output
         const at = context.run.at
         const facts = await careFactsOf(context, given.leadId)
         const occasion = facts?.occasions.find((one) => one.occasionId === given.occasionId)
-        if (facts === null || facts.optedOut || occasion === undefined) return closed
+        if (facts === null || occasion === undefined) return closed
         const standing = standingFor(occasionStandingOf(occasion, at, context.params.occasionLeadDays), given.dueAt, at)
         if (standing.kind === "gone") return closed
         if (standing.kind === "later") {
@@ -194,20 +194,6 @@ export const salesCareOccasionWaitNode: TemplateNode<typeof input, typeof output
                 { id: TOOL.leadOrderList, args: { limit: RECENT_ORDERS_MAX }, answer: ORDERS_PAID },
             ],
             output: { leadId: "l1", route: "due", due: dueOf(6, 1, "1970-05-31T17:00:00.000Z") },
-        },
-        {
-            name: "a customer who asked to be left alone gets no suggestion",
-            params: {},
-            at: EXAMPLE_AT,
-            input: { leadId: "l1", occasionId: "occ-1", dueAt: null },
-            tools: [
-                {
-                    id: TOOL.leadCareGet,
-                    args: { leadId: "l1" },
-                    answer: answered({ ...CARE_OPEN, optedOut: true, occasions: [occasionOf(1, 5)] }),
-                },
-            ],
-            output: { leadId: "l1", route: "closed", due: null },
         },
         {
             name: "a customer with no paid order has nothing to order again",

@@ -37,12 +37,30 @@ export interface JobClaims {
     fail(write: FailWrite): Promise<void>
     /** Parks the job as `failed_awaiting_fix` under the token the caller holds; answers whether its one alert is due (true for the first park since the last resume). Throws `JobFencedOut` when the token is stale. */
     park(write: ParkWrite): Promise<boolean>
+    /** The workspace's parked jobs (`failed_awaiting_fix`, the payload names the workspace), oldest park first, at most `limit`. */
+    awaitingFix(workspaceId: string, limit: number): Promise<ReadonlyArray<ParkedJobSummary>>
     /** Holds the live job fence across domain effects so a replacement claim cannot overtake them. */
     withFence<T>(job: ClaimedJob, work: JobEffect<T>): Promise<T>
     /** Holds a failed delivery fence only when no successor worker is live. */
     withFailedFence(jobKey: string, work: FailedJobEffect): Promise<void>
     /** The idempotency key of one step of this claim: `<jobId>:<step>:<fencingToken>`. */
     runKey(job: ClaimedJob, step: string): RunKey
+}
+
+/** One parked job as a person reads it: which job, why it stopped, since when and how often it was handed back. */
+export interface ParkedJobSummary {
+    /** The job row. */
+    readonly jobId: string
+    /** The job's name. */
+    readonly job: string
+    /** Why it will not run on its own. */
+    readonly failureClass: "transient" | "input" | "code" | "config"
+    /** The failure code. */
+    readonly reason: string
+    /** When it parked. */
+    readonly parkedAt: Date
+    /** How many times a person handed it back. */
+    readonly resumeCount: number
 }
 
 /** One external effect of a job. */
@@ -83,6 +101,8 @@ export interface ParkedFlowAlert {
     readonly failureClass: "transient" | "input" | "code" | "config"
     /** The reason in a few words: the failure code. */
     readonly reason: string
+    /** The park episode: how many times a person resumed the job before this park; the item is keyed by job and episode. */
+    readonly episode: number
     /** Ties the alert to the message or wake that started the flow. */
     readonly correlationId: string
     /** The build it parked under. */

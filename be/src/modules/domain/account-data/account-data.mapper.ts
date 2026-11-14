@@ -11,4 +11,5 @@ export const storedRowOf = (row: AccountDataEntity): StoredRow => ({
     value: valueOf(row.value),
     occurredAt: row.occurredAt,
     processedAt: row.processedAt,
+    sameFactOf: row.sameFactOf,
 })

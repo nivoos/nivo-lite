@@ -8,7 +8,6 @@ import {
     Text,
     type FlowGraphEdge,
     type FlowGraphNode,
-    type FlowGraphPositions,
 } from "@starci/grammar/common"
 import { SlotView } from "@nivo-lite/agent-sdk/client"
 import type { DataSlot, SlotLabels } from "@/modules/types"
@@ -37,13 +36,9 @@ export interface AgentWorkflowGraphBaseProps {
         readonly slot: DataSlot<GraphDrawing>
         readonly labels: SlotLabels
         readonly isLoading: boolean
-        /** The arrangement the user dragged; empty is the automatic layout. */
-        readonly positions: FlowGraphPositions
     }
     readonly on: {
         readonly retry: () => void
-        /** Drag end (the moved blocks), or `{}` when the reset control returns to the automatic layout. */
-        readonly move: (positions: FlowGraphPositions) => void
     }
 }
 
@@ -79,9 +74,6 @@ export const AgentWorkflowGraphBase = (props: AgentWorkflowGraphBaseProps) => {
                                 edges={data.edges}
                                 layout="steps"
                                 background="dots"
-                                isEditable
-                                positions={copy.positions}
-                                onPositionsChange={props.on.move}
                                 height="100%"
                                 emptyLabel={copy.emptyLabel}
                                 isLoading={copy.isLoading}

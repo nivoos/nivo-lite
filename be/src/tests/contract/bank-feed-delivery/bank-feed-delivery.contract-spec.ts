@@ -1,6 +1,6 @@
 import {
     BANK_FEED_DELIVERY_QUEUE,
-    isBankFeedDeliveryRecorded,
+    DELIVER_BANK_FEED_JOB,
     type BankFeedDeliveryRecorded,
 } from "@modules/queues/bank-feed-delivery"
 
@@ -21,15 +21,15 @@ describe("Bank feed receipt reference contract", () => {
         { deliveryId: "delivery-1", provider: "unknown" },
         { deliveryId: "delivery-1", provider: null },
     ])("refuses malformed receipt references: %p", (value) => {
-        expect(isBankFeedDeliveryRecorded(value)).toBe(false)
+        expect(DELIVER_BANK_FEED_JOB.payload(value)).toBe(false)
     })
 
     it("accepts a durable receipt identity and preserves the intake queue name", () => {
-        expect(isBankFeedDeliveryRecorded(message)).toBe(true)
+        expect(DELIVER_BANK_FEED_JOB.payload(message)).toBe(true)
         expect(BANK_FEED_DELIVERY_QUEUE).toBe("bank-feed-delivery")
     })
 
     it.each(["casso", "payos", "sepay-feed"])("accepts the %s provider", (provider) => {
-        expect(isBankFeedDeliveryRecorded({ provider, deliveryId: "delivery-1" })).toBe(true)
+        expect(DELIVER_BANK_FEED_JOB.payload({ provider, deliveryId: "delivery-1" })).toBe(true)
     })
 })

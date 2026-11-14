@@ -3,7 +3,7 @@ import { QUEUE_OUTBOX, type QueueOutbox } from "@modules/platform/queue"
 import {
     SEPAY_DELIVERY_QUEUE as DOMAIN_QUEUE,
     SEPAY_DELIVERY_QUEUE,
-    isSepayDeliveryRecorded,
+    DELIVER_SEPAY_JOB,
 } from "@modules/queues/sepay-delivery"
 import { SepayDeliveryQueueModule } from "@features/jobs/sepay-delivery"
 import { deliveryIntakeFixture, persistDeliveryWorkspace } from "../../world/delivery-jobs-proof.service"
@@ -27,11 +27,11 @@ const registerParsing = (): void => {
         { deliveryId: "" },
         { deliveryId: "   " },
     ])("refuses malformed receipt references: %p", (value) => {
-        expect(isSepayDeliveryRecorded(value)).toBe(false)
+        expect(DELIVER_SEPAY_JOB.payload(value)).toBe(false)
     })
 
     it("accepts a durable receipt identity and agrees with the intake queue", () => {
-        expect(isSepayDeliveryRecorded({ deliveryId: "delivery-1" })).toBe(true)
+        expect(DELIVER_SEPAY_JOB.payload({ deliveryId: "delivery-1" })).toBe(true)
         expect(SEPAY_DELIVERY_QUEUE).toBe(DOMAIN_QUEUE)
     })
 }

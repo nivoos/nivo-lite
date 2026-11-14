@@ -6,6 +6,7 @@ import { useCallback, useMemo, useState } from "react"
 import { useSettledGraphQL, type Settled } from "@/hooks/connection-wizard"
 import { useConnectionsRole } from "@/hooks/connections"
 import { useProviderRightHolders } from "@/hooks/nodeRights"
+import { viaLineOf, type ViaWords } from "@/hooks/providerOffer"
 import { mapSlot, slotOfSwr } from "@/hooks/slot"
 import {
     useMutateBindProviderTriggerDeciderSwr,
@@ -16,11 +17,16 @@ import type { DataSlot, ProviderTriggerCardView } from "@/modules/types"
 import {
     PROVIDER_TRIGGER_CARD_PLACEHOLDER,
     PROVIDER_TRIGGER_ERROR_KEYS,
-    kindWordOf,
     triggerCardOf,
     workflowsOfTrigger,
     type ProviderTriggerState,
 } from "./providerTriggers.shared"
+
+/** The words of the four ways an event arrives and of the "Receives via" line. */
+const viaWordsOf = (t: ReturnType<typeof useTranslations>): ViaWords => ({
+    ways: { webhook: t("wayWebhook"), poll: t("wayPoll"), clock: t("wayClock"), internal: t("wayInternal") },
+    receivedVia: (ways) => t("receivedVia", { ways }),
+})
 
 /** What the Trigger card draws and does. */
 export interface ProviderTriggerCardRead {
@@ -66,7 +72,7 @@ export const useProviderTriggerCard = (): ProviderTriggerCardRead => {
             locale,
             fired: (when: string, count: number) => t("triggerFired", { when, count }),
             when: (iso: string) => format.dateTime(new Date(iso), { dateStyle: "short", timeStyle: "short" }),
-            kind: (kind: string) => kindWordOf(kind, { webhook: t("kindWebhook"), poll: t("kindPoll") }),
+            via: (via: ReadonlyArray<string>) => viaLineOf(viaWordsOf(t), via),
             neverFired: t("triggerNeverFired"),
         }),
         [locale, format, t],

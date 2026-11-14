@@ -1,3 +1,4 @@
+import type { OutsideReads } from "@modules/platform/effects"
 import type { VectorFlags } from "./qdrant.contracts"
 
 /**
@@ -47,7 +48,7 @@ export interface AcceptedRow {
  * brain-facts; base knowledge: nivo-knowledge): how a row kind declares that it is embedded. The sync asks it for rows and tells it
  * what the index accepted; Postgres never holds a vector.
  */
-export interface VectorRowSource {
+export interface VectorRowSource extends OutsideReads<"byIds" | "ofSource" | "page" | "wantedAmong" | "donors"> {
     /** The rows of one workspace with these ids; an id with no row is not answered. */
     byIds(workspaceId: string, ids: ReadonlyArray<string>): Promise<ReadonlyArray<VectorRow>>
     /** Every row of one document of a workspace (passages); nothing for a kind that has no documents. */

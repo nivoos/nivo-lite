@@ -6,11 +6,21 @@ import { SandboxCallsCard } from "@/components/composites/SandboxCallsCard"
 import { SandboxCasesCard } from "@/components/composites/SandboxCasesCard"
 import { SandboxKeyCard } from "@/components/composites/SandboxKeyCard"
 import { SandboxOpenDrawer } from "@/components/composites/SandboxOpenDrawer"
+import { SandboxScopeCard } from "@/components/composites/SandboxScopeCard"
 import { SandboxWaitingCard } from "@/components/composites/SandboxWaitingCard"
 import { nivoIconSource } from "@/components/leaves/Icon"
 import type { SandboxPanesBaseProps } from "@/modules/types"
 
 type Props = SandboxPanesBaseProps
+
+/** The choice list of the width a next case applies to: drawn only for an account whose calls are logged under a purpose (the model account). */
+const scopeOf = (props: Props) => {
+    const cases = props.props.cases
+    const scope = "items" in cases ? cases.items.scope : null
+    return scope === null ? null : (
+        <SandboxScopeCard copy={props.props.copy} scope={scope} onChoose={props.on.chooseScope} />
+    )
+}
 
 /** The right column of the open account: its cases, its call log, its webhook key, in this order. */
 const AccountColumn = (props: Props) => (
@@ -26,12 +36,14 @@ const AccountColumn = (props: Props) => (
                 retry: props.on.retryAccounts,
             }}
         />
+        {scopeOf(props)}
         <SandboxCasesCard
             copy={props.props.copy}
             slot={props.props.cases}
             pending={props.props.pending}
             on={{
                 setInput: props.on.setInput,
+                setDropWebhook: props.on.setDropWebhook,
                 send: props.on.send,
                 choose: props.on.choose,
                 retry: props.on.retryCases,

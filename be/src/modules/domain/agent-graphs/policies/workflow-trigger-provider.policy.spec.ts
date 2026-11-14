@@ -5,7 +5,7 @@ import { latestTemplateVersion } from "@nivo-lite/agent-sdk/template"
 import { tagContextOf } from "@modules/domain/agent-work"
 import { TRIGGER } from "@nivo-lite/agent-sdk/names"
 import { INSTALLED, graphOfSpecV2 } from "@modules/domain/installed-plugins"
-import { PROVIDER_TRIGGER_TAG_SOURCE, providerTriggerLookup, wakeContextOf } from "@modules/domain/provider-triggers"
+import { PROVIDER_TRIGGER_TAG_SOURCE, providerTriggerLookup, triggerDeclarations, wakeContextOf } from "@modules/domain/provider-triggers"
 import type { ProviderWake } from "@modules/domain/provider-triggers"
 import { tagSourceOf, triggerScopeOf } from "./graph-flow.policy"
 import type { FlowWake } from "./graph-flow.policy"
@@ -13,6 +13,15 @@ import { flowProblemsOf, requireSoundFlow } from "./flow.policy"
 import { workflowRouteOf } from "./workflow-route.policy"
 import { providerTriggerOfWake, takingTriggerOf, triggerTakes } from "./workflow-trigger.policy"
 import { TestWorldError, TestWorldErrorCode } from "@tests/world/test-world.error"
+import { bankTriggerOf, mailTriggerOf } from "@tests/fixtures/builders/trigger-declaration.builder"
+
+// The registration checks look a provider trigger up in the registered declarations: the three bank feeds' and the mailbox's, as fixtures.
+triggerDeclarations.register(
+    bankTriggerOf(),
+    bankTriggerOf({ provider: "casso", dataType: "casso.transaction" }),
+    bankTriggerOf({ provider: "payos", dataType: "payos.transaction" }),
+    mailTriggerOf(),
+)
 
 /** The part an agent has in an event. */
 type TriggerRole = "decider" | "notice"
@@ -165,13 +174,13 @@ describe("the plugin case: webbooks.payment registered on sepay:transaction.rece
 
     it("is sound against the installation AND the declared provider triggers, as a save judges it", () => {
         if (graph === undefined) throw new TestWorldError({ code: TestWorldErrorCode.RowMissing, params: { what: "webbooks.payment is not installed" } })
-        expect(flowProblemsOf(graph, index)).toEqual([])
+        expect(flowProblemsOf(graph)).toEqual([])
         expect(
             graphSpecProblems(graph, index, providerTriggerLookup).filter((problem) =>
                 problem.code.startsWith("TRIGGER_"),
             ),
         ).toEqual([])
-        expect(() => requireSoundFlow(graph, index)).not.toThrow()
+        expect(() => requireSoundFlow(graph)).not.toThrow()
     })
 
     it("is woken by a scripted bank credit as a notice receiver, and as the decider when the account is bound to it: same workflow, its part in the scope", () => {
@@ -204,7 +213,7 @@ describe("the plugin case: webbooks.payment registered on sepay:transaction.rece
             ),
         }
         // A graph read from a template graph is edited in its package, never in a save: the save refuses it as edited.
-        expect(flowProblemsOf(wrong, index).map((problem) => problem.code)).toEqual(["GRAPH_TEMPLATE_EDITED"])
+        expect(flowProblemsOf(wrong).map((problem) => problem.code)).toEqual(["GRAPH_TEMPLATE_EDITED"])
         // And the provider trigger check names the unknown registration (whose wake supplies nothing of the contract, not even the
         // `direction` its credit condition reads).
         expect(

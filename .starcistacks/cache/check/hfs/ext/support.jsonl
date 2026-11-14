@@ -1,0 +1,14 @@
+{"data":{},"findings":[],"hash":"fded3a70b58c0454decae27efefc2dec9691846b7c550bb5b700536a7cf12286","path":"ext/support/all.mjs","step":"file-rules"}
+{"data":{},"findings":[],"hash":"392486aa2c1f78f2fb13004317b0b1122ea8e9a4d38357f4285c1b53aaad2aca","path":"ext/support/crm-names-rules.mjs","step":"file-rules"}
+{"data":{},"findings":[],"hash":"92f1c188b76db9b7e9b3714fb675f4087763eb4f97494112e1c59b85081c7954","path":"ext/support/engine-business-contracts-rules.mjs","step":"file-rules"}
+{"data":{},"findings":[],"hash":"3f27ac511d3abf6903b0c0e12355e63c0e3422ce135dd82977c42428b96eaf12","path":"ext/support/engine-imports-rules.mjs","step":"file-rules"}
+{"data":{},"findings":[],"hash":"ebe5d01b0407ee2c42c32c193dc0e36e44616e7ed981d2326b46c60d7e3dcba9","path":"ext/support/lint-config.mjs","step":"file-rules"}
+{"data":{},"findings":[],"hash":"e757f5c7eb0f7b778e1c578fcfd0ef9a8d24abc00fbce2ecb90d356e04a25688","path":"ext/support/lint-shared.mjs","step":"file-rules"}
+{"data":{},"findings":[],"hash":"26000b94b1750ce952af4aa28059429f516ac12f9a2a8d193f78d07ac3c242cc","path":"ext/support/mcp-tools-rules.mjs","step":"file-rules"}
+{"data":{},"findings":[],"hash":"c16c4731eea087f51666bcaa7bb50ec3784edc35d1c904299bb0ca52187abc95","path":"ext/support/nivo-api-graphql-rules.mjs","step":"file-rules"}
+{"data":{},"findings":[],"hash":"c3d4c046bafb6507d310c676cbd2e0a6e4b6572ca4440ec730cc70707faa6a6a","path":"ext/support/program.mjs","step":"file-rules"}
+{"data":{},"findings":[],"hash":"6679f2eec4f3670adf62fcd86f08a6e9c792393b89da4e8e7304c79cdf6dd53f","path":"ext/support/record-checks-rules.mjs","step":"file-rules"}
+{"data":{},"findings":[],"hash":"3358c0b94281268e4d81479b3c58620abde26c0b4510a915ed8d5d42fc970fda","path":"ext/support/run-checks.mjs","step":"file-rules"}
+{"data":{},"findings":[],"hash":"0d16f51a75f1f7d9395c0c0e39842402ce4c5aa3e9c21970a60b1d3350621f8f","path":"ext/support/run-lint.mjs","step":"file-rules"}
+{"data":{},"findings":[],"hash":"ca19519a765b864c63aa96dcd3a9555925559303991defe68194d67ff73485fe","path":"ext/support/template-tools-rules.mjs","step":"file-rules"}
+{"data":{},"findings":[],"hash":"e3cb36771e151cbec45ae7f37fa2bd61e78830bb981d044bf04e77e0088f5d00","path":"ext/support/validate-manifest.mjs","step":"file-rules"}

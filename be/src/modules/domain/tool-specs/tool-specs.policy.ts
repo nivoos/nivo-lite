@@ -6,10 +6,12 @@ import {
     PAYMENT_TOOL_BUSINESS_REFUSALS,
 } from "@modules/domain/provider-registry"
 import type {
+    ConfirmRead,
     CoreToolId,
     OptionalToolSpec,
     RefusalsOf,
     ToolAccountMode,
+    ToolConfirmBy,
     ToolDataKind,
     ToolRefusals,
     ToolSpec,
@@ -55,6 +57,9 @@ export const SEND_REFUSALS = [
     "outside_window",
     "plan_blocked",
     "not_delivered",
+    "subject_required",
+    "address_not_accepted",
+    "entrance_incomplete",
 ] as const
 
 /** What a write to a contact answers (`ContactWriteRefusal`, every value). */
@@ -162,6 +167,7 @@ interface SpecParts<F extends ToolRefusals> {
     readonly onceBy?: ReadonlyArray<string>
     readonly approvalContent?: ReadonlyArray<string>
     readonly repeatable?: boolean
+    readonly confirmBy?: ToolConfirmBy
     readonly refusals: F
 }
 
@@ -177,6 +183,7 @@ const specOf = <M extends boolean, F extends ToolRefusals>(mutates: M, parts: Sp
     onceBy: parts.onceBy ?? [],
     refusals: parts.refusals,
     repeatable: parts.repeatable ?? !mutates,
+    ...(parts.confirmBy === undefined ? {} : { confirmBy: parts.confirmBy }),
     ...(parts.approvalContent === undefined ? {} : { approvalContent: parts.approvalContent }),
 })
 
@@ -198,9 +205,9 @@ export const TOOL_SPECS = {
     // Customer and conversation.
     // Repeatable (R74): a send whose outcome is unknown is sent again under the same key; the worst case is a duplicate line.
     [TOOL.customerMessageSend]: writeSpec({
-        owners: ["zalo_oa", "telegram", "meta"],
+        owners: ["zalo_oa", "telegram", "meta", "smtp"],
         account: "owner",
-        approvalContent: ["text", "images"],
+        approvalContent: ["subject", "text", "images"],
         repeatable: true,
         refusals: closed(...SEND_REFUSALS, ...REPEAT_SEND_REFUSALS, ...PIN_REFUSALS),
     }),
@@ -329,6 +336,7 @@ export const TOOL_SPECS = {
     [TOOL.brainFactGet]: nativeRead("brain", "not_found"),
     [TOOL.brainFactList]: nativeRead("brain"),
     [TOOL.brainFactRelated]: nativeRead("brain", "not_found"),
+    [TOOL.brainPolicyList]: nativeRead("brain"),
     [TOOL.brainPassageSearch]: nativeRead("brain"),
     [TOOL.brainPassageRead]: nativeRead("brain", "not_found"),
     [TOOL.brainDocumentRead]: nativeRead("brain", "not_found"),
@@ -338,23 +346,16 @@ export const TOOL_SPECS = {
     }),
     // Mail.
     [TOOL.mailMessageList]: readSpec({
-        owners: ["imap"],
+        owners: ["imap", "smtp"],
         account: "each",
         dataKind: "mail",
         refusals: open("not_found"),
     }),
     [TOOL.mailMessageGet]: readSpec({
-        owners: ["imap"],
+        owners: ["imap", "smtp"],
         account: "each",
         dataKind: "mail",
         refusals: open("not_found"),
-    }),
-    // It sends; it runs in the mode its node declares (on `ask` the engine interrupts before the tool is called).
-    [TOOL.mailMessageSend]: writeSpec({
-        owners: ["smtp"],
-        account: "any",
-        dataKind: "mail",
-        refusals: open("other_lead"),
     }),
     // Domains: the generic domain purposes, served by every registrar that registers a `DomainRegistrarPort`. A call about a name the
     // workspace does not hold yet (availability, a page of one account, a registration, a transfer in) takes ONE bound account (`any`);
@@ -383,12 +384,23 @@ export const TOOL_SPECS = {
         dataKind: "domains",
         refusals: open(...DOMAIN_TOOL_BUSINESS_REFUSALS),
     }),
-    // Renews at the provider (owner ruling R57) and answers `renewed` / `pending`; NOT repeatable (it moves money at the provider).
+    // Renews at the provider (owner ruling R57) and answers `renewed` / `pending`; NOT repeatable (it moves money at the provider). An
+    // unknown outcome is CONFIRMED by the renewal check (R81-3): the domain's expiry read before the renewal, then the check against it.
     [TOOL.domainRenewalCreate]: writeSpec({
         owners: REGISTRARS,
         account: "owner",
         dataKind: "domains",
         refusals: open(...DOMAIN_TOOL_BUSINESS_REFUSALS),
+        confirmBy: {
+            before: { tool: TOOL.domainGet, args: { name: { from: "args", member: "name" } } },
+            tool: TOOL.domainRenewalGet,
+            args: {
+                name: { from: "args", member: "name" },
+                expiresBefore: { from: "before", member: "expiresOn" },
+                reference: { from: "value", value: null },
+            },
+            happened: { member: "outcome", equals: "renewed" },
+        },
     }),
     // Whether a renewal took effect (the held domain's expiry now against the one before it): a read, repeatable.
     [TOOL.domainRenewalGet]: readSpec({
@@ -631,6 +643,59 @@ export const mutatesBySpec = (tool: string): boolean | null => toolSpecOf(tool)?
  * caller then treats it as not repeatable: never guessed).
  */
 export const repeatableBySpec = (tool: string): boolean | null => toolSpecOf(tool)?.repeatable ?? null
+
+/** How a core tool declares its confirmation on an unknown outcome (`confirmBy`), or null when it declares none (or is no core tool). */
+export const confirmByOf = (tool: string): ToolConfirmBy | null => toolSpecOf(tool)?.confirmBy ?? null
+
+/** The reads a write declares for its confirmation (its `before` read, then its confirmation read); none for a tool that declares none. */
+export const confirmReadsOf = (tool: string): ReadonlyArray<string> => {
+    const confirm = confirmByOf(tool)
+    if (confirm === null) return []
+    return confirm.before === undefined ? [confirm.tool] : [confirm.before.tool, confirm.tool]
+}
+
+/** A plain record of a value, or null. */
+const recordOf = (value: unknown): Readonly<Record<string, unknown>> | null =>
+    typeof value === "object" && value !== null && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : null
+
+/**
+ * The arguments of a confirmation read, each filled from where it is declared (QB-P3 rule I-4): the write's arguments, the answer of the
+ * read made before the write, or a fixed value. Null when a declared member is absent (or null) where it should come from: then nothing
+ * can be confirmed.
+ */
+export const confirmArgsOf = (
+    read: ConfirmRead,
+    args: Readonly<Record<string, unknown>>,
+    before: unknown,
+): Readonly<Record<string, unknown>> | null => {
+    const kept = recordOf(before)
+    const filled: Array<[string, unknown]> = []
+    for (const [name, arg] of Object.entries(read.args)) {
+        if (arg.from === "value") {
+            filled.push([name, arg.value])
+            continue
+        }
+        const value = arg.from === "args" ? args[arg.member] : kept?.[arg.member]
+        if (value === undefined || value === null) return null
+        filled.push([name, value])
+    }
+    return Object.fromEntries(filled)
+}
+
+/** True when a confirmation read's answer says the write happened: its declared member equals its declared value. */
+export const confirmedHappened = (confirm: ToolConfirmBy, answer: unknown): boolean =>
+    recordOf(answer)?.[confirm.happened.member] === confirm.happened.equals
+
+/**
+ * True when a core tool's spec DECLARES that its act stays inside NIVO's database (QB-P3 rule I-2): it does not write, or NIVO alone owns
+ * it (its own records). False for a provider's tool and for every id no spec holds (a plugin's effect, a CRM operation): the engine
+ * cannot prove those stay inside, so their acts are written as an intent first.
+ */
+export const staysInsideBySpec = (tool: string): boolean => {
+    const held = toolSpecOf(tool)
+    if (held === null) return false
+    return !held.mutates || (held.owners.length > 0 && held.owners.every((owner) => owner === NIVO_OWNER))
+}
 
 /** True for a core tool NIVO owns itself (the pseudo-provider `nivo`): it acts on no connected account. */
 export const isEngineOwned = (tool: string): boolean => toolSpecOf(tool)?.owners.includes(NIVO_OWNER) === true

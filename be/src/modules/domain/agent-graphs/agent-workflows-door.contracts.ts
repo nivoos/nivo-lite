@@ -28,14 +28,12 @@ export interface WorkflowTemplateVersionRequest extends WorkflowRequest {
     readonly templateVersion: number
 }
 
-/** What adding a workflow names: a template (and version) to copy, or the name of a blank one. */
+/** What adding a workflow names: the template (and version) to copy; a workflow is always a template's copy. */
 export interface WorkflowCreateRequest extends WorkflowsRequest {
-    /** The template to copy, or none for a blank workflow. */
-    readonly templateId?: string | null | undefined
+    /** The template to copy. */
+    readonly templateId: string
     /** The template version to copy; the newest when absent. */
     readonly templateVersion?: number | null | undefined
-    /** The name of a blank workflow. */
-    readonly name?: string | null | undefined
 }
 
 /** One operation on a connected account the owner agreed a version may call, exactly as the refusal `RIGHTS_NEED_OWNER` listed it. */
@@ -64,21 +62,17 @@ export interface WorkflowChangeRequest extends WorkflowRequest, AgreedRightsRequ
     readonly expectedLatest?: number | null | undefined
 }
 
-/** What publishing a graph names. */
-export interface WorkflowPublishRequest extends WorkflowChangeRequest {
-    /** The graph, as JSON text. */
-    readonly graphJson: string
-}
-
 /**
- * What setting ONE node's mode names (nivo-frame `rights` rule 5: a shop overrides a node's mode on its own graph copy): the node by its
- * key in the workflow's running graph, the mode (`auto` | `ask`), and the newest version the caller read. Owner only.
+ * What setting ONE node step's settings names (`node-settings.policy`): the node by its key in the workflow's running graph, each setting
+ * to change (absent: left as it is), and the newest version the caller read. Owner only.
  */
-export interface WorkflowNodeModeRequest extends WorkflowRequest {
+export interface WorkflowNodeSettingsRequest extends WorkflowRequest {
     /** The node, by its key in the running graph. */
     readonly nodeKey: string
-    /** `auto` or `ask`. */
-    readonly mode: string
+    /** `auto` or `ask`; absent: the mode is left. */
+    readonly mode?: string | null | undefined
+    /** The attached accounts the step uses, in try order; `[]`: the default pick; absent: the choice is left. */
+    readonly accountIds?: ReadonlyArray<string> | null | undefined
     /** The newest version number the caller read; a newer one refuses the change. */
     readonly expectedLatest?: number | null | undefined
 }
@@ -145,8 +139,3 @@ export interface RunPinsRequest {
     readonly runIds: ReadonlyArray<string>
 }
 
-/** What saving the layout of the Graph page names: where each workflow sits. */
-export interface LayoutSaveRequest extends WorkflowsRequest {
-    /** The positions; they replace the saved layout whole. */
-    readonly positions: ReadonlyArray<{ readonly workflowKey: string; readonly x: number; readonly y: number }>
-}

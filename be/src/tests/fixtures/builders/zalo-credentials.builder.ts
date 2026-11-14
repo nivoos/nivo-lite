@@ -58,6 +58,7 @@ export const configureCredentialDoubles = (
     connections: MockOf<ConnectionsService>,
 ): void => {
     secrets.seal.mockImplementation((plain) => `sealed:${plain}`)
+    secrets.open.mockImplementation((sealed) => ok(sealed.slice("sealed:".length)))
     secrets.save.mockResolvedValue(undefined)
     secrets.takeLease.mockResolvedValue(true)
     secrets.releaseLease.mockResolvedValue(undefined)

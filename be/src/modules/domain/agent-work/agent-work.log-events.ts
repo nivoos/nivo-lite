@@ -2,6 +2,10 @@
 export enum AgentWorkLogEvent {
     /** A new fact woke an agent. */
     WakeWritten = "agent_work.wake_written",
+    /** Wakes of a `stream` declaration were folded into their oldest un-run wake (rule Q-4). */
+    WakeCoalesced = "agent_work.wake_coalesced",
+    /** Older un-run wakes of a `latest` declaration were closed `replaced:<newest>` by the wake just written (rule Q-4). */
+    WakeReplaced = "agent_work.wake_replaced",
     /** A worker took a turn. */
     TurnBegun = "agent_work.turn_begun",
     /** The scope was already held by another worker. */
@@ -10,6 +14,8 @@ export enum AgentWorkLogEvent {
     TurnFenced = "agent_work.turn_fenced",
     /** A wake spent its attempts and was given up. */
     WakeDead = "agent_work.wake_dead",
+    /** A wake of a source this process no longer serves was closed by name (`source_retired`), never tried again. */
+    WakeSourceRetired = "agent_work.wake_source_retired",
     /** A wake had no handler, so it was held. */
     NoHandler = "agent_work.no_handler",
     /** A turn failed and will be retried or given up. */

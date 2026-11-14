@@ -88,7 +88,6 @@ export type { ChangeSmtpPasswordMutation } from "./graphql/__generated__/graphql
 
 export type { CheckConnectionMutation } from "./graphql/__generated__/graphql"
 export type { CheckMetaMutation, ChooseMetaPageMutation, CloseAgentTaskMutation } from "./graphql/__generated__/graphql"
-export type { ConfirmAgentGraphProposalMutation } from "./graphql/__generated__/graphql"
 export type { ConnectTelegramMutation } from "./graphql/__generated__/graphql"
 export type {
     ConnectionAgentsQuery,
@@ -107,7 +106,6 @@ export type { CreditRecentCostUsdQuery, CreditTopupLotsQuery } from "./graphql/_
 export type { CreditUsageSummaryQuery, DataSyncRunQuery } from "./graphql/__generated__/graphql"
 export type { DecideBrainFactMutation, DecideBrainLessonMutation } from "./graphql/__generated__/graphql"
 export type { DecideSetupCardMutation } from "./graphql/__generated__/graphql"
-export type { DeclineAgentGraphProposalMutation } from "./graphql/__generated__/graphql"
 export type { DeleteConnectionMutation } from "./graphql/__generated__/graphql"
 export type { DeleteKnowledgeSourceMutation } from "./graphql/__generated__/graphql"
 export type { DisconnectConnectionMutation, DisconnectDriveMutation } from "./graphql/__generated__/graphql"
@@ -152,7 +150,6 @@ export type { PostSetupMessageMutation } from "./graphql/__generated__/graphql"
 export type { PreviewCsvSourceQuery, PreviewDatabaseTableQuery } from "./graphql/__generated__/graphql"
 export type { PublicDocumentsQuery } from "./graphql/__generated__/graphql"
 
-export type { PublishAgentGraphMutation } from "./graphql/__generated__/graphql"
 export type { RecheckZaloConnectionMutation } from "./graphql/__generated__/graphql"
 export type { RedraftPublicDocumentMutation } from "./graphql/__generated__/graphql"
 export type { ReindexKnowledgeSourceMutation } from "./graphql/__generated__/graphql"
@@ -170,13 +167,11 @@ export type { RequestMyAvatarUploadMutation } from "./graphql/__generated__/grap
 export type { RequestPaymentOrderMutation } from "./graphql/__generated__/graphql"
 export type { ResendInviteMutation, ResendTelegramCodeMutation } from "./graphql/__generated__/graphql"
 
-export type { RestoreAgentGraphVersionMutation } from "./graphql/__generated__/graphql"
 export type { RetryKnowledgeSourceMutation, ReturnZaloAuthorizationMutation } from "./graphql/__generated__/graphql"
 export type { RevealSepayKeyMutation } from "./graphql/__generated__/graphql"
 export type { RevokeApiKeyMutation, RevokeInviteMutation, RevokeSessionMutation } from "./graphql/__generated__/graphql"
 export type { RotateSepayKeyMutation } from "./graphql/__generated__/graphql"
 export type { RunCsvImportMutation, RunDocumentImportMutation } from "./graphql/__generated__/graphql"
-export type { SaveAgentGraphDraftMutation } from "./graphql/__generated__/graphql"
 export type { SaveAgentTriggerMutation } from "./graphql/__generated__/graphql"
 export type { SaveBrainFactMutation, SaveBrainLessonMutation } from "./graphql/__generated__/graphql"
 export type { SaveDatabaseConnectionMutation } from "./graphql/__generated__/graphql"
@@ -190,7 +185,7 @@ export type { SaveZaloOaSecretMutation } from "./graphql/__generated__/graphql"
 export type { SaveZnsRenewalMutation } from "./graphql/__generated__/graphql"
 export type { SendSmtpTestMutation, SendZaloTestMessageMutation } from "./graphql/__generated__/graphql"
 export type { SepayConnectionEventsQuery, SepayConnectionQuery } from "./graphql/__generated__/graphql"
-export type { SetAgentAvatarMutation, SetAgentGraphModeMutation } from "./graphql/__generated__/graphql"
+export type { SetAgentAvatarMutation } from "./graphql/__generated__/graphql"
 export type { SetAgentWorkMutation } from "./graphql/__generated__/graphql"
 export type { SetConnectionAgentsMutation, SetConnectionGrantMutation } from "./graphql/__generated__/graphql"
 export type { SetDefaultSmtpMutation } from "./graphql/__generated__/graphql"
@@ -244,16 +239,13 @@ export type {
     AcceptAgentWorkflowTemplateMutation,
     AgentRunWorkflowsQuery,
     AgentWorkflowDiffQuery,
-    AgentGraphLayoutQuery,
     AgentWorkflowGraphQuery,
     AgentWorkflowQuery,
     AgentWorkflowTemplatePreviewQuery,
     AgentWorkflowsQuery,
     CreateAgentWorkflowMutation,
-    PublishAgentWorkflowVersionMutation,
-    SetAgentNodeModeMutation,
-    SaveAgentGraphLayoutMutation,
     RollbackAgentWorkflowMutation,
+    SetAgentNodeSettingsMutation,
     SetAgentWorkflowStatusMutation,
     AgreeAgentNodeRightsMutation,
     WorkflowTemplatesQuery,
@@ -283,6 +275,12 @@ export type { RunConnectionActionMutation } from "./graphql/__generated__/graphq
 export type { AgentDeletionImpactQuery } from "./graphql/__generated__/graphql"
 export type { ContactModuleBlocksQuery, ContactQuery, ContactMessagesQuery, ContactsQuery, ContactWorkQuery } from "./graphql/__generated__/graphql"
 export type { DeleteContactMutation, ForgetContactMemoryMutation } from "./graphql/__generated__/graphql"
+export type { SetContactDoNotContactMutation } from "./graphql/__generated__/graphql"
+export type {
+    CloseStoppedWorkMutation,
+    RequeueStoppedEventMutation,
+    ResumeStoppedWorkMutation,
+} from "./graphql/__generated__/graphql"
 export type { LinkContactIdentityMutation, MergeContactsMutation } from "./graphql/__generated__/graphql"
 export type { UnlinkContactIdentityMutation, UpdateContactMutation } from "./graphql/__generated__/graphql"
 export type {
@@ -307,6 +305,7 @@ export type {
     SandboxCasesQuery,
     SandboxKeyQuery,
     SandboxLatestRequestQuery,
+    SandboxPayLinkQuery,
     SandboxNextCasesQuery,
     SandboxProvidersQuery,
     SandboxWaitingRunsQuery,

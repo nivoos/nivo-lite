@@ -75,6 +75,7 @@ import { workspacesEntities } from "@modules/domain/workspaces"
 import { zaloWizardDraftsEntities } from "@modules/domain/zalo-wizard-drafts"
 import type { DatabaseOptions } from "./database.options"
 import { databaseEntities } from "./persistence/entities"
+import { effectsEntities } from "@modules/platform/effects"
 import { inboxEntities } from "@modules/platform/inbox"
 import { jobsEntities } from "@modules/platform/jobs"
 import { realtimeEntities } from "@modules/platform/realtime"
@@ -161,6 +162,7 @@ export const PRIMARY_ENTITIES: DatabaseOptions["entities"] = [
     ...workspacesEntities,
     ...zaloWizardDraftsEntities,
     ...databaseEntities,
+    ...effectsEntities,
     ...inboxEntities,
     ...jobsEntities,
     ...realtimeEntities,

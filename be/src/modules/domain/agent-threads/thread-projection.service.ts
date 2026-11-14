@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common"
+import { Injectable, Optional } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
 import {
     AgentRunRecordsService,
@@ -10,6 +10,7 @@ import {
     type StoredRun,
     type StoredStep,
 } from "@modules/domain/agent-runs"
+import { StreamCursorService } from "@modules/domain/customer-routes"
 import { EntityEngineService, type ScopedTx } from "@modules/domain/entity-engine"
 import { eachInOrder, isRecord } from "@modules/platform/primitives"
 import type { JsonValue } from "@nivo-lite/agent-sdk/schema"
@@ -276,6 +277,8 @@ export class ThreadProjectionService {
     constructor(
         private readonly engine: EntityEngineService,
         private readonly records: AgentRunRecordsService,
+        // QB-P5 C-4: the end of a step consumes what it read of a stream (the stream cursor); absent in an app with no streams.
+        @Optional() private readonly streams?: StreamCursorService,
     ) {}
 
     /** Marks the run as a thread's: `engine` is `langgraph`. Called once the run row is open, before the first step. */
@@ -293,12 +296,15 @@ export class ThreadProjectionService {
     }
 
     /** A step ended its try: done with its result and door calls, or failed and passed over. */
-    stepEnded(
+    async stepEnded(
         ref: ThreadRunRefParams,
         step: ThreadStepEndParams,
         manager?: EntityManager,
     ): Promise<ThreadProjectionOutcome> {
-        return this.tried(ref, manager, (tx) => this.stepIn(tx, ref.runId, { kind: "ended", ...step }))
+        const outcome = await this.tried(ref, manager, (tx) => this.stepIn(tx, ref.runId, { kind: "ended", ...step }))
+        // Rule QB-P5 C-4: a step that ENDED (done, passed over, ended unsuccessful) consumed what it read of a stream; a stop does not.
+        await this.streams?.stepEnded(ref.workspaceId, ref.runId, step.spec.stepKey)
+        return outcome
     }
 
     /** A step stopped the thread: the step shows why (or waits on its approval) and the run waits for a person. */

@@ -7,15 +7,9 @@ import { AccountAttachmentsService, NodeAccountConsentsService } from "@modules/
 import type { NodeAccountPolicyRecord, ProviderAttachmentView } from "@modules/domain/tool-grants"
 import { InstallationRecordsService } from "@modules/domain/module-installations"
 import { contextOf } from "@tests/fixtures/builders/agent-graph.builder"
-import {
-    APPEND_ENTRY,
-    RIGHTS_ATTACHED,
-    RIGHTS_FLOW,
-    RIGHTS_SEND,
-    SEND_ENTRY,
-    rightsIndexOf,
-} from "@tests/fixtures/builders/agent-rights.builder"
-import { ownerEdited, storeDoubles } from "@tests/fixtures/builders/agent-workflows.builder"
+import { APPEND_ENTRY, RIGHTS_ATTACHED, RIGHTS_FLOW, SEND_ENTRY, rightsIndexOf } from "@tests/fixtures/builders/agent-rights.builder"
+import { coreTemplates } from "@modules/domain/installed-plugins/installed-plugins.testing"
+import { storeDoubles } from "@tests/fixtures/builders/agent-workflows.builder"
 import type { StoreDoubles } from "@tests/fixtures/builders/agent-workflows.builder"
 import { AgentGraphContextService } from "./agent-graph-context.service"
 import { AgentGraphPublishService, type Publisher } from "./agent-graph-publish.service"
@@ -33,32 +27,23 @@ import type { AgreedRight } from "./policies/node-rights-gate.policy"
 const OWNER: Publisher = { memberId: "boss", role: "owner" }
 const FULL_LIST: ReadonlyArray<AgreedRight> = [SEND_ENTRY, APPEND_ENTRY]
 
-/**
- * The rights flow with the send asked in `mode` on every account its tell step states. (The ledger append moves money: it is only ever
- * asked on `ask`, so the mode an owner narrows and loosens is the send's.)
- */
-const sendIn = (graph: GraphSpec, mode: "auto" | "ask"): GraphSpec => ({
-    ...graph,
-    nodes: graph.nodes.map((node) =>
-        node.key !== SEND_ENTRY.nodeKey || node.accounts === undefined
-            ? node
-            : {
-                  ...node,
-                  accounts: node.accounts.map((account) => ({
-                      ...account,
-                      operations: { ...account.operations, [RIGHTS_SEND]: mode },
-                  })),
-              },
-    ),
-})
+/** An installed core template version's graph: the one format a publish takes (GRAPH-CLEAN; a hand-edited flow is refused). */
+const TEMPLATE: GraphSpec = (() => {
+    const graph = coreTemplates()[0]?.versions[0]?.graph
+    if (graph === undefined) throw new Error("the core package ships no template")
+    return graph
+})()
+
+/** The template graph with the shop's mode setting on its first step that states a mode: still the template's copy (node settings). */
+const modeIn = (graph: GraphSpec, mode: "auto" | "ask"): GraphSpec => {
+    const at = graph.nodes.findIndex((node) => node.mode !== undefined)
+    return { ...graph, nodes: graph.nodes.map((node, index) => (index === at ? { ...node, mode } : node)) }
+}
 
 const documentOf = (flow: GraphSpec): GraphDocument => ({ nodes: [], flow })
 
-/**
- * The owner's document: the rights flow (an `@1` flow of spec-own steps; a template graph is no owner's to edit) with the owner's one
- * change, which asks the ledger append the ticks do not grant.
- */
-const EDITED = documentOf(ownerEdited(RIGHTS_FLOW))
+/** The document a copy publishes: the template graph as installed. */
+const EDITED = documentOf(TEMPLATE)
 
 /** The publish roads that write the owner's rows with the version, each asked to publish `document` with what the owner agreed. */
 type Road = (
@@ -67,7 +52,6 @@ type Road = (
     agreed: ReadonlyArray<AgreedRight>,
 ) => Promise<GraphVersionView>
 
-const learned: Road = (service, document, agreed) => service.publishLearned("ws-1", "agent-1", document, OWNER, agreed)
 const copy: Road = (service, document, agreed) => service.publishCopy("ws-1", "agent-1", document, OWNER, agreed)
 
 const rowKeyOf = (row: NodeAccountPolicyRecord): string =>
@@ -218,7 +202,6 @@ describe("AgentGraphPublishService: a publish on the real stores writes the vers
     })
 
     it.each([
-        ["publishLearned", learned],
         ["publishCopy", copy],
     ] as const)("%s: one more version that decides, mirrored on the primary workflow at its next adoption, with no row", async (_name, road) => {
         const world = await buildWorld()
@@ -248,7 +231,7 @@ describe("AgentGraphPublishService: a publish on the real stores writes the vers
             return fails
         })
 
-        await expect(learned(world.service, EDITED, FULL_LIST)).rejects.toThrow("memory engine: update failed")
+        await expect(copy(world.service, EDITED, FULL_LIST)).rejects.toThrow("memory engine: update failed")
 
         expect(armed).toBe(false)
         expect(await standingOf(world)).toEqual(before)
@@ -257,9 +240,9 @@ describe("AgentGraphPublishService: a publish on the real stores writes the vers
 
     it("each later publish (a step narrowed to ask, then back to auto) is one more version, none of them refused", async () => {
         const world = await buildWorld()
-        const first = await learned(world.service, EDITED, [])
-        const narrowed = await learned(world.service, documentOf(sendIn(ownerEdited(RIGHTS_FLOW), "ask")), [])
-        const back = await learned(world.service, documentOf(sendIn(ownerEdited(RIGHTS_FLOW), "auto")), [])
+        const first = await copy(world.service, EDITED, [])
+        const narrowed = await copy(world.service, documentOf(modeIn(TEMPLATE, "ask")), [])
+        const back = await copy(world.service, documentOf(modeIn(TEMPLATE, "auto")), [])
 
         expect([narrowed.version, back.version]).toEqual([first.version + 1, first.version + 2])
         expect(await world.graphs.activeVersionIdOf("ws-1", "agent-1")).toBe(back.id)
@@ -271,7 +254,7 @@ describe("AgentGraphPublishService: the agent's Workflows page", () => {
     it("the page's list records the published version on the primary workflow", async () => {
         const world = await buildWorld()
 
-        const version = await learned(world.service, EDITED, FULL_LIST)
+        const version = await copy(world.service, EDITED, FULL_LIST)
         expect(await world.graphs.activeVersionIdOf("ws-1", "agent-1")).toBe(version.id)
 
         // What the workflows tab calls (the agentWorkflows query, AgentWorkflowsAdminService, then this list).

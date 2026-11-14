@@ -2,8 +2,14 @@ import { DomainError, type ErrorKind } from "@modules/platform/errors"
 
 /** Codes of the brain capability. */
 export enum BrainErrorCode {
-    /** The model did not give a usable answer; the job is retried. */
+    /** The model could not be reached (a timeout, a provider error): the runner retries the job on its ladder. */
     ModelUnavailable = "BRAIN_MODEL_UNAVAILABLE",
+    /** The model answered nothing for a call whose prompt would get the same answer again: a refusal no retry can fix. */
+    ModelRefused = "BRAIN_MODEL_REFUSED",
+    /** No model endpoint is configured: nothing can read or judge until a setting is made. */
+    ModelUnconfigured = "BRAIN_CONFIG_MODEL_UNCONFIGURED",
+    /** A job reached its handler with a payload its declaration refuses: a bug of the producer, never made right by waiting. */
+    PayloadInvalid = "BRAIN_PAYLOAD_INVALID",
     /** The caller asked for a command they never made. */
     CommandNotFound = "BRAIN_COMMAND_NOT_FOUND",
     /** Facts are applied together only from a document kept internal: a bulk path never makes anything public. */
@@ -20,6 +26,9 @@ export enum BrainErrorCode {
 /** How each brain code travels. */
 export const BRAIN_ERROR_KINDS: Record<BrainErrorCode, ErrorKind> = {
     [BrainErrorCode.ModelUnavailable]: "unavailable",
+    [BrainErrorCode.ModelRefused]: "invalid",
+    [BrainErrorCode.ModelUnconfigured]: "internal",
+    [BrainErrorCode.PayloadInvalid]: "invalid",
     [BrainErrorCode.CommandNotFound]: "not-found",
     [BrainErrorCode.BulkNeedsInternal]: "conflict",
     [BrainErrorCode.WindowInvalid]: "invalid",

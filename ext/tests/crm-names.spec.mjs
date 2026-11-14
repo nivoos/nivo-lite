@@ -25,7 +25,7 @@ test("a template id two packages declare is one finding naming both", () => {
 
 test("a template with no pinned document, or one that differs from it, is a finding", () => {
     const missing = templateFindings([pkg("web", [crm("nivoweb")], [])])
-    assert.deepEqual(missing.map((one) => one.text), ["template `crm.nivoweb` has no pinned src/crm/nivoweb/openapi.json"])
+    assert.deepEqual(missing.map((one) => one.text), ["template `crm.nivoweb` has no pinned src/shared/crm/nivoweb/openapi.json"])
     const differs = templateFindings([pkg("web", [crm("nivoweb")], [["nivoweb", doc({ "/orders": { get: {} } })]])])
     assert.match(differs[0].text, /its `openapi` is not the pinned/u)
 })

@@ -27,7 +27,6 @@ import { DRIVE_MANIFEST } from "./drive-native.service"
 import { FILE_MANIFEST } from "./file-native.service"
 import { LEDGER_MANIFEST } from "./ledger-native.service"
 import { MAIL_MANIFEST } from "./mail-native.service"
-import { MAIL_SEND_MANIFEST } from "./mail-send-native.service"
 import { NIVO_CONTEXT_CONNECTOR } from "./nivo-native.service"
 import { PASSAGE_MANIFEST } from "./passage-native.service"
 import { RECORD_MANIFEST } from "./record-native.service"
@@ -56,7 +55,6 @@ const COMMON: ReadonlyArray<ToolManifest> = [
     BANK_MANIFEST,
     LEDGER_MANIFEST,
     MAIL_MANIFEST,
-    MAIL_SEND_MANIFEST,
     CONTEXT_MANIFEST,
     CONTACT_TOOLS_MANIFEST,
     DOMAIN_MANIFEST,

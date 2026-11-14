@@ -14,10 +14,12 @@ import { ContactNamesService } from "./application/contact-names.service"
 import { ReadContactMessagesHandler } from "./application/read-contact-messages.handler"
 import { ReadContactRoutesHandler } from "./application/read-contact-routes.handler"
 import { ReadContactWorkHandler } from "./application/read-contact-work.handler"
+import { ReadContactConsentHandler } from "./application/read-contact-consent.handler"
+import { SetContactConsentHandler } from "./application/set-contact-consent.handler"
 import { ConfigurableModuleClass } from "./contacts.module-definition"
 
 @Module({
-    providers: [ContactsPageService, ContactModuleBlocksHandler, ReadContactsHandler, ReadContactHandler, UpdateContactHandler, LinkContactIdentityHandler, UnlinkContactIdentityHandler, MergeContactsHandler, ForgetContactMemoryHandler, DeleteContactHandler, ReadCustomerMessagesHandler, ContactNamesService, ReadContactRoutesHandler, ReadContactMessagesHandler, ReadContactWorkHandler],
+    providers: [ContactsPageService, ContactModuleBlocksHandler, ReadContactsHandler, ReadContactHandler, UpdateContactHandler, LinkContactIdentityHandler, UnlinkContactIdentityHandler, MergeContactsHandler, ForgetContactMemoryHandler, DeleteContactHandler, ReadCustomerMessagesHandler, ContactNamesService, ReadContactRoutesHandler, ReadContactMessagesHandler, ReadContactWorkHandler, ReadContactConsentHandler, SetContactConsentHandler],
 })
 /** The contacts feature: the /contacts page's reads and a person's decisions on the engine's contacts (`nivo.api.nivo.contact.*`). */
 export class ContactsApiModule extends ConfigurableModuleClass {}

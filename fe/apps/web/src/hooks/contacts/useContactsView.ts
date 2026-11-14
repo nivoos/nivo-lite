@@ -12,6 +12,7 @@ import { APP_ROUTES, CONSOLE_ROUTES, contactHref, workspaceHref } from "@/module
 import { detailSlotOf } from "./contacts.shared"
 import { useContactCommands } from "./useContactCommands"
 import { useContactConfirm } from "./useContactConfirm"
+import { useContactConsent } from "./useContactConsent"
 import { useContactDrawers } from "./useContactDrawers"
 import { useContactHistory } from "./useContactHistory"
 import { useContactMerge } from "./useContactMerge"
@@ -32,7 +33,7 @@ const asksOf = (
     confirm: ReturnType<typeof useContactConfirm>,
     merge: ReturnType<typeof useContactMerge>,
     detail: ContactDetailView | undefined,
-): Pick<ContactsPanesBaseProps["on"], "submitMerge" | "askUnlink" | "askDelete" | "askMergeSuggestion"> => ({
+): Pick<ContactsPanesBaseProps["on"], "submitMerge" | "askUnlink" | "askDelete" | "askConsent" | "askMergeSuggestion"> => ({
     submitMerge: () => {
         if (merge.chosen === null) return
         confirm.ask({ kind: "merge", fromId: merge.chosen.id, from: merge.chosen.name })
@@ -45,6 +46,7 @@ const asksOf = (
             title: detail?.identities.find((one) => one.id === identityId)?.title ?? "",
         }),
     askDelete: () => confirm.ask({ kind: "delete" }),
+    askConsent: (doNotContact) => confirm.ask({ kind: "consent", doNotContact }),
     askMergeSuggestion: (suggestedId) =>
         confirm.ask({
             kind: "merge",
@@ -66,6 +68,7 @@ export const useContactsView = (contactId: string | null | undefined): ContactsP
     const member = useMember()
     const slotLabels = useSlotLabels()
     const commands = useContactCommands()
+    const consent = useContactConsent()
     const isManager = member !== null && member.role !== "staff"
     const names = useContactNames()
     const words = useContactWords(names)
@@ -88,7 +91,7 @@ export const useContactsView = (contactId: string | null | undefined): ContactsP
     })
     const drawers = useContactDrawers({ detail, commands, open })
     const merge = useContactMerge(detail, workspaceId, words)
-    const confirm = useContactConfirm({ detail, commands, open, openList })
+    const confirm = useContactConfirm({ detail, commands, consent, open, openList })
     return {
         props: {
             copy: useContactsCopy(),
@@ -107,7 +110,7 @@ export const useContactsView = (contactId: string | null | undefined): ContactsP
             link: drawers.link,
             merge: merge.view,
             confirm: confirm.confirm,
-            isPending: commands.isPending,
+            isPending: commands.isPending || consent.isPending,
         },
         on: {
             ...drawers.on,

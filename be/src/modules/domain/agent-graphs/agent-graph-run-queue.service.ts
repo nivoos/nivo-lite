@@ -4,6 +4,7 @@ import type { EntityManager } from "typeorm"
 import { AgentRunsService } from "@modules/domain/agent-runs"
 import type { PendingScopeWake } from "@modules/domain/agent-work"
 import { DeliveredWakesService } from "@modules/domain/provider-triggers/delivered-wakes.service"
+import { streamScopeOf } from "@modules/domain/provider-triggers/trigger-delivery.policy"
 import { NODE_EFFECT_STORE, type NodeEffectStore, type NodeTurn } from "@modules/domain/graph-nodes"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { isRecord } from "@modules/platform/primitives"
@@ -189,6 +190,8 @@ export class AgentGraphRunQueueService {
             ...(conversationId === undefined ? {} : { routeId: conversationId }),
             ...(event.subject === undefined ? {} : { subject: event.subject }),
             data: event.data,
+            // A `stream` marker (rule Q-4) taken into a queue: when it was taken and how many events it stands for.
+            ...streamScopeOf(wake.context, wake.createdAt),
         })
     }
 

@@ -21,6 +21,7 @@ const AUTO_NODE_MODELS: Readonly<Record<string, NodeModel>> = {
     "chatbot.answer": light,
     "chatbot.complaint-reply": light,
     "chatbot.complaint-notify": light,
+    "chatbot.stop-reply": light,
     // The sales conversation: replies and a lead; no money is written by it. A turn is one short answer, as is the cancel line.
     "sales.consult-turn": { ...light, maxOutputTokens: SHORT_ANSWER_MAX_TOKENS },
     // A customer's message while the order waits for its money: the model decides by meaning whether it is about the order, then answers it in one short line.

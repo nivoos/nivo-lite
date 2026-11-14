@@ -29,6 +29,7 @@ const deliveredOf = (woken: number, repeats = 0): DeliverResult => ({
     status: "delivered",
     events: 1,
     dropped: 0,
+    sameFact: 0,
     woken: Array.from({ length: woken }, () => ({ agentId: AGENT, workflowId: "wf-1", eventId: "ev-1", wakeId: "wake-1" })),
     repeats,
     untaken: woken === 0 && repeats === 0 ? 1 : 0,

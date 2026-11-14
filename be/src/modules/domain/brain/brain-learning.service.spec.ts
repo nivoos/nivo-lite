@@ -300,3 +300,20 @@ describe("BrainLearningService", () => {
         await expect(source.recent("ws1", "sales", new Date(AT), 60)).resolves.toEqual([])
     })
 })
+
+describe("BrainLearningService: a command run again", () => {
+    it("keys the model call by the key of the command's job, so the second run takes the first answer and never asks twice", async () => {
+        const { service, generations } = await build()
+
+        await service.mine("u1", "ws1", "chatbot", "job-1:lessons")
+
+        expect(generations.generate).toHaveBeenCalledWith(expect.objectContaining({ purpose: "brain_lessons", effectKey: "job-1:lessons" }))
+    })
+
+    it("answers the typed result when the model gave no text: the page says so and the member asks again", async () => {
+        const { service, generations } = await build()
+        generations.generate.mockResolvedValue({ ok: false, reason: "error", message: "busy" })
+
+        await expect(service.mine("u1", "ws1", "chatbot", "job-1:lessons")).resolves.toMatchObject({ proposed: 0, reason: "model_unavailable" })
+    })
+})

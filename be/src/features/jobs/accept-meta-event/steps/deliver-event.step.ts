@@ -18,6 +18,6 @@ export class DeliverEventStep implements JobStep {
      */
     async run(job: ClaimedJob): Promise<void> {
         await this.claims.advance({ jobId: job.jobId, expectedFencingToken: job.fencingToken, step: "deliver" })
-        await this.inbox.deliverPayload(job.payload)
+        await this.inbox.deliverPayload(job)
     }
 }

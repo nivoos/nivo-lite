@@ -1,0 +1,114 @@
+{
+  "schema": "nivo/set-seed@1",
+  "use": "test",
+  "name": "set-conflicting",
+  "workspaceName": "set-conflicting",
+  "ownerWorkspace": "NIVO",
+  "kind": "workspace",
+  "agents": [{ "module": "chatbot" }, { "module": "sales" }],
+  "accounts": [
+    {
+      "key": "zalo-a",
+      "provider": "zalo_oa",
+      "name": "Sandbox Zalo OA",
+      "say": { "caseId": "ZALO-1", "person": "userId", "text": "text", "idPrefix": "880031" }
+    },
+    { "key": "sepay-a", "provider": "sepay", "name": "Sandbox SePay" }
+  ],
+  "truths": [
+    { "type": "business", "subject": "Tiệm hoa Lá Xanh", "attribute": "Giờ mở cửa", "value": "07:30-21:00" },
+    { "type": "business", "subject": "Tiệm hoa Lá Xanh", "attribute": "Địa chỉ", "value": "7 Đường Vườn Ươm, Phường Mẫu, Quận Giả (địa chỉ mẫu, không có thật)" },
+
+    { "type": "product", "subject": "Bó hồng đỏ 10 bông", "attribute": "Giá", "value": "350.000 đ" },
+    { "type": "product", "subject": "Bó hồng đỏ 20 bông", "attribute": "Giá", "value": "650.000 đ" },
+    { "type": "product", "subject": "Bó hướng dương 5 bông", "attribute": "Giá", "value": "280.000 đ" },
+    { "type": "product", "subject": "Giỏ hoa chúc mừng", "attribute": "Giá", "value": "480.000 đ" },
+    { "type": "product", "subject": "Giỏ hoa nhỏ", "attribute": "Giá", "value": "250.000 đ" },
+    { "type": "product", "subject": "Kệ hoa khai trương", "attribute": "Giá", "value": "1.200.000 đ" },
+    { "type": "product", "subject": "Hộp hoa tulip", "attribute": "Giá", "value": "520.000 đ" },
+    { "type": "product", "subject": "Chậu sen đá", "attribute": "Giá", "value": "90.000 đ" },
+
+    {
+      "type": "policy", "source": "owner", "subject": "Thanh toán", "attribute": "Tỷ lệ đặt cọc cho đơn đặt riêng",
+      "value": "50%; mọi đơn đặt riêng (mẫu không có trong bảng giá, số lượng từ 10 sản phẩm) phải đặt cọc 50% trước khi tiệm nhận làm, phần còn lại thanh toán khi giao.",
+      "policy": { "title": "Đặt cọc 50% cho đơn đặt riêng", "group": "Thanh toán" }
+    },
+    {
+      "type": "policy", "source": "owner", "subject": "Thanh toán", "attribute": "Đơn dưới 500.000 đ",
+      "value": "không đặt cọc, thanh toán đủ một lần khi chốt đơn",
+      "policy": { "title": "Đơn dưới 500.000 đ không đặt cọc", "group": "Thanh toán" }
+    },
+
+    {
+      "type": "policy", "source": "owner", "subject": "Giao hàng", "attribute": "Giao hàng sau 20:00",
+      "value": "không giao; đơn chốt muộn được giao sáng hôm sau từ 7:30",
+      "policy": { "title": "Không giao hàng sau 20:00", "group": "Giao hàng" }
+    },
+    {
+      "type": "policy", "source": "manager", "subject": "Giao hàng", "attribute": "Giao hàng đêm dịp lễ",
+      "value": "giao đến 23:00 vào các ngày 14/2, 8/3 và 20/10",
+      "policy": { "title": "Giao hàng đến 23:00 dịp lễ", "group": "Giao hàng" }
+    },
+
+    {
+      "type": "policy", "source": "owner", "subject": "Đổi trả", "attribute": "Hoàn tiền khi hủy đơn",
+      "value": "hoàn 100% nếu khách hủy trước khi tiệm cắm hoa",
+      "policy": { "title": "Hoàn tiền khi hủy đơn", "group": "Đổi trả" }
+    },
+    {
+      "type": "policy", "source": "manager", "subject": "Đổi trả", "attribute": "Hoàn tiền khi hủy đơn đã đặt cọc",
+      "value": "không hoàn tiền cọc",
+      "policy": { "title": "Không hoàn tiền cọc khi hủy đơn", "group": "Đổi trả" }
+    },
+
+    {
+      "type": "policy", "source": "owner", "subject": "Giảm giá", "attribute": "Mức giảm tối đa",
+      "value": "10%",
+      "policy": { "title": "Mức giảm giá tối đa", "group": "Giảm giá" }
+    },
+    {
+      "type": "policy", "source": "document", "waiting": true, "subject": "Giảm giá", "attribute": "Mức giảm tối đa",
+      "value": "15%"
+    },
+    {
+      "type": "policy", "source": "staff", "scope": "internal", "subject": "Giảm giá", "attribute": "Mức giảm nhân viên được tự đồng ý",
+      "value": "20%",
+      "policy": { "title": "Mức giảm nhân viên được tự đồng ý", "group": "Giảm giá" }
+    },
+
+    {
+      "type": "policy", "source": "owner", "subject": "Giao hàng", "attribute": "Phí giao nội thành",
+      "value": "30.000 đ",
+      "policy": { "title": "Phí giao hàng nội thành", "group": "Giao hàng" }
+    },
+    {
+      "type": "policy", "source": "owner", "subject": "Giao hàng", "attribute": "Phí giao nội thành",
+      "value": "40.000 đ", "from": "2027-02-01",
+      "policy": { "title": "Phí giao hàng nội thành", "group": "Giao hàng" }
+    },
+    {
+      "type": "policy", "source": "owner", "subject": "Khuyến mãi", "attribute": "Khuyến mãi 8/3",
+      "value": "giảm 20% mọi bó hoa", "from": "2026-03-01", "to": "2026-03-09",
+      "policy": { "title": "Khuyến mãi 8/3", "group": "Khuyến mãi" }
+    },
+    {
+      "type": "policy", "source": "owner", "subject": "Phụ thu", "attribute": "Phụ thu dịp Tết",
+      "value": "15%", "from": "2027-01-20", "to": "2027-02-20",
+      "policy": { "title": "Phụ thu dịp Tết", "group": "Phụ thu" }
+    }
+  ],
+  "people": [
+    {
+      "channels": [{ "account": "zalo-a", "id": "880031000001" }],
+      "lines": [{ "account": "zalo-a", "text": "Mình muốn đặt một giỏ hoa riêng 12 sản phẩm, có phải đặt cọc không shop?" }]
+    },
+    {
+      "channels": [{ "account": "zalo-a", "id": "880031000002" }],
+      "lines": [{ "account": "zalo-a", "text": "Đặt hoa lúc 9 giờ tối ngày 8/3 thì shop có giao được không?" }]
+    },
+    {
+      "channels": [{ "account": "zalo-a", "id": "880031000003" }],
+      "lines": [{ "account": "zalo-a", "text": "Mình đã cọc rồi nhưng muốn hủy đơn, có được hoàn tiền không?" }]
+    }
+  ]
+}

@@ -1,14 +1,13 @@
 import { Injectable } from "@nestjs/common"
-import { FencedProcessor, type ClaimedJob } from "@modules/platform/jobs"
-import { AGENT_SCHEDULE_FIRE_JOB, AGENT_SCHEDULE_FIRE_QUEUE } from "@modules/queues/agent-turn"
+import { FencedProcessor, type ClaimedJob, type JobDefinition } from "@modules/platform/jobs"
+import { AGENT_SCHEDULE_FIRE_QUEUE, FIRE_AGENT_SCHEDULE_JOB, type AgentScheduleFirePayload } from "@modules/queues/agent-turn"
 import { FireStep } from "../../steps/fire.step"
 
 @Injectable()
-/** The processor of the fire queue: every slot of every trigger comes here; the runner claims and settles it and `process` delegates to the one step. */
+/** The processor of the fire queue: every slot of every trigger comes here; the runner claims and settles it and `process` delegates to the one step. A failure throws: the runner retries a transient one on the broker's tries and dead-letters the rest with one item. */
 export class FireAgentScheduleProcessor extends FencedProcessor {
-    readonly queue: "agent_schedule_fire" = AGENT_SCHEDULE_FIRE_QUEUE
-
-    override readonly job: "agent-schedule.fire" = AGENT_SCHEDULE_FIRE_JOB
+    override readonly queue: "agent_schedule_fire" = AGENT_SCHEDULE_FIRE_QUEUE
+    override readonly definition: JobDefinition<AgentScheduleFirePayload> = FIRE_AGENT_SCHEDULE_JOB
 
     /** The jobs of this queue come from the job schedulers of the trigger rows, so the worker skips the admission against the outbox. */
     override readonly scheduled = true

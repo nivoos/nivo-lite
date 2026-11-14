@@ -22,6 +22,7 @@ import type { Logger } from "@modules/platform/logging"
 import { KnowledgeQueue } from "@modules/queues/knowledge"
 import { TRUTH_CRITIQUE_GATE } from "./direct-apply.policy"
 import type { PassageCritique, TruthCritiqueGate } from "./direct-apply.policy"
+import { chainProviders, claimedJob } from "@tests/fixtures/builders/knowledge-chain.builder"
 import { DocumentFactsService } from "./document-facts.service"
 import { DocumentRelationsService } from "./document-relations.service"
 import { DocumentReviewService } from "./document-review.service"
@@ -52,6 +53,7 @@ const build = async (
     passages: Array<TruthPassage>,
     source = docSourceOf({ status: "ready", visibility: "internal", title: SO_TAY_VI, createdBy: "founder" }),
 ) => {
+    const chain = chainProviders()
     const world: FactsWorld = { passages, row: null, waiting: [], critique: { state: "none", reviewed: new Set(), held: new Set(), confirmedBy: new Map() } }
     const ai = mock<AiService>()
     const logger = mock<Logger>()
@@ -75,9 +77,12 @@ const build = async (
     const parts = mock<DocumentPartsService>()
     const queue = mock<KnowledgeQueue>()
     const tx = fakeTransaction(mockEntityManager())
+    extractions.parked.mockResolvedValue([])
+    criticService.stopped.mockResolvedValue([])
     scriptFactsWorld({ ai, facts, reads, extractions, indexing, sources, chunks, usage, vectors, nature, members, ceiling, notices, critic, parts, queue }, world, source)
     const moduleRef = await Test.createTestingModule({
         providers: [
+            ...chain.providers,
             DocumentFactsService, DocumentTruthStagesService, DocumentSettleService, ModelJsonService,
             { provide: CLOCK, useValue: new FakeClock(new Date("2026-11-11T04:00:00.000Z")) },
             { provide: AI, useValue: ai }, { provide: LOGGER, useValue: logger }, { provide: PRIMARY_ENTITY_MANAGER, useValue: tx.em },
@@ -97,7 +102,7 @@ const build = async (
         ],
     }).compile()
     const service = moduleRef.get(DocumentFactsService)
-    return { service, world, source, ai, indexing, gaps, facts, reads, extractions, sources, chunks, usage, reviews, links, vectors, ceiling, notices, critic, criticService, parts, queue, logger, ...factsRunnersOf(service, ai, world) }
+    return { service, chain, world, source, ai, indexing, gaps, facts, reads, extractions, sources, chunks, usage, reviews, links, vectors, ceiling, notices, critic, criticService, parts, queue, logger, ...factsRunnersOf(service, ai, world) }
 }
 
 /**
@@ -114,7 +119,7 @@ const settled = async (
         arrange(t)
         return Promise.resolve()
     })
-    const outcome = await t.service.run(PAYLOAD)
+    const outcome = await t.service.run(claimedJob(PAYLOAD))
     return { t, outcome }
 }
 
@@ -210,7 +215,7 @@ describe("DocumentFactsService: the founder is asked: the same truth in other wo
 
         expect(outcome).toBe("done")
         expect(t.facts.applyUnannounced).not.toHaveBeenCalled()
-        expect(t.facts.announceChanged).toHaveBeenCalledWith(WS, [])
+        expect(t.facts.announceChanged).toHaveBeenCalledWith(WS, [], expect.anything())
         expect(t.world.row).toMatchObject({
             status: "done",
             counts: { factsApplied: 0, factsAsked: 1, factsWaiting: 0 },
@@ -252,7 +257,7 @@ describe("DocumentFactsService: the founder's answer to a point, and a write tha
         v2.world.row = t.world.row
 
         // The new passage is read and its truth goes in force: no critique of this text is waited for (it is asked, in the background).
-        await expect(v2.service.run(PAYLOAD)).resolves.toBe("done")
+        await expect(v2.service.run(claimedJob(PAYLOAD))).resolves.toBe("done")
         expect(v2.facts.applyUnannounced).toHaveBeenCalledTimes(1)
         expect(v2.reviews.requestForSource).toHaveBeenCalledTimes(1)
     })
@@ -272,7 +277,7 @@ describe("DocumentFactsService: the ceiling of truths in force", () => {
         const t = await build(documentOf(4, 0))
         t.ceiling.room.mockResolvedValue({ truths: 2, bytes: 2_000_000 })
 
-        await expect(t.service.run(PAYLOAD)).resolves.toBe("waiting")
+        await expect(t.service.run(claimedJob(PAYLOAD))).resolves.toBe("waiting")
 
         expect(t.facts.applyUnannounced).toHaveBeenCalledTimes(2)
         expect(t.world.waiting).toHaveLength(2)
@@ -292,7 +297,7 @@ describe("DocumentFactsService: the ceiling of truths in force", () => {
             const t = await build(documentOf(2, 0))
             t.ceiling.room.mockResolvedValue({ truths: 0, bytes: 0 })
             t.extractions.ceilingSince.mockResolvedValue(since)
-            await t.service.run(PAYLOAD)
+            await t.service.run(claimedJob(PAYLOAD))
             expect(t.world.row?.status).toBe("at_ceiling")
             return t.notices.postBackgroundStopped.mock.calls.at(-1)?.[1]
         }
@@ -314,7 +319,7 @@ describe("DocumentFactsService: the ceiling of truths in force: bytes and the up
         // One truth of this document is 41 bytes: the first fits, the second does not.
         t.ceiling.room.mockResolvedValue({ truths: 100, bytes: 60 })
 
-        await t.service.run(PAYLOAD)
+        await t.service.run(claimedJob(PAYLOAD))
 
         expect(t.facts.applyUnannounced).toHaveBeenCalledTimes(1)
         expect(t.world.row?.status).toBe("at_ceiling")
@@ -323,7 +328,7 @@ describe("DocumentFactsService: the ceiling of truths in force: bytes and the up
     it("goes on by itself at the upkeep tick once there is room again", async () => {
         const t = await build(documentOf(2, 0))
         t.ceiling.room.mockResolvedValue({ truths: 0, bytes: 0 })
-        await t.service.run(PAYLOAD)
+        await t.service.run(claimedJob(PAYLOAD))
         expect(t.world.row?.status).toBe("at_ceiling")
         t.extractions.parked.mockResolvedValue([
             {
@@ -340,7 +345,7 @@ describe("DocumentFactsService: the ceiling of truths in force: bytes and the up
         await expect(t.service.resumeParked()).resolves.toBe(0)
         t.ceiling.room.mockResolvedValue({ truths: 5_000, bytes: 2_000_000 })
         await expect(t.service.resumeParked()).resolves.toBe(1)
-        await expect(t.service.run(PAYLOAD)).resolves.toBe("done")
+        await expect(t.service.run(claimedJob(PAYLOAD))).resolves.toBe("done")
 
         expect(t.facts.applyUnannounced).toHaveBeenCalledTimes(2)
         expect(t.world.row).toMatchObject({ status: "done", counts: { factsApplied: 2, factsWaiting: 0 } })
@@ -355,7 +360,7 @@ describe("DocumentFactsService: planted text", () => {
         )
         const t = await build([passageOf(0, ruleText(0)), planted])
 
-        await t.service.run(PAYLOAD)
+        await t.service.run(claimedJob(PAYLOAD))
 
         const shown = t.ai.chat.mock.calls.flatMap(([request]) => passagesIn(request.messages[1]?.content ?? ""))
         expect(shown).toContain(planted.text)
@@ -383,7 +388,7 @@ describe("DocumentFactsService: planted text", () => {
             }),
         )
 
-        await t.service.run(PAYLOAD)
+        await t.service.run(claimedJob(PAYLOAD))
 
         expect(t.facts.propose).toHaveBeenCalledTimes(1)
         expect(t.facts.propose).toHaveBeenCalledWith(WS, objectLike({ value: T_10_000D_VI }))

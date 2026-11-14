@@ -15,7 +15,6 @@ import { TelegramCustomerSendService } from "./telegram-customer-send.service"
 import { ConnectionHealthService } from "./connection-health.service"
 import { TelegramProofService } from "./telegram-proof.service"
 import { ZaloProofService } from "./zalo-proof.service"
-import { ZaloWebhookGateService } from "./zalo-webhook-gate.service"
 import { ZaloConnectService } from "./zalo-connect.service"
 import { ZaloConnectionFieldsService } from "./zalo-connection-fields.service"
 import { ZaloWizardService } from "./zalo-wizard.service"
@@ -46,7 +45,6 @@ export class ChannelsModule extends ConfigurableModuleClass {
                 ConnectionHealthService,
                 TelegramProofService,
                 ZaloProofService,
-                ZaloWebhookGateService,
                 ZaloWizardService,
                 ZaloConnectService,
                 ZaloConnectionFieldsService,
@@ -56,7 +54,6 @@ export class ChannelsModule extends ConfigurableModuleClass {
             ],
             exports: [
                 ZaloCredentialsService,
-                ZaloWebhookGateService,
                 ZaloWizardService,
                 ZaloConnectService,
                 ZaloConnectionFieldsService,

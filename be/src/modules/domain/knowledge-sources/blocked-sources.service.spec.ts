@@ -5,7 +5,6 @@ import { CLOCK } from "@modules/platform/clock"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { KnowledgeQueue } from "@modules/queues/knowledge"
 import { BlockedSourcesService } from "./blocked-sources.service"
-import { KnowledgeProgressService } from "./knowledge-progress.service"
 import { KnowledgeSourceEntity } from "./persistence/entities"
 import { NOW } from "./source-input.policy"
 
@@ -16,17 +15,15 @@ const rowOf = (id: string, workspaceId: string): KnowledgeSourceEntity => Object
 
 const build = async (em: MockEntityManager) => {
     const queue = mock<KnowledgeQueue>()
-    const progress = mock<KnowledgeProgressService>()
     const moduleRef = await Test.createTestingModule({
         providers: [
             BlockedSourcesService,
             { provide: PRIMARY_ENTITY_MANAGER, useValue: em },
             { provide: CLOCK, useValue: new FakeClock(AT) },
             { provide: KnowledgeQueue, useValue: queue },
-            { provide: KnowledgeProgressService, useValue: progress },
         ],
     }).compile()
-    return { service: moduleRef.get(BlockedSourcesService), queue, progress }
+    return { service: moduleRef.get(BlockedSourcesService), queue }
 }
 
 describe("BlockedSourcesService: a document that waits for credits goes on by itself (D-U-4)", () => {
@@ -49,7 +46,7 @@ describe("BlockedSourcesService: a document that waits for credits goes on by it
 
     it("puts a waiting document back on the index queue in one transaction, with no person, and tells its page", async () => {
         const tx = fakeTransaction(mockEntityManager({ update: [KnowledgeSourceEntity, { affected: 1, raw: [], generatedMaps: [] }] }))
-        const { service, queue, progress } = await build(tx.em)
+        const { service, queue } = await build(tx.em)
 
         await expect(service.resume(WS, "s1")).resolves.toBe(true)
 
@@ -60,16 +57,14 @@ describe("BlockedSourcesService: a document that waits for credits goes on by it
         )
         expect(queue.enqueueIndex).toHaveBeenCalledWith({ sourceId: "s1", workspaceId: WS }, expect.anything(), Date.parse(AT))
         expect(tx.commits).toBe(1)
-        expect(progress.announce).toHaveBeenCalledWith(WS, "s1")
     })
 
     it("moves nothing and queues nothing when the document no longer waits (another tick, the founder's retry, a failed document)", async () => {
         const tx = fakeTransaction(mockEntityManager({ update: [KnowledgeSourceEntity, { affected: 0, raw: [], generatedMaps: [] }] }))
-        const { service, queue, progress } = await build(tx.em)
+        const { service, queue } = await build(tx.em)
 
         await expect(service.resume(WS, "s1")).resolves.toBe(false)
 
         expect(queue.enqueueIndex).not.toHaveBeenCalled()
-        expect(progress.announce).not.toHaveBeenCalled()
     })
 })

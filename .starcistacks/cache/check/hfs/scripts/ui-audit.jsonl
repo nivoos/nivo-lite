@@ -1,0 +1,8 @@
+{"data":{},"findings":[],"hash":"a6f27b62b3836d8cacdaa1e726aa9badcabe62ed1d53f2d188c679c9581e628f","path":"scripts/ui-audit/.gitignore","step":"file-rules"}
+{"data":{},"findings":[],"hash":"2cffc5705113075e63d0d4413a73cb271996989733a4f301f8aa00a101a59323","path":"scripts/ui-audit/README.md","step":"file-rules"}
+{"data":{},"findings":[],"hash":"e7316a1d9b683b1b41379bee27a9df8608c1253dc41b0c5bf1c9caab4ba1a26b","path":"scripts/ui-audit/agentshots.mjs","step":"file-rules"}
+{"data":{},"findings":[],"hash":"d853ff233980544959da9e8bb9cdff65dfbd284cb84896c696b2abe0178f92d1","path":"scripts/ui-audit/auth.mjs","step":"file-rules"}
+{"data":{},"findings":[],"hash":"026f25833496f11f1834d9d0fffcb8700a5fe45b35e65ff9ccb307a55f928e3b","path":"scripts/ui-audit/package.json","step":"file-rules"}
+{"data":{},"findings":[],"hash":"3d0cc385ee569478dad481c8c71fb3ae820d62e3a1b0dd0d90b434f2bf7ded33","path":"scripts/ui-audit/probes.mjs","step":"file-rules"}
+{"data":{},"findings":[],"hash":"2bc15b686691998b23186ca6be7455e82ec0959724900eea5a03ebffa8eef493","path":"scripts/ui-audit/run.log","step":"file-rules"}
+{"data":{},"findings":[],"hash":"615ec22ee669ffc5eab004b9b92b97b9aceaeb98df8cb580cf854f3564c46f6d","path":"scripts/ui-audit/run.mjs","step":"file-rules"}

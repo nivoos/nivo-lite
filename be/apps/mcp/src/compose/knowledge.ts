@@ -3,7 +3,6 @@ import {
     ENTITY_ENGINE_ERROR_KINDS,
     ENTITY_ENGINE_MESSAGES,
     EntityEngineModule,
-    ReadOnlyEngineAlertsService,
 } from "@modules/domain/entity-engine"
 import { INSTALLED } from "@modules/domain/installed-plugins"
 import { BRAIN_ERROR_KINDS, BRAIN_MESSAGES, BrainModule } from "@modules/domain/brain"
@@ -40,7 +39,6 @@ export const mcpKnowledgeModules = (options: McpAppOptions): Array<DynamicModule
         isGlobal: true,
         entities: INSTALLED.entities(),
         jobs: [],
-        alerts: ReadOnlyEngineAlertsService,
         cursorKey: options.entityEngine.cursorKey,
         buildId: options.entityEngine.buildId,
     }),

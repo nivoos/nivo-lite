@@ -5,6 +5,8 @@ import { MAX_UPLOAD_BYTES } from "./knowledge-sources.contracts"
 import type { AddSourceInput } from "./knowledge-sources.contracts"
 import {
     NOW,
+    columnsOf,
+    embedPercent,
     metaChanges,
     moveOf,
     tagsOf,
@@ -373,5 +375,43 @@ describe("replacementUpload and uploadVerdict", () => {
         })
         expect(uploadVerdict("scan.pdf", MAX_UPLOAD_BYTES)).toEqual({ kind: "ok", value: null })
         expect(uploadVerdict("anh.jpg", null)).toEqual({ kind: "ok", value: null })
+    })
+})
+
+describe("embedPercent", () => {
+    it("fills 25 to 80 while the passages get their vectors", () => {
+        
+        expect(embedPercent(0, 4)).toBe(25)
+        expect(embedPercent(1, 4)).toBe(38.75)
+        expect(embedPercent(4, 4)).toBe(80)
+        expect(embedPercent(0, 0)).toBe(25)
+    })
+})
+
+describe("columnsOf", () => {
+    it("writes only the columns the change names", () => {
+        
+        expect(columnsOf({})).toEqual({})
+        expect(columnsOf({ status: "failed", error: "CODE", stage: null, done: null, total: null })).toEqual({
+            status: "failed",
+            error: "CODE",
+            stage: null,
+            stageDone: null,
+            stageTotal: null,
+        })
+        expect(columnsOf({ stage: "embed", done: 3, total: 9, chunkCount: 9, contentHash: "hash" })).toEqual({
+            stage: "embed",
+            stageDone: 3,
+            stageTotal: 9,
+            chunkCount: 9,
+            contentHash: "hash",
+        })
+    })
+
+    it("rounds and clamps the progress bar inside 0 to 100", () => {
+        
+        expect(columnsOf({ progress: 42.4 })).toEqual({ progress: 42 })
+        expect(columnsOf({ progress: -3 })).toEqual({ progress: 0 })
+        expect(columnsOf({ progress: 140 })).toEqual({ progress: 100 })
     })
 })

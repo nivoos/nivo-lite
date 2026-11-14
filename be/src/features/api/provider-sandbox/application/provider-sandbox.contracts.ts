@@ -7,6 +7,14 @@ export interface SandboxWorkspaceRequest {
     readonly workspaceId: string
 }
 
+/** What sandboxPayLink takes. */
+export interface SandboxPayLinkRequest {
+    /** The workspace the request is made in. */
+    readonly workspaceId: string
+    /** The pay link's id (the provider's own id of it). */
+    readonly linkId: string
+}
+
 /** What the sandbox reads that are about one provider take. */
 export interface SandboxProviderRequest {
     /** The workspace the request is made in. */
@@ -85,12 +93,16 @@ export interface SendSandboxCaseRequest extends SandboxAccountRequest {
     readonly caseId: string
     /** The inputs given; a field not given is prefilled by the domain. */
     readonly inputs: ReadonlyArray<SandboxGivenInput>
+    /** True: record the case as the provider would remember it but do not post its webhook (the provider's poll brings it back). */
+    readonly dropWebhook?: boolean | undefined
 }
 
 /** What setSandboxNextCase takes. */
 export interface SetSandboxNextCaseRequest extends SandboxAccountRequest {
     /** The outbound case to answer next. */
     readonly caseId: string
+    /** The narrower key the pick holds for (a model call's purpose); absent: every call of the case's operation. */
+    readonly scope?: string | undefined
 }
 
 /** What expireSandboxWait takes. */

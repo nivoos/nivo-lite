@@ -86,6 +86,7 @@ export class CreditsService {
             kind: "credit_pack",
             packCode: null,
             detail: { credits: pack.creditsPerMonth },
+            requestId: params.requestId,
         })
         return this.billing.payable(order)
     }
@@ -110,6 +111,7 @@ export class CreditsService {
             kind: "topup",
             packCode: pack.code,
             detail: { credits: pack.credits },
+            requestId: params.requestId,
         })
         return this.billing.payable(order)
     }
@@ -164,6 +166,7 @@ export class CreditsService {
                 daysLeft: quote.daysLeft,
                 paidUntil: workspace.paidUntil,
             },
+            requestId: params.requestId,
         })
         return { payable: this.billing.payable(order), quote: upgradeQuote }
     }

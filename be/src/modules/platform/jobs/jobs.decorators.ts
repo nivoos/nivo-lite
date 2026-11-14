@@ -3,6 +3,9 @@ import { injector, type TypedParameterDecorator } from "@modules/platform/compos
 import type { JobsOptions } from "./jobs.options"
 import type { JobClaims, JobProcessorRegistry, JobTickScheduler } from "./jobs.port"
 import type { JobFenceService } from "./job-fence.service"
+import type { JobProgress } from "./job-progress.port"
+import type { JobProgressStreamService } from "./job-progress-stream.service"
+import type { JobDeadLettersService } from "./job-dead-letters.service"
 import type { ParkedJobResumerService } from "./parked-job-resumer.service"
 
 /** Token of the options of the jobs, exported so a spec can provide it. */
@@ -50,3 +53,23 @@ export const PARKED_JOB_RESUMER: unique symbol = Symbol("platform.jobs.parked-jo
 /** Injects the parked job resumer. Parameter type: ParkedJobResumerService. */
 export const InjectParkedJobResumer = (): TypedParameterDecorator<ParkedJobResumerService> =>
     injector<ParkedJobResumerService>(PARKED_JOB_RESUMER)
+
+/** Token of the port a domain method reports job step progress through. */
+export const JOB_PROGRESS: unique symbol = Symbol("platform.jobs.progress")
+
+/** Injects the job progress port. Parameter type: JobProgress. */
+export const InjectJobProgress = (): TypedParameterDecorator<JobProgress> => injector<JobProgress>(JOB_PROGRESS)
+
+/** Token of the service that opens the job progress stream of a topic. */
+export const JOB_PROGRESS_STREAM: unique symbol = Symbol("platform.jobs.progress-stream")
+
+/** Injects the job progress stream. Parameter type: JobProgressStreamService. */
+export const InjectJobProgressStream = (): TypedParameterDecorator<JobProgressStreamService> =>
+    injector<JobProgressStreamService>(JOB_PROGRESS_STREAM)
+
+/** Token of the registry a capability binds itself to, to be told when a job parks for a fix. */
+export const JOB_DEAD_LETTERS: unique symbol = Symbol("platform.jobs.dead-letters")
+
+/** Injects the dead-letter registry. Parameter type: JobDeadLettersService. */
+export const InjectJobDeadLetters = (): TypedParameterDecorator<JobDeadLettersService> =>
+    injector<JobDeadLettersService>(JOB_DEAD_LETTERS)

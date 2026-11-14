@@ -57,6 +57,8 @@ export interface NewOrder {
     readonly packCode: string | null
     /** What was sold. */
     readonly detail: OrderDetail
+    /** The payment-order request this order answers: one request makes one order. Absent for an order made outside a request. */
+    readonly requestId?: string | undefined
 }
 
 /** What an already-open order is looked for by: the workspace, the pack or plan it is for and its amount. */

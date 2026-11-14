@@ -1,5 +1,6 @@
 import type { ContactModuleBlocksQuery, ContactQuery, ContactsQuery, ContactWorkQuery } from "@/modules/api"
 import type {
+    ContactConsentView,
     ContactDetailView,
     ContactFactView,
     ContactIdentityView,
@@ -233,6 +234,36 @@ export const contactSuggestionsOf = (
         why: suggestionWhyOf(suggestion, words),
     }))
 
+/** The consent of the detail read (null: nobody ever set the mark). */
+type ConsentWire = ContactDetailWire["doNotContact"]
+
+/** The words the consent is worded with. */
+type ConsentWords = Pick<ContactWords, "ago" | "consentAllowed" | "consentRefused" | "consentSince" | "consentBy">
+
+/** "since 2 days ago"; null when the moment is not known. */
+const consentSinceOf = (consent: NonNullable<ConsentWire>, words: ConsentWords): string | null =>
+    consent.at === null ? null : words.consentSince(words.ago(consent.at))
+
+/** "noted by Lan": who set the mark, a member or an agent (the engine's own kinds); null when it is not known. */
+const consentByOf = (consent: NonNullable<ConsentWire>, words: ConsentWords): string | null => {
+    if (consent.by === null) return null
+    const name = consent.by.name?.trim() ?? ""
+    return words.consentBy(consent.by.kind === "agent" ? "agent" : "member", name === "" ? null : name)
+}
+
+/** Whether the agents may message the person first, in words: the state, since when and by whom, and the reason. */
+export const consentOf = (consent: ConsentWire, words: ConsentWords): ContactConsentView => {
+    if (!consent?.doNotContact) return { isRefused: false, state: words.consentAllowed, line: null, reason: null }
+    const parts = [consentSinceOf(consent, words), consentByOf(consent, words)].filter((part) => part !== null)
+    const reason = consent.reason?.trim() ?? ""
+    return {
+        isRefused: true,
+        state: words.consentRefused,
+        line: parts.length === 0 ? null : parts.join(" \u00b7 "),
+        reason: reason === "" ? null : reason,
+    }
+}
+
 /** What the detail needs beyond the read: how a path becomes an address in the workspace, and whether the viewer may delete. */
 interface DetailOptions {
     readonly canDelete: boolean
@@ -256,6 +287,7 @@ export const detailOf = (
     facts: contactFactsOf(detail.memory),
     notes: contactNotesOf(options.work ?? [], words),
     suggestions: contactSuggestionsOf(detail.suggestions, words),
+    consent: consentOf(detail.doNotContact, words),
     canDelete: options.canDelete,
 })
 

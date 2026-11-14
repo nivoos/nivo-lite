@@ -1,9 +1,12 @@
 import { isRefused, type SubjectRef } from "@nivo-lite/agent-sdk/node"
 import {
+    EffectOutcomeUnknownCode,
     EffectOutcomeUnknownError,
     GraphNodesError,
     GraphNodesErrorCode,
+    INTENT_KIND,
     OUTCOME_UNKNOWN_KIND,
+    ledgerKeyOf,
     isOutcomeUnknownCode,
     runLeadOf,
     toolFingerprintOf,
@@ -13,6 +16,7 @@ import {
     type NodeStepRef,
     type NodeToolAccount,
     type NodeToolAnswer,
+    type NodeToolCall,
     type NodeToolDoor,
     type NodeToolRun,
     type NodeToolVia,
@@ -21,9 +25,19 @@ import {
 import type { CallLogLine } from "@modules/domain/tool-call-log"
 import type { ToolJson } from "@modules/domain/tool-receipts"
 import { proofOf } from "@modules/domain/provider-registry"
-import { repeatableBySpec, takesOneAccountBySpec, toolSpecOf } from "@modules/domain/tool-specs"
+import {
+    confirmArgsOf,
+    confirmByOf,
+    confirmedHappened,
+    repeatableBySpec,
+    takesOneAccountBySpec,
+    toolSpecOf,
+    type ConfirmRead,
+    type ToolConfirmBy,
+} from "@modules/domain/tool-specs"
 import type { Clock } from "@modules/platform/clock"
 import { isDomainError } from "@modules/platform/errors"
+import { classifyFailure } from "@modules/platform/queue/queue-failure.policy"
 import type { Logger } from "@modules/platform/logging"
 import { pinRefusalOf } from "./adapters/effect-pin.policy"
 import { answerOf, effectAddressOf, jsonOf, refusalOf } from "./adapters/effect-tools.policy"
@@ -65,7 +79,7 @@ export interface ToolRunnerParts {
      * The once-per-key ledger of effects, and the records of a run step (`recordsOf`: the step's receipts, read when a write of a step
      * that runs again would act; absent, only the same key replays).
      */
-    readonly ledger: Pick<GraphNodeEffectsService, "once"> & Partial<Pick<GraphNodeEffectsService, "recordsOf">>
+    readonly ledger: Pick<GraphNodeEffectsService, "once"> & Partial<Pick<GraphNodeEffectsService, "recordsOf" | "settleOpen">>
     /**
      * The accounts a call may act on, in order, whether its step's node lists a provider serving it (`listsProviders`: absent, every
      * call that takes an account needs one), and the choice the owner still has to make when the agent holds several accounts of a
@@ -171,6 +185,46 @@ const movesOn = (mutates: boolean, cause: unknown): boolean => {
     if (isDecision(cause)) return false
     if (!mutates) return true
     return failureProofOf(cause) === "not_sent"
+}
+
+/** The kind of the subject a confirmation read proved (QB-P3 rule I-3): the write happened, the read's answer is its facts. */
+export const CONFIRMED_KIND = "confirmed"
+
+/** The kind of the subject the read made before a confirmable write keeps (QB-P3 rule I-4). */
+const BEFORE_KIND = "before"
+
+/** The refusal a confirmation read's `once` answers when the write did not happen: never kept, so a later read asks again. */
+const NOT_HAPPENED = "not_happened"
+
+/** True for a failure that says a call's outcome is unknown: the ledger's typed one, or the door's `unknown_outcome` of the tool road. */
+const isUnknownOutcome = (cause: unknown): boolean => {
+    if (cause instanceof EffectOutcomeUnknownError) return true
+    if (!(cause instanceof GraphNodesError) || cause.code !== GraphNodesErrorCode.ToolFailed) return false
+    return cause.params.reason === "unknown_outcome" || cause.params.proof === "unknown"
+}
+
+/** The typed outcome-unknown failure of a write whose confirmation could not settle it (`why`: not happened, unreadable, unconfirmable). */
+const unknownOf = (id: string, why: string): EffectOutcomeUnknownError =>
+    new EffectOutcomeUnknownError({ code: EffectOutcomeUnknownCode.Tool, params: { effect: id, confirm: why } })
+
+/** A plain JSON record of a read's answer, or null. */
+const answerRecordOf = (value: unknown): Readonly<Record<string, unknown>> | null =>
+    typeof value === "object" && value !== null && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : null
+
+/** One write whose unknown outcome may be confirmed: its id, its base key, its arguments and where its reads go (the same door). */
+interface ConfirmCall {
+    /** The write's tool or effect id. */
+    readonly id: string
+    /** The key the confirmation's records are kept under (`<base>:before`, `<base>:confirm`). */
+    readonly base: string
+    /** The write's arguments. */
+    readonly args: Readonly<Record<string, unknown>>
+    /** The run token of the step. */
+    readonly token: string
+    /** The turn. */
+    readonly turn: NodeTurn
+    /** The account the write ran on, when one: its reads go on the same account. */
+    readonly account: NodeToolAccount | undefined
 }
 
 /** The reason of a refusal of the right the door threw (`GRAPH_NODES_TOOL_NOT_GRANTED` with a text reason), else null. */
@@ -291,14 +345,135 @@ export class ToolRunnerService {
         const via: NodeToolVia | undefined =
             account === undefined ? undefined : { provider: account.provider, connectionId: account.connectionId }
         if (call.road === "tool") {
-            const value = await this.parts.door.call(account === undefined ? call : { ...call, account })
+            const value = await this.toolCalled(call, account)
             return { road: "tool", value, ...(via === undefined ? {} : { via }) }
         }
         const subject = await this.effect(call, account)
         return { road: "effect", subject, ...(via === undefined ? {} : { via }) }
     }
 
+    /**
+     * A call on the tool road. A write that declares `confirmBy` (QB-P3 rules I-3/I-4) first makes its `before` read (kept once under
+     * `<key>:before`); an unknown outcome of the call (the door's `unknown_outcome`: a pending receipt after a crash, a timeout) is then
+     * settled by its confirmation read, never by acting again.
+     */
+    private async toolCalled(call: Extract<NodeToolRun, { readonly road: "tool" }>, account: NodeToolAccount | undefined): Promise<unknown> {
+        const confirm = confirmByOf(call.tool)
+        const asked = account === undefined ? call : { ...call, account }
+        if (confirm === null) return this.parts.door.call(asked)
+        const write: ConfirmCall = { id: call.tool, base: call.key, args: call.args, token: call.token, turn: call.turn, account }
+        const before = await this.beforeOf(write, confirm.before)
+        try {
+            return await this.parts.door.call(asked)
+        } catch (cause) {
+            if (!isUnknownOutcome(cause)) throw cause
+            return (await this.confirmedOf(write, confirm, before)).facts
+        }
+    }
+
+    /**
+     * An effect, settled by its `confirmBy` read when its outcome is unknown (an intent with no result, a kept unknown, an act that
+     * timed out): happened => the ledger's open row is settled with the read's answer and the step goes on with it (QB-P3 rule I-3).
+     */
     private async effect(call: NodeEffectRun, account: NodeToolAccount | undefined): Promise<SubjectRef> {
+        const confirm = confirmByOf(call.effect)
+        if (confirm === null) return this.effectActed(call, account, null)
+        const base = ledgerKeyOf(call.call)
+        const write: ConfirmCall = { id: call.effect, base, args: call.payload, token: call.token, turn: call.turn, account }
+        try {
+            return await this.effectActed(call, account, () => this.beforeOf(write, confirm.before))
+        } catch (cause) {
+            if (!isUnknownOutcome(cause)) throw cause
+            const before = await this.beforeOf(write, confirm.before)
+            const proved = await this.confirmedOf(write, confirm, before)
+            await this.parts.ledger.settleOpen?.(call.turn.workspaceId, call.call, proved)
+            return proved
+        }
+    }
+
+    /**
+     * The read made BEFORE a confirmable write (QB-P3 rule I-4), kept once under `<base>:before` (a read: kept after it answers), and
+     * its answer; null when the write declares none, its arguments cannot be filled, or the read failed (a before read never blocks
+     * the write: an unknown outcome is then unconfirmable, one stop).
+     */
+    private async beforeOf(write: ConfirmCall, read: ConfirmRead | undefined): Promise<Readonly<Record<string, unknown>> | null> {
+        if (read === undefined) return null
+        const args = confirmArgsOf(read, write.args, null)
+        if (args === null) return null
+        const key = `${write.base}:before`
+        try {
+            const kept = await this.parts.ledger.once(write.turn.workspaceId, read.tool, { key, dedupeKey: null }, async () => ({
+                kind: BEFORE_KIND,
+                id: read.tool,
+                facts: answerRecordOf(await this.readOf(write, read.tool, args, key)) ?? {},
+            }))
+            return kept.facts ?? null
+        } catch (cause) {
+            this.parts.logger.warn(ToolsLogEvent.NodeToolFailed, {
+                workspaceId: write.turn.workspaceId,
+                agentId: write.turn.agentId,
+                tool: read.tool,
+                confirmOf: write.id,
+                stage: "before",
+                code: isDomainError(cause) ? cause.code : null,
+            })
+            return null
+        }
+    }
+
+    /**
+     * Settles an unknown outcome by the write's declared confirmation read (QB-P3 rule I-3), made through the same door on the same
+     * account and kept once under `<base>:confirm` when it proves the write happened (a later re-drive reads nothing again). Happened: the
+     * proved subject (the read's answer as its facts). Not happened, arguments that cannot be filled, a refusal or a failure of the read
+     * that is not transient: the typed outcome-unknown failure (one stop for a person, never a second act). A transient failure of the
+     * read is the step's failure as it is (the step parks and runs again; the write answers unknown again and the read is asked again).
+     */
+    private async confirmedOf(
+        write: ConfirmCall,
+        confirm: ToolConfirmBy,
+        before: Readonly<Record<string, unknown>> | null,
+    ): Promise<SubjectRef> {
+        const args = confirmArgsOf(confirm, write.args, before)
+        if (args === null) throw unknownOf(write.id, "unconfirmable")
+        const key = `${write.base}:confirm`
+        const kept = await this.parts.ledger
+            .once(
+                write.turn.workspaceId,
+                confirm.tool,
+                { key, dedupeKey: null },
+                async (): Promise<SubjectRef> => {
+                    const answer = await this.readOf(write, confirm.tool, args, key)
+                    if (!confirmedHappened(confirm, answer)) return { kind: "refused", id: NOT_HAPPENED }
+                    return { kind: CONFIRMED_KIND, id: confirm.tool, facts: answerRecordOf(answer) ?? {} }
+                },
+                { args },
+            )
+            .catch((cause: unknown) => {
+                if (classifyFailure(cause) === "transient") throw cause
+                throw unknownOf(write.id, "unreadable")
+            })
+        this.parts.logger.info(ToolsLogEvent.ReceiptAnswered, {
+            workspaceId: write.turn.workspaceId,
+            agentId: write.turn.agentId,
+            effect: write.id,
+            confirmedBy: confirm.tool,
+            happened: !isRefused(kept),
+        })
+        if (isRefused(kept)) throw unknownOf(write.id, NOT_HAPPENED)
+        return kept
+    }
+
+    /** One read of a confirmation through the step's own door, on the write's account (a read: no approval, never asks). */
+    private readOf(write: ConfirmCall, tool: string, args: Readonly<Record<string, unknown>>, key: string): Promise<unknown> {
+        const read: NodeToolCall = { token: write.token, tool, args, key, approval: null }
+        return this.parts.door.call(write.account === undefined ? read : { ...read, account: write.account })
+    }
+
+    private async effectActed(
+        call: NodeEffectRun,
+        account: NodeToolAccount | undefined,
+        beforeAct: (() => Promise<unknown>) | null,
+    ): Promise<SubjectRef> {
         const started = this.parts.clock.now().getTime()
         const refused = await this.judged(call, account, started)
         if (refused !== null) return refused
@@ -316,6 +491,8 @@ export class ToolRunnerService {
         }
         const executor = this.parts.registry.executorOf(call.effect)
         const acting = this.actingTurn(call, account)
+        // A confirmable write makes its before read first (kept once), so an unknown outcome of the act can be confirmed later.
+        if (beforeAct !== null) await beforeAct()
         let executed = false
         try {
             const subject = await this.parts.ledger.once(
@@ -451,10 +628,16 @@ export class ToolRunnerService {
             effect: call.effect,
             position,
         })
-        if (kept.subject.kind === OUTCOME_UNKNOWN_KIND && isOutcomeUnknownCode(kept.subject.id)) {
-            // Rule Q-3: a tool that declares itself `repeatable` makes the call again (the ledger then answers it under its key).
+        const intent = kept.subject.kind === INTENT_KIND
+        if (intent || (kept.subject.kind === OUTCOME_UNKNOWN_KIND && isOutcomeUnknownCode(kept.subject.id))) {
+            // Rule Q-3: a tool that declares itself `repeatable` makes the call again (the ledger then answers it under its key). An
+            // intent with no result (QB-P3 rule I-1: the process died after the act left) is an outcome nobody knows, the same way.
             if (repeatableBySpec(call.effect) === true) return null
-            throw new EffectOutcomeUnknownError({ code: kept.subject.id, params: { effect: call.effect } })
+            const code = isOutcomeUnknownCode(kept.subject.id) ? kept.subject.id : EffectOutcomeUnknownCode.Tool
+            throw new EffectOutcomeUnknownError({
+                code,
+                params: intent ? { effect: call.effect, open: INTENT_KIND } : { effect: call.effect },
+            })
         }
         return kept.subject
     }

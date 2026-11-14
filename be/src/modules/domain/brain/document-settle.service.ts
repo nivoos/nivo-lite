@@ -1,4 +1,5 @@
 import { Injectable, Optional } from "@nestjs/common"
+import type { EntityManager } from "typeorm"
 import { BrainExtractionsService } from "@modules/domain/brain-extractions"
 import {
   BrainFactsError,
@@ -14,6 +15,7 @@ import type { TruthPassage } from "@modules/domain/knowledge-chunks"
 import type { SourceRecord } from "@modules/domain/knowledge-sources"
 import { CritiqueDecisionsService } from "@modules/domain/dossier-review"
 import { WorkspaceMembersService, type WorkspaceRole } from "@modules/domain/workspace-members"
+import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { eachInOrder } from "@modules/platform/primitives"
 import { InjectTruthCritiqueGate } from "./brain.decorators"
@@ -148,6 +150,7 @@ const counted = (tally: SettleTally, state: keyof SettleTally): SettleTally => (
 export class DocumentSettleService {
     constructor(
         @InjectLogger() private readonly logger: Logger,
+        @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
         private readonly facts: BrainFactsService,
         private readonly reads: BrainFactsReadService,
         private readonly extractions: BrainExtractionsService,
@@ -192,25 +195,34 @@ export class DocumentSettleService {
         const waiting = await this.waitingOf(source)
         const settled: Settled =
             uploader === null ? { tally: { ...NONE, waiting: waiting.length }, changed: [] } : await this.decide(source, waiting, uploader)
-        await this.facts.announceChanged(workspaceId, settled.changed)
         const before = (await this.extractions.get(workspaceId, source.id))?.counts.factsApplied ?? 0
         const parked = parkedOf(settled.tally)
-        await this.extractions.save(workspaceId, source.id, {
-            status: parked?.status ?? "running",
-            windowsDone: state.done,
-            factsProposed: state.filed,
-            windowsTotal: state.done,
-            error: parked?.note ?? null,
-            attempts: 0,
-            stage: "settle",
-            counts: {
-                passagesTotal: passages.length,
-                passagesTriaged: passages.length,
-                passagesKept: passages.filter((passage) => passage.triage === "rule").length,
-                factsApplied: before + settled.tally.applied,
-                factsAsked: settled.tally.asked,
-                factsWaiting: settled.tally.waiting + settled.tally.full,
-            },
+        // THE FINISHING TRANSACTION: the listeners' writes (the policy derive request with its job, the vector jobs) and the saved counts
+        // commit together or not at all; a failure of any throws and the job's ladder retries (the truths are already in force).
+        await this.entityManager.transaction(async (tx) => {
+            await this.facts.announceChanged(workspaceId, settled.changed, tx)
+            await this.extractions.save(
+                workspaceId,
+                source.id,
+                {
+                    status: parked?.status ?? "running",
+                    windowsDone: state.done,
+                    factsProposed: state.filed,
+                    windowsTotal: state.done,
+                    error: parked?.note ?? null,
+                    attempts: 0,
+                    stage: "settle",
+                    counts: {
+                        passagesTotal: passages.length,
+                        passagesTriaged: passages.length,
+                        passagesKept: passages.filter((passage) => passage.triage === "rule").length,
+                        factsApplied: before + settled.tally.applied,
+                        factsAsked: settled.tally.asked,
+                        factsWaiting: settled.tally.waiting + settled.tally.full,
+                    },
+                },
+                tx,
+            )
         })
         return parked
     }

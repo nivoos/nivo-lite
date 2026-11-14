@@ -108,7 +108,9 @@ const answersOf = (db: ThreadDb) =>
 /** The turn asks: the proposal waits for the owner (one item, one approval stop); then the owner approves it. */
 const askedThenApproved = async (db: ThreadDb) => {
     db.rights.asks?.add(TOOL.brainChangePropose)
-    db.model.script(CHAT, SEARCH, proposes(FIRST), DONE)
+    // The turn's script is only what it asks BEFORE the stop (the thread resumes from its checkpoint after the approval: it is never asked
+    // to replay the search and the proposal); each case scripts the ask that comes after the approval.
+    db.model.script(CHAT, SEARCH, proposes(FIRST))
     const process = await processOf(db)
     const started = await startThread(process, { flow: chatFlow, versionId: "chatbot-agent:team-chat@1", workflowId: "wf:team-chat", trigger: TRIGGER })
     const runId = started.runId ?? ""

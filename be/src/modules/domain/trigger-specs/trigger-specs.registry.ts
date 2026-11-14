@@ -19,7 +19,7 @@ import {
 /** The bank feed's event, as every bank feed provider declares it. */
 const TRANSACTION_RECEIVED = "transaction.received"
 
-/** The mailbox's event, as the IMAP provider declares it. */
+/** The mailbox's event, as the mailbox account's kind (`smtp`) declares it. */
 const MAIL_RECEIVED = "mail.received"
 
 /** The tag source of a website order form's wake (inbox-leads). */
@@ -181,6 +181,21 @@ const FACEBOOK_CHANNEL: TriggerAdapterSpec = channelAdapter(PROVIDER.meta, "face
 /** The Instagram channel's adapter: an Instagram account's direct messages, on the same Meta connection as its Page. */
 const INSTAGRAM_CHANNEL: TriggerAdapterSpec = channelAdapter(PROVIDER.meta, "instagram", INSTAGRAM_ACCOUNT_STREAM)
 
+/**
+ * The mailbox's adapter (MAIL-IN rule MI-4): the connection poll keeps each mail once as the account's `imap.mail` row and hands the NEW
+ * ones to the mailbox's trigger, a person's line like every channel's (the channel members, the wake's own key); the stream is the
+ * mailbox's address.
+ */
+const MAILBOX_ADAPTER: TriggerAdapterSpec = {
+    provider: PROVIDER.smtp,
+    receivedBy: "poll",
+    road: "channel",
+    supplies: CHANNEL_MEMBERS,
+    sources: [providerTrigger(PROVIDER.smtp, MAIL_RECEIVED)],
+    eventKey: { kind: "wake" },
+    stream: MAILBOX_STREAM,
+}
+
 /** The website form's adapter: the engine's road, tagged by inbox-leads. */
 const WEBSITE_FORM: TriggerAdapterSpec = {
     provider: ENGINE_ROAD,
@@ -266,19 +281,12 @@ export const TRIGGERS: Readonly<Record<TriggerVerb, TriggerSpec>> = {
     [TRIGGER.mailMessageReceived]: {
         verb: TRIGGER.mailMessageReceived,
         args: NO_ARGS,
-        payload: "ids",
+        payload: "message",
         supply: "fixed",
-        subject: [],
-        adapters: [
-            {
-                provider: PROVIDER.imap,
-                receivedBy: "poll",
-                road: "system-event",
-                sources: [providerTrigger(PROVIDER.imap, MAIL_RECEIVED)],
-                eventKey: { kind: "span", prefix: "mail", member: "eventIds" },
-                stream: MAILBOX_STREAM,
-            },
-        ],
+        subject: CUSTOMER_SUBJECT,
+        // A person's mail is their line on the mail channel (MAIL-IN rule MI-4): the mailbox's poll trigger, of the mailbox account's kind
+        // (`smtp`, its inbound half read by the `imap` receiver), each account its address's stream.
+        adapters: [MAILBOX_ADAPTER],
     },
     [TRIGGER.videoRenderCompleted]: {
         verb: TRIGGER.videoRenderCompleted,

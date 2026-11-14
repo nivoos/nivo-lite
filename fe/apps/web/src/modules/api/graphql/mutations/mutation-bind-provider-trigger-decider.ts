@@ -16,7 +16,14 @@ const mutation1: Document = gql`
         bindProviderTriggerDecider(input: $input) {
             connectionId
             name
-            kind
+            via
+            withoutPoll {
+                source
+                reason {
+                    vi
+                    en
+                }
+            }
             summary {
                 vi
                 en

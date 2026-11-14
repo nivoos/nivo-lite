@@ -11,6 +11,10 @@ export type {
     PluginToolLabel,
     PluginVisibility,
     ProviderTemplate,
+    ProviderSandboxAnswer,
+    ProviderSandboxKeeps,
+    ProviderSandboxOperation,
+    ProviderSandboxReadsBack,
     ProviderTemplateAuth,
 } from "./installation.types"
 export { defineProviderTemplate } from "./provider-template"

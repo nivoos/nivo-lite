@@ -13,6 +13,8 @@ import type {
     LineWindowAsk,
 } from "@modules/domain/customer-routes/customer-line-store.port"
 import type { CustomerRouteStore, HeldRoutesPage, NewCustomerRoute, RouteHold, StoredCustomerRoute } from "@modules/domain/customer-routes/customer-route-store.port"
+import type { StreamCursorStore } from "@modules/domain/customer-routes/stream-cursor-store.port"
+import { seqAfter } from "@modules/domain/customer-routes/stream-cursor.policy"
 
 // THE CUSTOMER ROUTES AND THE DELIVERY LEDGER IN MEMORY: the doubles of the stores of public.customer_routes and
 // public.channel_deliveries, for the unit specs and the thread worlds. Each keeps the rows its table keeps and the unique keys the table
@@ -318,5 +320,40 @@ export class MemoryCustomerLineStore implements CustomerLineStore {
     lastHeardAt(_workspaceId: string, routeId: string): Promise<Date | null> {
         const last = this.heard.filter((row) => row.routeId === routeId).map((row) => row.saidAt).toSorted().at(-1)
         return Promise.resolve(last === undefined ? null : new Date(last))
+    }
+}
+
+/**
+ * The stream cursor of the routes over memory (rule QB-P5 C-4), with the table's rule: one pending read per route (the same call keeps its
+ * newest line, another call replaces it); the end of a step folds the pending reads of its calls into the cursor, the greater of the two.
+ */
+export class MemoryStreamCursorStore implements StreamCursorStore {
+    /** Per route: the cursor and the pending read. */
+    readonly rows = new Map<string, { consumed: string | null; read: { by: string; seq: string } | null }>()
+
+    noteRead(_workspaceId: string, routeId: string, by: string, seq: string): Promise<boolean> {
+        const row = this.rows.get(routeId) ?? { consumed: null, read: null }
+        row.read = row.read?.by === by ? { by, seq: this.greater(row.read.seq, seq) } : { by, seq }
+        this.rows.set(routeId, row)
+        return Promise.resolve(true)
+    }
+
+    consume(_workspaceId: string, prefix: string): Promise<number> {
+        let moved = 0
+        for (const row of this.rows.values()) {
+            if (row.read === null || !row.read.by.startsWith(prefix)) continue
+            row.consumed = this.greater(row.consumed, row.read.seq)
+            row.read = null
+            moved += 1
+        }
+        return Promise.resolve(moved)
+    }
+
+    cursorOf(_workspaceId: string, routeId: string): Promise<string | null> {
+        return Promise.resolve(this.rows.get(routeId)?.consumed ?? null)
+    }
+
+    private greater(left: string | null, right: string): string {
+        return left === null || seqAfter(right, left) ? right : left
     }
 }

@@ -2,6 +2,7 @@ import { mock } from "@starci/jest-preset"
 import { connectionRecord } from "@tests/fixtures/builders/connection-records.builder"
 import type { ZaloClient } from "@modules/integrations/zalo"
 import type { CustomerSendPort } from "./customer-send-ports.contracts"
+import { ChannelsError, ChannelsErrorCode } from "./errors/channels.error"
 import { ZaloCustomerSendService } from "./zalo-customer-send.service"
 import { ZaloCredentialsService } from "./zalo-credentials.service"
 import { ZaloDeliveryService } from "./zalo-delivery.service"
@@ -24,6 +25,36 @@ describe("ZaloCustomerSendService (the live Zalo send behind the port)", () => {
         expect(service.provider).toBe("zalo_oa")
         await expect(service.send(connectionRecord({ provider: "zalo_oa" }), target, "u-1", request)).resolves.toBe(result)
         expect(delivery.send).toHaveBeenCalledWith(target, "u-1", request)
+    })
+
+    it("answers Zalo's refusals FOR NOW (quota, night hours, a busy token refresh) as the port's one not-sent answer, and keeps every other receipt and throw", async () => {
+        const { delivery, service } = build()
+        const target = { id: "route-1", workspaceId: "ws-1", channel: "zalo", externalId: "u-1", connectionId: "z1" }
+        const request = { workspaceId: "ws-1", conversationId: "route-1", messageId: "m-1", text: "Hi", windowChecked: true, at: new Date(0) }
+        const account = connectionRecord({ provider: "zalo_oa" })
+
+        for (const failure of ["zalo_quota", "zalo_night_hours"]) {
+            delivery.send.mockResolvedValueOnce({ delivered: false, failure, outcome: "rejected" })
+            await expect(service.send(account, target, "u-1", request)).rejects.toMatchObject({
+                code: ChannelsErrorCode.SendUnavailable,
+                params: { reason: failure },
+            })
+        }
+        delivery.send.mockRejectedValueOnce(new ChannelsError({ code: ChannelsErrorCode.ZaloRefreshBusy }))
+        await expect(service.send(account, target, "u-1", request)).rejects.toMatchObject({
+            code: ChannelsErrorCode.SendUnavailable,
+            params: { reason: "zalo_refresh_busy" },
+        })
+
+        const refused = { delivered: false, failure: "zalo_unfollowed", outcome: "rejected" } as const
+        delivery.send.mockResolvedValueOnce(refused)
+        await expect(service.send(account, target, "u-1", request)).resolves.toBe(refused)
+        // A quota word on an UNKNOWN outcome is no "nothing was sent": it stays the receipt.
+        const unknown = { delivered: false, failure: "zalo_quota", outcome: "ambiguous" } as const
+        delivery.send.mockResolvedValueOnce(unknown)
+        await expect(service.send(account, target, "u-1", request)).resolves.toBe(unknown)
+        delivery.send.mockRejectedValueOnce(new Error("bug"))
+        await expect(service.send(account, target, "u-1", request)).rejects.toThrow("bug")
     })
 
     it("sends a staff text through the OA's text route with the connection, the recipient and the words, and rethrows its failure", async () => {

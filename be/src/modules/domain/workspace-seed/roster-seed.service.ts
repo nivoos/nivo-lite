@@ -1,6 +1,5 @@
 import { Injectable } from "@nestjs/common"
-import { graphSpecSchema, type GraphSpec } from "@nivo-lite/agent-sdk/graph"
-import { latestTemplateVersion, type TemplateAgent } from "@nivo-lite/agent-sdk/template"
+import type { TemplateAgent } from "@nivo-lite/agent-sdk/template"
 import { AgentBindingsService } from "@modules/domain/agent-connections"
 import type { EnterpriseRoster, EnterpriseRosterSeat } from "@modules/domain/channel-provisioning"
 import { ConnectionsService, type ConnectionRecord } from "@modules/domain/connections"
@@ -8,18 +7,10 @@ import { INSTALLED, customerChannelProviders } from "@modules/domain/installed-p
 import { AgentAccountsService } from "@modules/domain/tools"
 import { eachInOrder } from "@modules/platform/primitives"
 import { GraphSeedService, type GraphSeedEntry, type SeededModule } from "./graph-seed.service"
+import { primaryGraphOf } from "./primary-graph.policy"
 import { attachPlanOf, frontDoorsOf, rosterOf } from "./roster-seed.policy"
 import { InjectWorkspaceSeedOptions } from "./workspace-seed.decorators"
 import type { WorkspaceSeedOptions } from "./workspace-seed.options"
-
-/** The graph installing a module's template agent publishes as its primary workflow (read as the seed reads a graph file), or null. */
-const primaryGraphOf = (moduleKey: string): GraphSpec | null => {
-    const primaries = INSTALLED.templatesOf(moduleKey).filter((template) => template.primary)
-    const [only] = primaries
-    if (only === undefined || primaries.length > 1) return null
-    const parsed = graphSpecSchema.safeParse(JSON.parse(JSON.stringify(latestTemplateVersion(only).graph)))
-    return parsed.success ? parsed.data : null
-}
 
 @Injectable()
 /**
@@ -87,7 +78,7 @@ export class RosterSeedService implements EnterpriseRoster {
      * Binds each customer-channel connection of the workspace to its channel's front door agent where no agent answers it yet (an answering
      * agent is the owner's choice and is kept). A sandbox connection only on the local stack. Answers how many were bound.
      */
-    private async bindFrontDoors(
+    async bindFrontDoors(
         seat: EnterpriseRosterSeat,
         roster: ReadonlyArray<TemplateAgent>,
         seeded: ReadonlyArray<SeededModule>,

@@ -1,13 +1,10 @@
 import { Test } from "@nestjs/testing"
-import { FakeClock, mock } from "@starci/jest-preset"
+import { mock } from "@starci/jest-preset"
 import { PollLimiterService } from "@modules/domain/connection-poll"
 import type { ConnectionRecord } from "@modules/domain/connections"
 import { ZALO, ZaloError, ZaloErrorCode } from "@modules/integrations/zalo"
 import type { ZaloChatMessage, ZaloClient } from "@modules/integrations/zalo"
-import { CLOCK } from "@modules/platform/clock"
 import { ZALO_ACCESS_TOKENS, type ZaloAccessTokens } from "./zalo-access-tokens.port"
-import { ZALO_PROVIDER_OPTIONS } from "./zalo-provider.decorators"
-import type { ZaloProviderConfig } from "./zalo-provider.options"
 import { ZaloInboxPollerService } from "./zalo-inbox-poller.service"
 import { ZALO_PLAN_LACKS_READING_NOTICE } from "./messages/zalo-provider.messages"
 import { ZALO_POLL_PAGE_SIZE } from "./zalo-poll.policy"
@@ -38,7 +35,7 @@ const chat = (over: Partial<ZaloChatMessage>): ZaloChatMessage => ({
 
 const window = { from: new Date(at(24 * 7)), to: undefined, limit: 200 }
 
-const build = async (options: ZaloProviderConfig = {}) => {
+const build = async () => {
     const zalo = mock<ZaloClient>()
     const tokens = mock<ZaloAccessTokens>()
     tokens.tokenOf.mockResolvedValue({ kind: "token", token: "token" })
@@ -48,10 +45,8 @@ const build = async (options: ZaloProviderConfig = {}) => {
     const moduleRef = await Test.createTestingModule({
         providers: [
             ZaloInboxPollerService,
-            { provide: CLOCK, useValue: new FakeClock(NOW) },
             { provide: PollLimiterService, useValue: limiter },
             { provide: ZALO, useValue: zalo },
-            { provide: ZALO_PROVIDER_OPTIONS, useValue: { ...options } },
             { provide: ZALO_ACCESS_TOKENS, useValue: tokens },
         ],
     }).compile()
@@ -143,9 +138,9 @@ describe("ZaloInboxPollerService fetch paging", () => {
     })
 })
 
-describe("ZaloInboxPollerService stale messages", () => {
-    it("marks each text fresh or past the stale age, with the name the listing shows; it stores nothing itself", async () => {
-        const { poller, zalo } = await build({ staleAfterMs: HOUR })
+describe("ZaloInboxPollerService reads the provider only", () => {
+    it("answers each text with the name the listing shows, judges no age, and stores nothing itself", async () => {
+        const { poller, zalo } = await build()
         zalo.recentChats.mockResolvedValue([chat({ userId: "user-1", sentAt: at(0.5) })])
         zalo.conversation.mockResolvedValue([
             chat({ messageId: "new", sentAt: at(0.5) }),
@@ -155,10 +150,10 @@ describe("ZaloInboxPollerService stale messages", () => {
         const page = await poller.fetch(connection, window)
 
         expect(
-            page.kind === "page" ? page.items.map((item) => [item.messageId, item.userName, item.stale]) : [],
+            page.kind === "page" ? page.items.map((item) => [item.messageId, item.userName]) : [],
         ).toEqual([
-            ["new", "Bui Nguyen Dinh", false],
-            ["old", "", true],
+            ["new", "Bui Nguyen Dinh"],
+            ["old", ""],
         ])
         expect("store" in poller).toBe(false)
     })

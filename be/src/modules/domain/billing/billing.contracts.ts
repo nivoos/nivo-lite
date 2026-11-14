@@ -162,6 +162,8 @@ export interface BillingWorkspace extends WorkspaceBilling {
 export interface RenewalParams {
     /** The workspace to renew. */
     readonly workspaceId: string
+    /** The payment-order request this order answers (a request makes one order, whatever number of runs); absent outside a request. */
+    readonly requestId?: string | undefined
 }
 
 /** The first payment a workspace asks for. */
@@ -172,6 +174,8 @@ export interface PlanOrderParams {
     readonly planCode: string
     /** What was picked on the plan; the plan's monthly base for whatever is left out. */
     readonly selection?: PlanSelectionInput
+    /** The payment-order request this order answers (a request makes one order, whatever number of runs); absent outside a request. */
+    readonly requestId?: string | undefined
 }
 
 /** An order together with what the customer needs to pay it. */

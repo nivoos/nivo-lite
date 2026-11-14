@@ -3,8 +3,6 @@ import { Test } from "@nestjs/testing"
 import { ConnectionSecretsService } from "@modules/domain/connection-secrets"
 import { ConnectionsErrorCode, ConnectionsService } from "@modules/domain/connections"
 import { ZaloWizardDraftsService } from "@modules/domain/zalo-wizard-drafts"
-import { LOGGER } from "@modules/platform/logging"
-import type { Logger } from "@modules/platform/logging"
 import { ok, refused } from "@modules/platform/primitives"
 import type { ZaloWizardPayload } from "@modules/queues/zalo-wizard"
 import type { LoadedZalo } from "./channels.contracts"
@@ -32,7 +30,6 @@ const payload = (command: ZaloWizardPayload["command"]) => ({
 })
 
 const build = async () => {
-    const logger = mock<Logger>()
     const secrets = mock<ConnectionSecretsService>()
     secrets.seal.mockImplementation((plain) => `sealed:${plain}`)
     secrets.save.mockResolvedValue(undefined)
@@ -56,23 +53,22 @@ const build = async () => {
     const moduleRef = await Test.createTestingModule({
         providers: [
             ZaloWizardService,
-            { provide: LOGGER, useValue: logger },
             { provide: ConnectionSecretsService, useValue: secrets },
             { provide: ZaloWizardDraftsService, useValue: drafts },
             { provide: ConnectionsService, useValue: connections },
             { provide: ZaloCredentialsService, useValue: credentials },
         ],
     }).compile()
-    return { service: moduleRef.get(ZaloWizardService), logger, secrets, drafts, connections, credentials }
+    return { service: moduleRef.get(ZaloWizardService), secrets, drafts, connections, credentials }
 }
 
 describe("ZaloWizardService", () => {
     it.each([undefined, null, [], "app", {}, { ...payload("app"), ticket: 1 }])(
-        "ignores a payload that is not a wizard request: %p",
+        "refuses a payload that is not a wizard request as invalid, touching nothing: %p",
         async (input) => {
-            const { service, logger, secrets, drafts, connections, credentials } = await build()
+            const { service, secrets, drafts, connections, credentials } = await build()
 
-            await expect(service.run(input)).resolves.toBeUndefined()
+            await expect(service.run(input)).rejects.toMatchObject({ code: ChannelsErrorCode.PayloadInvalid })
 
             expect(connections.intakeOf).not.toHaveBeenCalled()
             expect(connections.settleWizard).not.toHaveBeenCalled()
@@ -80,7 +76,6 @@ describe("ZaloWizardService", () => {
             expect(secrets.save).not.toHaveBeenCalled()
             expect(credentials.load).not.toHaveBeenCalled()
             expect(credentials.beginAuthorization).not.toHaveBeenCalled()
-            expect(logger.error).not.toHaveBeenCalled()
         },
     )
 
@@ -103,7 +98,7 @@ describe("ZaloWizardService", () => {
                 },
             ],
         ])
-        expect(connections.intakeOf).not.toHaveBeenCalled()
+        expect(connections.intakeOf.mock.calls).toEqual([["c-1", "zalo_oa"]])
         expect(drafts.draftOf).not.toHaveBeenCalled()
         expect(secrets.save).not.toHaveBeenCalled()
     })
@@ -132,7 +127,7 @@ describe("ZaloWizardService", () => {
         { appId: "", appSecret: "app-secret" },
         { appId: "app-1", appSecret: "" },
     ])("fails an app draft with an empty app key: %p", async (keys) => {
-        const { service, secrets, drafts, connections, logger } = await build()
+        const { service, secrets, drafts, connections } = await build()
         drafts.draftOf.mockResolvedValue({ present: true, ...keys, oaSecret: "" })
 
         await service.run(payload("app"))
@@ -146,7 +141,6 @@ describe("ZaloWizardService", () => {
         ])
         expect(secrets.save).not.toHaveBeenCalled()
         expect(drafts.dropDraft).not.toHaveBeenCalled()
-        expect(logger.error).not.toHaveBeenCalled()
     })
 
     it("seals the OA key into the existing credential and settles that it was saved", async () => {
@@ -269,10 +263,10 @@ describe("ZaloWizardService", () => {
 })
 
 describe("ZaloWizardService", () => {
-    it.each<ZaloWizardPayload["command"]>(["app", "oa"])(
-        "logs and settles a missing connection for %s",
+    it.each<ZaloWizardPayload["command"]>(["app", "oa", "begin"])(
+        "settles a missing connection for %s as failed and ends the job",
         async (command) => {
-            const { service, connections, drafts, logger } = await build()
+            const { service, connections, drafts, credentials } = await build()
             connections.intakeOf.mockResolvedValue(refused(ConnectionsErrorCode.NotFound))
 
             await service.run(payload(command))
@@ -285,17 +279,13 @@ describe("ZaloWizardService", () => {
                     { command, state: "failed", url: "", code: "CHANNELS_CONNECTION_NOT_FOUND", oaSecretSaved: false },
                 ],
             ])
-            expect(logger.error.mock.calls).toHaveLength(1)
-            expect(logger.error.mock.calls[0]?.[0]).toBe("channels.zalo.wizard-refused")
-            expect(logger.error.mock.calls[0]?.[1]).toBeInstanceOf(ChannelsError)
-            expect(logger.error.mock.calls[0]?.[1]).toMatchObject({ code: "CHANNELS_CONNECTION_NOT_FOUND" })
-            expect(logger.error.mock.calls[0]?.[2]).toEqual({ connectionId: "c-1", command })
             expect(drafts.draftOf).not.toHaveBeenCalled()
+            expect(credentials.beginAuthorization).not.toHaveBeenCalled()
         },
     )
 
-    it("logs and settles a connection belonging to another workspace", async () => {
-        const { service, connections, drafts, logger } = await build()
+    it("settles a connection belonging to another workspace as failed", async () => {
+        const { service, connections, drafts } = await build()
         connections.intakeOf.mockResolvedValue(ok({ id: "c-1", workspaceId: "ws-2", status: "pending" }))
 
         await service.run(payload("app"))
@@ -313,42 +303,23 @@ describe("ZaloWizardService", () => {
                 },
             ],
         ])
-        expect(logger.error.mock.calls).toHaveLength(1)
-        expect(logger.error.mock.calls[0]?.[0]).toBe("channels.zalo.wizard-refused")
-        expect(logger.error.mock.calls[0]?.[1]).toMatchObject({ code: "CHANNELS_CONNECTION_NOT_FOUND" })
-        expect(logger.error.mock.calls[0]?.[2]).toEqual({ connectionId: "c-1", command: "app" })
         expect(drafts.draftOf).not.toHaveBeenCalled()
     })
 })
 
 describe("ZaloWizardService", () => {
-    it("logs a refused authorization and settles its channels code", async () => {
-        const { service, credentials, connections, logger } = await build()
-        const cause = new ChannelsError({ code: ChannelsErrorCode.ZaloNotAuthorized })
+    it("throws a refused authorization for the runner and settles nothing: a failure is not an answer", async () => {
+        const { service, credentials, connections } = await build()
+        const cause = new ChannelsError({ code: ChannelsErrorCode.SecretUnreadable })
         credentials.beginAuthorization.mockRejectedValue(cause)
 
-        await service.run(payload("begin"))
+        await expect(service.run(payload("begin"))).rejects.toBe(cause)
 
-        expect(logger.error.mock.calls).toEqual([
-            ["channels.zalo.wizard-refused", cause, { connectionId: "c-1", command: "begin" }],
-        ])
-        expect(connections.settleWizard.mock.calls).toEqual([
-            [
-                "c-1",
-                "ticket-1",
-                {
-                    command: "begin",
-                    state: "failed",
-                    url: "",
-                    code: "CHANNELS_ZALO_NOT_AUTHORIZED",
-                    oaSecretSaved: false,
-                },
-            ],
-        ])
+        expect(connections.settleWizard).not.toHaveBeenCalled()
     })
 
     it("propagates a failure outside channels without settling or removing the draft", async () => {
-        const { service, secrets, connections, drafts, logger } = await build()
+        const { service, secrets, connections, drafts } = await build()
         const cause = { reason: "secret storage unavailable" }
         secrets.save.mockRejectedValue(cause)
 
@@ -356,6 +327,20 @@ describe("ZaloWizardService", () => {
 
         expect(connections.settleWizard).not.toHaveBeenCalled()
         expect(drafts.dropDraft).not.toHaveBeenCalled()
-        expect(logger.error).not.toHaveBeenCalled()
+    })
+
+    it("writes the stopped result under the ticket when the job reaches its dead letter, and refuses a payload that is not a wizard step", async () => {
+        const { service, connections } = await build()
+
+        await service.stopped(payload("begin"))
+
+        expect(connections.settleWizard.mock.calls).toEqual([
+            [
+                "c-1",
+                "ticket-1",
+                { command: "begin", state: "failed", url: "", code: "CHANNELS_WIZARD_STOPPED", oaSecretSaved: false },
+            ],
+        ])
+        await expect(service.stopped({ other: true })).rejects.toMatchObject({ code: ChannelsErrorCode.PayloadInvalid })
     })
 })

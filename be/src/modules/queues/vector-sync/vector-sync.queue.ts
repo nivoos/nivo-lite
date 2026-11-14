@@ -1,18 +1,12 @@
 import { Injectable } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
 import { InjectQueueOutbox, type QueueOutbox } from "@modules/platform/queue"
-import {
-    VECTOR_SYNC_QUEUE,
-    VectorSyncJob,
-    vectorReconcileDedupeKey,
-    vectorSyncDedupeKey,
-    vectorSyncDelayOf,
-    type VectorSyncPayload,
-} from "./vector-sync.contracts"
+import { vectorSyncDelayOf, type VectorReconcilePayload, type VectorSyncPayload } from "./vector-sync.contracts"
+import { RECONCILE_VECTORS_JOB, SYNC_VECTORS_JOB } from "./vector-sync.jobs"
 
-/** The payload of the reconcile follow-up job: when the run that used its whole budget ended, epoch milliseconds. */
-export interface VectorReconcileFollowUp {
-    /** When the run ended, epoch milliseconds. */
+/** The payload of the reconcile follow-up job. */
+export interface VectorReconcileFollowUp extends VectorReconcilePayload {
+    /** When the run that used its whole budget ended, epoch milliseconds: it keys the follow-up, so one run asks for one. */
     readonly resumedAt: number
 }
 
@@ -30,18 +24,18 @@ export class VectorSyncQueue {
      * (`SOURCE_SYNC_WINDOW_MS`) are one job, run when the window closes.
      */
     enqueueSync(payload: VectorSyncPayload, tx: EntityManager): Promise<void> {
-        return this.outbox.write(tx, VECTOR_SYNC_QUEUE, payload, {
-            job: VectorSyncJob.Sync,
-            dedupeKey: vectorSyncDedupeKey(payload),
+        return this.outbox.write(tx, SYNC_VECTORS_JOB.queue, payload, {
+            job: SYNC_VECTORS_JOB.name,
+            dedupeKey: SYNC_VECTORS_JOB.onceKey(payload),
             delayMs: vectorSyncDelayOf(payload),
         })
     }
 
     /** Enqueues the follow-up of a reconcile run that used its whole budget, in the caller's transaction. */
     enqueueReconcile(payload: VectorReconcileFollowUp, tx: EntityManager): Promise<void> {
-        return this.outbox.write(tx, VECTOR_SYNC_QUEUE, payload, {
-            job: VectorSyncJob.Reconcile,
-            dedupeKey: vectorReconcileDedupeKey(payload.resumedAt),
+        return this.outbox.write(tx, RECONCILE_VECTORS_JOB.queue, payload, {
+            job: RECONCILE_VECTORS_JOB.name,
+            dedupeKey: RECONCILE_VECTORS_JOB.onceKey(payload),
         })
     }
 }

@@ -1,9 +1,8 @@
 import { leadCareOf } from "./lead-care.policy"
 
 describe("leadCareOf", () => {
-    it("reads the opt-out, the receiver, the delivery and the occasions of the lead facts", () => {
+    it("reads the receiver, the delivery and the occasions of the lead facts", () => {
         const care = leadCareOf("lead-1", {
-            careOptOut: true,
             recipientName: " M\u1eb9 ",
             deliveryAt: "s\u00e1ng th\u1ee9 b\u1ea3y",
             address: "25 Nguy\u1ec5n Hu\u1ec7",
@@ -15,7 +14,6 @@ describe("leadCareOf", () => {
 
         expect(care).toMatchObject({
             leadId: "lead-1",
-            optedOut: true,
             recipient: "M\u1eb9",
             deliveryAt: "s\u00e1ng th\u1ee9 b\u1ea3y",
             address: "25 Nguy\u1ec5n Hu\u1ec7",
@@ -26,13 +24,12 @@ describe("leadCareOf", () => {
         })
     })
 
-    it("never counts an unreadable value as an opt-out, and nothing known at all as nothing", () => {
-        for (const stored of [undefined, null, "x", 3, [], { careOptOut: "true" }, { careOptOut: 1 }]) {
-            expect(leadCareOf("lead-1", stored).optedOut).toBe(false)
+    it("reads nothing known at all as nothing", () => {
+        for (const stored of [undefined, null, "x", 3, []]) {
+            expect(leadCareOf("lead-1", stored).recipient).toBeNull()
         }
         expect(leadCareOf("lead-1", null)).toEqual({
             leadId: "lead-1",
-            optedOut: false,
             recipient: null,
             deliveryAt: null,
             address: null,

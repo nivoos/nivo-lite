@@ -1,5 +1,5 @@
 import { BillingModule } from "./billing.module"
-import { BankFeedPollService } from "./bank-feed-poll.service"
+import { BankFeedService } from "./bank-feed.service"
 import { BillingService } from "./billing.service"
 import { EntitlementsService } from "./entitlements.service"
 
@@ -12,7 +12,7 @@ describe("BillingModule entitlements only (the mcp app: a file upload's storage 
 
         expect(providers).toContain(EntitlementsService)
         expect(providers).toContain(BillingService)
-        expect(providers).not.toContain(BankFeedPollService)
+        expect(providers).not.toContain(BankFeedService)
         expect(module.exports).toEqual([EntitlementsService])
     })
 })

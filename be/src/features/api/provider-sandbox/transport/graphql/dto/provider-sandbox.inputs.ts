@@ -1,6 +1,6 @@
 import { Field, ID, InputType } from "@nestjs/graphql"
 import { Type } from "class-transformer"
-import { ArrayMaxSize, IsArray, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateNested } from "class-validator"
+import { ArrayMaxSize, IsArray, IsBoolean, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateNested } from "class-validator"
 import { NullAsAbsent } from "@modules/platform/graphql"
 
 @InputType()
@@ -85,6 +85,13 @@ export class SendSandboxCaseInput {
     @ValidateNested({ each: true })
     @Type(() => SandboxInputValueInput)
     inputs?: Array<SandboxInputValueInput>
+
+    /** True: record the case as the provider would remember it but do not post its webhook (the provider's poll brings the row back). */
+    @Field(() => Boolean, { nullable: true, defaultValue: false })
+    @NullAsAbsent()
+    @IsOptional()
+    @IsBoolean()
+    dropWebhook?: boolean
 }
 
 @InputType()
@@ -101,6 +108,14 @@ export class SetSandboxNextCaseInput {
     @IsString()
     @MaxLength(60)
     caseId!: string
+
+    /** The narrower key the pick holds for (a model call's purpose, as the call log names it); absent: every call of the case's operation. */
+    @Field(() => String, { nullable: true })
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    @MaxLength(200)
+    scope?: string
 }
 
 @InputType()

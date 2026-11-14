@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto"
-import { Injectable, type OnModuleInit } from "@nestjs/common"
+import { Injectable, Optional, type OnModuleInit } from "@nestjs/common"
 import { InjectClock, type Clock } from "@modules/platform/clock"
+import type { OutsideReads } from "@modules/platform/effects"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { isRecord } from "@modules/platform/primitives"
 import type {
     ContextPassage,
     AiChatAttempt,
+    AiRunner,
     OptionalAiChatModel,
     AiCutSpend,
     AiFailure,
@@ -19,7 +21,8 @@ import type {
     AiEmbeddingResult,
     PassageSearch,
 } from "./ai.contracts"
-import { InjectAiOptions, InjectAiRunner, type OptionalAiRunner } from "./ai.decorators"
+import { InjectAiOptions, InjectAiRunner, InjectAiRunnerRoute, type OptionalAiRunner } from "./ai.decorators"
+import type { AiRunnerRoute } from "./ai-runner-route.port"
 import { AiLogEvent } from "./ai.log-events"
 import type { AiOptions } from "./ai.options"
 import { cutOf, fieldOf, finishOf, laneOf, modelOf, textOf, usageOf, vectorsOf } from "./reply.policy"
@@ -82,6 +85,9 @@ const cutSpendOf = (
     cap: request.budget?.maxTokens ?? null,
 })
 
+/** The outside READS of the client (its configuration, no call): a job calls them with no intent row; every other member is an act. */
+export interface AiService extends OutsideReads<"available" | "chatModel" | "embeddingModel" | "embeddingsServed"> {}
+
 @Injectable()
 /**
  * The one door to the language-model endpoint: LangChain (`@langchain/openai`) pointed at the AI router gateway with a virtual key, or
@@ -96,6 +102,7 @@ export class AiService implements OnModuleInit {
         @InjectAiRunner() private readonly runner: OptionalAiRunner,
         @InjectLogger() private readonly logger: Logger,
         @InjectClock() private readonly clock: Clock,
+        @Optional() @InjectAiRunnerRoute() private readonly route: AiRunnerRoute | null = null,
     ) {}
 
     /** Boot never fails for a missing virtual key: it is logged once and every call answers unavailable. */
@@ -142,7 +149,8 @@ export class AiService implements OnModuleInit {
         if (this.runner === null) return { ok: false, failure: "unconfigured" }
         const elapsed = this.stopwatch()
         try {
-            const reply = await this.runner.chat({ ...request, context: this.guarded(request.context) })
+            const runner = await this.runnerOf(this.runner, request)
+            const reply = await runner.chat({ ...request, context: this.guarded(request.context) })
             const durationMs = elapsed()
             const text = textOf(reply.content)
             const model = modelOf(reply.responseMetadata, this.options.chatModel)
@@ -207,7 +215,19 @@ export class AiService implements OnModuleInit {
      * `readTurn` then says what the try came to, and `failureOfThrow` what a call that threw failed as.
      */
     async turnModel(request: AiTurnRequest): Promise<OptionalAiChatModel> {
-        return this.runner === null ? null : this.runner.turnModel(request)
+        return this.runner === null ? null : (await this.runnerOf(this.runner, request)).turnModel(request)
+    }
+
+    /**
+     * The runner that serves one call (lane concept provider-sandbox, the model row): the account route's answer for the workspace the call
+     * is made for (its `affinity`) and its purpose, when the app composed a route (the sandbox on); else the endpoint's own runner.
+     */
+    private async runnerOf(
+        endpoint: AiRunner,
+        request: Pick<AiTurnRequest, "affinity" | "purpose">,
+    ): Promise<AiRunner> {
+        if (this.route === null) return endpoint
+        return this.route.runnerOf({ workspaceId: request.affinity ?? null, purpose: request.purpose ?? null }, endpoint)
     }
 
     /**

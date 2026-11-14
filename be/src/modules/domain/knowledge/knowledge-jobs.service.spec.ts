@@ -1,11 +1,13 @@
 import { Test } from "@nestjs/testing"
 import { mock } from "@starci/jest-preset"
-import { KnowledgeSourceCitesService, KnowledgeSourcesService } from "@modules/domain/knowledge-sources"
+import { KnowledgeSourceCitesService, KnowledgeSourcesService, StoredNote } from "@modules/domain/knowledge-sources"
+import type { ClaimedJob } from "@modules/platform/jobs"
+import { QueueError, QueueErrorCode } from "@modules/platform/queue"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
 import { KnowledgeIndexingService } from "./knowledge-indexing.service"
 import { KnowledgeJobsService } from "./knowledge-jobs.service"
-import { KnowledgeLogEvent } from "./knowledge.log-events"
+import { KnowledgeErrorCode } from "./errors/knowledge.error"
 
 const WS = "11111111-1111-4111-8111-111111111111"
 
@@ -26,34 +28,46 @@ const build = async () => {
     return { service: moduleRef.get(KnowledgeJobsService), indexing, sources, logger, cites }
 }
 
+const jobOf = (payload: object, resumeCount?: number): ClaimedJob => ({
+    jobId: "job-1",
+    kind: "knowledge.index",
+    fencingToken: 1,
+    currentStep: null,
+    payload,
+    ...(resumeCount === undefined ? {} : { resumeCount }),
+})
+
 describe("KnowledgeJobsService", () => {
     describe("index", () => {
-        it("indexes the source of the payload", async () => {
+        it("indexes the source of the claimed job, handing the job down for its effect keys", async () => {
             const { service, indexing } = await build()
+            const job = jobOf({ sourceId: "s1", workspaceId: WS })
 
-            await service.index({ sourceId: "s1", workspaceId: WS })
+            await service.index(job)
 
-            expect(indexing.index).toHaveBeenCalledWith({ sourceId: "s1", workspaceId: WS })
+            expect(indexing.index).toHaveBeenCalledWith({ sourceId: "s1", workspaceId: WS }, job)
         })
 
-        it("drops a payload without a source", async () => {
-            const { service, indexing, logger } = await build()
+        it("throws a typed refusal for a payload without a source instead of dropping it", async () => {
+            const { service, indexing } = await build()
 
-            await expect(service.index({})).resolves.toBeUndefined()
+            await expect(service.index(jobOf({}))).rejects.toMatchObject({ code: KnowledgeErrorCode.PayloadInvalid })
 
             expect(indexing.index).not.toHaveBeenCalled()
-            expect(logger.warn).toHaveBeenCalledWith(KnowledgeLogEvent.PayloadRefused, { job: "index" })
         })
     })
 
     describe("indexFailed", () => {
-        it("closes the source with the cause", async () => {
+        it("closes the source with the reason the dead letter carries", async () => {
             const { service, indexing } = await build()
-            const cause = new Error("boom")
+            const cause = new QueueError({
+                code: QueueErrorCode.FlowFailure,
+                params: { failureClass: "input", reason: StoredNote.FileMissing },
+            })
 
             await service.indexFailed({ sourceId: "s1", workspaceId: WS }, cause)
 
-            expect(indexing.failSource).toHaveBeenCalledWith(WS, "s1", cause)
+            expect(indexing.failSource).toHaveBeenCalledWith(WS, "s1", StoredNote.FileMissing)
         })
 
         it("has no source to close for a payload without one", async () => {

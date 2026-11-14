@@ -1,19 +1,19 @@
 import { Injectable } from "@nestjs/common"
 import { PaymentOrderRequestsService } from "@modules/domain/payment-order-requests"
-import { InjectJobClaims, type ClaimedJob, type JobClaims, type JobStep } from "@modules/platform/jobs"
+import { AdvancingJobStepPolicy, InjectJobClaims, type ClaimedJob, type JobClaims, type JobStep } from "@modules/platform/jobs"
 
 @Injectable()
 /** The one effect of the job: makes the payment order a member asked for and answers the request row. */
-export class PlaceOrderStep implements JobStep {
+export class PlaceOrderStep extends AdvancingJobStepPolicy implements JobStep {
     constructor(
         private readonly requests: PaymentOrderRequestsService,
-        @InjectJobClaims() private readonly claims: JobClaims,
-    ) {}
+        @InjectJobClaims() claims: JobClaims,
+    ) {
+        super(claims, "place")
+    }
 
-    /** Records the step with the token this worker holds FIRST, so a stale token stops here before any effect; then answers the request. */
-    async run(job: ClaimedJob): Promise<void> {
-        const { jobId, fencingToken: expectedFencingToken } = job
-        await this.claims.advance({ jobId, expectedFencingToken, step: "place" })
-        await this.requests.answer(job.payload)
+    /** Makes the order after the worker's claim has been checked: one domain method, the job passed down. */
+    protected perform(_payload: object, job: ClaimedJob): Promise<unknown> {
+        return this.requests.answer(job)
     }
 }

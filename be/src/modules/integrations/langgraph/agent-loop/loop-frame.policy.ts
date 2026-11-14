@@ -86,17 +86,30 @@ export const wireToolsOf = (tools: ReadonlyArray<NodeAgentLoopTool>, names: Tool
     ...END_TOOLS,
 ]
 
+/** The blank line between two layers when they travel as one text (a client whose protocol takes no breakpoints). */
+const LAYER_GAP = "\n\n"
+
 /**
- * The words of the first user message: the step (L3) at the very start, so everything before it (system text, tools) is shared by
- * every step of the agent; then what holds for this try only (L4): the volatile rules when the turn has them, and the input as JSON.
+ * The words of the first user message after the step: what holds for this try only (L4): the volatile rules when the turn has them,
+ * and the input as JSON.
  *
  * @param loop - The frame of the step.
  * @returns The text.
  */
-export const openingTextOf = (loop: Pick<NodeAgentLoop, "step" | "volatile" | "input">): string => {
+export const tryTextOf = (loop: Pick<NodeAgentLoop, "volatile" | "input">): string => {
     const volatile = (loop.volatile ?? "").trim()
-    return [loop.step, ...(volatile === "" ? [] : [volatile]), JSON.stringify(loop.input ?? null)].join("\n\n")
+    return [...(volatile === "" ? [] : [volatile]), JSON.stringify(loop.input ?? null)].join(LAYER_GAP)
 }
+
+/**
+ * The words of the first user message as one text: the step (L3) at the very start, so everything before it (system text, tools) is
+ * shared by every step of the agent; then what holds for this try only (L4).
+ *
+ * @param loop - The frame of the step.
+ * @returns The text.
+ */
+export const openingTextOf = (loop: Pick<NodeAgentLoop, "step" | "volatile" | "input">): string =>
+    [loop.step, tryTextOf(loop)].join(LAYER_GAP)
 
 /** A refusal the loop makes itself, in the shape the runner's own refusals have. */
 export interface LoopRefusal {
@@ -136,32 +149,65 @@ export const stepBoundOf = (maxTurns: number): number => maxTurns * 8 + 16
 /** The client kinds (`BaseChatModel._llmType()`) whose protocol takes prompt-cache breakpoints on a content part: Anthropic's Messages. */
 const CACHE_MARKED_CLIENTS: ReadonlySet<string> = new Set(["anthropic"])
 
-/** One text part of the system message (the agent's craft and the shop's values, as the runner wrote them), with its breakpoint. */
-export type MarkedSystemPart = {
-    /** The kind of content part. */
-    readonly type: "text"
-    /** The text of the part. */
-    readonly text: string
-    /** The prompt-cache breakpoint at the end of the part. */
-    readonly cache_control: CacheBreakpoint
-}
-
 /** A prompt-cache breakpoint of Anthropic's Messages protocol (a type alias: the client library reads it as an open record). */
 export type CacheBreakpoint = {
     /** The breakpoint's lifetime kind. */
     readonly type: "ephemeral"
 }
 
+/** One text part of a message, with a breakpoint at its end when it closes a stable layer. */
+export type LayerPart = {
+    /** The kind of content part. */
+    readonly type: "text"
+    /** The text of the part. */
+    readonly text: string
+    /** The prompt-cache breakpoint at the end of the part, when it closes a stable layer. */
+    readonly cache_control?: CacheBreakpoint
+}
+
+/** The breakpoint of a layer end: Anthropic's default five-minute entry. */
+const LAYER_END: CacheBreakpoint = { type: "ephemeral" }
+
 /**
- * The content of the system message of a step's agent. On a client whose protocol takes breakpoints it is ONE text part, the runner's
- * text unchanged, with a breakpoint at its end: the tools and the system message (L1 craft + tools, L2 shop values) are the same for
- * every step of the agent, so the first call of another step reads them from the cache this mark wrote. Without the mark only the
- * automatic breakpoint at the end of the request is written, which no other step's request ever reaches. On any other client it is the
- * text itself (no marker reaches a protocol that has none).
+ * The content of the system message of a step's agent: L1, the agent's craft (`NodeAgentLoop.instructions`), then L2, the workspace's
+ * policies (`NodeAgentLoop.policies`, when it has any). On a client whose protocol takes breakpoints each layer is ONE text part with a
+ * breakpoint at its end: the tools and L1 are the same for every step of the agent in every workspace, L2 for every step of the agent
+ * in one workspace, so the first call of another step (or of another workspace, for L1) reads them from the cache those marks wrote. On any
+ * other client it is the text itself, the layers one blank line apart (no marker reaches a protocol that has none).
  *
- * @param instructions - The runner's system text (`NodeAgentLoop.instructions`).
+ * @param instructions - The agent's craft (L1).
+ * @param policies - The workspace's policies (L2); "" or absent when none.
  * @param clientKind - The kind of the client the agent is built over (`_llmType()`).
  * @returns The content.
  */
-export const systemContentOf = (instructions: string, clientKind: string): string | ReadonlyArray<MarkedSystemPart> =>
-    CACHE_MARKED_CLIENTS.has(clientKind) ? [{ type: "text", text: instructions, cache_control: { type: "ephemeral" } }] : instructions
+export const systemContentOf = (
+    instructions: string,
+    policies: string | undefined,
+    clientKind: string,
+): string | ReadonlyArray<LayerPart> => {
+    const layers = [instructions, ...(policies === undefined || policies === "" ? [] : [policies])]
+    return CACHE_MARKED_CLIENTS.has(clientKind)
+        ? layers.map((text): LayerPart => ({ type: "text", text, cache_control: LAYER_END }))
+        : layers.join(LAYER_GAP)
+}
+
+/**
+ * The text of the first user message of a step's agent: on a client whose protocol takes breakpoints, the step (L3) as one part with a
+ * breakpoint at its end, then what holds for this try (L4) as a part of its own, so two runs of the same step read L1-L3 from the cache
+ * and only the try is new; on any other client the one text of `openingTextOf`. Three breakpoints at most (L1, L2, L3): with the
+ * automatic one at the end of the request, Anthropic's four.
+ *
+ * @param loop - The frame of the step.
+ * @param clientKind - The kind of the client the agent is built over (`_llmType()`).
+ * @returns The content.
+ */
+export const openingContentOf = (
+    loop: Pick<NodeAgentLoop, "step" | "volatile" | "input">,
+    clientKind: string,
+): string | ReadonlyArray<LayerPart> =>
+    CACHE_MARKED_CLIENTS.has(clientKind)
+        ? [
+              { type: "text", text: loop.step, cache_control: LAYER_END },
+              { type: "text", text: tryTextOf(loop) },
+          ]
+        : openingTextOf(loop)

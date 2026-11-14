@@ -22,7 +22,15 @@ export { connectorTakenBy, pinOf, toolAudiencesOf, toolStatesOf, undeclaredOpera
 export type { PinnedToolAudience, PinnedToolState, UndeclaredOperation } from "./openapi-pin.policy"
 export { pinCountsOf, pinReportOf } from "./openapi-pin-report.policy"
 export { argumentsSchemaOf, baseUrlProblemOf, plannedRequestOf, resolvedProblemOf } from "./openapi-request.policy"
-export { ENVELOPE_ANSWERS, OUTSIDE_REFUSAL_CLASS, outsideRefusalOf, outsideSuccessOf, toolOutcomeOf } from "./openapi-response.policy"
+export {
+    ENVELOPE_ANSWERS,
+    OUTSIDE_REFUSAL_CLASS,
+    outsideRefusalOf,
+    outsideSuccessOf,
+    responseSchemaOf,
+    toolOutcomeOf,
+} from "./openapi-response.policy"
+export { violationOf } from "./openapi-schema.policy"
 export type {
     AccountBase,
     AccountKey,

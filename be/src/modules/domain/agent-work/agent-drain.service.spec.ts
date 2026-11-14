@@ -100,6 +100,25 @@ const build = async ({ handler = true }: Options = {}) => {
 
 type Fixture = Awaited<ReturnType<typeof build>>
 
+describe("AgentDrainService.drain, rule RETIRED SOURCE", () => {
+    it("closes ONCE by name a wake of a source this process no longer serves: skipped source_retired, reported, nothing runs", async () => {
+        const { service, turns, handler, handlers, executor, endedWakes } = await build()
+        const retired = turn({ source: "retired_source_spec" })
+        turns.begin.mockResolvedValue({ result: "begun", turn: retired, ended: [] })
+        const flow = mock<AgentWorkFlow>({ takes: jest.fn().mockResolvedValue(true) })
+        handlers.flowOf.mockReturnValue(flow)
+
+        await service.drain(PAYLOAD)
+
+        expect(endedWakes.retired).toHaveBeenCalledWith(retired)
+        expect(turns.finish).toHaveBeenCalledTimes(1)
+        expect(turns.finish).toHaveBeenCalledWith(retired, finished({ status: "skipped", reason: "source_retired", outcome: null }))
+        expect(flow.takes).not.toHaveBeenCalled()
+        expect(handler.prepare).not.toHaveBeenCalled()
+        expect(executor.run).not.toHaveBeenCalled()
+    })
+})
+
 describe("AgentDrainService.drain, a wake its agent's graph runs", () => {
     it("lets the flow run a wake it takes, with no handler and no model turn", async () => {
         const { service, turns, handler, handlers, executor } = await build()

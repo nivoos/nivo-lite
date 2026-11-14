@@ -51,6 +51,7 @@ export {
     BRAIN_CHANGE_MATCHES,
     BRAIN_CHANGE_ORIGINS,
     BRAIN_CHANGE_STATES,
+    JOB_PARKED_FAILURE_CLASSES,
     backgroundStoppedKind,
     backgroundStoppedPayload,
     brainChangeKind,
@@ -58,6 +59,8 @@ export {
     brainChangePayloadGiven,
     chainStoppedKind,
     chainStoppedPayload,
+    jobParkedKind,
+    jobParkedPayload,
 } from "./engine-message-kinds"
 export type {
     BackgroundStopReason,
@@ -65,6 +68,8 @@ export type {
     BackgroundStoppedTarget,
     BackgroundTarget,
     BackgroundWork,
+    JobParkedFailureClass,
+    JobParkedPayload,
     BrainChangeAuthor,
     BrainChangeCurrent,
     BrainChangeDecided,

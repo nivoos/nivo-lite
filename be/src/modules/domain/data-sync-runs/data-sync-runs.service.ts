@@ -48,12 +48,21 @@ export class DataSyncRunsService {
         return row === undefined ? null : toDataSyncRun(row)
     }
 
-    /** Settles a run that is still running; a run already settled is left as it is. */
-    async finish(runId: string, state: SettledRunState, rows: number, error: RunFailure): Promise<void> {
-        await this.entityManager.update(
+    /** Settles a run that is still running, in the caller's transaction when one is given; a run already settled is left as it is. */
+    async finish(runId: string, state: SettledRunState, rows: number, error: RunFailure, within?: EntityManager): Promise<void> {
+        await (within ?? this.entityManager).update(
             DataSyncRunEntity,
             { id: runId, status: "running" },
             { status: state, rowsUpserted: rows, error, finishedAt: () => "now()" },
+        )
+    }
+
+    /** Opens a failed run again (a person resumed its dead-lettered job): it runs, and its end is written once more. */
+    async reopen(runId: string): Promise<void> {
+        await this.entityManager.update(
+            DataSyncRunEntity,
+            { id: runId, status: "failed" },
+            { status: "running", error: null, finishedAt: null },
         )
     }
 

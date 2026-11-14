@@ -4,7 +4,7 @@ import { IsNull, Not, Raw, type EntityManager, type SelectQueryBuilder } from "t
 import { ConnectionSecretsService, type OptionalStoredSecret } from "@modules/domain/connection-secrets"
 import { ConnectorInterestService } from "@modules/domain/connector-interest"
 import { WorkspaceMemberSeatsService } from "@modules/domain/workspace-members"
-import { InjectPrimaryEntityManager, returnedRows, rowShape } from "@modules/platform/database"
+import { InjectPrimaryEntityManager, callDbFunction, returnedRows, rowShape } from "@modules/platform/database"
 import type { Secret } from "@modules/platform/config"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { ok, refused, type Outcome } from "@modules/platform/primitives"
@@ -259,6 +259,20 @@ export class ConnectionsService {
         return manager === undefined ? this.entityManager.transaction(write) : write(manager)
     }
 
+    /**
+     * Creates a mailbox account and, when the workspace holds the inbound half of the same address standing alone (`inbound`: an `imap`
+     * account), JOINS it in the same transaction (MAIL-IN rule MI-2, the migration's own `public.mail_halves_join`: the half's sealed
+     * credential copied unopened into the new account's read slot, every reference re-pointed, the half's account removed): one mailbox =
+     * one account. The function refuses anything that is no pair (another address, a sandbox and a live account).
+     */
+    createMailbox(input: CreateConnectionInput, inbound: string | null): Promise<string> {
+        return this.entityManager.transaction(async (tx) => {
+            const id = await this.create(input, tx)
+            if (inbound !== null) await callDbFunction(tx, "public.mail_halves_join", [inbound, id])
+            return id
+        })
+    }
+
     /** Changes the given fields of a connection; a missing one is a typed not-found. */
     async patch(workspaceId: string, id: string, patch: ConnectionPatch): Promise<void> {
         const name = patch.name === undefined ? null : cleanConnectionName(patch.name)
@@ -435,9 +449,13 @@ export class ConnectionsService {
             .execute()
     }
 
-    /** The owner authorized the Zalo OA: its id joins the public facts and an error status clears. */
-    async applyZaloAuthorization(connectionId: string, oaId?: string): Promise<void> {
-        await this.entityManager
+    /** The owner authorized the Zalo OA: its id joins the public facts and an error status clears. Inside the caller's transaction when one is handed in. */
+    async applyZaloAuthorization(
+        connectionId: string,
+        oaId?: string,
+        manager: EntityManager = this.entityManager,
+    ): Promise<void> {
+        await manager
             .createQueryBuilder(ConnectionEntity, "co")
             .update()
             .set({
@@ -513,18 +531,18 @@ export class ConnectionsService {
     }
 
     /** A sync finished: the connection works and the given public facts join the old ones. */
-    markSynced(connectionId: string, facts: SyncFacts): Promise<void> {
-        return this.upkeep.markSynced(connectionId, facts)
+    markSynced(connectionId: string, facts: SyncFacts, within?: EntityManager): Promise<void> {
+        return this.upkeep.markSynced(connectionId, facts, within)
     }
 
     /** A sync failed: the owner reads the reason. */
-    markSyncFailed(connectionId: string, reason: string): Promise<void> {
-        return this.upkeep.markSyncFailed(connectionId, reason)
+    markSyncFailed(connectionId: string, reason: string, within?: EntityManager): Promise<void> {
+        return this.upkeep.markSyncFailed(connectionId, reason, within)
     }
 
     /** Claims the connections of these providers whose scheduled sync is due, soonest first. */
-    claimDueSyncs(providers: ReadonlyArray<Provider>, size: number): Promise<ReadonlyArray<ConnectionOwner>> {
-        return this.upkeep.claimDueSyncs(providers, size)
+    claimDueSyncs(providers: ReadonlyArray<Provider>, size: number, within?: EntityManager): Promise<ReadonlyArray<ConnectionOwner>> {
+        return this.upkeep.claimDueSyncs(providers, size, within)
     }
 
     /** Makes one SMTP connection the workspace default; every other one becomes a spare. */

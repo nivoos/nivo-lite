@@ -19,9 +19,8 @@ export type JobOutcome = "done" | "skipped"
 /** The error a run takes when its job failed for good. */
 export const JOB_FAILED = "job_failed"
 
-/** The bounds of a run and of a stored point, named once. */
+/** The bounds of a stored point, named once. */
 export const DOSSIER_REVIEW_CAPS = {
-    staleRunMinutes: 15,
     evidenceMax: 8,
     titleMax: 200,
     detailMax: 1_000,

@@ -116,6 +116,7 @@ describe("message views", () => {
             stop: null,
             brainChange: null,
             backgroundStopped: null,
+            jobParked: null,
         })
     })
 })
@@ -404,6 +405,24 @@ describe("the NIVO room and NIVO's background.stopped card", () => {
         })
         expect(view).toMatchObject({ authorKind: "system", authorName: "", stop: null, brainChange: null })
         expect(subject.messageViewOf(messageOf(), CONTEXT).backgroundStopped).toBeNull()
+        expect(view.jobParked).toBeNull()
+    })
+
+    it("carries the job.parked card of a system line to the wire and none on any other line", async () => {
+        const subject = await buildSubject()
+        const payload = { version: 1, jobId: "44444444-4444-4444-8444-444444444444", job: "n8n.webhook", failureClass: "input", reason: "WEBHOOK_CONNECTIONS_RECEIVER_REFUSED", episode: 0, since: "2026-11-14T10:00:00.000Z" }
+        const line = messageOf({
+            authorKind: "system",
+            authorId: null,
+            kind: "system",
+            ref: { agent_message: JSON.stringify({ kind: "job.parked", payload }) },
+        })
+
+        const view = subject.messageViewOf(line, CONTEXT)
+
+        expect(view.jobParked).toEqual({ jobId: payload.jobId, job: "n8n.webhook", failureClass: "input", reason: "WEBHOOK_CONNECTIONS_RECEIVER_REFUSED", episode: 0, since: payload.since })
+        expect(view.backgroundStopped).toBeNull()
+        expect(subject.messageViewOf(messageOf(), CONTEXT).jobParked).toBeNull()
     })
 })
 

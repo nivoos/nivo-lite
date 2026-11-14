@@ -52,34 +52,6 @@ export const versionRow = (over: Readonly<Record<string, unknown>> = {}): Readon
         ...over,
     })
 
-/** The stored row of a source (public.agent_graph_sources). */
-export const sourceRow = (over: Readonly<Record<string, unknown>> = {}): Readonly<Record<string, unknown>> =>
-    rowOf("source-1", {
-        versionId: "version-1",
-        agentId: "agent-1",
-        nodeKey: "decide",
-        branchKey: "",
-        kind: "brain",
-        ref: "fact-1",
-        valueHash: "hash",
-        ...over,
-    })
-
-/** The stored row of a proposal (public.agent_graph_proposals). */
-export const proposalRow = (over: Readonly<Record<string, unknown>> = {}): Readonly<Record<string, unknown>> =>
-    rowOf("p1", {
-        agentId: "agent-1",
-        kind: "learned",
-        status: "open",
-        baseVersionId: null,
-        nodeKey: "decide",
-        branchKey: "middle",
-        patch: { signal: "trust", amounts: [1] },
-        widens: false,
-        evidence: { ids: ["d0"] },
-        ...over,
-    })
-
 /** A page of the engine's list answer. */
 export const pageOf = (rows: ReadonlyArray<RecordRow>, next: string | null = null): ListPage => ({
     rows: rows.map((row) => ({ row, joined: {}, position: [], included: {} })),

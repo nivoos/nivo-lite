@@ -9,7 +9,7 @@ import { AgentWorkflowStartService } from "./agent-workflow-start.service"
 import type { AgentWorkflowRunsService } from "./agent-workflow-runs.service"
 import type { AgentWorkflowsAdminService } from "./agent-workflows-admin.service"
 import { WORKFLOW_START_INPUTS_MAX } from "./policies/workflow-start.policy"
-import type { WorkflowDetailWire } from "./policies/workflow-wire.policy"
+import type { WorkflowSettingsDetailWire } from "./agent-workflows-admin.service"
 
 const ACTOR = { workspaceId: "ws-1", principalId: "user-1" }
 const REF = { installationId: "inst-1", workflowId: "wf-1" }
@@ -30,7 +30,7 @@ const installationOf = builder<InstallationRecord>({
     createdAt: "2026-11-01T00:00:00.000Z",
 })
 
-const detailOf = (status: string, graph: Readonly<Record<string, unknown>> = {}): WorkflowDetailWire => ({
+const detailOf = (status: string, graph: Readonly<Record<string, unknown>> = {}): WorkflowSettingsDetailWire => ({
     workflow: {
         id: "wf-1",
         key: "after-sale",
@@ -56,9 +56,10 @@ const detailOf = (status: string, graph: Readonly<Record<string, unknown>> = {})
     }),
     versions: [],
     templateDiff: null,
+    nodeSettings: [],
 })
 
-const build = (detail: WorkflowDetailWire) => {
+const build = (detail: WorkflowSettingsDetailWire) => {
     const admin = mock<AgentWorkflowsAdminService>()
     const installations = mock<InstallationRecordsService>()
     const seats = mock<WorkspaceMemberSeatsService>()

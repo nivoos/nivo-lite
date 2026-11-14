@@ -1,11 +1,11 @@
-// Generates `src/crm/<id>/api.generated.ts` from every pinned `src/crm/<id>/openapi.json` (the ONE derivation lives in
+// Generates `src/shared/crm/<id>/api.generated.ts` from every pinned `src/shared/crm/<id>/openapi.json` (the ONE derivation lives in
 // `@nivo-lite/agent-sdk/names`). `--check` writes nothing and exits 1 when a generated file differs from what the document gives.
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { crmNamesTextOf, crmOpsOf } from "@nivo-lite/agent-sdk/names"
 
-const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "crm")
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "shared", "crm")
 const check = process.argv.includes("--check")
 let failed = false
 

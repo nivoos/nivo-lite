@@ -10,6 +10,7 @@ import {
 } from "@modules/domain/connections"
 import { InjectZalo, isZaloRefusal, type ZaloClient } from "@modules/integrations/zalo"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
+import { isZaloAuthorizationPayload } from "@modules/queues/zalo-authorization"
 import type { OptionalZnsRenewal, ZaloAuthorization, ZaloReturn, ZnsRenewalSettings } from "./channels.contracts"
 import { ChannelsLogEvent } from "./channels.log-events"
 import { ChannelsError } from "./errors/channels.error"
@@ -123,6 +124,15 @@ export class ZaloConnectService {
             })
         this.rememberOaNameLater(connectionId)
         return this.viewOf(await this.connections.get(actor.workspaceId, connectionId))
+    }
+
+    /**
+     * Completes the authorization a queued job carries (a refused return ends it as a typed answer; any other failure is thrown for the
+     * runner), then starts reading the OA's display name in the background: best effort, it never fails, retries or delays the job.
+     */
+    async finishFromJob(payload: unknown): Promise<void> {
+        await this.credentials.completeFromJob(payload)
+        if (isZaloAuthorizationPayload(payload)) this.rememberOaNameLater(payload.state.split(".")[0] ?? "")
     }
 
     /**

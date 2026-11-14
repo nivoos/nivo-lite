@@ -1,4 +1,5 @@
 import type { VectorKind } from "@modules/integrations/qdrant"
+import type { ClaimedJob } from "@modules/platform/jobs"
 
 /** What an embedding call for the sync answered: the vectors, or why there are none. */
 export type VectorsEmbedded =
@@ -18,28 +19,6 @@ export interface VectorEmbedder {
     embed(workspaceId: string, texts: ReadonlyArray<string>): Promise<VectorsEmbedded>
 }
 
-/** The stop the reconcile reports: the upkeep of the meaning index, given up after its runs, for one episode. */
-export interface VectorDriftReport {
-    /** The background work that stopped. */
-    readonly work: "brain.vectors.sync"
-    /** Why: the runs could not repair what they met. */
-    readonly reason: "gave_up"
-    /** When the episode began: the same for every run of it, so the founder gets one card. */
-    readonly episode: Date
-}
-
-/** What a post of a drift report did: posted, already told for this episode, or the workspace has no owner to tell. */
-export type VectorDriftPosted = "posted" | "already" | "no_owner"
-
-/**
- * Where a drift that outlived its runs is told: the app binds NIVO's background report (the team chat's notices) at composition, so
- * this capability never imports the chat.
- */
-export interface VectorDriftReporter {
-    /** Tells the founder of a workspace that the upkeep of the meaning index stopped, once per episode. */
-    postBackgroundStopped(workspaceId: string, report: VectorDriftReport): Promise<VectorDriftPosted>
-}
-
 /** What one sync did, in rows. */
 export interface VectorSyncDone {
     /** Rows whose point was already in step: nothing was sent for them. */
@@ -56,8 +35,6 @@ export interface VectorSyncDone {
     readonly removed: number
     /** Rows that still have no point and wait: no credits, embeddings not configured, or the run's embedding budget is spent. */
     readonly waiting: number
-    /** Rows whose embedding call failed: they have no point and are tried again. */
-    readonly failed: number
     /** How many embedding calls were made (each is booked to its workspace). */
     readonly embedCalls: number
 }
@@ -71,7 +48,6 @@ export const NOTHING_SYNCED: VectorSyncDone = {
     marked: 0,
     removed: 0,
     waiting: 0,
-    failed: 0,
     embedCalls: 0,
 }
 
@@ -81,6 +57,8 @@ export interface VectorSyncMeans {
     readonly given?: ReadonlyMap<string, ReadonlyArray<number>>
     /** The most embedding calls this sync may make; 0 = never embed (adoption only). */
     readonly embedCalls: number
+    /** The claimed job that runs this sync: its outside acts (embedding calls, index writes) are keyed by it; absent for a writer's own fast path. */
+    readonly job?: ClaimedJob
 }
 
 /** What one run of the reconcile did for one kind. */
@@ -97,14 +75,8 @@ export interface VectorReconcileKindDone extends VectorSyncDone {
 
 /** What one run of the reconcile did. */
 export interface VectorReconcileDone {
-    /** ran = the run finished; stopped = the index or an embedding call failed mid-run (or could not be reached). */
-    readonly outcome: "ran" | "stopped"
     /** What was done per kind. */
     readonly kinds: Readonly<Partial<Record<VectorKind, VectorReconcileKindDone>>>
     /** True when a follow-up run was queued: the run repaired something and used its whole budget. */
     readonly continued: boolean
-    /** How many consecutive runs have ended with drift they could not repair. */
-    readonly driftRuns: number
-    /** How many workspaces were told in this run (once per episode). */
-    readonly reported: number
 }

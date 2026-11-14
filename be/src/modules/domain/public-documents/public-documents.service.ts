@@ -244,7 +244,6 @@ export class PublicDocumentsService {
         const row = await this.entityManager.transaction((tx) =>
             this.approveIn(tx, userId, workspaceId, request, member.displayName),
         )
-        if (row.published) await this.published.announce(workspaceId, row.id)
         if (row.gapId !== null) await this.gaps.answer(workspaceId, row.gapId, `document:${row.id}`)
         return this.viewOf(workspaceId, row.id)
     }

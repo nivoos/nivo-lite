@@ -134,3 +134,15 @@ export interface CopyPublisher {
 
 /** The agent that answers a conversation's channel for a role, or null when none does. */
 export type OptionalOwnerAgentId = string | null
+
+/** The agent whose module's workflows are made where it holds none of them yet. */
+export interface FinishWorkflowsRequest {
+    /** The workspace of the agent. */
+    readonly workspaceId: string
+    /** The installation behind the agent. */
+    readonly installationId: string
+    /** The agent. */
+    readonly agentId: string
+    /** The module the agent is an instance of. */
+    readonly moduleKey: string
+}

@@ -20,7 +20,11 @@ import {
     templateTriggerLookup,
     writesTool,
 } from "./template-lookups.policy"
+import { registerAppTriggerDeclarations } from "@tests/fixtures/builders/app-trigger-declarations"
 import { TestWorldError, TestWorldErrorCode } from "@tests/world/test-world.error"
+
+// The lookup reads the trigger registry the booted app fills: every declaration of the app.
+registerAppTriggerDeclarations()
 
 /** A key by its form, as the @2 graph schema reads a saved graph's provider key (`nivo`, a provider such as `telegram`, a CRM's `crm.<id>`). */
 const isProviderKeyForm = (value: string): value is ProviderKey => /^([a-z][a-z0-9_]{1,30}|crm.[a-z][a-z0-9-]{1,30})$/.test(value)
@@ -50,16 +54,16 @@ describe("the engine's lookups of the @2 save checks", () => {
         expect(tools.known(toolIdOf("nivo.tool.nothing.here"))).toBe(false)
         expect(tools.owns(PROVIDER.zaloOa, TOOL.customerMessageSend)).toBe(true)
         expect(tools.owns(PROVIDER.telegram, TOOL.customerMessageSend)).toBe(true)
-        expect(tools.owns(PROVIDER.smtp, TOOL.customerMessageSend)).toBe(false)
+        expect(tools.owns(PROVIDER.smtp, TOOL.customerMessageSend)).toBe(true)
         expect(tools.owns(NIVO, TOOL.customerMessageSend)).toBe(false)
         expect(tools.owns(NIVO, TOOL.agentTag)).toBe(true)
     })
 
-    it("owns the catalogue additions: Casso's credits, the mail send on smtp, and a CRM's generated operations on the CRM's provider key", () => {
+    it("owns the catalogue additions: Casso's credits, the customer send on smtp (its channel `email`), and a CRM's generated operations on the CRM's provider key", () => {
         expect(tools.owns(PROVIDER.casso, TOOL.paymentCreditList)).toBe(true)
         expect(tools.owns(PROVIDER.sepay, TOOL.bankTransactionList)).toBe(true)
-        expect(tools.owns(PROVIDER.smtp, TOOL.mailMessageSend)).toBe(true)
-        expect(tools.owns(NIVO, TOOL.mailMessageSend)).toBe(false)
+        expect(tools.owns(PROVIDER.smtp, TOOL.customerMessageSend)).toBe(true)
+        expect(tools.owns(NIVO, TOOL.customerMessageSend)).toBe(false)
         const prices = toolIdOf("nivo.api.crm.nivoweb.get.prices")
         expect(tools.owns(keyOf("crm.nivoweb"), prices)).toBe(true)
         expect(tools.owns(keyOf("crm.other"), prices)).toBe(false)
@@ -116,13 +120,11 @@ describe("the engine's lookups of the @2 save checks", () => {
             ])
         }
         expect(namesOf(TRIGGER.paymentCreditReceived)).toEqual(["unknown"])
-        expect(namesOf(TRIGGER.mailMessageReceived, PROVIDER.imap)).toEqual([
-            "eventIds",
-            "count",
-            "providerTrigger",
-            "connectionId",
-            "role",
-        ])
+        // A person's mail is their LINE on their route (a channel scope like the chat ones), received on a mailbox account of kind `smtp`
+        // (its inbound half is read by the `imap` receiver); the standalone `imap` kind is no entrance, so the verb is unknown through it.
+        expect(namesOf(TRIGGER.mailMessageReceived, PROVIDER.smtp)).toEqual(["eventId", "accountId", "contactId", "routeId", "subject", "data", "locale"])
+        expect(dataOf(TRIGGER.mailMessageReceived, PROVIDER.smtp)).toEqual(["messageKey", "text", "at", "files", "resume"])
+        expect(namesOf(TRIGGER.mailMessageReceived, PROVIDER.imap)).toEqual(["unknown"])
         // The clock's slot is `data.slotMs` (the generic scope: its id, its data, the run's language).
         expect(templateTriggerLookup.supplies(TRIGGER.clockTick)).toEqual({
             kind: "fixed",

@@ -15,6 +15,7 @@ import type { AiService } from "@modules/integrations/ai"
 import { KnowledgeSourcesReadService, type SourceDocument } from "@modules/domain/knowledge-sources"
 import { ToolsErrorCode } from "@modules/domain/tools"
 import { CLOCK } from "@modules/platform/clock"
+import { BrainPolicyStoreService } from "@modules/domain/brain"
 import { BRAIN_MANIFEST, BRAIN_NOTICE, BrainNativeService } from "./brain-native.service"
 import { nativeRefusal } from "./native-refusal.policy"
 import { viewOfCall } from "./native-view.policy"
@@ -36,6 +37,8 @@ const build = async (scope: Scope = { module: "sales", installationId: null }) =
         Promise.resolve(viewOfCall(workspaceId, scope, caller.conversationId)),
     )
     const facts = mock<BrainFactsReadService>()
+    const policies = mock<BrainPolicyStoreService>()
+    policies.openPolicies.mockResolvedValue([])
     facts.searchHybrid.mockResolvedValue([brainFactOf()])
     facts.forView.mockResolvedValue([brainFactOf()])
     facts.get.mockResolvedValue(brainFactOf())
@@ -75,23 +78,26 @@ const build = async (scope: Scope = { module: "sales", installationId: null }) =
             { provide: AI, useValue: ai },
             { provide: BrainFactEmbeddingsService, useValue: vectors },
             { provide: UsageMeterService, useValue: usage },
+            { provide: BrainPolicyStoreService, useValue: policies },
         ],
     }).compile()
-    return { brain: moduleRef.get(BrainNativeService), views, facts, knowledge, documents, relations, changes, ai, vectors, usage }
+    return { brain: moduleRef.get(BrainNativeService), views, facts, knowledge, documents, relations, changes, ai, vectors, usage, policies }
 }
 
 describe("BrainNativeService manifest", () => {
-    it("declares five read tools at auto and one change request write; the document read and the change request are closed to a customer turn", () => {
+    it("declares six read tools at auto and one change request write; the document read and the change request are closed to a customer turn", () => {
         expect(BRAIN_MANIFEST.key).toBe("brain")
         expect(BRAIN_MANIFEST.tools.map((tool) => [tool.name, tool.scope, tool.defaultMode])).toEqual([
             ["search", "read", "auto"],
             ["fact.list", "read", "auto"],
+            ["policy.list", "read", "auto"],
             ["fact.get", "read", "auto"],
             ["document.read", "read", "auto"],
             ["fact.related", "read", "auto"],
             ["change.propose", "write", "auto"],
         ])
         expect(BRAIN_MANIFEST.tools.map((tool) => tool.internalOnly)).toEqual([
+            undefined,
             undefined,
             undefined,
             undefined,
@@ -102,12 +108,13 @@ describe("BrainNativeService manifest", () => {
         expect(BRAIN_MANIFEST.tools.map((tool) => tool.secretFields)).toEqual([
             ["notice", "query", "subject", "attribute", "value"],
             ["notice", "subject", "attribute", "value"],
+            ["notice", "group", "title", "value"],
             ["notice", "subject", "attribute", "value", "label"],
             ["notice", "title", "topic", "text"],
             ["notice", "subject", "attribute", "value", "label"],
             ["notice", "subject", "attribute", "value", "quote", "reason"],
         ])
-        expect(BRAIN_MANIFEST.tools.map((tool) => tool.taints)).toEqual([true, true, true, true, true, undefined])
+        expect(BRAIN_MANIFEST.tools.map((tool) => tool.taints)).toEqual([true, true, true, true, true, true, undefined])
     })
 })
 
@@ -250,6 +257,64 @@ describe("BrainNativeService facts.list", () => {
         const answer = await brain.invoke(WS, "fact.list", { subject: "Combo Thu gian" }, AGENT)
 
         expect(answer["facts"]).toEqual([expect.objectContaining({ id: "f1" })])
+    })
+})
+
+describe("BrainNativeService policy.list: the workspace's policies in force of the view", () => {
+    const judgementOf = (subjectKey: string, attribute: string, groupKey: string, installationId: string | null = null) => ({
+        id: `p-${subjectKey}`,
+        subjectKey,
+        attribute,
+        installationId,
+        factId: `f-${subjectKey}`,
+        factVersion: 1,
+        basis: "b",
+        kind: "policy" as const,
+        title: `Title ${subjectKey}`,
+        groupKey,
+        groupLabel: `Group ${groupKey}`,
+        valueType: "text",
+        reason: "r",
+        status: "open" as const,
+    })
+
+    it("serves only the facts in force of the view that an open judgement marks as a policy, in the stable order of group then truth", async () => {
+        const { brain, facts, policies } = await build({ module: "sales", installationId: null })
+        facts.forView.mockResolvedValue([
+            brainFactOf({ id: "f-zeta", subjectKey: "zeta", attribute: "a", value: "Z" }),
+            brainFactOf({ id: "f-price", subjectKey: "price", attribute: "a", value: "P" }),
+            brainFactOf({ id: "f-alpha", subjectKey: "alpha", attribute: "a", value: "A" }),
+        ])
+        policies.openPolicies.mockResolvedValue([judgementOf("zeta", "a", "g1"), judgementOf("alpha", "a", "g2")])
+
+        const answer = await brain.invoke(WS, "policy.list", {}, AGENT)
+
+        expect(answer).toMatchObject({
+            notice: BRAIN_NOTICE,
+            total: 2,
+            policies: [
+                { id: "f-zeta", group: "Group g1", title: "Title zeta", value: "Z", until: null },
+                { id: "f-alpha", group: "Group g2", title: "Title alpha", value: "A", until: null },
+            ],
+        })
+        expect(JSON.stringify(answer)).not.toContain('"P"')
+        expect(facts.forView).toHaveBeenCalledWith(WS, "internal", "sales", null, 2000)
+    })
+
+    it("serves no policy when nothing is judged a policy: never an arbitrary page of facts", async () => {
+        const { brain } = await build()
+        await expect(brain.invoke(WS, "policy.list", {}, AGENT)).resolves.toMatchObject({ total: 0, policies: [] })
+    })
+
+    it("caps the page at its limit and still says how many there are", async () => {
+        const { brain, facts, policies } = await build()
+        facts.forView.mockResolvedValue([
+            brainFactOf({ id: "f-a", subjectKey: "a", attribute: "x" }),
+            brainFactOf({ id: "f-b", subjectKey: "b", attribute: "x" }),
+        ])
+        policies.openPolicies.mockResolvedValue([judgementOf("a", "x", "g"), judgementOf("b", "x", "g")])
+
+        await expect(brain.invoke(WS, "policy.list", { limit: 1 }, AGENT)).resolves.toMatchObject({ total: 2, policies: [{ id: "f-a" }] })
     })
 })
 

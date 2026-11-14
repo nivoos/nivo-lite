@@ -7,13 +7,13 @@ import { ConfigurableModuleClass, OPTIONS_TYPE } from "./data-hub.module-definit
 import { DataHubService } from "./data-hub.service"
 import { DataConnectorRegistrationService } from "./data-connector-registration.service"
 import { DataSyncService } from "./data-sync.service"
-import { DataSyncTriggerService } from "./data-sync-trigger.service"
 import { DatabaseSandboxSyncService } from "./database-sandbox-sync.service"
 import { DatabaseSyncService } from "./database-sync.service"
 import { DatabaseWizardService } from "./database-wizard.service"
-import { ImapConnectorRegistrationService } from "./imap-connector-registration.service"
-import { ImapSandboxSyncService } from "./imap-sandbox-sync.service"
-import { ImapSyncService } from "./imap-sync.service"
+import { ImapInboxPollerService } from "./imap-inbox-poller.service"
+import { ImapSandboxPollerService } from "./imap-sandbox-poller.service"
+import { MailAdmissionService } from "./mail-admission.service"
+import { MailInboundRegistrationService } from "./mail-inbound-registration.service"
 import { DataConnectorRegistryService } from "./data-connector-registry.service"
 import { IMAP_MAIL_TRIGGER } from "./imap-mail.trigger"
 import { ImapWizardService } from "./imap-wizard.service"
@@ -25,7 +25,7 @@ import { TelegramUserSyncService } from "./telegram-user-sync.service"
 import { TelegramUserWizardService } from "./telegram-user-wizard.service"
 
 @Module({})
-/** The data hub: what a workspace's own systems hold (a database, an API, an import, a mailbox, a personal Telegram), the wizards that connect them and the syncs that read them. */
+/** The data hub: what a workspace's own systems hold (a database, an API, an import, a mailbox, a personal Telegram), the wizards that connect them and the syncs that read them; a mailbox's inbound half is read by the connection poll (`MailInboundRegistrationService`: its poll receiver and admission), never by a data sync. */
 export class DataHubModule extends ConfigurableModuleClass implements OnModuleInit {
     /** Registers the capability once in the API app. */
     static register(options: typeof OPTIONS_TYPE): DynamicModule {
@@ -37,7 +37,6 @@ export class DataHubModule extends ConfigurableModuleClass implements OnModuleIn
                 ...(base.providers ?? []),
                 DataHubService,
                 DataSyncService,
-                DataSyncTriggerService,
                 CsvImportWizardService,
                 CsvImportSyncService,
                 DatabaseWizardService,
@@ -45,10 +44,11 @@ export class DataHubModule extends ConfigurableModuleClass implements OnModuleIn
                 DatabaseSandboxSyncService,
                 DataConnectorRegistrationService,
                 ImapWizardService,
-                ImapSyncService,
-                ImapSandboxSyncService,
+                ImapInboxPollerService,
+                ImapSandboxPollerService,
+                MailAdmissionService,
+                MailInboundRegistrationService,
                 DataConnectorRegistryService,
-                ImapConnectorRegistrationService,
                 OpenApiToolsPinService,
                 CrmConnectService,
                 TelegramUserWizardService,

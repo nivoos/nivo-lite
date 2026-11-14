@@ -28,25 +28,15 @@ export interface IncomingCredit {
     readonly bankRef?: string
 }
 
-/** The payload stored for one workspace-feed receipt. */
-export interface FeedReceiptPayload {
-    /** The authenticated connection identity. */
-    readonly connection: string
-    /** The normalized credits of the delivery. */
-    readonly credits: ReadonlyArray<IncomingCredit>
-    /** `poll` when a reconcile run read the transaction back from the provider because its webhook never delivered it; absent for a webhook delivery. */
-    readonly source?: "poll"
-}
-
-/** A pending delivery of a bank door, held by the caller's transaction lock until its consumption and completion commit together. */
-export interface PendingBankFeedInboxReceipt {
-    /** The receipt data, in the shape the consumer reads (the connection is the account's). */
-    readonly payload: FeedReceiptPayload
-    /** The account the delivery belongs to. */
+/** A pending movement of a bank door, held by the caller's transaction lock until its consumption and completion commit together. */
+export interface PendingBankMovement {
+    /** The movement as its `<provider>.transaction` row holds it. */
+    readonly value: Readonly<Record<string, unknown>>
+    /** The account the movement belongs to. */
     readonly owner: AccountOwner
-    /** The locked delivery row, as its completion needs it. */
+    /** The locked row, as its completion needs it. */
     readonly row: PendingRow
 }
 
-/** A pending receipt, or undefined when it is absent or already complete. */
-export type BankFeedInboxReceiptLookup = PendingBankFeedInboxReceipt | undefined
+/** A pending movement, or undefined when it is absent or already complete. */
+export type BankMovementLookup = PendingBankMovement | undefined

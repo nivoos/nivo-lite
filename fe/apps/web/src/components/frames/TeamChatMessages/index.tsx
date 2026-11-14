@@ -3,6 +3,7 @@ import { Alert, Button, Cluster, Divider, MessageBubble, Stack } from "@starci/g
 import { ChatNoticeGroup } from "@/components/composites/ChatNoticeGroup"
 import type {
     TeamChatBrainChangeHandlers,
+    TeamChatJobParkedHandlers,
     TeamChatMessageRow,
     TeamChatMessagesCopy,
     TeamChatStopHandlers,
@@ -33,6 +34,8 @@ interface TeamChatMessagesProps {
     readonly stops?: TeamChatStopHandlers
     /** The truth-change cards and their decision; a thread that has none (the setup chat) draws them without buttons. */
     readonly changes?: TeamChatBrainChangeHandlers
+    /** The "job stopped" cards and what is done with them; a thread that has none (the setup chat) draws them as notices. */
+    readonly jobs?: TeamChatJobParkedHandlers
     /** React to, reply to and forward a message; a thread that cannot (the setup chat) passes none and draws no toolbar. */
     readonly onReact?: (messageId: string, emoji: string) => void
     readonly onReply?: (messageId: string) => void
@@ -90,6 +93,7 @@ export const TeamChatMessages = (props: TeamChatMessagesProps) => {
         onDecide: props.onDecide,
         stops: props.stops,
         changes: props.changes,
+        jobs: props.jobs,
         onReact: props.onReact,
         onReply: props.onReply,
         onShare: props.onShare,

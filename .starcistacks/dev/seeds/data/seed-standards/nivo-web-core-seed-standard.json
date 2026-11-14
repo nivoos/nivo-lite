@@ -1,0 +1,7 @@
+{
+  "schema": "nivo/seed-standard@1",
+  "name": "nivo-web-core-seed-standard",
+  "repository": "https://github.com/starci183/nivo-web-core-seed-standard",
+  "commit": "8dd9eb07a0bfa9c61ba03af106c45e7de3d3c66b",
+  "completeness": "ext:seed-standards"
+}

@@ -1,6 +1,7 @@
 import { FakeClock, mock } from "@starci/jest-preset"
 import { CONTEXT_NOTICE } from "@modules/domain/context-sources"
-import { CustomerMessagesService, type CustomerLine } from "@modules/domain/customer-routes"
+import { CustomerMessagesService, StreamCursorService, type CustomerLine } from "@modules/domain/customer-routes"
+import { MemoryStreamCursorStore } from "@tests/fixtures/builders/customer-routes-stores.builder"
 import { THREAD_LIST_DEFAULT, THREAD_TEXT_MAX } from "./customer-message-native.schema"
 import { CONVERSATION_MESSAGE_MANIFEST, CONVERSATION_SOURCE, CustomerMessageNativeService } from "./customer-message-native.service"
 
@@ -65,9 +66,12 @@ describe("CustomerMessageNativeService (nivo.tool.conversation.message.list, eng
             notice: CONTEXT_NOTICE,
             source: CONVERSATION_SOURCE,
             asOf: NOW.toISOString(),
+            // No stream cursor in this app (none composed): the reader falls back to "after the shop's last line".
+            consumedSeq: null,
             facts: [
-                { role: "agent", direction: "to_person", text: "Chị gửi ảnh nhé", at: typed.saidAt, agentId: null, memberId: "member-1" },
+                { seq: "1", role: "agent", direction: "to_person", text: "Chị gửi ảnh nhé", at: typed.saidAt, agentId: null, memberId: "member-1" },
                 {
+                    seq: "1",
                     role: "agent",
                     direction: "to_person",
                     text: "Dạ còn ạ",
@@ -76,7 +80,7 @@ describe("CustomerMessageNativeService (nivo.tool.conversation.message.list, eng
                     agentId: "agent-front",
                     memberId: null,
                 },
-                { role: "user", direction: "from_person", text: "Shop còn hoa hồng không?", at: "2026-11-14T02:00:00.000Z", agentId: null, memberId: null },
+                { seq: "1", role: "user", direction: "from_person", text: "Shop còn hoa hồng không?", at: "2026-11-14T02:00:00.000Z", agentId: null, memberId: null },
             ],
         })
     })
@@ -126,5 +130,30 @@ describe("CustomerMessageNativeService (nivo.tool.conversation.message.list, eng
         const { service } = build([])
 
         await expect(service.invoke("ws-1", "send", {}, CALLER)).rejects.toThrow()
+    })
+
+    // THE STREAM CURSOR (rule QB-P5 C-4): the answer names what runs consumed of the route; a read inside a graph step is that step's
+    // pending read (under its call key) until the step ends; a read outside a step (no step key) notes nothing.
+    it("answers the route's cursor and notes a graph step's CONSUMING read as pending until that step ends", async () => {
+        const store = new MemoryStreamCursorStore()
+        const cursor = new StreamCursorService(store)
+        const lines = mock<CustomerMessagesService>()
+        lines.threadOf.mockResolvedValue({
+            rows: [line({ seq: "12", direction: "to_person", state: "delivered" }), line({ seq: "11" }), line({ seq: "10" })],
+            next: null,
+        })
+        const service = new CustomerMessageNativeService(lines, new FakeClock(NOW), cursor)
+        const step = { ...CALLER, graphStep: true as const, opKey: "run-1:hear:d1" }
+
+        // A read for context (no `consume`) notes nothing.
+        await service.invoke("ws-1", "list", {}, { ...step, opKey: "run-1:understand:d1" })
+        expect(store.rows.get(ROUTE)).toBeUndefined()
+        expect(await service.invoke("ws-1", "list", { consume: true }, step)).toMatchObject({ consumedSeq: null })
+        expect(store.rows.get(ROUTE)?.read).toEqual({ by: "run-1:hear:d1", seq: "11" })
+        await cursor.stepEnded("ws-1", "run-1", "hear")
+        expect(await service.invoke("ws-1", "list", {}, CALLER)).toMatchObject({ consumedSeq: "11", facts: [{ seq: "12" }, { seq: "11" }, { seq: "10" }] })
+        // A consuming read outside a step notes nothing new.
+        await service.invoke("ws-1", "list", { consume: true }, CALLER)
+        expect(store.rows.get(ROUTE)?.read).toBeNull()
     })
 })

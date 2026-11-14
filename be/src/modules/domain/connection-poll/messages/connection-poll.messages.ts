@@ -12,9 +12,11 @@ export const POLL_NEEDS_PERMISSION_REASON =
 export const CONNECTION_POLL_MESSAGES: MessageBundle = {
     vi: {
         "errors.CONNECTION_POLL_DEFERRED": "Nhà cung cấp đang giới hạn tần suất đọc. Sẽ thử lại sau ít phút.",
+        "errors.CONNECTION_POLL_RECEIVER_MISSING": "Nhà cung cấp của kết nối này chưa có lối đọc lại.",
     },
     en: {
         "errors.CONNECTION_POLL_DEFERRED":
             "The provider is limiting how often it can be read. It will be tried again shortly.",
+        "errors.CONNECTION_POLL_RECEIVER_MISSING": "The provider of this connection has no poll receiver.",
     },
 }

@@ -1,26 +1,19 @@
 import { Injectable } from "@nestjs/common"
 import { DataSyncService } from "@modules/domain/data-hub"
-import { InjectJobClaims, type ClaimedJob, type JobClaims, type JobStep } from "@modules/platform/jobs"
+import { AdvancingJobStepPolicy, InjectJobClaims, type ClaimedJob, type JobClaims, type JobStep } from "@modules/platform/jobs"
 
 @Injectable()
-/** The one effect of the job: a scheduler tick queues the due syncs, and a sync job reads the owner's system into the hub and settles its run. */
-export class RunDataSyncStep implements JobStep {
+/** The one effect of the job: one connection's own system is read into the hub and its run and connection are settled. */
+export class RunDataSyncStep extends AdvancingJobStepPolicy implements JobStep {
     constructor(
         private readonly sync: DataSyncService,
-        @InjectJobClaims() private readonly claims: JobClaims,
-    ) {}
-
-    /**
-     * Records the step with the token this worker holds FIRST, so a stale token stops here before any effect; then runs the tick or the sync.
-     * A failed sync is settled on its run, not thrown, so the queue does not repeat a sync the owner already reads as failed.
-     */
-    async run(job: ClaimedJob): Promise<void> {
-        await this.claims.advance({ jobId: job.jobId, expectedFencingToken: job.fencingToken, step: "sync" })
-        await this.sync.process(job.payload)
+        @InjectJobClaims() claims: JobClaims,
+    ) {
+        super(claims, "sync")
     }
 
-    /** Settles the run of a job that ran out of attempts, so the owner stops waiting. */
-    abandon(payload: object): Promise<void> {
-        return this.sync.abandonJob(payload)
+    /** Runs the sync after the worker's claim has been checked: one domain method, the job passed down. */
+    protected perform(_payload: object, job: ClaimedJob): Promise<unknown> {
+        return this.sync.run(job)
     }
 }

@@ -37,6 +37,11 @@ export interface DrivenRun {
     readonly namespace: string
     /** The workflow the run is pinned to, or null. */
     readonly workflowId: string | null
+    /**
+     * Steps this drive refuses to run (rule STEP-REFUSAL, `step-refusal.policy.ts`): a visit of one of these node keys is the engine
+     * stop `code` at once, before its node runs. Absent: every step runs.
+     */
+    readonly refuse?: { readonly stepKeys: ReadonlyArray<string>; readonly code: string } | undefined
 }
 
 /** A version to build a graph from when the caller already holds its spec (the wake's route). */
@@ -138,8 +143,9 @@ export class ThreadGraphsService {
             },
             // Both forms run in one install: the `defineNode` nodes, and the template nodes with the engine's `if` of a @2 graph.
             new Set([...this.nodes.installed().nodes.keys(), ...templateStepIds()]),
-            // A for-each runs as a sequential cycle: the node function drives its frame (`compiler-loop.policy.ts`).
-            { loops: true },
+            // A for-each runs as a sequential cycle: the node function drives its frame (`compiler-loop.policy.ts`). Rule Q-5: a pinned
+            // version runs while it can; a step whose node is no longer installed stops the run for a person when it REACHES that step.
+            { loops: true, notInstalled: "stop" },
         )
         // The engine's loop and cycle checks: a cycle only through a loop, an until loop's cap, branch and condition.
         const loops = untilCompileProblemsOf(flow)
@@ -191,8 +197,12 @@ export class ThreadGraphsService {
                 ...compiled.nodes.map((step) => ({
                     key: step.key,
                     ends: step.ends,
-                    run: (state: ThreadState, scope: ThreadNodeScope) =>
-                        this.steps.run({ ...this.runOf(scope), versionId, flow, step, replay }, state, scope),
+                    run: (state: ThreadState, scope: ThreadNodeScope) => {
+                        const run = this.runOf(scope)
+                        // A step this drive refuses (its re-drives spent) carries the refusal for this run only; the built graph is shared.
+                        const refused = run.refuse?.stepKeys.includes(step.key) === true ? { ...step, refusal: run.refuse.code } : step
+                        return this.steps.run({ ...run, versionId, flow, step: refused, replay }, state, scope)
+                    },
                 })),
                 {
                     key: compiled.freeze.key,

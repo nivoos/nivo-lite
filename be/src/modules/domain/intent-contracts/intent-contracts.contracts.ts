@@ -33,25 +33,3 @@ export interface IntentBusiness {
     /** Where the task came from. */
     readonly sources: ReadonlyArray<IntentSource>
 }
-
-/** The work the model found no intent for, in its own words. */
-export interface IntentGapText {
-    /** What was asked, in one short sentence. */
-    readonly question: string
-    /** What it is about. */
-    readonly topic: string
-}
-
-/** A gap raised for the owner. */
-export interface IntentGap extends IntentGapText {
-    /** The workspace. */
-    readonly workspaceId: string
-    /** The agent. */
-    readonly agentId: string
-    /** The version the turn ran on. */
-    readonly versionId: string
-    /** The trigger of the turn. */
-    readonly trigger: IntentTrigger
-    /** For a rule of the setup text the graph does not hold: the sum it names, VND. Absent for any other gap. */
-    readonly amountVnd?: number | undefined
-}

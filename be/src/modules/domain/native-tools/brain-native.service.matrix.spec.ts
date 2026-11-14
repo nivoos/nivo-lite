@@ -1,3 +1,4 @@
+import { BrainPolicyStoreService } from "@modules/domain/brain"
 import { Test } from "@nestjs/testing"
 import { FakeClock, mock } from "@starci/jest-preset"
 import {
@@ -130,6 +131,7 @@ const build = async (module: string, served: ReadonlyArray<FactRecord>, kin: Rea
                 }),
             },
             { provide: UsageMeterService, useValue: mock<UsageMeterService>() },
+            { provide: BrainPolicyStoreService, useValue: mock<BrainPolicyStoreService>() },
         ],
     }).compile()
     return { brain: moduleRef.get(BrainNativeService), changes }

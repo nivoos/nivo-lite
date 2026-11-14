@@ -3,6 +3,7 @@ import { BRANCH_FIELD, LOOP_BODY_ROUTE, LOOP_STEP, type NodeRole } from "@nivo-l
 import { THREAD_END } from "@modules/integrations/langgraph"
 import { isFanoutLoop, loopProblemsOf, loopShapesOf, type LoopShapes } from "./compiler-loop.policy"
 import { endingTargetsOf } from "./step-ending.policy"
+import { STEP_NOT_INSTALLED } from "./step-refusal.policy"
 
 /**
  * The name of the engine node every compiled graph carries: a step that cannot complete goes there, it stops the thread and the
@@ -100,6 +101,11 @@ export interface CompiledStep {
      * iteration; the node runs under the step key `<node>[<index>]` of the iteration.
      */
     readonly inLoop?: string | undefined
+    /**
+     * The engine stop a visit of this step ends in at once, before its node runs (`step-refusal.policy.ts`): set by the RUN compile on a
+     * step whose node is not installed (`STEP_NOT_INSTALLED`), and by a drive that refuses the step for one run (its re-drives spent).
+     */
+    readonly refusal?: string | undefined
 }
 
 /** The engine's freeze node: it interrupts, and the founder's decision sends the thread back to a step, to itself or to the end. */
@@ -143,6 +149,12 @@ export type TemplateProblemCode =
 export interface CompileOptions {
     /** True compiles a for-each into its cycle. */
     readonly loops?: boolean | undefined
+    /**
+     * A step whose node is not installed: `refuse` (the default) refuses the whole version `TEMPLATE_STEP_UNKNOWN`; `stop` compiles it
+     * with `refusal: STEP_NOT_INSTALLED`, so a run pinned to the version runs while it can and stops for a person when it REACHES that
+     * step (rule Q-5: the RUN compile only; a save never compiles a graph through here).
+     */
+    readonly notInstalled?: "refuse" | "stop" | undefined
 }
 
 /** One problem and where it is: a node key, or `<from>-><to>` for an edge. */
@@ -234,10 +246,11 @@ const stepProblems = (
     spec: GraphSpec,
     installed: ReadonlySet<string>,
     loops: LoopShapes | null,
+    stopsAtMissing: boolean,
 ): ReadonlyArray<TemplateProblem> => [
     ...spec.nodes.flatMap((node): ReadonlyArray<TemplateProblem> => {
         if (node.step === LOOP_STEP && loops === null) return [{ code: "TEMPLATE_LOOP_PHASE_2", at: node.key }]
-        if (isStop(node) || installed.has(node.step)) return []
+        if (isStop(node) || installed.has(node.step) || stopsAtMissing) return []
         return [{ code: "TEMPLATE_STEP_UNKNOWN", at: node.key }]
     }),
     ...(loops === null ? [] : loopProblemsOf(spec, loops)),
@@ -292,10 +305,16 @@ export const compileTemplate = (
     const { pin, spec } = source
     const nodes = new Map(spec.nodes.map((node) => [node.key, node]))
     const loops = options.loops === true ? loopShapesOf(spec) : null
-    const problems = [...shapeProblems(spec, nodes), ...stepProblems(spec, installed, loops)]
+    const stopsAtMissing = options.notInstalled === "stop"
+    const problems = [...shapeProblems(spec, nodes), ...stepProblems(spec, installed, loops, stopsAtMissing)]
     const first = spec.nodes[0]
     if (problems.length > 0 || first === undefined) return { kind: "refused", pin, problems }
-    const steps = spec.nodes.filter((node) => !isStop(node)).map((node) => nodeOf(nodes, node, loops))
+    const steps = spec.nodes
+        .filter((node) => !isStop(node))
+        .map((node) => {
+            const step = nodeOf(nodes, node, loops)
+            return installed.has(node.step) ? step : { ...step, refusal: STEP_NOT_INSTALLED }
+        })
     return {
         kind: "compiled",
         graph: {

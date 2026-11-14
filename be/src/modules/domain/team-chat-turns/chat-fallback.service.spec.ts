@@ -88,6 +88,7 @@ const DELIVERED = (over: Partial<Extract<DeliverResult, { status: "delivered" }>
     status: "delivered",
     events: 1,
     dropped: 0,
+    sameFact: 0,
     woken: [],
     repeats: 0,
     untaken: 0,

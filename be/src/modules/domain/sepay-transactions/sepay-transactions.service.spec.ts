@@ -443,12 +443,12 @@ const claimedJob: ClaimedJob = {
 
 describe("SepayTransactionsService claimed delivery", () => {
     it.each([undefined, null, 1, "id", {}, { deliveryId: "" }, { deliveryId: "   " }, { deliveryId: 1 }])(
-        "discards malformed references before advancing the fence: %p",
+        "refuses a malformed reference as an input failure before advancing the fence: %p",
         async (payload) => {
             const { settlement, claims, tx } = await build([])
             const job = { ...claimedJob }
             Reflect.set(job, "payload", payload)
-            await settlement.processClaimedDelivery(job, claims)
+            await expect(settlement.processClaimedDelivery(job, claims)).rejects.toMatchObject({ params: { failureClass: "input" } })
             expect(claims.advance).not.toHaveBeenCalled()
             expect(tx.outcomes).toEqual([])
         },

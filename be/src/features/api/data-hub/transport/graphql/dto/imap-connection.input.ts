@@ -70,12 +70,4 @@ export class ImapConnectionInput {
     @Min(1)
     @Max(3650)
     sinceDays?: number | null
-
-    /** Minutes between scheduled syncs: 15, 60 or 360; null is manual only. */
-    @Field(() => Int, { nullable: true })
-    @IsOptional()
-    @IsInt()
-    @Min(1)
-    @Max(10_080)
-    syncEveryMinutes?: number | null
 }

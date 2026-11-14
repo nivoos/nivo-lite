@@ -1,12 +1,13 @@
 import { Injectable } from "@nestjs/common"
-import type { EntityManager } from "typeorm"
+import { In, type EntityManager } from "typeorm"
 import { UsageMeterService } from "@modules/domain/knowledge"
 import { KnowledgeSourcesReadService } from "@modules/domain/knowledge-sources"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
+import type { ClaimedJob } from "@modules/platform/jobs"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
-import { KNOWLEDGE_BLOCKED_CREDITS, isPublicDraftPayload } from "@modules/queues/knowledge"
+import { KNOWLEDGE_BLOCKED_CREDITS, isPublicDraftPayload, type PublicDraftPayload } from "@modules/queues/knowledge"
 import { shownSourcesOf } from "./draft-sources.policy"
-import { PublicDocumentsErrorCode } from "./errors/public-documents.error"
+import { PublicDocumentsError, PublicDocumentsErrorCode } from "./errors/public-documents.error"
 import { InternalReaderService } from "./internal-reader.service"
 import { PublicDocumentEntity, PublicDocumentSourceEntity } from "./persistence/entities"
 import { PublicDraftWriterService } from "./public-draft-writer.service"
@@ -16,11 +17,8 @@ import { PublicDocumentsLogEvent } from "./public-documents.log-events"
 /** What the job did with its row. */
 export type PublicDraftOutcome = "done" | "skipped"
 
-/** What one draft call came to: a text, nothing to write (the documents do not answer), or no readable answer. */
-type Composed =
-    | { readonly kind: "written"; readonly body: string }
-    | { readonly kind: "nothing" }
-    | { readonly kind: "unavailable" }
+/** What one draft call came to: a text, or nothing to write (the documents do not answer). A model that did not answer throws. */
+type Composed = { readonly kind: "written"; readonly body: string } | { readonly kind: "nothing" }
 
 /** The area a draft reads: what customers may read. Any other value, or none, is the internal area. */
 const PUBLIC_AREA = "public"
@@ -32,7 +30,9 @@ const PUBLIC_AREA = "public"
  * document's AREA is its audience, so only documents of the public area are read and shown to the model; nothing is labelled by a
  * model or a word list. A chosen document that is not in the public area (or whose area cannot be read) is refused before anything
  * is read; among the documents a search finds, only the public ones are read. ONE model call writes the text and says whether the
- * documents answer what is asked; no answer writes nothing. The result waits for a person: nothing here publishes.
+ * documents answer what is asked; no answer writes nothing. The result waits for a person: nothing here publishes. Nothing here deletes
+ * a document either: a draft that cannot be made leaves the row `failed` (or a published one published) with the stored code of why,
+ * for the owner to read and ask again; a model that did not answer throws, and the job's ladder and dead letter decide.
  */
 export class PublicDraftRunService {
     constructor(
@@ -44,9 +44,14 @@ export class PublicDraftRunService {
         @InjectLogger() private readonly logger: Logger,
     ) {}
 
-    /** Writes the document the job names; a row that is no longer drafting is left as it is. */
-    async generate(payload: object): Promise<PublicDraftOutcome> {
-        if (!isPublicDraftPayload(payload)) return "skipped"
+    /**
+     * Writes the document the claimed job names; a row that is no longer drafting is a normal end. A job a person handed back after its
+     * dead letter opens the row its failure hook closed. The model call is keyed by the job (`<jobId>:draft`).
+     */
+    async generate(job: ClaimedJob): Promise<PublicDraftOutcome> {
+        const payload = job.payload
+        if (!isPublicDraftPayload(payload)) throw new PublicDocumentsError({ code: PublicDocumentsErrorCode.PayloadInvalid })
+        if ((job.resumeCount ?? 0) > 0) await this.reopen(payload)
         const row = await this.entityManager.findOne(PublicDocumentEntity, {
             where: { id: payload.documentId, workspaceId: payload.workspaceId },
         })
@@ -55,12 +60,16 @@ export class PublicDraftRunService {
             await this.stop(row, KNOWLEDGE_BLOCKED_CREDITS)
             return "done"
         }
-        if (row.gapId === null) await this.draft(row)
-        else await this.answer(row)
+        const key = `${job.jobId}:draft`
+        if (row.gapId === null) await this.draft(row, key)
+        else await this.answer(row, key)
         return "done"
     }
 
-    /** The job ended as failed after its retries: the document says so, and the owner can ask again. */
+    /**
+     * The job was dead-lettered (one item for a person): the document says the draft could not be made (a published one stays
+     * published and serves its approved text), whoever asked for it; a resume of the job opens it again.
+     */
     async fail(payload: object): Promise<void> {
         if (!isPublicDraftPayload(payload)) return
         const row = await this.entityManager.findOne(PublicDocumentEntity, {
@@ -71,9 +80,22 @@ export class PublicDraftRunService {
                 draftRevision: payload.draftRevision,
             },
         })
-        if (row === null) return
-        if (row.gapId === null) await this.stop(row, PublicDocumentsErrorCode.DraftUnavailable)
-        else await this.drop(row, "job_failed")
+        if (row !== null) await this.stop(row, PublicDocumentsErrorCode.DraftUnavailable)
+    }
+
+    /** Opens the row the dead letter's hook closed (same revision, the stored code of the hook), so the resumed job drafts it. */
+    private async reopen(payload: PublicDraftPayload): Promise<void> {
+        await this.entityManager.update(
+            PublicDocumentEntity,
+            {
+                id: payload.documentId,
+                workspaceId: payload.workspaceId,
+                status: In(["failed", "published"]),
+                draftRevision: payload.draftRevision,
+                failureCode: PublicDocumentsErrorCode.DraftUnavailable,
+            },
+            { status: "drafting", failureCode: null },
+        )
     }
 
     /**
@@ -81,7 +103,7 @@ export class PublicDraftRunService {
      * (`SourceInternal`) before any text is read or sent; then each is read (a gone or unready one stops it: `SourceNotReady`) and
      * written from.
      */
-    private async draft(row: PublicDocumentEntity): Promise<void> {
+    private async draft(row: PublicDocumentEntity, key: string): Promise<void> {
         const recorded = await this.entityManager.find(PublicDocumentSourceEntity, {
             where: { documentId: row.id, workspaceId: row.workspaceId },
             take: MAX_DRAFT_SOURCES,
@@ -93,9 +115,8 @@ export class PublicDraftRunService {
             return this.stop(row, PublicDocumentsErrorCode.SourceInternal)
         const texts = await this.publicTexts(row.workspaceId, ids)
         if (texts.length !== ids.length) return this.stop(row, PublicDocumentsErrorCode.SourceNotReady)
-        const written = await this.compose(row, texts, null)
+        const written = await this.compose(row, texts, null, key)
         if (written.kind === "nothing") return this.stop(row, PublicDocumentsErrorCode.NothingLeft)
-        if (written.kind === "unavailable") return this.stop(row, PublicDocumentsErrorCode.DraftUnavailable)
         await this.entityManager.transaction(async (tx) => {
             const changed = await tx.update(
                 PublicDocumentEntity,
@@ -125,16 +146,16 @@ export class PublicDraftRunService {
     /**
      * The proposal for a customer question: of the documents the Brain finds, only those of the public area are read and shown to the
      * same one call with the question. None of them, or a model that says they do not answer it (`answers: false` or an empty body),
-     * and the row goes (`no_answer`). No word of the question is compared with a word of a document here.
+     * and the row says so (`failed` with `NothingLeft`: no proposal, and the question stays unanswered). No word of the question is
+     * compared with a word of a document here.
      */
-    private async answer(row: PublicDocumentEntity): Promise<void> {
+    private async answer(row: PublicDocumentEntity, key: string): Promise<void> {
         const question = row.question ?? row.title
         const found = await this.reader.hits(row.workspaceId, question)
         // A refused search (the reader logged its typed code) is the Brain not answering, not a document that is not ready.
         if (found.kind !== "ok")
-            return this.drop(
+            return this.stop(
                 row,
-                found.kind,
                 found.kind === "no_right"
                     ? PublicDocumentsErrorCode.NoInternalRight
                     : PublicDocumentsErrorCode.DraftUnavailable,
@@ -144,10 +165,9 @@ export class PublicDraftRunService {
             states.some((state) => state.id === id && state.visibility === PUBLIC_AREA),
         )
         const texts = await this.publicTexts(row.workspaceId, publicIds)
-        if (texts.length === 0) return this.drop(row, "no_answer", PublicDocumentsErrorCode.NothingLeft)
-        const written = await this.compose(row, texts, question)
-        if (written.kind === "nothing") return this.drop(row, "no_answer", PublicDocumentsErrorCode.NothingLeft)
-        if (written.kind === "unavailable") return this.drop(row, "no_draft")
+        if (texts.length === 0) return this.stop(row, PublicDocumentsErrorCode.NothingLeft)
+        const written = await this.compose(row, texts, question, key)
+        if (written.kind === "nothing") return this.stop(row, PublicDocumentsErrorCode.NothingLeft)
         const committed = await this.entityManager.transaction(async (tx) => {
             const changed = await tx.update(
                 PublicDocumentEntity,
@@ -194,47 +214,33 @@ export class PublicDraftRunService {
     /**
      * The one call for the documents, each within its share of what one call is shown (a cut is logged; the rest of that text is not
      * written from). `nothing` when no text could be shown or the model says the documents do not answer (`answers: false` or an
-     * empty body); `unavailable` when the model gave no readable answer within its tries: nothing of the sources is written then.
+     * empty body); a model that gave no answer throws (see the writer), and nothing of the sources is written then.
      */
     private async compose(
         row: PublicDocumentEntity,
         texts: ReadonlyArray<InternalText>,
         question: string | null,
+        key: string,
     ): Promise<Composed> {
         const shown = shownSourcesOf(texts)
         for (const source of shown.filter((one) => one.cut))
             this.logger.warn(PublicDocumentsLogEvent.SourceCut, { documentId: row.id, sourceId: source.sourceId })
         if (shown.every((source) => source.text === "")) return { kind: "nothing" }
-        const answer = await this.writer.write({
-            workspaceId: row.workspaceId,
-            title: row.title,
-            question,
-            instructions: row.instructions,
-            sources: shown,
-        })
-        if (answer === null) return { kind: "unavailable" }
+        const answer = await this.writer.write(
+            {
+                workspaceId: row.workspaceId,
+                title: row.title,
+                question,
+                instructions: row.instructions,
+                sources: shown,
+            },
+            key,
+        )
         const body = answer.body.trim()
         return answer.answers && body !== "" ? { kind: "written", body } : { kind: "nothing" }
     }
 
-    /** The row is not wanted: a proposal with no public answer, no right to search, or no text. */
-    private async drop(
-        row: PublicDocumentEntity,
-        reason: string,
-        code: PublicDocumentsErrorCode = PublicDocumentsErrorCode.DraftUnavailable,
-    ): Promise<void> {
-        if (row.publishedBody !== null) return this.stop(row, code)
-        const changed = await this.entityManager.delete(PublicDocumentEntity, {
-            id: row.id,
-            workspaceId: row.workspaceId,
-            status: "drafting",
-            draftRevision: row.draftRevision,
-        })
-        if ((changed.affected ?? 0) > 0)
-            this.logger.info(PublicDocumentsLogEvent.ProposalSkipped, { documentId: row.id, reason })
-    }
-
-    /** Ends the draft with the stored code of why; a document that was published stays published and serves its approved text. */
+    /** Ends the draft with the stored code of why (a typed `failed` row the owner reads); a document that was published stays published and serves its approved text. */
     private async stop(row: PublicDocumentEntity, code: string): Promise<void> {
         this.logger.warn(PublicDocumentsLogEvent.DraftRefused, { documentId: row.id, code })
         const status = row.publishedBody === null ? "failed" : "published"

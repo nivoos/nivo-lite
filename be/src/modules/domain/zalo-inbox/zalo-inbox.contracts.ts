@@ -4,10 +4,10 @@ export type { ZaloDeliveryRecorded } from "@modules/queues/zalo-delivery"
 /** The transport may have no retained raw bytes. */
 export type ZaloRawDelivery = Buffer | undefined
 
-/** The door a Zalo event came through when it was not the webhook: `poll` (a reconcile run read it back) or `manual_import` (an owner's import, whose attachments may name local files). */
+/** The door a Zalo event came through when it was not the webhook: `poll` (the poll read it back) or `manual_import` (an owner's import, whose attachments may name local files). */
 export type ZaloEventSource = "poll" | "manual_import"
 
-/** The Zalo user message a reconcile run read back, in the terms the inbox stores. */
+/** The Zalo user message the poll read back, in the terms the inbox stores. */
 export interface PolledZaloMessage {
     /** Zalo's id of the message: the same id the webhook carries as `msg_id`. */
     readonly messageId: string
@@ -19,16 +19,6 @@ export interface PolledZaloMessage {
     readonly text: string
     /** When the customer wrote it, in epoch milliseconds. */
     readonly sentAt: number
-}
-
-/** What the reconcile run needs to store a polled message: whose connection it is, the customer's name for the owner, and whether it is stale. */
-export interface PolledZaloIntake {
-    /** The workspace of the connection. */
-    readonly workspaceId: string
-    /** The name the owner sees the message under. */
-    readonly sender: string
-    /** True when the message is past the reply window or the stale age: it is kept for the owner and no agent answers it. */
-    readonly stale: boolean
 }
 
 /** A Zalo user who wrote to the OA lately, from the stored inbound messages. */

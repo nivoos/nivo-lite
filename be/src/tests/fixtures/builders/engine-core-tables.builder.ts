@@ -4,11 +4,8 @@ import type { ScopedTx } from "@modules/domain/entity-engine"
 import type { AgentGraphStore, GraphLookup } from "@modules/domain/agent-graphs/agent-graph-store.port"
 import {
     graphRecordOf,
-    proposalRecordOf,
-    sourceRecordOf,
     versionRecordOf,
 } from "@modules/domain/agent-graphs/agent-graphs.mapper"
-import type { ProposalStatusFilter } from "@modules/domain/agent-graphs/agent-graphs-records.contracts"
 import type { AgentWorkflowTableStore } from "@modules/domain/agent-graphs/agent-workflow-store.port"
 import { workflowRecordOf, workflowVersionRecordOf } from "@modules/domain/agent-graphs/agent-workflows.mapper"
 import type { AgentRunTableStore } from "@modules/domain/agent-runs/agent-run-table-store.port"
@@ -46,8 +43,6 @@ export interface TableRows {
 /** The tables, by name. */
 export const AGENT_GRAPHS = "agent_graphs"
 export const AGENT_GRAPH_VERSIONS = "agent_graph_versions"
-export const AGENT_GRAPH_SOURCES = "agent_graph_sources"
-export const AGENT_GRAPH_PROPOSALS = "agent_graph_proposals"
 export const AGENT_WORKFLOWS = "agent_workflows"
 export const AGENT_WORKFLOW_VERSIONS = "agent_workflow_versions"
 export const AGENT_RUNS = "agent_runs"
@@ -58,8 +53,6 @@ export const AGENT_NODE_EFFECTS = "agent_node_effects"
 export const CORE_TABLE_KEYS: Readonly<Record<string, ReadonlyArray<ReadonlyArray<string>>>> = {
     [AGENT_GRAPHS]: [["agentId"]],
     [AGENT_GRAPH_VERSIONS]: [["agentId", "number"]],
-    [AGENT_GRAPH_SOURCES]: [["versionId", "nodeKey", "branchKey", "kind", "ref"]],
-    [AGENT_GRAPH_PROPOSALS]: [["agentId", "dedupeKey"]],
     [AGENT_WORKFLOWS]: [["agentId", "key"]],
     [AGENT_WORKFLOW_VERSIONS]: [["workflowId", "number"]],
     [AGENT_RUNS]: [["wakeId", "planning"]],
@@ -230,43 +223,6 @@ export const memoryGraphStore = (rows: TableRows): AgentGraphStore => ({
             values: valuesOf({ ...version, publishedAt: version.publishedAt ?? STAMP }),
         }, tx)
         return Promise.resolve(row === null ? null : versionRecordOf(entityOf(row)))
-    },
-    insertSource: (tx, source) =>
-        Promise.resolve(writtenOf(rows, { op: "insert", entity: AGENT_GRAPH_SOURCES, values: valuesOf(source) }, tx) !== null),
-    sources: (_tx, kind, versionIds, limit) =>
-        Promise.resolve(
-            sorted(
-                rows.of(AGENT_GRAPH_SOURCES, { kind }).filter((row) => versionIds.includes(String(row.data.versionId))),
-                [["versionId", "asc"], ["id", "asc"]],
-            )
-                .slice(0, limit)
-                .map((row) => sourceRecordOf(entityOf(row))),
-        ),
-    proposal: (_tx, id) => {
-        const row = rows.get(AGENT_GRAPH_PROPOSALS, id)
-        return Promise.resolve(row === null ? null : proposalRecordOf(entityOf(row)))
-    },
-    proposals: (_tx, filter: ProposalStatusFilter, limit) => {
-        const statuses: ReadonlyArray<unknown> = filter.statuses
-        const held = rows
-            .of(AGENT_GRAPH_PROPOSALS, { agentId: filter.agentId, ...(filter.kind === undefined ? {} : { kind: filter.kind }) })
-            .filter((row) => statuses.includes(row.data.status))
-        const order: ReadonlyArray<readonly [string, "asc" | "desc"]> = filter.byStatus
-            ? [["status", "asc"], ["id", "asc"]]
-            : [["createdAt", "desc"], ["id", "desc"]]
-        return Promise.resolve(sorted(held, order).slice(0, limit).map((row) => proposalRecordOf(entityOf(row))))
-    },
-    raiseProposal: (tx, proposal) =>
-        Promise.resolve(
-            writtenOf(rows, {
-                op: "insert",
-                entity: AGENT_GRAPH_PROPOSALS,
-                values: valuesOf({ ...proposal, status: "open", decidedBy: null, decidedAt: null, resultVersionId: null }),
-            }, tx) !== null,
-        ),
-    patchProposal: (tx, id, fence, patch) => {
-        const row = writtenOf(rows, { op: "update", entity: AGENT_GRAPH_PROPOSALS, key: id, expected: fence, values: valuesOf(patch) }, tx)
-        return Promise.resolve(row === null ? null : proposalRecordOf(entityOf(row)))
     },
 })
 
@@ -567,13 +523,19 @@ export const memoryEffectStore = (rows: TableRows): NodeEffectStore => ({
                 values: valuesOf(Object.fromEntries(Object.entries(effect).filter(([, value]) => value !== null))),
             }) !== null,
         ),
-    resettle: (_ws, effectKey, unknownKind, subject) => {
-        const row = rows.of(AGENT_NODE_EFFECTS, { effectKey }).find((one) => one.data.subjectEntity === unknownKind)
+    resettle: (_ws, effectKey, fromKind, subject) => {
+        const row = rows.of(AGENT_NODE_EFFECTS, { effectKey }).find((one) => one.data.subjectEntity === fromKind)
         if (row === undefined) return Promise.resolve(false)
         const values = valuesOf({ subjectEntity: subject.subjectEntity, subjectId: subject.subjectId, facts: subject.facts })
         return Promise.resolve(
             writtenOf(rows, { op: "update", entity: AGENT_NODE_EFFECTS, key: row.id, expected: row.version, values }) !== null,
         )
+    },
+    release: (_ws, effectKey, kind) => {
+        const row = rows.of(AGENT_NODE_EFFECTS, { effectKey }).find((one) => one.data.subjectEntity === kind)
+        if (row === undefined) return Promise.resolve(false)
+        rows.remove(AGENT_NODE_EFFECTS, row.id)
+        return Promise.resolve(true)
     },
 })
 

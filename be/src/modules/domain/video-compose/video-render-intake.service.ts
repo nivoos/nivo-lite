@@ -1,8 +1,7 @@
-import { Injectable, Optional } from "@nestjs/common"
+import { Injectable } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
-import { AccountDataIntakeService } from "@modules/domain/account-data"
+import { AccountDataAdmissionsService, AccountDataIntakeService } from "@modules/domain/account-data"
 import { ConnectionBindingsReadService, ConnectionsService } from "@modules/domain/connections"
-import { ProviderTriggersService } from "@modules/domain/provider-triggers"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import type {
@@ -15,7 +14,6 @@ import type {
 import { VideoComposeLogEvent } from "./video-compose.log-events"
 import { VideoComposeRegistryService } from "./video-compose-registry.service"
 import { isSoundCompletion, renderRowOf, renderTypeOf } from "./video-render-data.policy"
-import { renderTriggerOf } from "./video-render.trigger"
 
 /**
  * What one render webhook came to: a row kept (and its trigger fired), a repeat, a body reporting no finished render, a body that
@@ -23,24 +21,6 @@ import { renderTriggerOf } from "./video-render.trigger"
  */
 export type RenderIntakeOutcome =
     "kept" | "repeat" | "ignored" | "unreadable" | "unsigned" | "unknown_account" | "unknown_provider"
-
-/** The account a render row belongs to, as the trigger's emit point takes it. */
-export interface RenderOwner {
-    /** The workspace of the connection. */
-    readonly workspaceId: string
-    /** The connection. */
-    readonly connectionId: string
-    /** The provider key. */
-    readonly provider: string
-}
-
-/** The stored render row a completion is delivered for: its record type and its id. */
-interface RenderRowRef {
-    /** The row's record type. */
-    readonly type: string
-    /** The row's id. */
-    readonly id: string
-}
 
 /** What reading a raw body as JSON came to. */
 type BodyReading = { readonly ok: true; readonly body: unknown } | { readonly ok: false; readonly cause: unknown }
@@ -66,10 +46,10 @@ const headerOf = (headers: RenderDoorHeaders, name: string | null): string | und
  * THE RENDER DOOR'S INTAKE (generic, no provider named). The door proved the path's token first (`ScopedWebhookVerifier` with the
  * proof `VideoRenderProofsService` registered); here a provider that signs is held to its signature (the port's pure `proves`), the
  * body is mapped by the port's pure `completionOf`, and only a sound terminal completion is kept, as ONE `<provider>.render` row of the
- * account (the INBOX of the one event pipeline: the intake's insert-once on the render id is the dedupe, a repeat writes and delivers
- * nothing). The provider's render trigger then translates the row (pure) and the canonical event goes to the ONE delivery function in a
- * savepoint, and the row is completed; a delivery that throws leaves the row pending, logged, and the delivery acknowledged: the run's wait
- * falls back on its timeout and `statusOf`.
+ * account (the INBOX of the one event pipeline: the intake's insert-once on the render id is the dedupe, a repeat writes and queues
+ * nothing) and admits the new row in the SAME transaction (the type's admission, `VideoRenderAdmissionService`, writes the delivery job:
+ * `VideoRenderDeliveryService` hands the row to the one delivery function and completes it): the request does no delivery work and swallows nothing, and a delivery that fails is the job's to retry or
+ * dead-letter, with its one item.
  */
 export class VideoRenderIntakeService {
     constructor(
@@ -79,7 +59,7 @@ export class VideoRenderIntakeService {
         private readonly bindings: ConnectionBindingsReadService,
         private readonly connections: ConnectionsService,
         private readonly intake: AccountDataIntakeService,
-        @Optional() private readonly triggers?: ProviderTriggersService,
+        private readonly admissions: AccountDataAdmissionsService,
     ) {}
 
     /** Takes one delivery of a provider's render webhook whose path token the door proved. */
@@ -111,7 +91,7 @@ export class VideoRenderIntakeService {
         const completion = port.completionOf(reading.body)
         if (completion === null) return "ignored"
         if (!isSoundCompletion(completion)) return "unreadable"
-        return this.entityManager.transaction((tx) => this.kept(tx, delivery, completion))
+        return this.kept(delivery, completion)
     }
 
     /** Whether the delivery carries the provider's signature, for a provider that signs; true for one that does not. */
@@ -135,62 +115,27 @@ export class VideoRenderIntakeService {
         )
     }
 
-    /** Keeps the row once and fires its trigger, in `tx`. */
-    private async kept(
-        tx: EntityManager,
-        delivery: RenderDoorDelivery,
-        completion: RenderCompletion,
-    ): Promise<RenderIntakeOutcome> {
+    /**
+     * Keeps the row once and admits it (the job that delivers it), in ONE transaction whose first step is the receipt's claim: both commit or
+     * neither does. An account of another provider keeps nothing.
+     */
+    private async kept(delivery: RenderDoorDelivery, completion: RenderCompletion): Promise<RenderIntakeOutcome> {
         const { provider, connectionId } = delivery
-        const account = await this.bindings.accountOf(connectionId, tx)
+        const account = await this.bindings.accountOf(connectionId, this.entityManager)
         if (account?.provider !== provider) return "unknown_account"
         const type = renderTypeOf(provider)
-        const row = await this.intake.claim(tx, { connectionId, type, value: renderRowOf(provider, completion) })
-        if (row === undefined) return "repeat"
         const value = renderRowOf(provider, completion)
-        if (
-            await this.fired(
-                tx,
-                { workspaceId: account.workspaceId, connectionId, provider },
-                { type, id: row.id },
+        return this.entityManager.transaction(async (tx): Promise<RenderIntakeOutcome> => {
+            const row = await this.intake.claim(tx, { connectionId, type, value })
+            if (row === undefined) return "repeat"
+            await this.admissions.admit(tx, {
+                id: row.id,
+                type: row.type,
+                key: row.key,
+                owner: { provider, connectionId, workspaceId: account.workspaceId },
                 value,
-            )
-        ) {
-            const pending = await this.intake.lockPending(tx, type, connectionId, row.key)
-            if (pending !== null) await this.intake.complete(tx, pending)
-        }
-        return "kept"
-    }
-
-    /** Delivers the new row's completion in a savepoint; false (logged) when it threw, so the row stays pending. */
-    private async fired(
-        tx: EntityManager,
-        owner: RenderOwner,
-        raw: RenderRowRef,
-        value: ReturnType<typeof renderRowOf>,
-    ): Promise<boolean> {
-        const { triggers } = this
-        if (triggers === undefined) return true
-        const declaration = renderTriggerOf(owner.provider)
-        const event = declaration.translate(value, { connectionId: owner.connectionId })
-        if (event === null) return true
-        try {
-            await tx.transaction((inner) =>
-                triggers.deliver(
-                    {
-                        workspaceId: owner.workspaceId,
-                        declaration,
-                        connectionId: owner.connectionId,
-                        agentId: null,
-                        events: [{ event, raw }],
-                    },
-                    inner,
-                ),
-            )
-            return true
-        } catch (cause) {
-            this.logger.error(VideoComposeLogEvent.RenderFireFailed, cause, { ...owner })
-            return false
-        }
+            })
+            return "kept"
+        })
     }
 }

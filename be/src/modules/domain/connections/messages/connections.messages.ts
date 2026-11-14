@@ -13,6 +13,7 @@ export const CONNECTIONS_MESSAGES: MessageBundle = {
             "Kh\u00f3a m\u00e3 h\u00f3a th\u00f4ng tin k\u1ebft n\u1ed1i c\u1ee7a m\u00e1y ch\u1ee7 ch\u01b0a \u0111\u01b0\u1ee3c c\u1ea5u h\u00ecnh \u0111\u00fang.",
         "errors.CONNECTIONS_CONNECTOR_NOT_FOUND": "Kh\u00f4ng t\u00ecm th\u1ea5y connector n\u00e0y.",
         "errors.CONNECTIONS_COMMAND_INVALID": "Yêu cầu không hợp lệ.",
+        "errors.CONNECTIONS_COMMAND_STOPPED": "Chưa hoàn tất được yêu cầu này. Hãy thử lại sau ít phút.",
     },
     en: {
         "errors.CONNECTIONS_FORBIDDEN": "You do not have permission to do this. Ask an owner or manager.",
@@ -22,5 +23,6 @@ export const CONNECTIONS_MESSAGES: MessageBundle = {
         "errors.CONNECTIONS_KEY_INVALID": "The server connection encryption key is not configured correctly.",
         "errors.CONNECTIONS_CONNECTOR_NOT_FOUND": "This connector was not found.",
         "errors.CONNECTIONS_COMMAND_INVALID": "This request is not valid.",
+        "errors.CONNECTIONS_COMMAND_STOPPED": "This request could not be completed. Try again in a few minutes.",
     },
 }

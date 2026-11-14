@@ -28,3 +28,5 @@ export { ConnectionBindingsReadService } from "./connection-bindings-read.servic
 export { connectionAttentionOf } from "./connection-attention.policy"
 export type { ConnectionAttention } from "./connection-attention.policy"
 export { isProvider } from "./connections.mapper"
+export { ACCOUNT_HALVES, actsAs, halfOfHost, halvesOf, hostsOf } from "./account-halves.policy"
+export type { AccountHalf, HalvedAccount } from "./account-halves.policy"

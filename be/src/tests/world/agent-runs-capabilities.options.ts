@@ -1,10 +1,11 @@
 import { Module, type DynamicModule } from "@nestjs/common"
 import { WorkItemsService } from "@modules/domain/work-items"
-import { AgentRunEngineAlertsService, AgentRunsModule } from "@modules/domain/agent-runs"
+import { AgentRunsModule } from "@modules/domain/agent-runs"
 import { EntityEngineModule } from "@modules/domain/entity-engine"
 import { Secret } from "@modules/platform/config"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { JobsModule } from "@modules/platform/jobs"
+import { EffectsModule } from "@modules/platform/effects"
 import { AGENT_WORK_MODULES } from "./agent-work-capabilities.options"
 import { INSTALLED } from "@modules/domain/installed-plugins"
 
@@ -28,12 +29,12 @@ export const AGENT_RUNS_MODULES: Array<DynamicModule> = [
         leaseMs: 100,
         scheduler: { enabled: false },
     }),
+    EffectsModule.register({ isGlobal: true, connection: PRIMARY_ENTITY_MANAGER }),
     AgentRunsModule.register({ isGlobal: true }),
     EntityEngineModule.register({
         isGlobal: true,
         entities: INSTALLED.entities(),
         jobs: [],
-        alerts: AgentRunEngineAlertsService,
         cursorKey: CURSOR_KEY,
     }),
 ]

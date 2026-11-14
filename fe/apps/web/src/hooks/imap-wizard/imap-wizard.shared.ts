@@ -18,24 +18,13 @@ export interface ImapPreset {
 }
 
 /** The steps of the mailbox wizard, in order. */
-export const IMAP_STEPS = ["account", "folders", "schedule", "agent"] as const
+export const IMAP_STEPS = ["account", "folders", "agent"] as const
 
 /** One step of the mailbox wizard. */
 export type ImapStep = (typeof IMAP_STEPS)[number]
 
 /** How far back the first sync reads, in days. */
 export const IMAP_SINCE_DAYS = [7, 30, 90] as const
-
-/** The sync schedule choices: the label key and the minutes (null is manual only). */
-export const IMAP_EVERY: ReadonlyArray<{
-    readonly key: "everyManual" | "every15" | "every60" | "every360"
-    readonly minutes: number | null
-}> = [
-    { key: "everyManual", minutes: null },
-    { key: "every15", minutes: 15 },
-    { key: "every60", minutes: 60 },
-    { key: "every360", minutes: 360 },
-]
 
 /** The provider presets. */
 export const IMAP_PRESETS: readonly [ImapPreset, ...ImapPreset[]] = [
@@ -76,8 +65,6 @@ export interface ImapMailbox {
     readonly folders: ReadonlyArray<string>
     /** How many days back a first read goes. */
     readonly sinceDays: number
-    /** Minutes between scheduled syncs; null is manual only. */
-    readonly syncEveryMinutes: number | null
     /** Agents that hold a grant on this mailbox. */
     readonly agentIds: ReadonlyArray<string>
 }
@@ -128,7 +115,6 @@ export const stateOf = (mailbox: ImapMailbox | undefined): ImapWizardState => ({
     tested: null,
     folders: mailbox === undefined ? ["INBOX"] : mailbox.folders,
     sinceDays: mailbox === undefined ? 30 : mailbox.sinceDays,
-    every: mailbox === undefined ? 60 : mailbox.syncEveryMinutes,
     agentIds: mailbox === undefined ? [] : mailbox.agentIds,
     error: null,
 })

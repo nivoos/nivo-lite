@@ -1,3 +1,4 @@
+import { TRIGGER_VERB_LABELS } from "@/modules/plugin-registry"
 import en from "./mapWords/en.json"
 import vi from "./mapWords/vi.json"
 
@@ -20,7 +21,7 @@ export interface MapWords {
     readonly repeat: string
     /** The legend entry of the loop frame. */
     readonly legendLoop: string
-    /** The owner's words of each trigger verb a wait listens for, for a route the package view has no words for. */
+    /** The owner's words of each trigger verb a wait listens for, for a route the package view has no words for: the package's own `TRIGGER_VERB_LABELS`. */
     readonly verbs: Readonly<Record<string, string>>
 }
 
@@ -28,7 +29,10 @@ export interface MapWords {
 const filled = (message: string, values: Readonly<Record<string, string | number>>): string =>
     message.replaceAll(/\{(\w+)\}/g, (hole, name: string) => String(values[name] ?? hole))
 
-const wordsOf = (messages: typeof vi): MapWords => ({
+const verbsOf = (locale: MapLocale): Readonly<Record<string, string>> =>
+    Object.fromEntries(Object.entries(TRIGGER_VERB_LABELS).map(([verb, labels]) => [verb, labels[locale]]))
+
+const wordsOf = (messages: typeof vi, locale: MapLocale): MapWords => ({
     customerMessages: messages.customerMessages,
     waitLine: (events, limit) => filled(messages.waitLine, { events, limit }),
     limit: (amount, unit) =>
@@ -36,11 +40,11 @@ const wordsOf = (messages: typeof vi): MapWords => ({
     rounds: (max) => filled(messages.rounds, { max }),
     repeat: messages.repeat,
     legendLoop: messages.legendLoop,
-    verbs: messages.verbs,
+    verbs: verbsOf(locale),
 })
 
-const VI = wordsOf(vi)
-const EN = wordsOf(en)
+const VI = wordsOf(vi, "vi")
+const EN = wordsOf(en, "en")
 
 /** The words of the map in one language. */
 export const mapWordsOf = (locale: MapLocale): MapWords => (locale === "en" ? EN : VI)

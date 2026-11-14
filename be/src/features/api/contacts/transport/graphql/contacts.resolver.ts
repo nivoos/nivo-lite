@@ -11,9 +11,11 @@ import {
     ForgetContactMemoryCommand,
     LinkContactIdentityCommand,
     MergeContactsCommand,
+    SetContactConsentCommand,
     UnlinkContactIdentityCommand,
     UpdateContactCommand,
 } from "../../application/contacts.commands"
+import type { SetContactConsentView } from "../../application/contact-consent.contracts"
 import type { CustomerLine, CustomerLineFile, LinePage } from "@modules/domain/customer-routes"
 import type { ContactMessagesPageView, ContactMessageView, ContactWorkView } from "../../application/contact-conversation.contracts"
 import {
@@ -35,6 +37,7 @@ import {
     ForgetContactMemoryInput,
     LinkContactIdentityInput,
     MergeContactsInput,
+    SetContactDoNotContactInput,
     UnlinkContactIdentityInput,
     UpdateContactInput,
 } from "./dto/contacts.input"
@@ -49,6 +52,7 @@ import {
     type CustomerMessageFileType,
     type CustomerMessageType,
     LinkContactIdentityType,
+    SetContactConsentType,
 } from "./dto/contacts.type"
 
 /** A file of a line as the page reads it: its address, or no address and the typed reason it could not be fetched. */
@@ -191,6 +195,24 @@ export class ContactsResolver {
         return this.commandBus.execute(
             new UpdateContactCommand({
                 request: { workspaceId, id: input.id, displayName: input.displayName, tags: input.tags },
+                principal,
+            }),
+        )
+    }
+
+    /**
+     * A person sets or clears the contact's "do not contact" (the contact's ONE consent fact; the only road that clears it). Owner or
+     * manager; audited with the member and the reason.
+     */
+    @Mutation(() => SetContactConsentType, { name: "setContactDoNotContact" })
+    async setContactDoNotContact(
+        @CurrentPrincipal() principal: Principal,
+        @WorkspaceId() workspaceId: string,
+        @Args("input") input: SetContactDoNotContactInput,
+    ): Promise<SetContactConsentView> {
+        return this.commandBus.execute(
+            new SetContactConsentCommand({
+                request: { workspaceId, contactId: input.contactId, doNotContact: input.doNotContact, reason: input.reason ?? null },
                 principal,
             }),
         )

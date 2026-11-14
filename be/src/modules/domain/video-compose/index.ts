@@ -1,6 +1,7 @@
 export { VideoComposeModule } from "./video-compose.module"
 export { VideoComposeRegistryService } from "./video-compose-registry.service"
 export { VideoComposeNativeService } from "./video-compose.service"
+export { VideoRenderDeliveryService } from "./video-render-delivery.service"
 export { VideoRenderIntakeService } from "./video-render-intake.service"
 export { RENDER_DOOR_PATH } from "./video-render-callback.policy"
 export { RENDER_COMPLETED, renderDataTypeOf } from "./video-render-data.policy"

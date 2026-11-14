@@ -1,5 +1,5 @@
 export { DataReadCursorsService } from "./data-read-cursors.service"
-export { IMAP_DATA_TYPES } from "./imap.data-types"
+export { IMAP_DATA_TYPES, IMAP_MAIL_TYPE } from "./imap.data-types"
 export { imapMailInputsOf } from "./imap.normalise.policy"
 export { DataRecordsReadService } from "./data-records-read.service"
 export type {

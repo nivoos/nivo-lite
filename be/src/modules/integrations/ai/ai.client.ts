@@ -55,10 +55,21 @@ const titleOf = (metadata: Record<string, unknown>): string | null =>
     typeof metadata.title === "string" ? metadata.title : null
 
 /**
- * The line a JSON call ends its prompt with, for every protocol: the OpenAI route also gets `response_format: json_object`, the
- * Anthropic route has no JSON mode (the answer is parsed from its text). Last, so the cached prefix before it stays the same text.
+ * The line a JSON call ends its system part with, for every protocol: the OpenAI route also gets `response_format: json_object`, the
+ * Anthropic route has no JSON mode (the answer is parsed from its text). It is the same words on every JSON call, so it goes right after
+ * the leading system messages and before the first message of the conversation: a later turn of a loop then only appends after it.
  */
 export const JSON_ONLY_LINE = "Answer with one JSON object only: no prose before or after it."
+
+/**
+ * The messages of a call with one more system line after its leading system messages (the stable layers and the call's own words),
+ * before the conversation; a call that has no conversation gets it last.
+ */
+export const withSystemLine = (messages: ReadonlyArray<AiMessage>, line: string): ReadonlyArray<AiMessage> => {
+    const at = messages.findIndex((message) => message.role !== "system")
+    const cut = at === -1 ? messages.length : at
+    return [...messages.slice(0, cut), { role: "system", content: line }, ...messages.slice(cut)]
+}
 
 /** The `response_format` of a JSON call on the `openai` protocol: one JSON object. */
 const JSON_OBJECT_FORMAT = { response_format: { type: "json_object" } }
@@ -173,9 +184,7 @@ export class AiClient implements AiRunner {
         const marks = CACHE_MARK_KINDS[routed.kind]
         const wire = (messages: ReadonlyArray<AiMessage>): Array<BaseMessage> =>
             withinMarkLimit(messages).map((message) => messageOf(message, marks))
-        const asked: ReadonlyArray<AiMessage> = request.json
-            ? [...request.messages, { role: "system", content: JSON_ONLY_LINE }]
-            : request.messages
+        const asked: ReadonlyArray<AiMessage> = request.json ? withSystemLine(request.messages, JSON_ONLY_LINE) : request.messages
         const retrieve = RunnableLambda.from(async (messages: ReadonlyArray<AiMessage>) => {
             const { context } = request
             if (context === null) return { messages: wire(messages) }

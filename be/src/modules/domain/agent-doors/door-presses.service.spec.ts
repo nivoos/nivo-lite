@@ -7,11 +7,11 @@ import { DoorPressesService, pressOfRow } from "./door-presses.service"
 const AT = new Date("2026-11-11T02:00:00.000Z")
 
 const row = {
-    door: "care.opt_out",
-    subject: "lead-1",
+    door: "conversation.release",
+    subject: "route-1",
     member_id: "member-1",
     outcome: "set",
-    detail: { optOut: true, memberName: "Owner Lan" },
+    detail: { answered: 1, memberName: "Owner Lan" },
     pressed_at: AT,
 }
 
@@ -55,9 +55,9 @@ describe("DoorPressesService", () => {
     it("reads the last press of a subject and the newest of a door, each by the order of one of the table's indexes", async () => {
         const { service, query } = build([row])
 
-        await expect(service.latest("ws-1", "care.opt_out", "lead-1")).resolves.toEqual({
-            door: "care.opt_out",
-            subject: "lead-1",
+        await expect(service.latest("ws-1", "conversation.release", "route-1")).resolves.toEqual({
+            door: "conversation.release",
+            subject: "route-1",
             memberId: "member-1",
             memberName: "Owner Lan",
             outcome: "set",
@@ -69,7 +69,7 @@ describe("DoorPressesService", () => {
         const [recentSql, recentArgs] = query.mock.calls[1] ?? []
         expect(latestSql).toContain("WHERE workspace_id = $1 AND door = $2 AND subject = $3 ORDER BY pressed_at DESC LIMIT 1")
         expect(recentSql).toContain("WHERE workspace_id = $1 AND door = $2 ORDER BY pressed_at DESC LIMIT $3")
-        expect(latestArgs).toEqual(["ws-1", "care.opt_out", "lead-1"])
+        expect(latestArgs).toEqual(["ws-1", "conversation.release", "route-1"])
         expect(recentArgs).toEqual(["ws-1", "schedule.run_now", 200])
         expect(MIGRATION).toContain("USING btree (workspace_id, door, subject, pressed_at DESC)")
         expect(MIGRATION).toContain("USING btree (workspace_id, door, pressed_at DESC)")

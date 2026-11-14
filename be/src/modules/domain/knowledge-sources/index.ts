@@ -12,6 +12,7 @@ export type {
     MaybeSource,
     ReadingWarning,
     ReadableSummary,
+    ProfileDocument,
     SourceBrief,
     SourceCategory,
     SourceDetail,
@@ -22,7 +23,7 @@ export type {
     UploadAddress,
 } from "./knowledge-sources.contracts"
 export { KnowledgeSourcesModule } from "./knowledge-sources.module"
-export { embedPercent, knowledgeProgressTopic } from "./knowledge-progress.policy"
+export { embedPercent } from "./source-input.policy"
 export { KnowledgeSourcesService } from "./knowledge-sources.service"
 export { contentHashOf } from "./source-hash.policy"
 export { firstPartIdOf, partOriginOf, partsOf } from "./source-parts.policy"
@@ -40,12 +41,7 @@ export { KNOWLEDGE_SOURCES_MESSAGES } from "./messages/knowledge-sources.message
 export { knowledgeSourcesEntities } from "./persistence/entities"
 export { KnowledgeSourcesAdminReadService } from "./knowledge-sources-admin-read.service"
 export { KnowledgeSourcesReadService } from "./knowledge-sources-read.service"
-export type {
-    InstanceDocument,
-    OriginSource,
-    SourceDocument,
-    SourceState,
-} from "./knowledge-sources-read.contracts"
+export type { InstanceDocument, OriginSource, SourceDocument, SourceState } from "./knowledge-sources-read.contracts"
 export { PublishedSourcesService } from "./published-sources.service"
 export { KnowledgeSourcesReadableService } from "./knowledge-sources-readable.service"
 export { KnowledgeSourceCitesService } from "./knowledge-source-cites.service"

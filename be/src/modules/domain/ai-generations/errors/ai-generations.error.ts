@@ -16,6 +16,10 @@ export enum AiGenerationsErrorCode {
     KindNotAllowed = "AI_GENERATIONS_KIND_NOT_ALLOWED",
     /** The member asked the NIVO guide more often than the window allows. */
     GuideRateLimited = "AI_GENERATIONS_GUIDE_RATE_LIMITED",
+    /** A generation job reached its runner with a payload its declaration refuses: a bug of the producer, never made right by waiting. */
+    PayloadInvalid = "AI_GENERATIONS_PAYLOAD_INVALID",
+    /** The model call made no text; its typed reason is the attempt the runner writes on the row (never leaves the runner). */
+    NoAnswer = "AI_GENERATIONS_NO_ANSWER",
 }
 
 /** How each ai-generations code travels. */
@@ -27,6 +31,8 @@ export const AI_GENERATIONS_ERROR_KINDS: Record<AiGenerationsErrorCode, ErrorKin
     [AiGenerationsErrorCode.GenerationNotFound]: "not-found",
     [AiGenerationsErrorCode.KindNotAllowed]: "forbidden",
     [AiGenerationsErrorCode.GuideRateLimited]: "rate-limited",
+    [AiGenerationsErrorCode.PayloadInvalid]: "invalid",
+    [AiGenerationsErrorCode.NoAnswer]: "unavailable",
 }
 
 /** The one error class of the ai-generations capability. */

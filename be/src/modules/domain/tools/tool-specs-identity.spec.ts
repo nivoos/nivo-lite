@@ -103,7 +103,6 @@ describe("the runner and the bound accounts read the tool specs, with the same a
             [
                 TOOL.ledgerEntryAppend,
                 TOOL.ledgerEntryVoid,
-                TOOL.mailMessageSend,
                 // flipDecisions2026_11_13 (ledger: was NIVO's own, no account): the invoice purpose is handed ONE account by its spec (`any`);
                 // no CRM serves it any more (owner chốt 2026-11-13), so no account of a provider holds it until an adapter does.
                 TOOL.invoiceCreate,

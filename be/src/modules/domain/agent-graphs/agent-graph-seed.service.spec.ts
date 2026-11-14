@@ -10,6 +10,7 @@ import type { MessageCatalog } from "@modules/platform/i18n"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
 import { OWNER_EXAMPLE, graphOf, stateOf } from "@tests/fixtures/builders/agent-graph.builder"
+import { coreTemplates } from "@modules/domain/installed-plugins/installed-plugins.testing"
 import { AgentGraphSeedService } from "./agent-graph-seed.service"
 import { AgentGraphsService } from "./agent-graphs.service"
 import type { GraphState } from "./agent-graphs.service"
@@ -176,13 +177,12 @@ describe("AgentGraphSeedService.refresh", () => {
 })
 
 describe("AgentGraphSeedService.refresh of a node graph", () => {
-    const FLOW: GraphSpec = {
-        schema: "nivo/agent-graph@1",
-        moduleKey: "accounting",
-        trigger: { kind: "tag", sources: ["system-event"] },
-        grant: { tools: [], effects: [] },
-        nodes: [{ key: "end", kind: "output", step: "stop" }],
-    }
+    // An installed core template version's graph: the one format a stored flow takes.
+    const FLOW: GraphSpec = (() => {
+        const graph = coreTemplates()[0]?.versions[0]?.graph
+        if (graph === undefined) throw new Error("the core package ships no template")
+        return graph
+    })()
     const flowState = (activeKind: "seed" | "spec", flow: GraphSpec = FLOW): GraphState => {
         const document = { ...graphOf(OWNER_EXAMPLE), flow }
         return stateOf({ activeKind, draft: document, active: document })
@@ -198,7 +198,7 @@ describe("AgentGraphSeedService.refresh of a node graph", () => {
         expect(logger.warn).not.toHaveBeenCalled()
     })
 
-    it("names each problem of a flow the installed nodes no longer take, and still leaves it live", async () => {
+    it("names a flow that is no installed template version's copy any more, and still leaves it live", async () => {
         const { service, graphs, logger } = await build({ hosts: "nodes" })
         const broken = { ...FLOW, nodes: [{ key: "gone", kind: "output" as const, step: "order.gone" }] }
 
@@ -208,8 +208,8 @@ describe("AgentGraphSeedService.refresh of a node graph", () => {
         expect(logger.warn).toHaveBeenCalledWith("agent_graphs.flow_unsound", {
             workspaceId: "ws-1",
             agentId: "agent-1",
-            code: "NODE_UNKNOWN",
-            at: "gone",
+            code: "GRAPH_TEMPLATE_EDITED",
+            at: FLOW.moduleKey,
         })
     })
 

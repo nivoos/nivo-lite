@@ -3,11 +3,19 @@ import type { EntityManager } from "typeorm"
 import { ConnectionsService, type ConnectionRecord } from "@modules/domain/connections"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
-import { DomainError } from "@modules/platform/errors"
+import { InjectEffects, type Effects } from "@modules/platform/effects"
+import type { ClaimedJob } from "@modules/platform/jobs"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
-import { InjectQueueOutbox, type QueueOutbox } from "@modules/platform/queue"
+import { InjectQueueOutbox, QueueError, type QueueOutbox } from "@modules/platform/queue"
 import { eachInOrder } from "@modules/platform/primitives"
-import { N8N_QUEUE, N8N_WEBHOOK_JOB, isN8nWebhookPayload, type N8nWebhookPayload } from "@modules/queues/n8n"
+import {
+    EMIT_WEBHOOK_JOB,
+    N8N_QUEUE,
+    N8N_WEBHOOK_JOB,
+    WEBHOOK_POST_EFFECT,
+    isN8nWebhookPayload,
+    type N8nWebhookPayload,
+} from "@modules/queues/n8n"
 import { WebhookConnectionsError, WebhookConnectionsErrorCode } from "./errors/webhook-connections.error"
 import type { WebhookPublication } from "./webhook-connections.contracts"
 import { InjectWebhookConnectionsOptions } from "./webhook-connections.decorators"
@@ -15,7 +23,7 @@ import { WebhookConnectionsLogEvent } from "./webhook-connections.log-events"
 import type { WebhookConnectionsOptions } from "./webhook-connections.options"
 import { installedWebhookEvents } from "./webhook-events.catalogue"
 import { WebhookSendRegistryService } from "./webhook-send-registry.service"
-import type { WebhookSendResult } from "./webhook-send.port"
+import type { WebhookSendPort, WebhookSendRequest } from "./webhook-send.port"
 import { deliveryVerdict, eventsOf, signDelivery, workspaceSigningSecret } from "./webhook-signing.policy"
 
 @Injectable()
@@ -34,6 +42,7 @@ export class WebhookEventsService {
         @InjectQueueOutbox() private readonly outbox: QueueOutbox,
         private readonly connections: ConnectionsService,
         private readonly sends: WebhookSendRegistryService,
+        @InjectEffects() private readonly effects: Effects,
     ) {}
 
     /**
@@ -59,90 +68,83 @@ export class WebhookEventsService {
             }
             await this.outbox.write(manager, N8N_QUEUE, job, {
                 job: N8N_WEBHOOK_JOB,
-                dedupeKey: `${N8N_WEBHOOK_JOB}:${job.deliveryId}`,
+                dedupeKey: EMIT_WEBHOOK_JOB.onceKey(job),
             })
         })
     }
 
     /**
-     * The effect of one delivery job: posts the signed event to the connection's address. A receiver that is down, slow or busy
-     * throws so the queue retries; an address NIVO may not call or a 4xx answer is recorded on the connection and not retried.
+     * The effect of one delivery job: posts the signed event to the connection's address, once per job (`<jobId>:webhook.post`). A
+     * receiver that is down, slow or busy (no answer, 408, 429, 5xx) throws a transient failure (the runner retries it on the background
+     * ladder, then parks it with one item); any other answer, an address NIVO may not call, or a connection with no address is refused
+     * input (a dead letter at once: nothing is swallowed). Only a 2xx answer settles the effect; the receiver dedupes a delivery a lost
+     * outcome posts again on the `x-nivo-delivery` header. A connection that is gone or off, or signing switched off, is a normal end.
      */
-    async deliver(job: object): Promise<void> {
-        if (!isN8nWebhookPayload(job)) return
-        const connection = await this.connections.find(job.workspaceId, job.connectionId)
+    async deliver(job: ClaimedJob): Promise<void> {
+        const payload = job.payload
+        if (!isN8nWebhookPayload(payload)) return
+        const connection = await this.connections.find(payload.workspaceId, payload.connectionId)
         const shared = this.options.signingSecret
         if (connection?.status !== "connected" || shared === undefined) {
-            this.logger.warn(WebhookConnectionsLogEvent.DeliveryDropped, { connectionId: job.connectionId })
+            this.logger.warn(WebhookConnectionsLogEvent.DeliveryDropped, { connectionId: payload.connectionId })
             return
         }
+        const port = this.sends.portFor(connection)
+        if (port === undefined) throw new WebhookConnectionsError({ code: WebhookConnectionsErrorCode.PortMissing })
         const body = JSON.stringify({
-            id: job.deliveryId,
-            event: job.event,
-            workspace_id: job.workspaceId,
-            occurred_at: new Date(job.occurredAtMs).toISOString(),
-            data: job.data,
+            id: payload.deliveryId,
+            event: payload.event,
+            workspace_id: payload.workspaceId,
+            occurred_at: new Date(payload.occurredAtMs).toISOString(),
+            data: payload.data,
         })
-        const timestamp = String(job.occurredAtMs)
-        const key = workspaceSigningSecret(shared.reveal(), job.workspaceId)
-        const result = await this.post(connection, {
+        const timestamp = String(payload.occurredAtMs)
+        const key = workspaceSigningSecret(shared.reveal(), payload.workspaceId)
+        const request: WebhookSendRequest = {
             body,
             headers: {
-                "x-nivo-event": job.event,
-                "x-nivo-delivery": job.deliveryId,
+                "x-nivo-event": payload.event,
+                "x-nivo-delivery": payload.deliveryId,
                 "x-nivo-timestamp": timestamp,
                 "x-nivo-signature": signDelivery(key, timestamp, body),
             },
+        }
+        await this.effects.once(`${job.jobId}:${WEBHOOK_POST_EFFECT.name}`, WEBHOOK_POST_EFFECT, {
+            act: () => this.posted(port, connection, request),
+            keep: (status) => status,
+            from: (kept) => (typeof kept === "number" ? kept : 0),
         })
-        if (result === null) return
-        await this.settle(connection, result.status)
-    }
-
-    private async settle(connection: ConnectionRecord, status: number | null): Promise<void> {
-        const verdict = deliveryVerdict(status)
-        if (verdict === "retry") {
-            throw new WebhookConnectionsError({
-                code: WebhookConnectionsErrorCode.DeliveryFailed,
-                params: { status: status === null ? "none" : String(status) },
-            })
+        if (connection.lastError !== null) {
+            await this.connections.patch(connection.workspaceId, connection.id, { lastError: null })
         }
-        if (verdict === "delivered") {
-            if (connection.lastError !== null) {
-                await this.connections.patch(connection.workspaceId, connection.id, { lastError: null })
-            }
-            return
-        }
-        this.logger.warn(WebhookConnectionsLogEvent.DeliveryRefused, { connectionId: connection.id, status })
-        await this.connections.patch(connection.workspaceId, connection.id, { lastError: `HTTP ${String(status)}` })
     }
 
     /**
-     * Posts one signed delivery through the account's port. An account holding no address is dropped (logged); an address that cannot be
-     * a delivery target is recorded on the connection and not retried. Either way the answer is null; so is it when the app composed no port for the provider (a wiring defect, logged).
+     * The job was dead-lettered (one item for a person): the connection shows why its deliveries stopped (the failure's code); a resume
+     * posts again and clears it. A payload that is no delivery, or a connection that is gone, has nothing to show.
      */
-    private async post(
-        connection: ConnectionRecord,
-        request: { readonly body: string; readonly headers: Readonly<Record<string, string>> },
-    ): Promise<WebhookSendResult | null> {
-        const port = this.sends.portFor(connection)
-        if (port === undefined) {
-            this.logger.warn(WebhookConnectionsLogEvent.DeliveryDropped, { connectionId: connection.id })
-            return null
+    async deliveryFailed(payload: object, cause: unknown): Promise<void> {
+        if (!isN8nWebhookPayload(payload)) return
+        const reason = cause instanceof QueueError && typeof cause.params.reason === "string" ? cause.params.reason : null
+        if (reason === null) return
+        await this.connections.patch(payload.workspaceId, payload.connectionId, { lastError: reason })
+    }
+
+    /**
+     * Posts one signed delivery through the account's port and judges the receiver's answer: a 2xx answers its status (kept by the
+     * effect); an answer a later try may change (no answer, 408, 429, 5xx) and any other answer are thrown, so the effect is released and
+     * the runner decides.
+     */
+    private async posted(port: WebhookSendPort, connection: ConnectionRecord, request: WebhookSendRequest): Promise<number> {
+        const result = await port.post(connection, request)
+        const verdict = deliveryVerdict(result.status)
+        const status = result.status === null ? "none" : String(result.status)
+        if (verdict === "retry") {
+            throw new WebhookConnectionsError({ code: WebhookConnectionsErrorCode.ReceiverUnavailable, params: { status } })
         }
-        try {
-            return await port.post(connection, request)
-        } catch (error) {
-            if (!(error instanceof WebhookConnectionsError)) throw error
-            if (error.code === WebhookConnectionsErrorCode.NoUrl) {
-                this.logger.warn(WebhookConnectionsLogEvent.DeliveryDropped, { connectionId: connection.id })
-                return null
-            }
-            if (error.code !== WebhookConnectionsErrorCode.UrlRefused) throw error
-            this.logger.warn(WebhookConnectionsLogEvent.DeliveryRefused, { connectionId: connection.id })
-            const cause = error.cause
-            const reason = cause instanceof DomainError ? cause.code : error.code
-            await this.connections.patch(connection.workspaceId, connection.id, { lastError: reason })
-            return null
+        if (verdict === "refused") {
+            throw new WebhookConnectionsError({ code: WebhookConnectionsErrorCode.ReceiverRefused, params: { status } })
         }
+        return result.status ?? 0
     }
 }

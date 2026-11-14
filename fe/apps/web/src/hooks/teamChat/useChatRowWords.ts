@@ -7,7 +7,8 @@ import { useWorkspaceId } from "@/hooks/workspaces"
 import { workspaceHref } from "@/modules/routes"
 import { messagesCopyOf } from "./teamChat.copy"
 import { stopCardWordsOf, type ChatRowWords, type TeamChatWords } from "./teamChat.shared"
-import { stopPreviewNodeOf, type BackgroundStoppedWords } from "@/modules/teamChat"
+import { jobClassWordOf } from "@/modules/jobProgress"
+import { stopPreviewNodeOf, type BackgroundStoppedWords, type JobParkedWords } from "@/modules/teamChat"
 import { useBrainChangeWords } from "./useBrainChangeWords"
 
 /** The title of a stopped work: it names the work, and for the documents' truths whether the shop is full. */
@@ -66,6 +67,57 @@ const backgroundStoppedWordsOf = (
     ...clocks,
 })
 
+/** The jobs the app has its own words for, by the name the back end gives the job: the catalog key of its title and of its name. */
+const JOB_WORDS: Readonly<Record<string, "knowledge_index" | "knowledge_facts" | "brain_command" | "brain_policies" | "dossier_review" | "public_draft" | "vector_sync" | "vector_reconcile" | "agents_generate" | "agents_setup_turn" | "generic_webhook_deliver" | "workflow_start_deliver" | "connection_command" | "n8n_webhook">> = {
+    "knowledge.index": "knowledge_index",
+    "knowledge.facts": "knowledge_facts",
+    "brain.command": "brain_command",
+    "brain.policies": "brain_policies",
+    "dossier.review": "dossier_review",
+    "public.draft": "public_draft",
+    "vector.sync": "vector_sync",
+    "vector.reconcile": "vector_reconcile",
+    "agents.generate": "agents_generate",
+    "agents.setup_turn": "agents_setup_turn",
+    "generic-webhook.deliver": "generic_webhook_deliver",
+    "workflow-start.deliver": "workflow_start_deliver",
+    "connection.command": "connection_command",
+    "n8n.webhook": "n8n_webhook",
+}
+
+/** The words of the "a job stopped" cards: the job in plain words (a generic title for a job the app has none for), the class sentence, the buttons. */
+const jobParkedWordsOf = (
+    t: TeamChatWords,
+    say: (key: string) => string,
+    clocks: Pick<JobParkedWords, "timeOf" | "sinceOf">,
+): JobParkedWords => ({
+    nivoName: t("nivoRoom.name"),
+    chip: t("jobParked.chip"),
+    titleOf: (job) => {
+        const key = JOB_WORDS[job]
+        return key === undefined ? t("jobParked.titleGeneric") : t(`jobParked.title.${key}`)
+    },
+    nameOf: (job) => {
+        const key = JOB_WORDS[job]
+        return key === undefined ? t("jobParked.nameGeneric") : t(`jobParked.name.${key}`)
+    },
+    classOf: (failureClass) => jobClassWordOf(failureClass, say) ?? t("jobParked.classUnknown"),
+    labels: {
+        resume: t("jobParked.resume"),
+        close: t("jobParked.close"),
+        closeReasonLabel: t("jobParked.closeReasonLabel"),
+        closeSubmit: t("jobParked.closeSubmit"),
+        cancel: t("jobParked.cancel"),
+    },
+    detailsLabel: t("jobParked.details"),
+    factsLabel: t("jobParked.factsLabel"),
+    factJob: t("jobParked.factJob"),
+    factClass: t("jobParked.factClass"),
+    factReason: t("jobParked.factReason"),
+    factSince: t("jobParked.factSince"),
+    ...clocks,
+})
+
 /** The shop's own time: a plan's start day is the day on the shop's wall, not the viewer's. */
 const SHOP_TIME_ZONE = "Asia/Ho_Chi_Minh"
 
@@ -78,6 +130,7 @@ const CLOCK_REFRESH_MS = 60_000
 /** The clocks and words a room row or a message row needs, in the viewer's language. */
 export const useChatRowWords = (): ChatRowWords => {
     const t = useTranslations("teamChat")
+    const tJobs = useTranslations("jobProgress")
     const locale = useLocale()
     const format = useFormatter()
     const now = useNow({ updateInterval: CLOCK_REFRESH_MS })
@@ -126,8 +179,9 @@ export const useChatRowWords = (): ChatRowWords => {
             copy,
             stop: stopCardWordsOf(t, timeOf, (preview, stop) => stopPreviewNodeOf(preview, stop, copy)),
             backgroundStopped: backgroundStoppedWordsOf(t, { timeOf, sinceOf, hrefOf }),
+            jobParked: jobParkedWordsOf(t, (key) => tJobs(key), { timeOf, sinceOf }),
             brainChange,
             hrefOf,
         }
-    }, [brainChange, clocks, format, locale, now, pictureOf, t, workspaceId])
+    }, [brainChange, clocks, format, locale, now, pictureOf, t, tJobs, workspaceId])
 }

@@ -49,12 +49,12 @@ export class SendSandboxCaseHandler extends ICQRSHandler<SendSandboxCaseCommand,
     }
 
     protected override async process(command: SendSandboxCaseCommand): Promise<SandboxSendResult> {
-        const { connectionId, caseId, inputs } = command.params.request
+        const { connectionId, caseId, inputs, dropWebhook } = command.params.request
         const actor: ConnectionActor = { principalId: command.params.principal.id, workspaceId: command.params.request.workspaceId }
         // The doors' one account read: unknown or removed `PROVIDER_SANDBOX_ACCOUNT_NOT_FOUND`, a LIVE account `PROVIDER_SANDBOX_LIVE_ACCOUNT`.
         const account = await this.accounts.account(actor, connectionId)
         const inbound = (await this.accounts.catalogue(actor, account.provider)).find((one) => one.id === caseId)?.inbound
         if (inbound === undefined) throw new ProviderSandboxError({ code: ProviderSandboxErrorCode.CaseUnknown, params: { caseId } })
-        return this.accounts.send(actor, connectionId, caseId, sandboxInputOf(inbound.inputs, inputs))
+        return this.accounts.send(actor, connectionId, caseId, sandboxInputOf(inbound.inputs, inputs), { dropWebhook: dropWebhook === true })
     }
 }

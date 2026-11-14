@@ -131,7 +131,7 @@ describe("default tools: never listed, always held", () => {
 
     it("an AI step's call of an unlisted OUTSIDE tool is still refused to the model, never made", async () => {
         const { ports, seen, asked } = portsOf([
-            { call: { tool: TOOL.mailMessageSend, args: { to: "a@b.c" } } },
+            { call: { tool: TOOL.invoiceCreate, args: { to: "a@b.c" } } },
             { done: { done: true } },
         ])
         await runTemplateNode(requestOf(aiStep(undefined)), ports)

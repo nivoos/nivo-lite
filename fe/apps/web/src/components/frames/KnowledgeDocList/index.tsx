@@ -1,7 +1,7 @@
 import { Badge, EmptyNotice, ListBox, SearchField, Select, Stack, Tabs, type ListBoxItem } from "@starci/grammar/common"
 import { SlotView } from "@nivo-lite/agent-sdk/client"
 import { KnowledgeDocMark } from "@/components/composites/KnowledgeDocMark"
-import type { DocListCopy, DocListFace, DocRowView } from "@/modules/types"
+import type { DocChipView, DocListCopy, DocListFace, DocRowView } from "@/modules/types"
 
 /** The same row geometry while the first read has no data: a name, a line and a chip. */
 const DOC_ROWS_PLACEHOLDER: ReadonlyArray<DocRowView> = [1, 2, 3, 4, 5].map((n) => ({
@@ -28,6 +28,21 @@ interface KnowledgeDocListProps {
     readonly onRetry: () => void
 }
 
+/** What the chip at the end of a row draws. */
+interface ChipOfProps {
+    readonly chip: DocChipView
+}
+
+/** The chip at the end of a row: a plain Badge, with a live dot only while the work is live (running, or waiting to retry). */
+const ChipOf = (props: ChipOfProps) =>
+    props.chip.isDot === true ? (
+        <Badge tone={props.chip.tone} isDot isLive>
+            {props.chip.label}
+        </Badge>
+    ) : (
+        <Badge tone={props.chip.tone}>{props.chip.label}</Badge>
+    )
+
 /** The rows as list items: the mark, the name with its line, the chip at the end. */
 const itemsOf = (rows: ReadonlyArray<DocRowView>): ReadonlyArray<ListBoxItem> =>
     rows.map((row) => ({
@@ -35,7 +50,7 @@ const itemsOf = (rows: ReadonlyArray<DocRowView>): ReadonlyArray<ListBoxItem> =>
         label: row.title,
         description: row.line,
         leading: <KnowledgeDocMark glyph={row.glyph} />,
-        trailing: row.chip === null ? undefined : <Badge tone={row.chip.tone}>{row.chip.label}</Badge>,
+        trailing: row.chip === null ? undefined : <ChipOf chip={row.chip} />,
     }))
 
 /**

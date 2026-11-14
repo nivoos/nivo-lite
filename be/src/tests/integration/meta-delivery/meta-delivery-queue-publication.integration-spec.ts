@@ -2,7 +2,7 @@ import { TestWorldError, TestWorldErrorCode } from "@tests/world/test-world.erro
 import {
     META_DELIVERY_QUEUE as DOMAIN_QUEUE,
     META_DELIVERY_QUEUE,
-    isMetaDeliveryRecorded,
+    DELIVER_META_JOB,
     type MetaDeliveryRecorded,
 } from "@modules/queues/meta-delivery"
 import { buildMetaDelivery } from "@tests/fixtures/builders/meta-delivery.builder"
@@ -24,11 +24,11 @@ describe("MetaDeliveryQueue", () => {
         { deliveryId: "" },
         { deliveryId: "   " },
     ])("refuses malformed receipt references: %p", (value) => {
-        expect(isMetaDeliveryRecorded(value)).toBe(false)
+        expect(DELIVER_META_JOB.payload(value)).toBe(false)
     })
 
     it("accepts a durable receipt identity and agrees with the intake queue", () => {
-        expect(isMetaDeliveryRecorded(message)).toBe(true)
+        expect(DELIVER_META_JOB.payload(message)).toBe(true)
         expect(META_DELIVERY_QUEUE).toBe(DOMAIN_QUEUE)
     })
 

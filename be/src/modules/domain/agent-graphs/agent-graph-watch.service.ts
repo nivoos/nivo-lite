@@ -1,22 +1,14 @@
 import { Injectable } from "@nestjs/common"
-import { BrainFactsService } from "@modules/domain/brain-facts"
 import { InstallationRecordsService } from "@modules/domain/module-installations"
-import { WorkspacesService } from "@modules/domain/workspaces"
 import { eachInOrder } from "@modules/platform/primitives"
-import { AgentGraphProposalsService } from "./agent-graph-proposals.service"
 import { AgentGraphSeedService } from "./agent-graph-seed.service"
-import { AgentGraphsService, type BrainSourceInForce } from "./agent-graphs.service"
-import { conflictOf } from "./policies/conflict.policy"
+import { AgentGraphsService } from "./agent-graphs.service"
 
 /** How many agents one tick seeds. */
 const SEED_BATCH = 50
 /** How many installations one page of the walk reads, and the most pages one tick walks. */
 const PAGE = 200
 const PAGES = 10
-/** How many Brain rules one tick compares in one workspace. */
-const BRAIN_BATCH = 500
-/** How many workspaces the Brain comparison visits in one tick: the engine scopes a transaction to one workspace. */
-const WORKSPACE_SLICE = 50
 /** The language a graph is seeded in when nothing says otherwise. */
 const SEED_LOCALE = "vi"
 
@@ -26,35 +18,26 @@ export interface WatchReport {
     readonly seeded: number
     /** Seeds brought up to the rule they came from. */
     readonly refreshed: number
-    /** Proposals that a Brain rule was replaced. */
-    readonly conflicts: number
 }
 
 @Injectable()
 /**
- * The tick of the graphs, run in code with no model: it gives an agent that has no graph its seed (in batches of 50), keeps a seed
- * in step with the rule it came from, and compares each Brain rule behind a version that decides with the rule in
- * force. A changed rule raises a conflict for the owner and changes no graph: the agent keeps running on the version the owner confirmed.
+ * The tick of the graphs, run in code with no model: it gives an agent that has no graph its seed (in batches of 50) and keeps a seed
+ * in step with the rule it came from. It proposes nothing: a stored graph is an installed template version (owner ruling R89), so the
+ * Brain-conflict comparison that raised graph proposals no door can confirm is deleted (GRAPH-CLEAN).
  */
 export class AgentGraphWatchService {
-    private after: string | undefined
-
     constructor(
         private readonly installations: InstallationRecordsService,
         private readonly graphs: AgentGraphsService,
         private readonly seed: AgentGraphSeedService,
-        private readonly proposals: AgentGraphProposalsService,
-        private readonly brain: BrainFactsService,
-        private readonly workspaces: WorkspacesService,
     ) {}
 
-    /** Runs the three passes. */
+    /** Runs the two passes. */
     async tick(): Promise<WatchReport> {
         const seeded = await this.seedMissing()
         const refreshed = await this.refreshSeeds()
-        const slice = await this.nextWorkspaces()
-        const conflicts = await this.compareBrain(slice)
-        return { seeded, refreshed, conflicts }
+        return { seeded, refreshed }
     }
 
     /** Walks the installations and brings each seed up to its rule, at most the batch in one tick. */
@@ -108,44 +91,5 @@ export class AgentGraphWatchService {
             found.forEach((agentId) => missing.add(agentId))
         })
         return missing
-    }
-
-    /** The next slice of workspaces by id, the first again after the last: every workspace is reached and no tick reads more than a slice. */
-    private async nextWorkspaces(): Promise<ReadonlyArray<string>> {
-        const found = await this.workspaces.list(WORKSPACE_SLICE, this.after)
-        this.after = found.length < WORKSPACE_SLICE ? undefined : found.at(-1)?.id
-        return found.map((workspace) => workspace.id)
-    }
-
-    private async compareBrain(workspaceIds: ReadonlyArray<string>): Promise<number> {
-        const found = await Promise.all(
-            workspaceIds.map((workspaceId) => this.graphs.brainSourcesInForce(workspaceId, BRAIN_BATCH)),
-        )
-        const raised = await Promise.all(found.flat().map((source) => this.compareOne(source)))
-        return raised.filter(Boolean).length
-    }
-
-    private async compareOne(source: BrainSourceInForce): Promise<boolean> {
-        const cited = await this.brain.get(source.workspaceId, source.factId)
-        if (cited === null) return false
-        const inForce =
-            cited.status === "active"
-                ? null
-                : ((await this.brain.byKey(source.workspaceId, cited.subjectKey, cited.attribute, "active", null))[0] ??
-                  null)
-        const conflict = conflictOf(
-            source.nodeKey,
-            source.valueHash,
-            { id: cited.id, status: cited.status, value: cited.value },
-            inForce === null ? null : { id: inForce.id, status: inForce.status, value: inForce.value },
-        )
-        return conflict === null
-            ? false
-            : this.proposals.raiseConflict(source.workspaceId, source.agentId, source.versionId, {
-                  nodeKey: source.nodeKey,
-                  branchKey: source.branchKey,
-                  oldFactId: source.factId,
-                  ...conflict,
-              })
     }
 }

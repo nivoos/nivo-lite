@@ -128,3 +128,30 @@ describe("AgentEndedWakesService.tell", () => {
         expect(handler.holdOver).toHaveBeenCalledWith(endedWake({ wakeId: "wake-a" }), "error")
     })
 })
+
+describe("AgentEndedWakesService, rule RETIRED SOURCE", () => {
+    it("reports a wake of a source no longer served once (warn + the flow's gave-up report), never through a handler", async () => {
+        const handler = handlerOf()
+        const flow = mock<AgentWorkFlow>({ gaveUp: jest.fn().mockResolvedValue(true) })
+        const { service, logger } = await build(handler, flow)
+        const held = endedWake({ wakeId: "wake-r", source: "retired_ended_spec" })
+        const dead = endedWake({ wakeId: "wake-d", source: "retired_ended_spec" })
+
+        await service.tell([
+            { state: "held", wake: held },
+            { state: "dead", wake: dead },
+        ])
+
+        expect(handler.holdOver).not.toHaveBeenCalled()
+        expect(flow.gaveUp.mock.calls).toEqual([
+            [held, "source_retired"],
+            [dead, "source_retired"],
+        ])
+        expect(logger.warn).toHaveBeenCalledWith(AgentWorkLogEvent.WakeSourceRetired, {
+            agentId: "agent-1",
+            wakeId: "wake-r",
+            source: "retired_ended_spec",
+        })
+        expect(logger.warn).not.toHaveBeenCalledWith(AgentWorkLogEvent.WakeDead, expect.anything())
+    })
+})

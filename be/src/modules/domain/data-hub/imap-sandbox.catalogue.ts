@@ -1,8 +1,11 @@
 import type { DataRecordInput } from "@modules/domain/data-records"
 import type { SandboxCase, SandboxCatalogue } from "@modules/domain/provider-sandbox"
 
-/** The provider key of a mailbox account. */
+/** The provider key of a mailbox's inbound half standing alone. */
 export const IMAP_SANDBOX_PROVIDER = "imap"
+
+/** The provider key of a mailbox account that holds its inbound half (MAIL-IN rule MI-1): the same cases answer its inbound half. */
+export const MAILBOX_SANDBOX_PROVIDER = "smtp"
 
 /** The operation of the mailbox pull in the sandbox call log and in the account's next-case selector. */
 export const IMAP_PULL_OPERATION = "pull"
@@ -36,10 +39,15 @@ interface SandboxMail {
     readonly text: string
     /** The `Message-ID` of the mail this one answers (a renewal notice NIVO sent), or null. */
     readonly inReplyTo: string | null
+    /** The raw `Auto-Submitted` header, when the mail carries one (an auto-reply). */
+    readonly autoSubmitted?: string
 }
 
 /** The notice a renewal reply answers (a fixed id: the sandbox keeps no sent mail). */
 const RENEWAL_NOTICE = `<renewal-notice-1@${MESSAGE_ID_DOMAIN}>`
+
+/** The shop's answer an in-thread reply answers (a fixed id: the sandbox SMTP's first accepted mail). */
+const SHOP_ANSWER = "<sbx-smtp-000001@sandbox.nivo>"
 
 /** The size of the burst of IMAP-7: one customer asking after an order each, in a fixed order. */
 const BURST_SIZE = 30
@@ -110,6 +118,25 @@ const SETS: Readonly<Record<string, ReadonlyArray<SandboxMail>>> = {
         },
     ],
     "IMAP-7": burstOf(),
+    "IMAP-8": [
+        {
+            fromName: "Nguyen Van An",
+            fromAddress: "an.nguyen@example.com",
+            subject: "Tra loi tu dong: Website bi loi khi thanh toan",
+            text: "Toi dang nghi phep den het tuan, se tra loi khi quay lai.",
+            inReplyTo: SHOP_ANSWER,
+            autoSubmitted: "auto-replied",
+        },
+    ],
+    "IMAP-9": [
+        {
+            fromName: "Nguyen Van An",
+            fromAddress: "an.nguyen@example.com",
+            subject: "Re: Website bi loi khi thanh toan",
+            text: "Cam on shop, minh thu lai van loi o buoc chon phuong thuc thanh toan.",
+            inReplyTo: SHOP_ANSWER,
+        },
+    ],
 }
 
 /** The default set: answered while the account's selector names nothing. */
@@ -144,6 +171,8 @@ export const imapRowsOf = (setId: string, firstUid: number, at: Date): ReadonlyA
                 attachments: [],
                 messageId: `<sbx-imap-${uid}@${MESSAGE_ID_DOMAIN}>`,
                 inReplyTo: mail.inReplyTo,
+                references: mail.inReplyTo === null ? [] : [mail.inReplyTo],
+                ...(mail.autoSubmitted === undefined ? {} : { autoSubmitted: mail.autoSubmitted }),
             },
         }
     })
@@ -158,7 +187,20 @@ export const IMAP_SANDBOX_CASES: ReadonlyArray<SandboxCase> = [
     { id: "IMAP-5", label: "An unknown sender: a stranger's mail that matches no customer", operation: IMAP_PULL_OPERATION },
     { id: "IMAP-6", label: "A mail meaning two things: agrees to renew and asks about hosting fees and invoicing in the same mail", operation: IMAP_PULL_OPERATION },
     { id: "IMAP-7", label: "A burst: thirty customers each ask after their own order at once", operation: IMAP_PULL_OPERATION },
+    {
+        id: "IMAP-8",
+        label: "An auto-reply: the customer's out-of-office answers the shop's mail (Auto-Submitted: auto-replied); no line, no run",
+        operation: IMAP_PULL_OPERATION,
+    },
+    {
+        id: "IMAP-9",
+        label: "A reply in the thread: the IMAP-1 customer answers the shop's mail (In-Reply-To the shop's answer)",
+        operation: IMAP_PULL_OPERATION,
+    },
 ]
 
-/** The mailbox's hardcoded catalogue, registered at boot. */
+/** The inbound half's hardcoded catalogue, registered at boot. */
 export const IMAP_SANDBOX_CATALOGUE: SandboxCatalogue = { provider: IMAP_SANDBOX_PROVIDER, cases: IMAP_SANDBOX_CASES }
+
+/** The same cases under a mailbox account (MI-1): merged with its outbound `SMTP-*` cases, one account answers both halves. */
+export const MAILBOX_INBOUND_SANDBOX_CATALOGUE: SandboxCatalogue = { provider: MAILBOX_SANDBOX_PROVIDER, cases: IMAP_SANDBOX_CASES }

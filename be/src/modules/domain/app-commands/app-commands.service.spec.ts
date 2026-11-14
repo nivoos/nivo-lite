@@ -5,7 +5,7 @@ import type { MockEntityManager } from "@starci/jest-preset"
 import { In } from "typeorm"
 import { failedSettlement } from "@tests/fixtures/builders/app-commands.builder"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
-import { AppCommandsService } from "./app-commands.service"
+import { AppCommandsService, COMMAND_STOPPED } from "./app-commands.service"
 import { AppCommandEntity } from "./persistence/entities"
 
 /** Stands for the `() => "now()"` expression a write hands the database. */
@@ -202,5 +202,42 @@ describe("AppCommandsService database clock", () => {
 
         expect(clockOf(done)).toBe("now()")
         expect(clockOf(failed)).toBe("now()")
+    })
+})
+
+describe("AppCommandsService begin for a resumed job", () => {
+    it("takes back the command its own dead letter stopped, and only that one (a refusal the input earned stays refused)", async () => {
+        const em = mockEntityManager({
+            update: [[AppCommandEntity, { affected: 0 }], [AppCommandEntity, { affected: 1 }]],
+            findOne: [AppCommandEntity, commandOf()],
+        })
+        const service = await serviceOf(em)
+
+        await expect(service.begin("command-1", true)).resolves.toMatchObject({ id: "command-1" })
+
+        expect(em.update).toHaveBeenNthCalledWith(2, AppCommandEntity, { id: "command-1", state: "failed", errorCode: COMMAND_STOPPED }, {
+            state: "running",
+            errorCode: null,
+            finishedAt: null,
+        })
+        expect(COMMAND_STOPPED).toBe("unavailable")
+    })
+
+    it("a start that is not a resume never looks for a stopped command", async () => {
+        const em = mockEntityManager({ update: [AppCommandEntity, { affected: 0 }] })
+        const service = await serviceOf(em)
+
+        await expect(service.begin("command-1")).resolves.toBeNull()
+
+        expect(em.update).toHaveBeenCalledTimes(1)
+    })
+
+    it("a resume of a command that is neither open nor stopped begins nothing", async () => {
+        const em = mockEntityManager({ update: [AppCommandEntity, { affected: 0 }] })
+        const service = await serviceOf(em)
+
+        await expect(service.begin("command-1", true)).resolves.toBeNull()
+
+        expect(em.findOne).not.toHaveBeenCalled()
     })
 })

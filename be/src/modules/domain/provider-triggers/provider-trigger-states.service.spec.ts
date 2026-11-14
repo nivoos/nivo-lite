@@ -1,10 +1,10 @@
 import { Test } from "@nestjs/testing"
 import { mock } from "@starci/jest-preset"
+import { bankTriggerOf, mailTriggerOf } from "@tests/fixtures/builders/trigger-declaration.builder"
 import { ConnectionBindingsReadService } from "@modules/domain/connections"
 import { WorkspaceMembersService } from "@modules/domain/workspace-members"
 import { DomainError } from "@modules/platform/errors"
 import { LOGGER, type Logger } from "@modules/platform/logging"
-import { BANK_TRIGGER_WORDS } from "./messages/provider-triggers.messages"
 import { ProviderTriggerStatesService } from "./provider-trigger-states.service"
 import type {
     ProviderTriggerAgentNames,
@@ -22,6 +22,7 @@ import {
 } from "./provider-triggers.decorators"
 import { ProviderTriggersLogEvent } from "./provider-triggers.log-events"
 import { ProviderTriggersService } from "./provider-triggers.service"
+import { triggerDeclarations } from "./trigger-declarations.registry"
 
 /** The refusal the members capability answers for a person whose role may not change a trigger. */
 class SeatRefused extends DomainError<"WORKSPACE_MEMBERS_ROLE_FORBIDDEN" | "WORKSPACE_MEMBERS_NOT_MEMBER"> {}
@@ -31,7 +32,10 @@ type Member = Awaited<ReturnType<WorkspaceMembersService["require"]>>
 type ConnectionRecord = NonNullable<Awaited<ReturnType<ConnectionBindingsReadService["recordOf"]>>>
 
 const ACTOR = { principalId: "user-1", workspaceId: "ws-1" }
-const BANK_WORDS = BANK_TRIGGER_WORDS.trigger
+const BANK = bankTriggerOf()
+
+// The states read the registered declarations of the account's provider: the bank feed's and the mailbox's, as fixtures.
+triggerDeclarations.register(BANK, mailTriggerOf())
 
 /** The world of one account: its provider, the members door's refusal, the stored switch, the core path's agent and the attachments. */
 interface World {
@@ -117,8 +121,10 @@ const build = async (change: Partial<World> = {}) => {
 const BANK_STATE = {
     connectionId: "conn-1",
     name: "transaction.received",
-    kind: "webhook",
-    summary: BANK_WORDS,
+    via: ["webhook", "poll"],
+    withoutPoll: null,
+    title: BANK.words.title,
+    summary: BANK.words.summary,
     enabled: true,
     enabledAt: "2026-11-12T03:00:00.000Z",
     lastFiredAt: "2026-11-12T03:30:00.000Z",
@@ -158,7 +164,8 @@ describe("ProviderTriggerStatesService", () => {
 
             expect(state).toMatchObject({
                 name: "mail.received",
-                kind: "poll",
+                via: ["poll"],
+                withoutPoll: null,
                 enabled: false,
                 enabledAt: null,
                 firedCount: 0,

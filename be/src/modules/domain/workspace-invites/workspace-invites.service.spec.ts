@@ -22,6 +22,7 @@ import {
     previewRawOf,
     ROTATE_WHERE,
 } from "@tests/fixtures/builders/workspace-invites-service.builder"
+import { keptEffectsLedger } from "@tests/fixtures/builders/kept-effects.builder"
 import { FakeClock, fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
 import type { MockEntityManager } from "@starci/jest-preset"
 import { Test } from "@nestjs/testing"
@@ -44,7 +45,7 @@ import { WorkspaceInvitesService } from "./workspace-invites.service"
 
 const HASH = hashInviteToken(TOKEN)
 
-const build = async (entityManager: MockEntityManager) => {
+const build = async (entityManager: MockEntityManager, ledger = keptEffectsLedger()) => {
     const options = { delivery: "invite-delivery", siteUrl: "https://app.test", inviteDays: 7 }
     const members = mock<WorkspaceMembersService>()
     members.require.mockResolvedValue(actorOf())
@@ -69,9 +70,10 @@ const build = async (entityManager: MockEntityManager) => {
             { provide: EntitlementsService, useValue: mock<EntitlementsService>() },
             { provide: WorkspacesService, useValue: workspaces },
             { provide: StaffDirectoryService, useValue: staff },
+            ...ledger.providers,
         ],
     }).compile()
-    return { service: moduleRef.get(WorkspaceInvitesService), members, events, accounts, delivery, workspaces, staff }
+    return { service: moduleRef.get(WorkspaceInvitesService), members, events, accounts, delivery, workspaces, staff, ledger }
 }
 
 describe("WorkspaceInvitesService listPending", () => {
@@ -137,12 +139,10 @@ describe("WorkspaceInvitesService create", () => {
             expiresAt: EXPIRES,
         })
         expect(delivery.deliverInvite).toHaveBeenCalledWith("an@example.test", REDIRECT)
-        expect(events.record).toHaveBeenCalledWith({
-            workspaceId: "ws-1",
-            kind: "member.invited",
-            actor: "Chu",
-            summary: "an@example.test · staff",
-        })
+        expect(events.record).toHaveBeenCalledWith(
+            { workspaceId: "ws-1", kind: "member.invited", actor: "Chu", summary: "an@example.test · staff" },
+            expect.anything(),
+        )
         expect(tx.commits).toBe(1)
     })
 })

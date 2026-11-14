@@ -1,6 +1,6 @@
 import { Test } from "@nestjs/testing"
-import { triggersOf } from "@modules/domain/provider-triggers"
-import type { ProviderTriggerDeclaration, TriggerSwitchView } from "@modules/domain/provider-triggers"
+import { bankTriggerOf, mailTriggerOf } from "@tests/fixtures/builders/trigger-declaration.builder"
+import type { SwitchedDeclaration, TriggerSwitchView } from "@modules/domain/provider-triggers"
 import { bankFiguresOf } from "./account-info.policy"
 import { rightsOf, sampleParamsOf, triggerConfigsOf } from "./provider-registry.policy"
 
@@ -13,14 +13,8 @@ const build = async () => {
     return moduleRef.get<typeof import("./provider-registry.policy")>(SUBJECT)
 }
 
-const declared = (provider: string, name: string): ProviderTriggerDeclaration => {
-    const found = triggersOf(provider).find((entry) => entry.name === name)
-    if (found === undefined) throw new Error(`no trigger ${provider}:${name}`)
-    return found
-}
-
-const BANK = declared("sepay", "transaction.received")
-const MAIL = declared("imap", "mail.received")
+const BANK = bankTriggerOf() as SwitchedDeclaration
+const MAIL = mailTriggerOf() as SwitchedDeclaration
 
 const held = (change: Partial<TriggerSwitchView> = {}): TriggerSwitchView => ({
     name: "transaction.received",
@@ -104,14 +98,14 @@ describe("the rights on an account", () => {
 })
 
 describe("the sample wakes of a trigger", () => {
-    it("cover every filterable choice of a bank movement, and are one for a mailbox sync", async () => {
+    it("cover every closed choice of a bank movement, and are one for a mailbox's mail", async () => {
         const policy = await build()
         // Ledger (ROAD Opus-1f, R44): a sample is the event's generic scope; its payload is `data`, as a registration reads it.
         expect(policy.sampleParamsOf(BANK)).toEqual([
             { data: { transactionId: "sample", direction: "in" } },
             { data: { transactionId: "sample", direction: "out" } },
         ])
-        expect(policy.sampleParamsOf(MAIL)).toEqual([{ eventIds: ["sample"], count: 1 }])
+        expect(policy.sampleParamsOf(MAIL)).toEqual([{ data: { mailId: "sample" } }])
     })
 })
 

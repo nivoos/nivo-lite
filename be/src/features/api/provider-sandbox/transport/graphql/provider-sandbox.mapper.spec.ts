@@ -6,7 +6,10 @@ import {
     toSandboxCallType,
     toSandboxCaseType,
     toSandboxLatestRequestType,
+    toSandboxPayLinkRequest,
+    toSandboxPayLinkType,
     toSandboxSendResultType,
+    toSendSandboxCaseRequest,
 } from "./provider-sandbox.mapper"
 
 describe("provider-sandbox mapper", () => {
@@ -101,6 +104,7 @@ describe("provider-sandbox mapper", () => {
                     { path: "api/x", status: 200, body: { ok: true } },
                     { path: "api/x", status: 204, body: undefined },
                 ],
+                webhookDropped: false,
             }),
         ).toEqual({
             caseId: "SEPAY-1",
@@ -109,7 +113,19 @@ describe("provider-sandbox mapper", () => {
                 { path: "api/x", status: 200, bodyJson: '{"ok":true}' },
                 { path: "api/x", status: 204, bodyJson: null },
             ],
+            webhookDropped: false,
         })
+    })
+
+    it("maps a send that dropped its webhook: no delivery, the flag set; and the input's flag into the request", () => {
+        expect(toSandboxSendResultType({ caseId: "SEPAY-1", input: {}, deliveries: [], webhookDropped: true })).toEqual({
+            caseId: "SEPAY-1",
+            inputs: [],
+            deliveries: [],
+            webhookDropped: true,
+        })
+        expect(toSendSandboxCaseRequest("ws-1", { connectionId: "c-1", caseId: "SEPAY-1", dropWebhook: true })).toMatchObject({ dropWebhook: true })
+        expect(toSendSandboxCaseRequest("ws-1", { connectionId: "c-1", caseId: "SEPAY-1" })).toMatchObject({ dropWebhook: false })
     })
 
     it("maps an account without secrets, and passes the provider key on (the domain refuses a provider with no sandbox)", () => {
@@ -134,6 +150,33 @@ describe("provider-sandbox mapper", () => {
             workspaceId: "ws-1",
             connectionId: "c-1",
             agentId: "a-1",
+        })
+    })
+
+    it("maps a pay link: the account, the state word, the cases and the inputs as text; and the request names the workspace and the link", () => {
+        expect(toSandboxPayLinkRequest("ws-1", "sbx-1")).toEqual({ workspaceId: "ws-1", linkId: "sbx-1" })
+        expect(
+            toSandboxPayLinkType({
+                account: { id: "c-1", provider: "payos", label: "PayOS" },
+                linkId: "sbx-1",
+                amountVnd: 150000,
+                content: "DH001",
+                orderCode: "1780000000001",
+                status: "open",
+                amountReceivedVnd: 50000,
+                caseIds: ["PAYOS-3"],
+                inputs: { orderCode: 1780000000001 },
+            }),
+        ).toEqual({
+            linkId: "sbx-1",
+            account: { id: "c-1", provider: "payos", label: "PayOS" },
+            amountVnd: 150000,
+            content: "DH001",
+            orderCode: "1780000000001",
+            status: "open",
+            amountReceivedVnd: 50000,
+            caseIds: ["PAYOS-3"],
+            inputs: [{ name: "orderCode", value: "1780000000001" }],
         })
     })
 })

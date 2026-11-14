@@ -4,7 +4,7 @@ import { Test } from "@nestjs/testing"
 import { connectionRecord } from "@tests/fixtures/builders/connection-records.builder"
 import { ConnectionSecretReadsService, ConnectionsService, type ConnectionRecord, type Provider } from "@modules/domain/connections"
 import { ProviderRegistryErrorCode } from "@modules/domain/provider-registry"
-import type { TelegramClient } from "@modules/integrations/telegram"
+import { TelegramError, TelegramErrorCode, type TelegramClient } from "@modules/integrations/telegram"
 import type { ZaloClient } from "@modules/integrations/zalo"
 import { CLOCK } from "@modules/platform/clock"
 import { LOGGER } from "@modules/platform/logging"
@@ -289,12 +289,26 @@ describe("ChannelDeliveryService.deliverToPerson", () => {
         await expect(service.deliverToPerson({ ...person, channel: "facebook", accountId: "m1" })).resolves.toEqual(AMBIGUOUS)
     })
 
-    it("rethrows a busy Zalo token refresh for the caller to settle, marking nothing", async () => {
+    it("passes the port's not-sent answer through for the caller to settle, marking nothing: a busy Zalo token refresh becomes it at the Zalo port", async () => {
         const { service, zaloDelivery } = await build()
         zaloDelivery.send.mockRejectedValue(new ChannelsError({ code: ChannelsErrorCode.ZaloRefreshBusy }))
 
         await expect(service.deliverToPerson({ ...person, channel: "zalo", accountId: "z1" })).rejects.toMatchObject({
-            code: ChannelsErrorCode.ZaloRefreshBusy,
+            code: ChannelsErrorCode.SendUnavailable,
+            params: { reason: "zalo_refresh_busy" },
+        })
+    })
+
+    it("passes Telegram's too-many-requests through as the same not-sent answer, never as a receipt", async () => {
+        const { service, telegram, secrets } = await build()
+        secrets.botToken.mockResolvedValue({ kind: "ok", value: "token-1" })
+        telegram.sendMessage.mockRejectedValue(
+            new TelegramError({ code: TelegramErrorCode.Rejected, params: { method: "sendMessage", reason: "Too Many Requests", errorCode: 429, retryAfter: 3 } }),
+        )
+
+        await expect(service.deliverToPerson({ ...person, channel: "telegram", accountId: "t1" })).rejects.toMatchObject({
+            code: ChannelsErrorCode.SendUnavailable,
+            params: { retryAfterSeconds: 3 },
         })
     })
 
@@ -472,3 +486,32 @@ describe("ChannelDeliveryService: nothing of a sandbox account reaches a live cl
         expect(liveCalls(world)).toBe(0)
     })
 })
+
+describe("ChannelDeliveryService.entranceOf: what an account misses to be a customer entrance (MAIL-IN rule MI-3)", () => {
+    it("a chat account declares nothing (an entrance); an account whose provider sends nothing on a channel misses `outbound`; none for a gone account", async () => {
+        const { service, connections } = await build()
+
+        await expect(service.entranceOf("ws-1", "z1")).resolves.toBeNull()
+        await expect(service.entranceOf("ws-1", "t1")).resolves.toBeNull()
+        connections.find.mockResolvedValueOnce(connectionRecord({ id: "imap-1", provider: "imap" }))
+        await expect(service.entranceOf("ws-1", "imap-1")).resolves.toBe("outbound")
+        connections.find.mockResolvedValueOnce(null)
+        await expect(service.entranceOf("ws-1", "gone")).resolves.toBeNull()
+        await expect(service.entranceOf("ws-1", null)).resolves.toBeNull()
+    })
+
+    it("asks the port of the account (live or sandbox by the account) what it misses", async () => {
+        const { service, connections } = await build()
+        const port = { provider: "smtp", send: jest.fn(), entranceOf: jest.fn().mockReturnValue("inbound") }
+        const registry = new CustomerSendRegistryService()
+        registry.register({ live: port, sandbox: port })
+        const own = new ChannelDeliveryService(mock<ChannelPlanNoticeService>(), mock<Logger>(), new FakeClock(NOW.getTime()), connections, registry)
+        const mailbox = connectionRecord({ id: "smtp-1", provider: "smtp", sandbox: true })
+        connections.find.mockResolvedValueOnce(mailbox)
+
+        await expect(own.entranceOf("ws-1", "smtp-1")).resolves.toBe("inbound")
+        expect(port.entranceOf).toHaveBeenCalledWith(mailbox)
+        expect(service).toBeDefined()
+    })
+})
+

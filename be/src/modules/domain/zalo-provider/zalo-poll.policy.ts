@@ -23,9 +23,6 @@ export const ZALO_POLL_PAGE_SIZE = 10
 /** The most pages one list is walked, so a run is bounded. */
 export const ZALO_POLL_MAX_PAGES = 30
 
-/** The pause between two Zalo calls, in milliseconds, to stay inside the rate limit of the open API. */
-export const ZALO_POLL_PAUSE_MS = 400
-
 /** The rules the options give, the defaults where they give none. */
 export const pollRulesOf = (options: ZaloProviderConfig): ZaloPollRules => ({
     replyWindowMs: options.replyWindowMs ?? ZALO_POLL_DEFAULTS.replyWindowMs,

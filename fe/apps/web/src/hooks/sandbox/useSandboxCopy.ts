@@ -2,7 +2,7 @@
 
 import { useFormatter, useLocale, useTranslations } from "next-intl"
 import { providerLabelOf, providerLogoOf } from "@/hooks/providerRights"
-import type { SandboxWords } from "@/modules/sandbox"
+import { SANDBOX_SCOPE_PROVIDER, type SandboxWords } from "@/modules/sandbox"
 import type { SandboxCopy } from "@/modules/types"
 
 /** What the page says: its words and the words its data is worded with. */
@@ -13,6 +13,15 @@ export interface SandboxTexts {
 
 /** A reader of the `sandbox` catalog. */
 type Say = ReturnType<typeof useTranslations<"sandbox">>
+
+/** The purposes the app has its own words for, by the key the model account logs the call under (the facts steps and the AI core). */
+const PURPOSE_WORDS: Readonly<Record<string, "purposeDocumentExtract" | "purposeDocumentTriage" | "purposeStepTrouble">> = {
+    "document_read:extract": "purposeDocumentExtract",
+    "document_reread:extract": "purposeDocumentExtract",
+    "document_read:triage": "purposeDocumentTriage",
+    "document_reread:triage": "purposeDocumentTriage",
+    "engine:step-trouble": "purposeStepTrouble",
+}
 
 /** The words of the page itself: its header, its notices and the accounts block. */
 const pageCopyOf = (
@@ -63,7 +72,7 @@ const pageCopyOf = (
 })
 
 /** The words of the blocks of the open account and of the parked runs. */
-const blockCopyOf = (t: Say): Pick<SandboxCopy, "cases" | "calls" | "webhookKey" | "waiting" | "agents" | "attach"> => ({
+const blockCopyOf = (t: Say): Pick<SandboxCopy, "scope" | "cases" | "calls" | "webhookKey" | "waiting" | "agents" | "attach"> => ({
     agents: {
         title: t("agentsTitle"),
         empty: t("agentsEmpty"),
@@ -83,6 +92,7 @@ const blockCopyOf = (t: Say): Pick<SandboxCopy, "cases" | "calls" | "webhookKey"
         empty: t("attachEmpty"),
         submitLabel: t("attachSubmit"),
     },
+    scope: { title: t("scopeTitle") },
     cases: {
         title: t("casesTitle"),
         empty: t("casesEmpty"),
@@ -91,6 +101,8 @@ const blockCopyOf = (t: Say): Pick<SandboxCopy, "cases" | "calls" | "webhookKey"
         defaultBadge: t("caseDefault"),
         nextBadge: t("caseNext"),
         inputsLabel: t("inputsLabel"),
+        dropWebhookLabel: t("dropWebhookLabel"),
+        dropWebhookHint: t("dropWebhookHint"),
         errorTitle: t("errorCases"),
     },
     calls: {
@@ -146,8 +158,20 @@ export const useSandboxCopy = (): SandboxTexts => {
             waitingWhat: (verbs) => t("waitingWhat", { verbs }),
             waitingWhatAny: t("waitingWhatAny"),
             agentsLine: (names) => (names.length === 0 ? t("agentsNone") : names.join(", ")),
-            defaultName: (provider) => t("defaultName", { provider: providerLabelOf(undefined, provider, locale) }),
-            providerName: (provider) => providerLabelOf(undefined, provider, locale),
+            defaultName: (provider) =>
+                t("defaultName", {
+                    provider: provider === SANDBOX_SCOPE_PROVIDER ? t("providerModel") : providerLabelOf(undefined, provider, locale),
+                }),
+            providerName: (provider) =>
+                provider === SANDBOX_SCOPE_PROVIDER ? t("providerModel") : providerLabelOf(undefined, provider, locale),
+            purposeKnown: (purpose) => {
+                const key = PURPOSE_WORDS[purpose]
+                return key === undefined ? null : t(key)
+            },
+            purposeNode: t("purposeNode"),
+            purposeOther: t("purposeOther"),
+            scopeAll: t("scopeAll"),
+            scopeAllHint: t("scopeAllHint"),
             providerLogo: (provider) => providerLogoOf(provider) ?? null,
         },
     }

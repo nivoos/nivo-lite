@@ -2,14 +2,10 @@ import { Injectable } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
 import { AgentTriggersService } from "@modules/domain/agent-work"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
+import { payloadOfJob, type ClaimedJob } from "@modules/platform/jobs"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { InjectQueueSchedules, type QueueSchedules } from "@modules/platform/queue"
-import {
-    AGENT_SCHEDULE_FIRE_QUEUE,
-    agentTriggerSchedulerId,
-    isAgentScheduleFirePayload,
-} from "@modules/queues/agent-turn"
-import { AgentSchedulesError, AgentSchedulesErrorCode } from "./errors/agent-schedules.error"
+import { AGENT_SCHEDULE_FIRE_QUEUE, FIRE_AGENT_SCHEDULE_JOB, agentTriggerSchedulerId } from "@modules/queues/agent-turn"
 import { AgentSchedulesLogEvent } from "./agent-schedules.log-events"
 import { AgentTriggerSyncService } from "./agent-trigger-sync.service"
 import { ClockTickDeliveryService } from "./clock-tick-delivery.service"
@@ -31,17 +27,13 @@ export class AgentScheduleFireService {
     ) {}
 
     /**
-     * Fires the slot a fire job names; a payload without a trigger and a slot ends the job. Answers false when the slot wrote no wake
-     * because the trigger was gone, off or switched off.
+     * Fires the slot a fire job names (the job's one domain method; the runner already refused a payload that names no trigger and
+     * slot). Answers false when the slot wrote no wake because the trigger was gone, off or switched off: a typed end. A failure
+     * throws: the runner retries a transient one on the broker's tries and dead-letters the rest with one item; a repeated slot writes
+     * no second wake (its once-key is `<triggerId>:<slot>`), so the job may run again after any failure or a person's resume.
      */
-    async fire(job: object): Promise<boolean> {
-        if (!isAgentScheduleFirePayload(job)) {
-            throw new AgentSchedulesError({
-                code: AgentSchedulesErrorCode.FirePayloadInvalid,
-                params: { unrecoverable: 1 },
-            })
-        }
-        const payload = job
+    async fire(job: ClaimedJob): Promise<boolean> {
+        const payload = payloadOfJob(FIRE_AGENT_SCHEDULE_JOB, job)
         const slot = payload.slot
         const trigger = await this.triggers.byId(payload.triggerId)
         if (trigger === null || !trigger.enabled || trigger.kind !== "schedule") {

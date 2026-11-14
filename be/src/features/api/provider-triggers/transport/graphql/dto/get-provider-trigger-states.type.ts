@@ -1,7 +1,7 @@
 import { Field, ID, Int, ObjectType } from "@nestjs/graphql"
 
 @ObjectType()
-/** Words in the owner's two languages, exactly as the trigger catalogue declares them. */
+/** Words in the owner's two languages, exactly as the trigger declaration words them. */
 export class ProviderTriggerWordsType {
     /** Vietnamese. */
     @Field(() => String)
@@ -10,6 +10,18 @@ export class ProviderTriggerWordsType {
     /** English. */
     @Field(() => String)
     en!: string
+}
+
+@ObjectType()
+/** Why a trigger no poll receives loses no event: the reason in the owner's two languages and where the guarantee is stated. */
+export class ProviderTriggerWithoutPollType {
+    /** The reason: the provider's re-delivery guarantee, or the sweep of NIVO that brings a missed one back. */
+    @Field(() => ProviderTriggerWordsType)
+    reason!: ProviderTriggerWordsType
+
+    /** The provider's document URL, or `nivo:<sweep>`. */
+    @Field(() => String)
+    source!: string
 }
 
 @ObjectType()
@@ -35,9 +47,17 @@ export class ProviderTriggerStateType {
     @Field(() => String)
     name!: string
 
-    /** `webhook` or `poll`. */
-    @Field(() => String)
-    kind!: string
+    /** EVERY way the trigger is received: `webhook`, `poll`, `clock`, `internal` (the page reads "received by: webhook, poll"). */
+    @Field(() => [String])
+    via!: ReadonlyArray<string>
+
+    /** For a trigger no poll receives: why a missed event loses nothing; null when a poll receives it. */
+    @Field(() => ProviderTriggerWithoutPollType, { nullable: true })
+    withoutPoll!: ProviderTriggerWithoutPollType | null
+
+    /** Its short title `<source> · <event>`, in the owner's two languages: what the drawer names the trigger by. */
+    @Field(() => ProviderTriggerWordsType)
+    title!: ProviderTriggerWordsType
 
     /** What it is, in the owner's two languages. */
     @Field(() => ProviderTriggerWordsType)

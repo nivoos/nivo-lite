@@ -90,6 +90,7 @@ describe("the default rights of a fresh agent on connected providers", () => {
             "chatbot.hear": "auto",
             "chatbot.understand": "auto",
             "chatbot.complaint-notify": "auto",
+            "chatbot.stop-keep": "auto",
             "team.chat": "auto",
             // front desk v26 (R68, G-SLIM): the declined-notice steps are gone (the ENGINE tells the team), so the chatbot no longer places
             // `team.declined-notice` (P-NEXT: spec followed the graph; the post count is unchanged, the engine posts it).

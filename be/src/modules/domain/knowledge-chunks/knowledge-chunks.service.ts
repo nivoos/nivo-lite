@@ -15,6 +15,7 @@ import type {
     PlaceWrite,
     SourcePassage,
     StoredAt,
+    StoredWithin,
     TruthPassage,
 } from "./knowledge-chunks.contracts"
 import { passageHashOf, passageTextHashOf } from "./passage-hash.policy"
@@ -100,9 +101,10 @@ export class KnowledgeChunksService {
     /**
      * Stores these passages in place of the passages at the same orders in one transaction; the passages of other orders stay, so a
      * retry keeps what is already stored. Answers the id each order was stored under: the caller hands the vectors to the vector
-     * index under those ids (the point id is the row id); Postgres keeps no vector.
+     * index under those ids (the point id is the row id); Postgres keeps no vector. `within` runs in the same transaction after the
+     * passages are written (the caller settles the effect that made them, so the passages and the settle commit together).
      */
-    keep(write: ChunkBatchWrite): Promise<ReadonlyArray<StoredAt>> {
+    keep(write: ChunkBatchWrite, within?: StoredWithin): Promise<ReadonlyArray<StoredAt>> {
         if (write.drafts.length === 0) return Promise.resolve([])
         return this.entityManager.transaction(async (tx) => {
             await tx.delete(KnowledgeChunkEntity, {
@@ -115,6 +117,7 @@ export class KnowledgeChunksService {
                 write.drafts.map((draft) => rowOf(write, draft, draft.order)),
             )
             const stored = storedIdsOf(inserted)
+            if (within !== undefined) await within(tx)
             return write.drafts.flatMap((draft, at): ReadonlyArray<StoredAt> => {
                 const id = stored[at]
                 return typeof id === "string" ? [{ order: draft.order, id }] : []

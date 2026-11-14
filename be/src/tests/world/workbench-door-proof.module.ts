@@ -1,7 +1,7 @@
 import { Injectable, Module, type DynamicModule } from "@nestjs/common"
 import { DataSource } from "typeorm"
 import { installedModules } from "@tests/fixtures/builders/installed-modules.builder"
-import { ENTITY_ENGINE_MESSAGES, EntityEngineModule, type EngineFailureAlerts } from "@modules/domain/entity-engine"
+import { ENTITY_ENGINE_MESSAGES, EntityEngineModule } from "@modules/domain/entity-engine"
 import { InstallationRecordsService } from "@modules/domain/module-installations"
 import { WORKBENCH_DOOR_MESSAGES, WorkbenchDoorModule } from "@modules/domain/workbench-door"
 import { MemberLookupService, WorkspaceMembersService } from "@modules/domain/workspace-members"
@@ -93,14 +93,6 @@ export class ProofInstallations {
     }
 }
 
-@Injectable()
-/** The alerts of the proof: nobody is told, the specs read what parked. */
-export class ProofAlerts implements EngineFailureAlerts {
-    raise(): Promise<void> {
-        return Promise.resolve()
-    }
-}
-
 @Module({
     providers: [
         { provide: WorkspaceMembersService, useClass: ProofMembers },
@@ -132,7 +124,6 @@ export const workbenchDoorProofModules = (): Array<DynamicModule> => [
         isGlobal: true,
         entities: INSTALLED.entities(),
         jobs: INSTALLED.jobs(),
-        alerts: ProofAlerts,
         cursorKey: CURSOR_KEY,
     }),
     WorkbenchDoorModule.register({

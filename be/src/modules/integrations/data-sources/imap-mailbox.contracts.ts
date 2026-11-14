@@ -32,44 +32,26 @@ export interface ImapMessageRow {
     readonly data: Readonly<Record<string, unknown>>
 }
 
-/** One folder to read and where the last read stopped. */
-export interface ImapFolderRequest {
-    /** The folder path. */
-    readonly path: string
-    /** The saved cursor `<uidvalidity>:<uid>`, or null for a first read. */
-    readonly cursor: string | null
+/** One window of a mailbox the poll reads: its folders, the instants it spans and the most messages one page holds. */
+export interface ImapPageRequest {
+    /** The folders to read. */
+    readonly folders: ReadonlyArray<string>
+    /** Only messages received at or after this instant. */
+    readonly from: Date
+    /** Only messages received at or before this instant; undefined reads up to now. */
+    readonly to: Date | undefined
+    /** The most messages the page holds: the newest of the window. */
+    readonly limit: number
 }
 
-/** What reading the folders is asked to do. */
-export interface ImapPullRequest {
-    /** The folders to read, in order. */
-    readonly folders: ReadonlyArray<ImapFolderRequest>
-    /** On a first read of a folder: only messages since this moment. */
-    readonly since: Date
-    /** True once the run's time budget is spent. */
-    readonly isExpired: () => boolean
-    /** Stores a batch of rows; answers how many were written. */
-    readonly deliver: (rows: ReadonlyArray<ImapMessageRow>) => Promise<number>
-}
-
-/** What happened to one folder. */
-export interface ImapFolderOutcome {
-    /** The folder path. */
-    readonly path: string
-    /** The cursor to save, or null to leave the saved one. */
-    readonly cursor: string | null
-    /** How many rows were written. */
-    readonly rows: number
-    /** True when more new messages wait for the next run. */
-    readonly more: boolean
-    /** The plain-language failure of this folder, or null. */
-    readonly failure: string | null
-}
-
-/** What reading the folders answered. */
-export interface ImapPullResult {
-    /** One outcome per folder that was reached. */
-    readonly folders: ReadonlyArray<ImapFolderOutcome>
-    /** True when the time budget ended the run early. */
-    readonly expired: boolean
+/** One page of a mailbox: the newest messages of the window, newest first, and how many the window held in all. */
+export interface ImapPage {
+    /** The rows of the page, newest first. */
+    readonly rows: ReadonlyArray<ImapMessageRow>
+    /** How many messages the window held in all folders (a page holding `limit` of more means an older page follows). */
+    readonly fetched: number
+    /** When the oldest message of the page was received; undefined for an empty page. */
+    readonly oldestAt: Date | undefined
+    /** When the newest message of the page was received; undefined for an empty page. */
+    readonly newestAt: Date | undefined
 }

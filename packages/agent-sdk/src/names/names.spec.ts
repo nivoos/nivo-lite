@@ -57,7 +57,7 @@ describe("the core names", () => {
     it("keeps the purposes decided for the rename", () => {
         expect(TOOL.customerMessageSend).toBe("nivo.tool.customer.message.send")
         expect(TOOL.driveStatusGet).toBe("nivo.tool.drive.status.get")
-        expect(TOOL.mailMessageSend).toBe("nivo.tool.mail.message.send")
+        expect(TOOL.customerMessageSend).toBe("nivo.tool.customer.message.send")
         expect(TRIGGER.clockTick).toBe("nivo.trigger.clock.tick")
     })
 

@@ -23,17 +23,14 @@ const ENTRIES_OF = { api: apiEntriesOf, mcp: mcpEntriesOf, trigger: triggerEntri
 export const useProviderOfferWords = (): ProviderOfferWords => {
     const t = useTranslations("providerPage")
     return {
-        kinds: { read: t("kindRead"), write: t("kindWrite"), webhook: t("kindWebhook"), poll: t("kindPoll") },
+        kinds: { read: t("kindRead"), write: t("kindWrite") },
         groupParameters: t("groupParameters"),
         groupReturnsRow: t("groupReturnsRow"),
         groupReturns: t("groupReturns"),
         groupPayload: t("groupPayload"),
         freshness: { live: t("freshnessLive"), synced: t("freshnessSynced") },
-        batchingEach: t("batchingEach"),
-        batchingList: (maxEvents) => t("batchingList", { maxEvents }),
-        batchingListOpen: t("batchingListOpen"),
-        recoveryYes: t("recoveryYes"),
-        recoveryNo: t("recoveryNo"),
+        ways: { webhook: t("wayWebhook"), poll: t("wayPoll"), clock: t("wayClock"), internal: t("wayInternal") },
+        receivedVia: (ways) => t("receivedVia", { ways }),
         types: {
             string: t("typeString"),
             integer: t("typeInteger"),

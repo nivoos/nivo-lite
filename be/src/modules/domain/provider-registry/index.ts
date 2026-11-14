@@ -2,18 +2,16 @@ export { ProviderRegistryModule } from "./provider-registry.module"
 export { ProviderRegistryService } from "./provider-registry.service"
 export type { PortAccount, ProviderImplementations } from "./provider-registry.service"
 export {
-    BankFeedPollerRegistryService,
     BankTransactionsRegistryService,
     ChannelProfileRegistryService,
     DomainRegistrarRegistryService,
     FeedWebhookRegistryService,
     LedgerRegistryService,
-    MessageInboxPollerRegistryService,
     PaymentInstructionRegistryService,
+    PollReceiverRegistryService,
 } from "./provider-registries.service"
 export { PAYMENT_TOOL_BUSINESS_REFUSALS, PAYMENT_TOOL_REFUSALS } from "./provider-ports.contracts"
 export type {
-    BankFeedPoller,
     BankTransaction,
     BankTransactionsPort,
     BankTransactionsQuery,
@@ -22,10 +20,11 @@ export type {
     InstructionAccount,
     BusinessLedgerEntry,
     LedgerPort,
-    MessageInboxPoller,
     PaymentInstructionPort,
     PaymentInstructionRequest,
-    PolledCredit,
+    PolledRow,
+    PollCadence,
+    PollReceiver,
     TransferInstruction,
     TransferInstructionRequest,
 } from "./provider-ports.contracts"

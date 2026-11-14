@@ -21,9 +21,20 @@ import { AccountDataEntity } from "./persistence/entities"
 
 
 
-/** Checks one input of the intake: the type must be declared and the connection's provider's (else TYPE_UNDECLARED), not `advance` (WRITE_MODE). */
-const readyRowOf = (types: AccountDataTypesService, owner: AccountOwner, input: AccountDataInput): CheckedRow =>
-    checkedRowOf(types.declaredAs(input.type, ["append", "overwrite"], owner.provider), input.value)
+/**
+ * Checks one input of the intake: the type must be declared and the connection's provider's, or the provider of a half the account holds
+ * (a mailbox `smtp` account writes its inbound `imap` half's `imap.mail`) (else TYPE_UNDECLARED), not `advance` (WRITE_MODE).
+ */
+const readyRowOf = (
+    types: AccountDataTypesService,
+    owner: AccountOwner,
+    halves: ReadonlyArray<string>,
+    input: AccountDataInput,
+): CheckedRow => {
+    const declared = types.of(input.type)?.provider ?? null
+    const writer = declared !== null && halves.includes(declared) ? declared : owner.provider
+    return checkedRowOf(types.declaredAs(input.type, ["append", "overwrite"], writer), input.value)
+}
 
 @Injectable()
 /**
@@ -52,7 +63,7 @@ export class AccountDataIntakeService {
         const account = await this.bindings.accountOf(connectionId, tx)
         if (account === null) return { owner: null, rows: [] }
         const owner: AccountOwner = { provider: account.provider, connectionId, workspaceId: account.workspaceId }
-        const ready = inputs.map((input) => readyRowOf(this.types, owner, input))
+        const ready = inputs.map((input) => readyRowOf(this.types, owner, account.halves ?? [], input))
         const rows: Array<WrittenRow> = []
         await eachInOrder(ready, async (row) => {
             rows.push(await (row.def.write === "append" ? this.append(tx, owner, row) : this.overwrite(tx, owner, row)))

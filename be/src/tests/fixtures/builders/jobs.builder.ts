@@ -1,8 +1,10 @@
 import {
     JobClaimService,
+    JobDeadLettersService,
     JobRenewalService,
     JobRunnerService,
     JobsLogEvent,
+    JobStateEventsService,
     type JobClaimResult,
 } from "@modules/platform/jobs"
 import { FakeClock, mock, type MockOf } from "@starci/jest-preset"
@@ -54,6 +56,8 @@ export const jobsBuilder = (manager: EntityManager, key: string): JobsBuilderRes
         mock<QueueWorkerRegistry>(),
         logger,
         new JobRenewalService(options, claims, idle, logger),
+        mock<JobDeadLettersService>(),
+        mock<JobStateEventsService>(),
     )
     const claim = (worker: JobClaimService, workerId: string): Promise<JobClaimResult> =>
         worker.claim({

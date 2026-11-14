@@ -1,11 +1,11 @@
 /** The doors a press is recorded for. */
-export type DoorName = "schedule.run_now" | "care.opt_out" | "conversation.release"
+export type DoorName = "schedule.run_now" | "conversation.release"
 
 /** One press of a door: who, when, on what, and what it came to. */
 export interface DoorPress {
     /** The door. */
     readonly door: DoorName
-    /** What it was pressed on: the item key, the lead id, the conversation id. */
+    /** What it was pressed on: the item key, the conversation id. */
     readonly subject: string
     /** The workspace member who pressed. */
     readonly memberId: string
@@ -111,22 +111,4 @@ export interface RunNowAnswer {
     readonly outcome: RunNowOutcome
     /** The item key as asked. */
     readonly id: string
-}
-
-/** The shop's care opt-out of a customer, as it stands. */
-export interface CareOptOutView {
-    /** The customer (lead). */
-    readonly leadId: string
-    /** True when nobody writes to the customer unprompted (care steps close themselves, customer sends are refused). */
-    readonly optedOut: boolean
-    /** The last time a person of the shop set or cleared it, or null (only the customer's own words set it). */
-    readonly lastPress: OptionalDoorPress
-}
-
-/** What setting the opt-out did: `set` (written), `unchanged` (it already stood so; written again with who/when), `not_found`. */
-export interface CareOptOutAnswer {
-    /** How it ended. */
-    readonly outcome: "set" | "unchanged" | "not_found"
-    /** The opt-out as it stands after the call (null when the lead is not found). */
-    readonly view: CareOptOutView | null
 }

@@ -10,4 +10,6 @@ export enum JobOpsLogEvent {
     AlertJobsStale = "job-ops.alert.jobs-stale",
     /** An unexpected monitor failure is recovered at the timer boundary. */
     AlertMonitorFailed = "job-ops.alert.monitor-failed",
+    /** A parked job's card could not be posted (no owner, or the write failed); the job stays parked and listed. */
+    ParkedCardFailed = "job-ops.parked-card.failed",
 }

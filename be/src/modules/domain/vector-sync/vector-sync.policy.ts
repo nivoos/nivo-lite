@@ -19,12 +19,6 @@ export const RECONCILE_POINTS_PER_RUN = 4096
 /** The most embedding calls one run of the reconcile makes, per kind: 1,024 rows, about half a minute at the provider's pace. */
 export const RECONCILE_EMBED_CALLS = 32
 
-/** After this many consecutive runs that ended with drift they could not repair (15 minutes at the tick's pace), the founder is told once. */
-export const DRIFT_RUNS_TO_REPORT = 3
-
-/** The most workspaces one run tells. */
-export const REPORT_WORKSPACES_MAX = 20
-
 /** What a batch of rows needs, row by row, once compared with the points the index holds for them. */
 export interface SyncPlan {
     /** Rows whose point is in step and recorded in Postgres: nothing to do. */
@@ -135,7 +129,6 @@ export const addDone = (left: VectorSyncDone, right: Partial<VectorSyncDone>): V
     marked: left.marked + (right.marked ?? 0),
     removed: left.removed + (right.removed ?? 0),
     waiting: left.waiting + (right.waiting ?? 0),
-    failed: left.failed + (right.failed ?? 0),
     embedCalls: left.embedCalls + (right.embedCalls ?? 0),
 })
 

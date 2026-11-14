@@ -11,7 +11,7 @@ runbook carries no docker command and nobody runs docker by hand.
 | --- | --- | --- |
 | db (PostgreSQL 17, pgvector) | container, volume `db-data` | 54332 |
 | redis (BullMQ broker, realtime) | container, volume `redis-data` | 56379 |
-| minio (S3) | container, volume `minio-data` | 59000 |
+| minio (S3) | container, volume `minio-data` | 59900 |
 | api (+ the AI gateway on port + 1) | native | 18787 (gateway 18788) |
 | mcp | native | 18790 |
 | web (console) | native | 3100 |

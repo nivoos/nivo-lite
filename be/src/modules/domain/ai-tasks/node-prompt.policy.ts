@@ -15,48 +15,35 @@ const instructionsOf = (ask: NodeAsk, schema: TaskSchema | null): string =>
         : `${ask.instructions}\n\nAnswer with one JSON object that matches this JSON Schema exactly (member names, types and allowed values):\n${answerSchemaOf(schema)}`
 
 /**
- * The two parts of a graph node's call, for the provider's prompt cache. `stable` is the prefix a provider caches: the node's
- * instructions (the agent's craft and tool set, the shop's policy values, the step) with the answer's JSON Schema for a structured
- * call; it is the same text, byte for byte, for the same agent, shop and step. `volatile` is what changes from call to call: the
- * words that hold for this call only, then the input as JSON (with the pictures).
+ * The two parts of a graph node's call, for the provider's prompt cache. `stable` is the prefix a provider caches, in the layers of
+ * agent-sdk's "layout of a model call": L1 the agent's craft and tool set, L2 the workspace's policies, L3 the step's own words with the answer's
+ * JSON Schema for a structured call; each the same text, byte for byte, for the same agent (L1), workspace (L2) and step (L3). `volatile` is
+ * what changes from call to call: the words that hold for this call only, the input as JSON (with the pictures), then each earlier turn
+ * of a loop as its own part, so a later turn only appends.
  */
 export interface NodePrompt {
-    /**
-     * The stable part: the shared opening (L1 + L2) then the step (L3), or one system message. THE END OF THE STABLE PART is the end
-     * of this list.
-     */
+    /** The stable part: one marked system message per non-empty layer, L1, L2, L3 in that order. THE END OF THE STABLE PART is its end. */
     readonly stable: ReadonlyArray<ChatMessage>
     /** The volatile part, sent after the stable one. */
     readonly volatile: ReadonlyArray<ChatMessage>
 }
 
-/** The blank line between the shared opening (L1 + L2) of a node's instructions and the step's own words (L3). */
-const LAYER_GAP = "\n\n"
-
 /**
- * The stable part as system messages, each marked for the prompt cache: the opening every call of the agent shares (L1 + L2, as
- * long as `sharedLength` says), then the step's own words with the answer's schema (L3); one message when the call names no shared
- * opening (or one that does not fit its instructions). The text sent is the instructions, unchanged, cut at the layer's end.
+ * The stable part as system messages, each marked for the prompt cache at its layer's end: L1 and L2 from the call's opening (a layer
+ * with no text is no message and no mark), then L3. At most three marks: with the automatic one, Anthropic's four.
  */
 const stableOf = (ask: NodeAsk, schema: TaskSchema | null): ReadonlyArray<ChatMessage> => {
-    const whole = instructionsOf(ask, schema)
-    const at = ask.sharedLength
-    if (at === undefined || at <= 0 || !Number.isInteger(at) || !ask.instructions.startsWith(LAYER_GAP, at))
-        return [{ role: "system", content: whole, cacheMark: true }]
-    return [
-        { role: "system", content: whole.slice(0, at), cacheMark: true },
-        { role: "system", content: whole.slice(at + LAYER_GAP.length), cacheMark: true },
-    ]
+    const shared = [ask.opening?.craft ?? "", ask.opening?.policies ?? ""].filter((layer) => layer !== "")
+    return [...shared, instructionsOf(ask, schema)].map((content) => ({ role: "system", content, cacheMark: true }))
 }
 
 /**
- * A graph node's call laid out stable part first. A model that takes cache markers gets a marker at the end of the shared opening
- * (L1 + L2) and at the end of `stable` (L3), nowhere else: two explicit breakpoints, the automatic one makes three of Anthropic's four.
+ * A graph node's call laid out stable part first. A model that takes cache markers gets a marker at the end of each stable layer and
+ * nowhere else; the automatic breakpoint at the end of the request covers the volatile part, which a loop's next turn only extends.
  */
 export const nodePromptOf = (ask: NodeAsk, schema: TaskSchema | null = null): NodePrompt => {
     const words = (ask.volatile ?? "").trim()
     return {
-        // The end of the shared opening and the end of the stable part: the cache breakpoints of a node's call.
         stable: stableOf(ask, schema),
         volatile: [
             ...(words === "" ? [] : [{ role: "system" as const, content: words }]),
@@ -65,6 +52,7 @@ export const nodePromptOf = (ask: NodeAsk, schema: TaskSchema | null = null): No
                 content: JSON.stringify(ask.input ?? null),
                 ...(ask.images === undefined || ask.images.length === 0 ? {} : { images: ask.images }),
             },
+            ...(ask.turns ?? []).map((turn): ChatMessage => ({ role: "user", content: JSON.stringify(turn) })),
         ],
     }
 }

@@ -235,9 +235,9 @@ export interface NodeOutcomeDeclaration<O extends z.ZodType = z.ZodType, F exten
 }
 
 /**
- * The facts of a lead that memory keeps across workflows. A closed list, so `lead.<field>` refs are validated at save. `careOptOut`
- * (the customer asked to be left alone) and `occasions` (the dates they care about) are what the consult learned for care: memory is
- * their one home (the lead record keeps no copy).
+ * The facts of a lead that memory keeps across workflows. A closed list, so `lead.<field>` refs are validated at save. `occasions`
+ * (the dates they care about) is what the consult learned for care: memory is its one home (the lead record keeps no copy). "Do not
+ * contact" is no lead fact: it is the contact's own consent fact (`nivo.tool.contact.update` `doNotContact`).
  */
 export const LEAD_FACTS: readonly [
     "name",
@@ -252,7 +252,6 @@ export const LEAD_FACTS: readonly [
     "lastOrderId",
     "lastOrderCode",
     "lastPaymentId",
-    "careOptOut",
     "occasions",
 ] = [
     "name",
@@ -267,7 +266,6 @@ export const LEAD_FACTS: readonly [
     "lastOrderId",
     "lastOrderCode",
     "lastPaymentId",
-    "careOptOut",
     "occasions",
 ]
 

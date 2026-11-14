@@ -1,2 +1,3 @@
 export type { BankFeedDeliveryRecorded } from "./bank-feed-delivery.contracts"
-export { BANK_FEED_DELIVERY_QUEUE, isBankFeedDeliveryRecorded } from "./bank-feed-delivery.queue"
+export { DELIVER_BANK_FEED_JOB } from "./bank-feed-delivery.jobs"
+export { BANK_FEED_DELIVERY_QUEUE } from "./bank-feed-delivery.queue"

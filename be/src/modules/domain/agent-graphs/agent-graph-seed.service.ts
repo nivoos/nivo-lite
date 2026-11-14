@@ -72,9 +72,8 @@ export class AgentGraphSeedService {
      */
     private checkFlow(workspaceId: string, agentId: string, flow: GraphSpec): void {
         if (this.nodes === undefined) return
-        // The accounts a node states are judged as at a publish (known kinds, ask-only operations); a flow that states none is judged as before.
-        // A flow read from a @2 graph is judged by the @2 checks (`flowProblemsOf`), any other as before.
-        const problems = flowProblemsOf(flow, this.nodes.installed())
+        // Judged as at every write (`flowProblemsOf`): a flow that is no installed template version's copy is a problem.
+        const problems = flowProblemsOf(flow)
         if (problems.length === 0) return
         for (const problem of problems) {
             this.logger.warn(AgentGraphsLogEvent.FlowUnsound, {

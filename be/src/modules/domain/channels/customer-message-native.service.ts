@@ -1,6 +1,6 @@
-import { Injectable } from "@nestjs/common"
+import { Injectable, Optional } from "@nestjs/common"
 import { CONTEXT_NOTICE } from "@modules/domain/context-sources"
-import { CustomerMessagesService, type CustomerLine } from "@modules/domain/customer-routes"
+import { CustomerMessagesService, StreamCursorService, type CustomerLine } from "@modules/domain/customer-routes"
 import { nativeRefusal } from "@modules/domain/native-tools/native-refusal.policy"
 import {
     argumentsOf,
@@ -34,7 +34,7 @@ export const CONVERSATION_MESSAGE_MANIFEST: ToolManifest = {
         {
             name: CONVERSATION_MESSAGE_TOOL.list,
             description:
-                "The latest lines of the conversation with the customer this run serves, newest first, both directions: what the customer said and what was told to them (by any agent or a person of the shop, delivered only), with when and who. Takes no conversation id; `since` (ISO) reads only the lines said from then on.",
+                "The latest lines of the conversation with the customer this run serves, newest first, both directions: what the customer said and what was told to them (by any agent or a person of the shop, delivered only), with when and who. Takes no conversation id; `since` (ISO) reads only the lines said from then on. Each line has its position (`seq`) and the answer names `consumedSeq`, the position runs already handled (null: none yet): what the customer said that is still unread is their lines after it. `consume: true` takes the unread lines as this step's to handle (they count as handled once the step ends).",
             scope: "read",
             defaultMode: "auto",
             inputSchema: CONVERSATION_MESSAGE_LIST_INPUT_SCHEMA,
@@ -49,6 +49,8 @@ export const CONVERSATION_MESSAGE_MANIFEST: ToolManifest = {
  * customer, `agent` = the shop: any agent or a person), never read from the text.
  */
 const factOf = (line: CustomerLine): ToolJson => ({
+    // The line's position in the route's stream (its insertion order, decimal text): compared with `consumedSeq` by a reader.
+    seq: line.seq,
     role: line.direction === "from_person" ? "user" : "agent",
     direction: line.direction,
     text: line.text.slice(0, THREAD_TEXT_MAX),
@@ -80,6 +82,7 @@ export class CustomerMessageNativeService implements NativeToolFamily {
     constructor(
         private readonly lines: CustomerMessagesService,
         @InjectClock() private readonly clock: Clock,
+        @Optional() private readonly cursor?: StreamCursorService,
     ) {}
 
     /** Runs the one tool of the connector. */
@@ -96,6 +99,18 @@ export class CustomerMessageNativeService implements NativeToolFamily {
                       told: "delivered",
                       ...(asked.since === undefined ? {} : { since: asked.since }),
                   })).rows
-        return { notice: CONTEXT_NOTICE, source: CONVERSATION_SOURCE, asOf: this.clock.now().toISOString(), facts: rows.map((line) => factOf(line)) }
+        // THE STREAM CURSOR (rule QB-P5 C-4): the answer names what runs consumed of the route (`consumedSeq`, null while none did), and a
+        // CONSUMING read (`consume: true`) made by a step of a run is that step's pending read until the step ends (the call key names the
+        // run and the step); a read for context consumes nothing.
+        const consumedSeq = routeId === null || this.cursor === undefined ? null : await this.cursor.cursorOf(workspaceId, routeId)
+        if (routeId !== null && asked.consume === true && caller.graphStep === true && caller.opKey !== undefined)
+            await this.cursor?.read(workspaceId, routeId, caller.opKey, rows)
+        return {
+            notice: CONTEXT_NOTICE,
+            source: CONVERSATION_SOURCE,
+            asOf: this.clock.now().toISOString(),
+            consumedSeq,
+            facts: rows.map((line) => factOf(line)),
+        }
     }
 }

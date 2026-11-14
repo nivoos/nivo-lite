@@ -36,6 +36,7 @@ import { CqrsModule } from "@modules/platform/cqrs"
 import { DatabaseModule, PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { IdsModule } from "@modules/platform/ids"
 import { JobsModule } from "@modules/platform/jobs"
+import { EffectsModule } from "@modules/platform/effects"
 import { PRIMARY_ENTITIES } from "@modules/platform/database/entities"
 import { ERRORS_MESSAGES, ErrorsModule } from "@modules/platform/errors"
 import { HTTP_SECURITY_ERROR_KINDS, HTTP_SECURITY_MESSAGES, HttpSecurityModule } from "@modules/platform/http-security"
@@ -123,6 +124,7 @@ export const mcpModules = (options: McpAppOptions): Array<DynamicModule | Type> 
         leaseMs: 60_000,
         scheduler: { enabled: false },
     }),
+    EffectsModule.register({ isGlobal: true, connection: PRIMARY_ENTITY_MANAGER, sealingKey: options.connectionSecrets.tokenKey }),
     EventsModule.register({ isGlobal: true }),
     ApiKeysModule.register({ isGlobal: true }),
     IdentityModule.register({

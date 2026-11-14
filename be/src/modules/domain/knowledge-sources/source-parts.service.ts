@@ -6,7 +6,6 @@ import { eachInOrder } from "@modules/platform/primitives"
 import { KnowledgeQueue } from "@modules/queues/knowledge"
 import { VectorSyncService } from "@modules/domain/vector-sync"
 import { KnowledgeSourcesError, KnowledgeSourcesErrorCode } from "./errors/knowledge-sources.error"
-import { KnowledgeProgressService } from "./knowledge-progress.service"
 import { PUBLIC_DOCUMENT_ORIGIN, type DeletedSource } from "./knowledge-sources.contracts"
 import { type MaybeWholeDocument } from "./source-areas.contracts"
 import { KnowledgeSourceEntity } from "./persistence/entities"
@@ -23,7 +22,6 @@ export class SourcePartsService {
     constructor(
         @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
         private readonly queue: KnowledgeQueue,
-        private readonly progress: KnowledgeProgressService,
         @Optional() private readonly vectorSync?: VectorSyncService,
     ) {}
 
@@ -39,7 +37,7 @@ export class SourcePartsService {
         later: ReadonlyArray<string>,
     ): Promise<string> {
         const total = later.length + 1
-        const created = await this.entityManager.transaction(async (tx) => {
+        await this.entityManager.transaction(async (tx) => {
             const first = await tx.findOne(KnowledgeSourceEntity, { where: { id: sourceId, workspaceId } })
             await tx.delete(KnowledgeSourceEntity, { workspaceId, origin: partOriginOf(sourceId) })
             if (first === null) return []
@@ -64,7 +62,6 @@ export class SourcePartsService {
             await eachInOrder(ids, (id) => this.queue.enqueueIndex({ sourceId: id, workspaceId }, tx))
             return ids
         })
-        await eachInOrder(created, (id) => this.progress.announce(workspaceId, id))
         return partTitleOf(title, 1, total)
     }
 

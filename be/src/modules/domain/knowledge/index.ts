@@ -19,7 +19,6 @@ export type {
     Passage,
     PickedFolder,
 } from "./knowledge.contracts"
-export { parseKnowledgeConfig } from "./knowledge.config"
 export { lensOf } from "./lens.policy"
 export { KnowledgeModule } from "./knowledge.module"
 export { KNOWLEDGE_MESSAGES } from "./messages/knowledge.messages"

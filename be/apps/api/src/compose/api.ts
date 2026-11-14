@@ -1,5 +1,6 @@
 import type { DynamicModule } from "@nestjs/common"
 import { ApiKeysGraphqlModule } from "@features/api/api-keys"
+import { StoppedWorkGraphqlModule } from "@features/api/stopped-work"
 import { DataHubGraphqlModule } from "@features/api/data-hub"
 import { AdminGraphqlModule } from "@features/api/admin"
 import { WorkspacesGraphqlModule } from "@features/api/workspaces"
@@ -39,6 +40,7 @@ import { TelegramConnectionPageGraphqlModule } from "@features/api/telegram-conn
 export const apiModules = (): Array<DynamicModule> => [
     WorkspacesGraphqlModule.register({}),
     ApiKeysGraphqlModule.register({}),
+    StoppedWorkGraphqlModule.register({}),
     AccountGraphqlModule.register({}),
     ShellGraphqlModule.register({}),
     ConnectionsGraphqlModule.register({}),

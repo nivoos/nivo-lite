@@ -1,4 +1,4 @@
-import type { GraphSpec, NodeAccountLookup } from "@nivo-lite/agent-sdk/graph"
+import type { GraphSpec } from "@nivo-lite/agent-sdk/graph"
 import { INSTALLED } from "@modules/domain/installed-plugins"
 import { PROVIDER_CATALOGUE, servesTool, type ProviderSpec } from "@modules/domain/tools"
 
@@ -36,16 +36,6 @@ export const operationTitleOf = (asked: TitledOperation): OptionalOperationTitle
 /** True when a provider has the operation: a tool of one of its abilities. */
 export const providerHolds = (spec: ProviderSpec, operation: string): boolean =>
     spec.abilities.some((ability) => ability.tools.includes(operation))
-
-/**
- * What this host tells the graph check about accounts: a kind is known when a provider of the catalogue is of it (and the named provider,
- * when there is one, is of that kind). No operation is judged: a node account is a provider and an optional connection, and the node's
- * declared mode is the only mode.
- */
-export const nodeAccountLookup: NodeAccountLookup = {
-    knows: (kind, provider) =>
-        PROVIDER_CATALOGUE.some((spec) => spec.kind === kind && (provider === null || spec.provider === provider)),
-}
 
 /**
  * One provider entry of a node, in either stored form: `@1` `{ kind, provider, connectionId }` (a connection pins one account; an older
@@ -89,8 +79,6 @@ export interface NodeProvider {
     readonly position: number
     /** The tools, in the order the node declares them. */
     readonly operations: ReadonlyArray<string>
-    /** The account a `@1` entry pins for it, or null. */
-    readonly pinned: string | null
 }
 
 /** What the binding reads besides the nodes and the attachments. */
@@ -124,13 +112,14 @@ const providersOfEntry = (entry: NodeAccountEntry, catalogue: ReadonlyArray<Prov
 
 /**
  * A node's providers in its order, each once, with the tools the node may call through it (the node's declared tools the provider
- * serves: `servesTool`; a legacy entry's listed tool names only for a step nothing defines) and the account a `@1` entry pins. A provider that serves none of them is left
+ * serves: `servesTool`; a legacy entry's listed tool names only for a step nothing defines). An entry's account is the shop's choice for the call's
+ * pick (node settings), never a restriction: it names no provider of its own. A provider that serves none of them is left
  * out; a node with no `accounts` has none.
  */
 export const nodeProvidersOf = (node: BindableNode, options: BindOptions = {}): ReadonlyArray<NodeProvider> => {
     const catalogue = options.catalogue ?? PROVIDER_CATALOGUE
     const declared = toolsOfStep(node.step)
-    const found = new Map<string, { readonly operations: Set<string>; readonly pinned: string | null }>()
+    const found = new Map<string, Set<string>>()
     for (const entry of node.accounts ?? []) {
         for (const provider of providersOfEntry(entry, catalogue)) {
             // The node's declared tools the provider serves; a legacy entry's own tool names only for a step nothing defines.
@@ -139,17 +128,12 @@ export const nodeProvidersOf = (node: BindableNode, options: BindOptions = {}): 
                     ? declared.filter((tool) => servesTool(provider, provider, tool))
                     : Object.keys(entry.operations)
             if (listed.length === 0) continue
-            const kept = found.get(provider) ?? { operations: new Set<string>(), pinned: null }
-            for (const tool of listed) kept.operations.add(tool)
-            found.set(provider, { operations: kept.operations, pinned: kept.pinned ?? entry.connectionId ?? null })
+            const kept = found.get(provider) ?? new Set<string>()
+            for (const tool of listed) kept.add(tool)
+            found.set(provider, kept)
         }
     }
-    return [...found.entries()].map(([provider, kept], position) => ({
-        provider,
-        position,
-        operations: [...kept.operations],
-        pinned: kept.pinned,
-    }))
+    return [...found.entries()].map(([provider, kept], position) => ({ provider, position, operations: [...kept] }))
 }
 
 /** A record placed on a node's account, as the old row writers hold it (kept for their shape; nothing writes rows now). */

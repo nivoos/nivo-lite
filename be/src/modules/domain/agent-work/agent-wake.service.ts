@@ -5,6 +5,7 @@ import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { InjectAgentTurnQueue, type AgentTurnQueue } from "@modules/queues/agent-turn"
 import { AgentWorkLogEvent } from "./agent-work.log-events"
 import { wakeSources } from "./agent-wake-source.policy"
+import { COALESCED_REASON, LATEST_COMBINE, REPLACED_REASON, STREAM_COMBINE, latestReplacingOf, streamCoalescingOf } from "./agent-wake-coalesce.policy"
 import { burstFor, scopeKeyOf } from "./agent-work.policy"
 import { AgentWakeEntity } from "./persistence/entities"
 import type { AgentWake, AgentWakeContext, OptionalWakeId } from "./agent-work.contracts"
@@ -17,6 +18,20 @@ export const QUEUED_REASON = "queued:"
 
 /** The reason a wake waits behind the run of its subject in flight (`waiting:<run>`): it is offered to that run's waits, else the next run takes it. */
 export const WAITING_REASON = "waiting:"
+
+/** One combine set (rule Q-4, `stream` / `latest`): the wakes of one agent and lock scope one declaration delivered for one registration. */
+export interface CombineSet {
+    /** The workspace. */
+    readonly workspaceId: string
+    /** The agent. */
+    readonly agentId: string
+    /** The lock scope (the subject's key). */
+    readonly scopeKey: string
+    /** The declaration (`<provider>:<name>`). */
+    readonly declaration: string
+    /** The workflow whose registration took the events, or null for wait-only wakes. */
+    readonly workflowId: string | null
+}
 
 /** The part of a wake's context that names the runs that handed its event back. */
 export type HandedBackHolder = Pick<AgentWakeContext, "handedBackJson">
@@ -283,6 +298,113 @@ export class AgentWakeService {
             reoffered += 1
         })
         return reoffered
+    }
+
+    /**
+     * RULE Q-4 `stream` (QB-P5 C-2), in `tx`, right after a wake of a `stream` declaration was written: the un-run wakes (pending, or held
+     * `waiting:<run>`) of the same agent, lock scope, declaration and registration (`workflowId`, none for a wait-only wake), that no run
+     * handed back, are ONE marker: the OLDEST stays, its context gains `count` and `latestEventId`, and every other is closed `skipped` /
+     * `coalesced:<marker>` at once. A pending marker that settles keeps its window sliding (`not_before` = now + window, at most its own
+     * creation + the longest wait). The set is read under a transaction lock per (agent, scope), so two deliveries of one scope combine in
+     * turn. Answers the marker's id when anything was folded into it, else null (a set of one).
+     */
+    async coalesce(tx: EntityManager, set: CombineSet): Promise<string | null> {
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`wake-stream:${set.agentId}:${set.scopeKey}`])
+        const rows = await tx
+            .createQueryBuilder(AgentWakeEntity, "w")
+            .where("w.workspaceId = :workspaceId AND w.agentId = :agentId AND w.scopeKey = :scopeKey", {
+                workspaceId: set.workspaceId,
+                agentId: set.agentId,
+                scopeKey: set.scopeKey,
+            })
+            .andWhere("(w.status = 'pending' OR (w.status = 'held' AND w.reason LIKE :waiting))", { waiting: `${WAITING_REASON}%` })
+            .andWhere("w.context ->> 'combine' = :stream", { stream: STREAM_COMBINE })
+            .andWhere("w.context ->> 'declaration' = :declaration", { declaration: set.declaration })
+            .andWhere("COALESCE(w.context ->> 'workflowId', '') = :workflowId", { workflowId: set.workflowId ?? "" })
+            .andWhere("w.context ->> 'handedBackJson' IS NULL")
+            .orderBy("w.createdAt", "ASC")
+            .addOrderBy("w.id", "ASC")
+            .setLock("pessimistic_write")
+            .getMany()
+        const coalescing = streamCoalescingOf(rows.map((row) => ({ id: row.id, context: row.context, createdAt: row.createdAt })))
+        if (coalescing === null) return null
+        const closed = await tx
+            .createQueryBuilder()
+            .update(AgentWakeEntity)
+            .set({ status: "skipped", reason: `${COALESCED_REASON}${coalescing.markerId}`, finishedAt: () => "now()" })
+            .where("workspace_id = :workspaceId AND status IN ('pending', 'held') AND id IN (:...ids)", {
+                workspaceId: set.workspaceId,
+                ids: [...coalescing.closed],
+            })
+            .execute()
+        if ((closed.affected ?? 0) === 0) return null
+        await tx.query(
+            `UPDATE public.agent_wakes SET context = $3::jsonb,
+                    not_before = CASE WHEN status = 'pending' AND COALESCE(burst_window_ms, 0) > 0
+                        THEN LEAST(now() + make_interval(secs => greatest(burst_window_ms - 500, 0) / 1000.0),
+                                   created_at + make_interval(secs => greatest(COALESCE(burst_max_ms, 0), burst_window_ms) / 1000.0))
+                        ELSE not_before END
+              WHERE workspace_id = $1 AND id = $2`,
+            [set.workspaceId, coalescing.markerId, JSON.stringify(coalescing.context)],
+        )
+        this.logger.info(AgentWorkLogEvent.WakeCoalesced, {
+            agentId: set.agentId,
+            scopeKey: set.scopeKey,
+            marker: coalescing.markerId,
+            count: coalescing.context.count ?? "1",
+        })
+        return coalescing.markerId
+    }
+
+    /**
+     * RULE Q-4 `latest` (QB-LATEST, QUEUE-DESIGN C.3), in `tx`, right after the wake `newestId` of a `latest` declaration was written: every
+     * OTHER un-run wake (pending, or held `waiting:<run>`) of the same agent, lock scope, declaration and registration that no run handed back
+     * is closed `skipped` / `replaced:<newestId>` at once (never retried, never re-offered); the newest stays and its context gains `count`
+     * (itself + every wake it replaced). Under the same transaction lock per (agent, scope) as `coalesce`. Answers how many it replaced.
+     */
+    async replaceOlder(tx: EntityManager, set: CombineSet, newestId: string): Promise<number> {
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`wake-stream:${set.agentId}:${set.scopeKey}`])
+        const rows = await tx
+            .createQueryBuilder(AgentWakeEntity, "w")
+            .where("w.workspaceId = :workspaceId AND w.agentId = :agentId AND w.scopeKey = :scopeKey", {
+                workspaceId: set.workspaceId,
+                agentId: set.agentId,
+                scopeKey: set.scopeKey,
+            })
+            .andWhere("(w.status = 'pending' OR (w.status = 'held' AND w.reason LIKE :waiting))", { waiting: `${WAITING_REASON}%` })
+            .andWhere("w.context ->> 'combine' = :latest", { latest: LATEST_COMBINE })
+            .andWhere("w.context ->> 'declaration' = :declaration", { declaration: set.declaration })
+            .andWhere("COALESCE(w.context ->> 'workflowId', '') = :workflowId", { workflowId: set.workflowId ?? "" })
+            .andWhere("w.context ->> 'handedBackJson' IS NULL")
+            .orderBy("w.createdAt", "ASC")
+            .addOrderBy("w.id", "ASC")
+            .setLock("pessimistic_write")
+            .getMany()
+        const replacing = latestReplacingOf(
+            rows.map((row) => ({ id: row.id, context: row.context, createdAt: row.createdAt })),
+            newestId,
+        )
+        if (replacing === null) return 0
+        const closed = await tx
+            .createQueryBuilder()
+            .update(AgentWakeEntity)
+            .set({ status: "skipped", reason: `${REPLACED_REASON}${replacing.keptId}`, finishedAt: () => "now()" })
+            .where("workspace_id = :workspaceId AND status IN ('pending', 'held') AND id IN (:...ids)", {
+                workspaceId: set.workspaceId,
+                ids: [...replacing.closed],
+            })
+            .execute()
+        const replaced = closed.affected ?? 0
+        if (replaced === 0) return 0
+        await tx.update(AgentWakeEntity, { workspaceId: set.workspaceId, id: replacing.keptId }, { context: replacing.context })
+        this.logger.info(AgentWorkLogEvent.WakeReplaced, {
+            agentId: set.agentId,
+            scopeKey: set.scopeKey,
+            kept: replacing.keptId,
+            replaced,
+            count: replacing.context.count ?? "1",
+        })
+        return replaced
     }
 
     /** Writes the wake and its drain job in `tx` and answers the wake's id; null when the fact was already written, in which case nothing is enqueued. */

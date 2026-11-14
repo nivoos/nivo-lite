@@ -12,14 +12,12 @@ import { WorkItemsModule } from "@modules/domain/work-items"
 import {
     AI_GENERATIONS_ERROR_KINDS,
     AI_GENERATIONS_MESSAGES,
-    AI_GENERATIONS_POLL_MS,
     AiGenerationsModule,
 } from "@modules/domain/ai-generations"
 import { AI_USAGE_EVENTS_MESSAGES, AiUsageEventsModule, UsageGateService } from "@modules/domain/ai-usage-events"
 import { BrainExtractionsModule } from "@modules/domain/brain-extractions"
 import { ChatRoomDirectoryModule } from "@modules/domain/chat-room-directory"
 import { KnowledgeGapsModule } from "@modules/domain/knowledge-gaps"
-import { INTENT_CONTRACTS_MESSAGES } from "@modules/domain/intent-contracts"
 import {
     MODULE_CATALOG,
     MODULE_CATEGORIES,
@@ -79,7 +77,7 @@ export const mcpEndpointModules = (options: McpAppOptions): Array<DynamicModule>
     AiUsageEventsModule.register({ isGlobal: true, notices: TeamChatNoticesService }),
     // The setup chat's stores the module installs carry (its gaps and its generation client); nothing here runs a setup turn.
     KnowledgeGapsModule.register({ isGlobal: true }),
-    AiGenerationsModule.register({ isGlobal: true, usage: UsageGateService, pollMs: AI_GENERATIONS_POLL_MS }),
+    AiGenerationsModule.register({ isGlobal: true, usage: UsageGateService }),
     WorkItemsModule.register({ isGlobal: true }),
     AgentWorkModule.register({ isGlobal: true }),
     AgentRunsModule.register({ isGlobal: true, ...options.agentRuns }),
@@ -123,7 +121,6 @@ export const mcpEndpointMessages: ReadonlyArray<MessageBundle> = [
     EVENT_BUS_MESSAGES,
     WORKSPACES_MESSAGES,
     PAYMENT_ORDERS_MESSAGES,
-    INTENT_CONTRACTS_MESSAGES,
     AGENT_CONNECTIONS_MESSAGES,
     TEAM_CHAT_MESSAGES,
     AI_USAGE_EVENTS_MESSAGES,

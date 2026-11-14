@@ -1,15 +1,17 @@
 import type { ConnectionStatus } from "@modules/domain/connections"
 import type { DataEntity, DataRecordInput } from "@modules/domain/data-records"
 
-/** The kinds of connection that bring a workspace's own systems into the data hub. */
-export type DataProvider = "openapi" | "database" | "csv_import" | "imap" | "telegram_user"
+/**
+ * The kinds of connection that bring a workspace's own systems into the data hub. A mailbox (`imap`, or the inbound half of a mailbox
+ * `smtp` account) is no data provider: its mails are the account's own `imap.mail` rows, read by the connection poll (MAIL-IN rule MI-4).
+ */
+export type DataProvider = "openapi" | "database" | "csv_import" | "telegram_user"
 
 /** The providers, for filters. */
 export const DATA_PROVIDERS: ReadonlyArray<DataProvider> = [
     "openapi",
     "database",
     "csv_import",
-    "imap",
     "telegram_user",
 ]
 

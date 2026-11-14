@@ -10,6 +10,9 @@ interface AccountScoped {
     readonly edits: Readonly<Record<string, string>>
     readonly callsShown: number
     readonly isKeyRevealed: boolean
+    /** The purpose a next case is picked for; null = every call. */
+    readonly scope: string | null
+    readonly dropWebhook: boolean
 }
 
 /** What the open account holds that the person changes: the inputs they typed, how much of the log is drawn and whether the key shows. */
@@ -17,9 +20,15 @@ export interface SandboxAccountState {
     readonly edits: Readonly<Record<string, string>>
     readonly callsShown: number
     readonly isKeyRevealed: boolean
+    /** The purpose a next case is picked for; null = every call. */
+    readonly scope: string | null
     readonly setInput: (name: string, value: string) => void
     readonly moreCalls: () => void
     readonly setKeyRevealed: (isRevealed: boolean) => void
+    readonly setScope: (scope: string | null) => void
+    /** Whether a send leaves the webhook out ("Không gửi webhook"). */
+    readonly dropWebhook: boolean
+    readonly setDropWebhook: (isDropped: boolean) => void
 }
 
 /** The start of an account: nothing typed, one page of the log, the key hidden. */
@@ -28,6 +37,8 @@ const startOf = (accountId: string | null): AccountScoped => ({
     edits: {},
     callsShown: CALLS_PAGE,
     isKeyRevealed: false,
+    scope: null,
+    dropWebhook: false,
 })
 
 /**
@@ -42,8 +53,12 @@ export const useSandboxAccountState = (accountId: string | null): SandboxAccount
         edits: current.edits,
         callsShown: current.callsShown,
         isKeyRevealed: current.isKeyRevealed,
+        scope: current.scope,
+        dropWebhook: current.dropWebhook,
+        setDropWebhook: (isDropped) => change({ dropWebhook: isDropped }),
         setInput: (name, value) => change({ edits: { ...current.edits, [name]: value } }),
         moreCalls: () => change({ callsShown: current.callsShown + CALLS_PAGE }),
         setKeyRevealed: (isRevealed) => change({ isKeyRevealed: isRevealed }),
+        setScope: (scope) => change({ scope }),
     }
 }

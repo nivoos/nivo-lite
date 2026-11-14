@@ -22,6 +22,7 @@ type AccountDataRowType {
   id: String!
   key: String!
   occurredAt: String!
+  sameFactOf: String
   typeVersion: Int!
   value: JsonObject!
 }
@@ -569,13 +570,6 @@ type AgentGenerationUsageType {
   prompt_tokens: Int!
 }
 
-input AgentGraphAgreedRightInput {
-  connectionId: ID! @inputBounds(maxLength: 36)
-  mode: String! @inputBounds(maxLength: 4)
-  nodeKey: String! @inputBounds(maxLength: 200)
-  operation: String! @inputBounds(maxLength: 200)
-}
-
 type AgentGraphAiNodeType {
   averageMs: Int
   calls: Int!
@@ -605,26 +599,6 @@ type AgentGraphCoverageType {
 type AgentGraphExcludedType {
   name: String!
   reason: String!
-}
-
-input AgentGraphLayoutInput {
-  installationId: ID! @inputBounds(maxLength: 36)
-}
-
-input AgentGraphLayoutPositionInput {
-  workflowKey: String! @inputBounds(maxLength: 100)
-  x: Float! @inputBounds(min: -100000, max: 100000)
-  y: Float! @inputBounds(min: -100000, max: 100000)
-}
-
-type AgentGraphLayoutPositionType {
-  workflowKey: String!
-  x: Float!
-  y: Float!
-}
-
-type AgentGraphLayoutType {
-  positions: [AgentGraphLayoutPositionType!]!
 }
 
 type AgentGraphRunType {
@@ -657,8 +631,6 @@ type AgentGraphType {
   isDraftChanged: Boolean!
   mode: String!
   problemsJson: String!
-  proposalsJson: String!
-  unheldRulesJson: String!
 }
 
 type AgentGraphVersionType {
@@ -1187,6 +1159,7 @@ type AgentWorkType {
 
 type AgentWorkflowDetailType {
   graphJson: String!
+  nodeSettings: [AgentWorkflowNodeSettingsType!]!
   templateDiff: AgentWorkflowDiffType
   versions: [AgentWorkflowVersionType!]!
   workflow: AgentWorkflowType!
@@ -1232,6 +1205,15 @@ input AgentWorkflowInput {
   workflowId: ID! @inputBounds(maxLength: 36)
 }
 
+type AgentWorkflowNodeAccountType {
+  connected: Boolean!
+  connectionId: ID!
+  isDefault: Boolean!
+  label: String!
+  provider: String!
+  sandbox: Boolean!
+}
+
 type AgentWorkflowNodeRightType {
   connectionId: ID
   kind: String!
@@ -1241,6 +1223,14 @@ type AgentWorkflowNodeRightType {
   operationTitle: AgentWorkflowTitleType
   provider: String
   stepTitle: AgentWorkflowTitleType
+}
+
+type AgentWorkflowNodeSettingsType {
+  accountIds: [ID!]!
+  accounts: [AgentWorkflowNodeAccountType!]!
+  mode: String
+  nodeKey: String!
+  settable: [String!]!
 }
 
 type AgentWorkflowParamChangeType {
@@ -2083,23 +2073,6 @@ input CardDecisionInput {
   value: String @inputBounds(maxLength: 2000)
 }
 
-input CareOptOutInput {
-  leadId: ID! @inputBounds(maxLength: 36)
-}
-
-type CareOptOutPressType {
-  at: DateTime!
-  memberId: ID!
-  memberName: String!
-  outcome: String!
-}
-
-type CareOptOutType {
-  lastPress: CareOptOutPressType
-  leadId: ID!
-  optedOut: Boolean!
-}
-
 input ChangeMemberRoleInput {
   role: String!
   userId: ID! @inputBounds(maxLength: 36)
@@ -2278,6 +2251,15 @@ enum ChatGroupPurpose {
   module
 }
 
+type ChatJobParkedCardType {
+  episode: Int!
+  failureClass: String!
+  job: String!
+  jobId: String!
+  reason: String!
+  since: String!
+}
+
 enum ChatMemberKind {
   agent
   user
@@ -2340,6 +2322,7 @@ type ChatMessageType {
   editedAt: String
   forwardedFrom: String
   id: ID!
+  jobParked: ChatJobParkedCardType
   kind: ChatMessageKind!
   mentions: [ChatMentionType!]!
   pinned: Boolean!
@@ -2647,10 +2630,9 @@ input CloseAgentTaskInput {
   taskId: ID! @inputBounds(maxLength: 36)
 }
 
-input ConfirmAgentGraphProposalInput {
-  agentId: String! @inputBounds(maxLength: 36)
-  agreedRights: [AgentGraphAgreedRightInput!] @inputBounds(maxItems: 500)
-  proposalId: String! @inputBounds(maxLength: 36)
+input CloseStoppedWorkInput {
+  jobId: ID! @inputBounds(maxLength: 36)
+  reason: String! @inputBounds(maxLength: 500)
 }
 
 input ConnectTelegramInput {
@@ -2787,8 +2769,23 @@ input ConnectionWishInput {
   connectionId: ID! @inputBounds(maxLength: 64)
 }
 
+type ContactConsentActorType {
+  approvedBy: ID
+  id: ID!
+  kind: String!
+  name: String
+}
+
+type ContactConsentType {
+  at: String
+  by: ContactConsentActorType
+  doNotContact: Boolean!
+  reason: String
+}
+
 type ContactDetailType {
   contact: ContactType!
+  doNotContact: ContactConsentType
   memory: ContactMemoryType!
   routes: [ContactRouteType!]!
   suggestions: [ContactSuggestionType!]!
@@ -3014,8 +3011,7 @@ input CreateAgentInstallationInput {
 input CreateAgentWorkflowInput {
   installationId: ID! @inputBounds(maxLength: 36)
   locale: String @inputBounds(maxLength: 2)
-  name: String @inputBounds(maxLength: 120)
-  templateId: String @inputBounds(maxLength: 80)
+  templateId: String! @inputBounds(maxLength: 80)
   templateVersion: Int @inputBounds(min: 1, max: 100000)
 }
 
@@ -3370,11 +3366,6 @@ input DecideSetupCardInput {
   change: CardDecisionInput!
 }
 
-input DeclineAgentGraphProposalInput {
-  agentId: String! @inputBounds(maxLength: 36)
-  proposalId: String! @inputBounds(maxLength: 36)
-}
-
 type DeclinedInviteType {
   declinedAt: String!
   email: String!
@@ -3634,9 +3625,9 @@ type ImapConnectionType {
   id: ID!
   name: String!
   port: Int!
+  provider: String!
   security: String!
   sinceDays: Int!
-  syncEveryMinutes: Int
   user: String!
 }
 
@@ -4251,7 +4242,7 @@ type Mutation {
   checkMeta(input: CheckMetaInput!): MetaCheckType!
   chooseMetaPage(input: ChooseMetaPageInput!): MetaWizardConnectionType!
   closeAgentTask(input: CloseAgentTaskInput!): AgentWorkAckType!
-  confirmAgentGraphProposal(input: ConfirmAgentGraphProposalInput!): AgentGraphVersionType!
+  closeStoppedWork(input: CloseStoppedWorkInput!): Boolean!
   connectTelegram(input: ConnectTelegramInput!): TelegramConnectedType!
   copyInviteLink(input: InviteRefInput!): InviteResultType!
   createAgent(input: CreateAgentInput!): AgentSummaryType!
@@ -4269,7 +4260,6 @@ type Mutation {
   decideChatApproval(input: DecideChatApprovalInput!): ChatDecisionPayloadType!
   decideRunStop(input: DecideRunStopInput!): AgentRunStopDecisionType!
   decideSetupCard(input: DecideSetupCardInput!): SetupCardType!
-  declineAgentGraphProposal(input: DeclineAgentGraphProposalInput!): Boolean!
   declineInvite(input: InviteRefInput!): Boolean!
   deleteConnection(input: DeleteConnectionInput!): Boolean!
   deleteContact(input: DeleteContactInput!): Boolean!
@@ -4306,8 +4296,6 @@ type Mutation {
   openSandboxAccount(input: OpenSandboxAccountInput!): OpenedSandboxAccountType!
   pinChatMessage(input: ChatPinInput!): ChatMessagePayloadType!
   postSetupMessage(input: PostSetupMessageInput!): SetupMessageType!
-  publishAgentGraph(input: PublishAgentGraphInput!): AgentGraphVersionType!
-  publishAgentWorkflowVersion(input: PublishAgentWorkflowVersionInput!): AgentWorkflowVersionType!
   reactToChatMessage(input: ChatReactInput!): ChatMessagePayloadType!
   recheckZaloConnection(input: RecheckZaloConnectionInput!): ZaloPageType!
   redraftPublicDocument(input: PublicDocumentIdInput!): PublicDocumentType!
@@ -4331,13 +4319,14 @@ type Mutation {
   requestMyAvatarUpload(input: RequestMyAvatarUploadInput!): MyAvatarUploadType!
   requestPaymentOrder(input: RequestPaymentOrderInput!): RequestPaymentOrderType!
   requestWorkspaceLogoUpload(input: RequestWorkspaceLogoUploadInput!): WorkspaceLogoUploadType!
+  requeueStoppedEvent(input: RequeueStoppedEventInput!): Boolean!
   resendInvite(input: InviteRefInput!): InviteResultType!
   resendTelegramCode(input: ResendTelegramCodeInput!): Boolean!
   resetSandboxAccount(connectionId: ID!): Boolean!
   resetWorkspaceTheme: Boolean!
-  restoreAgentGraphVersion(input: RestoreAgentGraphVersionInput!): AgentGraphVersionType!
   restoreWorkspace: Boolean!
   resumeAgentRun(input: ResumeAgentRunInput!): AgentRunResumeType!
+  resumeStoppedWork(input: ResumeStoppedWorkInput!): Boolean!
   retryBrainCritique(input: BrainCritiqueSourceInput!): BrainCritiqueReviewType!
   retryKnowledgeSource(input: RetryKnowledgeSourceInput!): SourceRefType!
   returnZaloAuthorization(input: ReturnZaloAuthorizationInput!): ZaloWizardConnectionType!
@@ -4354,8 +4343,6 @@ type Mutation {
   runFlow(input: RunFlowInput!): RunFlowType!
   runScheduledItemNow(input: RunScheduledItemNowInput!): RunScheduledItemNowType!
   runWorkflow(input: RunWorkflowInput!): WorkflowRunType!
-  saveAgentGraphDraft(input: SaveAgentGraphDraftInput!): Int!
-  saveAgentGraphLayout(input: SaveAgentGraphLayoutInput!): AgentGraphLayoutType!
   saveAgentTrigger(input: SaveAgentTriggerInput!): AgentTriggerType!
   saveBrainFact(input: SaveBrainFactInput!): SavedFactType!
   saveBrainLesson(input: SaveBrainLessonInput!): BrainLessonType!
@@ -4377,8 +4364,7 @@ type Mutation {
   setAgentAvatar(input: SetAgentAvatarInput!): AgentAckType!
   setAgentAvatarPreset(input: SetAgentAvatarPresetInput!): AgentAckType!
   setAgentConnections(input: SetAgentConnectionsInput!): Boolean!
-  setAgentGraphMode(input: SetAgentGraphModeInput!): Boolean!
-  setAgentNodeMode(input: SetAgentNodeModeInput!): AgentWorkflowVersionType!
+  setAgentNodeSettings(input: SetAgentNodeSettingsInput!): AgentWorkflowVersionType!
   setAgentOwnership(input: SetAgentOwnershipInput!): AgentAckType!
   setAgentProviderDefault(input: SetAgentProviderDefaultInput!): Boolean!
   setAgentStatus(input: SetAgentStatusInput!): AgentAckType!
@@ -4386,11 +4372,11 @@ type Mutation {
   setAgentWork(input: SetAgentWorkInput!): AgentWorkStateType!
   setAgentWorkflowStatus(input: SetAgentWorkflowStatusInput!): Boolean!
   setBrainPolicy(input: SetBrainPolicyInput!): SetBrainPolicyResultType!
-  setCareOptOut(input: SetCareOptOutInput!): SetCareOptOutType!
   setChatRoomMuted(input: SetChatRoomMutedInput!): ChatRoomPayloadType!
   setChatTyping(input: SetChatTypingInput!): ChatTypingSignalType!
   setConnectionAgents(input: SetConnectionAgentsInput!): Boolean!
   setConnectionGrant(input: SetConnectionGrantInput!): Boolean!
+  setContactDoNotContact(input: SetContactDoNotContactInput!): SetContactConsentType!
   setDefaultSmtp(input: SetDefaultSmtpInput!): Boolean!
   setKnowledgeSourceNature(input: SetKnowledgeSourceNatureInput!): KnowledgeSourceNatureAnswerType!
   setKnowledgeSuggestionState(input: SetKnowledgeSuggestionStateInput!): Boolean!
@@ -4578,11 +4564,6 @@ type ProviderKeysResultType {
   localOnly: Boolean!
 }
 
-type ProviderOfferBatchingType {
-  maxEvents: Int
-  mode: String!
-}
-
 type ProviderOfferMemberType {
   choices: [String!]!
   description: String
@@ -4624,13 +4605,13 @@ type ProviderOfferToolType {
 }
 
 type ProviderOfferTriggerType {
-  batching: ProviderOfferBatchingType!
   decided: Boolean!
-  kind: String!
   name: String!
   payload: [ProviderOfferMemberType!]!
-  recovery: String!
   summary: ProviderOfferWordsType!
+  title: ProviderOfferWordsType!
+  via: [String!]!
+  withoutPoll: ProviderOfferWithoutPollType
 }
 
 type ProviderOfferType {
@@ -4639,6 +4620,11 @@ type ProviderOfferType {
   mcp: [ProviderOfferToolType!]!
   provider: String!
   triggers: [ProviderOfferTriggerType!]!
+}
+
+type ProviderOfferWithoutPollType {
+  reason: ProviderOfferWordsType!
+  source: String!
 }
 
 type ProviderOfferWordsType {
@@ -4725,10 +4711,17 @@ type ProviderTriggerStateType {
   enabled: Boolean!
   enabledAt: String
   firedCount: Int!
-  kind: String!
   lastFiredAt: String
   name: String!
   summary: ProviderTriggerWordsType!
+  title: ProviderTriggerWordsType!
+  via: [String!]!
+  withoutPoll: ProviderTriggerWithoutPollType
+}
+
+type ProviderTriggerWithoutPollType {
+  reason: ProviderTriggerWordsType!
+  source: String!
 }
 
 type ProviderTriggerWordsType {
@@ -4772,21 +4765,6 @@ type PublicLeftOutType {
   reason: String!
 }
 
-input PublishAgentGraphInput {
-  agentId: String! @inputBounds(maxLength: 36)
-  agreedRights: [AgentGraphAgreedRightInput!] @inputBounds(maxItems: 500)
-  note: String! @inputBounds(maxLength: 500)
-}
-
-input PublishAgentWorkflowVersionInput {
-  agreedRights: [AgreedRightInput!] @inputBounds(maxItems: 500)
-  expectedLatest: Int @inputBounds(min: 0, max: 100000)
-  graphJson: String! @inputBounds(maxLength: 400000)
-  installationId: ID! @inputBounds(maxLength: 36)
-  note: String! @inputBounds(maxLength: 500)
-  workflowId: ID! @inputBounds(maxLength: 36)
-}
-
 type Query {
   accountDataRows(input: AccountDataRowsInput!): AccountDataRowsType!
   accountDataTypes(input: AccountDataTypesInput!): [AccountDataTypeType!]!
@@ -4803,7 +4781,6 @@ type Query {
   agentDeletionImpact(input: ModuleInstallationIdInput!): AgentDeletionImpactType!
   agentGenerationStatus(input: AgentGenerationIdInput!): AgentGenerationStatusType!
   agentGraphCoverage(input: ListAgentGraphCoverageInput!): [AgentGraphCoverageType!]!
-  agentGraphLayout(input: AgentGraphLayoutInput!): AgentGraphLayoutType!
   agentGraphRun(input: GetAgentGraphRunInput!): AgentGraphRunType!
   agentKnowledge(input: AgentIdInput!): AgentKnowledgeType!
   agentKnowledgeLenses: [AgentKnowledgeLensType!]!
@@ -4841,7 +4818,6 @@ type Query {
   brainPolicies: BrainPoliciesType!
   brainPolicy(input: BrainPolicyInput!): BrainPolicyDetailType
   brainTodo: BrainTodoType!
-  careOptOut(input: CareOptOutInput!): CareOptOutType
   chatMessages(input: ChatMessagesInput!): ChatMessagePageType!
   chatRoom(input: ChatRoomInput!): ChatRoomType
   chatRooms(input: ChatRoomsInput): [ChatRoomType!]!
@@ -4925,6 +4901,7 @@ type Query {
   sandboxKey(connectionId: ID!): String!
   sandboxLatestRequest(connectionId: ID!): SandboxLatestRequestType
   sandboxNextCases(connectionId: ID!): [SandboxNextCaseType!]!
+  sandboxPayLink(linkId: String!): SandboxPayLinkType!
   sandboxProviders: [String!]!
   sandboxWaitingRuns(limit: Int): [SandboxWaitingRunType!]!
   scheduledItems: [ScheduledItemType!]!
@@ -4932,6 +4909,8 @@ type Query {
   sepayConnectionEvents(input: ListSepayEventsInput!): [SepayWebhookEventType!]!
   setupState(input: ModuleInstallationIdInput!): SetupStateType!
   setupVersions(input: ModuleInstallationIdInput!): SetupVersionsType!
+  stoppedEvents: [StoppedEventType!]!
+  stoppedWork: [StoppedWorkType!]!
   telegramPage(input: GetTelegramPageInput!): TelegramPageType!
   telegramUserReady: TelegramUserReadyType!
   testDatabase(input: TestDatabaseInput!): [DatabaseTableType!]!
@@ -5084,19 +5063,22 @@ input RequestWorkspaceLogoUploadInput {
   sizeBytes: Int! @inputBounds(min: 1, max: 2097152)
 }
 
-input ResendTelegramCodeInput {
-  connectionId: ID! @inputBounds(maxLength: 64)
+input RequeueStoppedEventInput {
+  eventId: String! @inputBounds(maxLength: 256)
+  queue: String! @inputBounds(maxLength: 200)
 }
 
-input RestoreAgentGraphVersionInput {
-  agentId: String! @inputBounds(maxLength: 36)
-  agreedRights: [AgentGraphAgreedRightInput!] @inputBounds(maxItems: 500)
-  versionId: String! @inputBounds(maxLength: 36)
+input ResendTelegramCodeInput {
+  connectionId: ID! @inputBounds(maxLength: 64)
 }
 
 input ResumeAgentRunInput {
   reason: String! @inputBounds(maxLength: 500)
   runId: ID! @inputBounds(maxLength: 64)
+}
+
+input ResumeStoppedWorkInput {
+  jobId: ID! @inputBounds(maxLength: 36)
 }
 
 type RetrievedPassageType {
@@ -5360,10 +5342,29 @@ type SandboxNextCaseType {
   operation: String!
 }
 
+type SandboxPayLinkAccountType {
+  id: ID!
+  label: String!
+  provider: String!
+}
+
+type SandboxPayLinkType {
+  account: SandboxPayLinkAccountType!
+  amountReceivedVnd: Int!
+  amountVnd: Int!
+  caseIds: [String!]!
+  content: String!
+  inputs: [SandboxInputValueType!]!
+  linkId: String!
+  orderCode: String!
+  status: String!
+}
+
 type SandboxSendResultType {
   caseId: String!
   deliveries: [SandboxDeliveryType!]!
   inputs: [SandboxInputValueType!]!
+  webhookDropped: Boolean!
 }
 
 type SandboxWaitExpiryType {
@@ -5380,17 +5381,6 @@ type SandboxWaitingRunType {
   routeId: String
   runId: ID!
   waitsFor: [String!]!
-}
-
-input SaveAgentGraphDraftInput {
-  agentId: String! @inputBounds(maxLength: 36)
-  documentJson: String! @inputBounds(maxLength: 400000)
-  rev: Int! @inputBounds(min: 0)
-}
-
-input SaveAgentGraphLayoutInput {
-  installationId: ID! @inputBounds(maxLength: 36)
-  positions: [AgentGraphLayoutPositionInput!]! @inputBounds(maxItems: 200)
 }
 
 input SaveAgentTriggerInput {
@@ -5455,7 +5445,6 @@ input SaveImapConnectionInput {
   port: Int! @inputBounds(min: 1, max: 65535)
   security: String! @inputBounds(maxLength: 16)
   sinceDays: Int @inputBounds(min: 1, max: 3650)
-  syncEveryMinutes: Int @inputBounds(min: 1, max: 10080)
   user: String! @inputBounds(maxLength: 400)
 }
 
@@ -5571,6 +5560,7 @@ input SendChatMessageInput {
 input SendSandboxCaseInput {
   caseId: String! @inputBounds(maxLength: 60)
   connectionId: ID! @inputBounds(maxLength: 64)
+  dropWebhook: Boolean = false
   inputs: [SandboxInputValueInput!] = [] @inputBounds(maxItems: 20)
 }
 
@@ -5642,15 +5632,11 @@ input SetAgentConnectionsInput {
   connections: [ConnectionWishInput!]! @inputBounds(maxItems: 200)
 }
 
-input SetAgentGraphModeInput {
-  agentId: String! @inputBounds(maxLength: 36)
-  mode: String!
-}
-
-input SetAgentNodeModeInput {
+input SetAgentNodeSettingsInput {
+  accountIds: [ID!] @inputBounds(maxItems: 20)
   expectedLatest: Int @inputBounds(min: 0, max: 100000)
   installationId: ID! @inputBounds(maxLength: 36)
-  mode: String!
+  mode: String
   nodeKey: String! @inputBounds(maxLength: 120)
   workflowId: ID! @inputBounds(maxLength: 36)
 }
@@ -5706,16 +5692,6 @@ type SetBrainPolicyResultType {
   value: String
 }
 
-input SetCareOptOutInput {
-  leadId: ID! @inputBounds(maxLength: 36)
-  optOut: Boolean!
-}
-
-type SetCareOptOutType {
-  careOptOut: CareOptOutType
-  outcome: String!
-}
-
 input SetChatRoomMutedInput {
   muted: Boolean!
   roomId: ID! @inputBounds(maxLength: 36)
@@ -5747,6 +5723,17 @@ input SetConnectionGrantInput {
   agentId: ID! @inputBounds(maxLength: 64)
   bound: Boolean!
   connectionId: ID! @inputBounds(maxLength: 64)
+}
+
+type SetContactConsentType {
+  consent: ContactConsentType
+  outcome: String!
+}
+
+input SetContactDoNotContactInput {
+  contactId: ID! @inputBounds(maxLength: 36)
+  doNotContact: Boolean!
+  reason: String @inputBounds(maxLength: 300)
 }
 
 input SetDefaultSmtpInput {
@@ -5798,6 +5785,7 @@ input SetProviderTriggerEnabledInput {
 input SetSandboxNextCaseInput {
   caseId: String! @inputBounds(maxLength: 60)
   connectionId: ID! @inputBounds(maxLength: 64)
+  scope: String @inputBounds(maxLength: 200)
 }
 
 input SetSetupGateInput {
@@ -5975,6 +5963,30 @@ input StartZaloConnectionInput {
   name: String! @inputBounds(maxLength: 120)
 }
 
+type StoppedEventType {
+  eventId: String!
+  eventName: String!
+  queue: String!
+  readCount: Int!
+  reason: String!
+}
+
+enum StoppedWorkFailureClass {
+  code
+  config
+  input
+  transient
+}
+
+type StoppedWorkType {
+  failureClass: StoppedWorkFailureClass!
+  job: String!
+  jobId: ID!
+  parkedAt: String!
+  reason: String!
+  resumeCount: Int!
+}
+
 scalar StringMap
 
 input SubmitTelegramCodeInput {
@@ -6092,7 +6104,6 @@ input TestImapConnectionInput {
   port: Int! @inputBounds(min: 1, max: 65535)
   security: String! @inputBounds(maxLength: 16)
   sinceDays: Int @inputBounds(min: 1, max: 3650)
-  syncEveryMinutes: Int @inputBounds(min: 1, max: 10080)
   user: String! @inputBounds(maxLength: 400)
 }
 

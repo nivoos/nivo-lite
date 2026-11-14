@@ -6,7 +6,9 @@ import { InstallationRecordsService } from "@modules/domain/module-installations
 import type { InstallationRecord } from "@modules/domain/module-installations"
 import { WorkspaceMemberSeatsService } from "@modules/domain/workspace-members"
 import type { MemberSeatRecord } from "@modules/domain/workspace-members"
-import { AgentGraphLayoutService } from "./agent-graph-layout.service"
+import { ConnectionBindingsReadService, type ConnectionRecord } from "@modules/domain/connections"
+import { ProviderSandboxService } from "@modules/domain/provider-sandbox"
+import { AccountAttachmentsService } from "@modules/domain/tool-grants"
 import { AgentWorkflowRunsService } from "./agent-workflow-runs.service"
 import { AgentWorkflowsAdminService } from "./agent-workflows-admin.service"
 import { AgentWorkflowsService } from "./agent-workflows.service"
@@ -91,7 +93,28 @@ const previewOf = (current: GraphSpec, merged: GraphSpec): TemplatePreview => ({
 
 type AgentIdentityCard = Awaited<ReturnType<AgentDirectoryService["identitiesOf"]>>[number]
 
-const build = async (role: Role | null = "owner") => {
+/** The agent's attached accounts: two Zalo OAs (the second its default), a bank feed, a sandbox Zalo OA and a Zalo OA that is not working. */
+const ATTACHED = [
+    { agentId: "agent-1", connectionId: "11111111-1111-4111-8111-111111111111", provider: "zalo_oa" },
+    { agentId: "agent-1", connectionId: "22222222-2222-4222-8222-222222222222", provider: "zalo_oa", isDefault: true },
+    { agentId: "agent-1", connectionId: "33333333-3333-4333-8333-333333333333", provider: "sepay" },
+    { agentId: "agent-1", connectionId: "44444444-4444-4444-8444-444444444444", provider: "zalo_oa" },
+    { agentId: "agent-1", connectionId: "55555555-5555-4555-8555-555555555555", provider: "zalo_oa" },
+]
+const [ZALO_1, ZALO_2, BANK, ZALO_SANDBOX, ZALO_DOWN] = ATTACHED.map((row) => row.connectionId) as [string, string, string, string, string]
+const UNATTACHED = "66666666-6666-4666-8666-666666666666"
+
+/** The connection records the read gives each attached account. */
+const RECORDS = ATTACHED.map((row) => mock<ConnectionRecord>({
+    id: row.connectionId,
+    provider: row.provider as ConnectionRecord["provider"],
+    name: `OA ${row.connectionId.slice(0, 1)}`,
+    meta: {},
+    status: row.connectionId === ZALO_DOWN ? "error" : "connected",
+    sandbox: row.connectionId === ZALO_SANDBOX,
+}))
+
+const build = async (role: Role | null = "owner", options: { readonly sandboxOn?: boolean } = {}) => {
     const seats = mock<WorkspaceMemberSeatsService>()
     seats.activeSeatOfUser.mockResolvedValue(
         role === null ? null : mock<MemberSeatRecord>({ memberId: "member-1", role }),
@@ -103,11 +126,15 @@ const build = async (role: Role | null = "owner") => {
     workflows.list.mockResolvedValue([VIEW])
     workflows.publish.mockResolvedValue(VERSION)
     workflows.createFromTemplate.mockResolvedValue(VIEW)
-    workflows.createBlank.mockResolvedValue(VIEW)
     const runs = mock<AgentWorkflowRunsService>()
-    const layouts = mock<AgentGraphLayoutService>()
-    layouts.read.mockResolvedValue([{ workflowKey: "reports", x: 10, y: 20 }])
-    layouts.save.mockResolvedValue([{ workflowKey: "reports", x: 10, y: 20 }])
+    const attachments = mock<AccountAttachmentsService>()
+    attachments.listOfAgent.mockResolvedValue(ATTACHED)
+    const bindings = mock<ConnectionBindingsReadService>()
+    bindings.recordOf.mockImplementation((_workspaceId: string, id: string) =>
+        Promise.resolve((RECORDS.find((record) => record.id === id) ?? null) as ConnectionRecord | null),
+    )
+    const sandbox = mock<ProviderSandboxService>()
+    sandbox.enabled.mockReturnValue(options.sandboxOn ?? false)
     const agents = mock<AgentDirectoryService>()
     agents.identitiesOf.mockResolvedValue([])
     const moduleRef = await Test.createTestingModule({
@@ -117,11 +144,13 @@ const build = async (role: Role | null = "owner") => {
             { provide: InstallationRecordsService, useValue: installations },
             { provide: AgentWorkflowsService, useValue: workflows },
             { provide: AgentWorkflowRunsService, useValue: runs },
-            { provide: AgentGraphLayoutService, useValue: layouts },
             { provide: AgentDirectoryService, useValue: agents },
+            { provide: AccountAttachmentsService, useValue: attachments },
+            { provide: ConnectionBindingsReadService, useValue: bindings },
+            { provide: ProviderSandboxService, useValue: sandbox },
         ],
     }).compile()
-    return { admin: moduleRef.get(AgentWorkflowsAdminService), workflows, installations, runs, layouts, agents }
+    return { admin: moduleRef.get(AgentWorkflowsAdminService), workflows, installations, runs, agents, attachments }
 }
 
 describe("AgentWorkflowsAdminService: seats", () => {
@@ -243,57 +272,8 @@ describe("AgentWorkflowsAdminService: graph", () => {
     })
 })
 
-describe("AgentWorkflowsAdminService: layout", () => {
-    const positions = [{ workflowKey: "reports", x: 10, y: 20 }]
-
-    it("reads and saves the layout of the installation's agent for a manager", async () => {
-        const { admin, layouts } = await build("manager")
-
-        await expect(admin.layout(ACTOR, { installationId: "inst-1" })).resolves.toEqual({ positions })
-        await expect(admin.saveLayout(ACTOR, { installationId: "inst-1", positions })).resolves.toEqual({ positions })
-        expect(layouts.read).toHaveBeenCalledWith("ws-1", "inst-1", "agent-1")
-        expect(layouts.save).toHaveBeenCalledWith("ws-1", "inst-1", "agent-1", positions)
-    })
-
-    it("refuses staff on both roads", async () => {
-        const { admin, layouts } = await build("staff")
-
-        await expect(admin.layout(ACTOR, { installationId: "inst-1" })).rejects.toMatchObject({
-            code: AgentGraphsErrorCode.Forbidden,
-        })
-        await expect(admin.saveLayout(ACTOR, { installationId: "inst-1", positions })).rejects.toMatchObject({
-            code: AgentGraphsErrorCode.Forbidden,
-        })
-        expect(layouts.save).not.toHaveBeenCalled()
-    })
-})
-
 describe("AgentWorkflowsAdminService: changes", () => {
-    const publishing = { installationId: "inst-1", workflowId: "wf-1", note: "", expectedLatest: 1 }
-
-    it("publishes the editor's graph as the owner, and refuses a manager's change that widens the agent", async () => {
-        const owner = await build("owner")
-        const manager = await build("manager")
-
-        await expect(
-            owner.admin.publish(ACTOR, { ...publishing, graphJson: JSON.stringify(WIDER) }),
-        ).resolves.toMatchObject({
-            id: "wfv-2",
-        })
-        expect(owner.workflows.publish).toHaveBeenCalledWith(
-            "ws-1",
-            "wf-1",
-            WIDER,
-            { kind: "owner", memberId: "member-1", role: "owner" },
-            1,
-            "",
-        )
-        await expect(
-            manager.admin.publish(ACTOR, { ...publishing, graphJson: JSON.stringify(WIDER) }),
-        ).rejects.toMatchObject({ code: AgentGraphsErrorCode.WidensNeedsOwner })
-    })
-
-    it("keeps a widening the owner's alone on every road: a rollback and a template sync too, while a manager may narrow", async () => {
+    it("keeps a widening the owner's alone on every road that writes a version: a rollback and a template sync", async () => {
         const manager = await build("manager")
         const changing = { installationId: "inst-1", workflowId: "wf-1", note: "", expectedLatest: 1 }
         manager.workflows.versionDiff.mockResolvedValue({ before: null, after: WIDER, diff: NO_DIFF })
@@ -307,48 +287,22 @@ describe("AgentWorkflowsAdminService: changes", () => {
         })
         expect(manager.workflows.rollback).not.toHaveBeenCalled()
         expect(manager.workflows.acceptTemplate).not.toHaveBeenCalled()
-
-        manager.workflows.detail.mockResolvedValue({ ...DETAIL, graph: WIDER })
-        await expect(
-            manager.admin.publish(ACTOR, { ...publishing, graphJson: JSON.stringify(GRAPH) }),
-        ).resolves.toMatchObject({ id: "wfv-2" })
     })
 
-    it("lets a manager publish a version whose data right reaches the whole workspace instead of the turn: a data right is no widening", async () => {
-        const manager = await build("manager")
-        const turn: GraphSpec = {
-            ...GRAPH,
-            grant: { ...GRAPH.grant, },
-        }
-        const workspace: GraphSpec = {
-            ...GRAPH,
-            grant: { ...GRAPH.grant, },
-        }
-        manager.workflows.detail.mockResolvedValue({ ...DETAIL, graph: turn })
+    it("has no door that publishes a graph the caller sends, and none that saves a layout (a stored graph is exactly a template version)", () => {
+        const doors = Object.getOwnPropertyNames(AgentWorkflowsAdminService.prototype)
 
-        await expect(
-            manager.admin.publish(ACTOR, { ...publishing, graphJson: JSON.stringify(workspace) }),
-        ).resolves.toMatchObject({ id: "wfv-2" })
+        expect(doors).not.toEqual(expect.arrayContaining(["publish"]))
+        expect(doors.filter((name) => ["publish", "saveLayout", "layout", "setNodeMode"].includes(name))).toEqual([])
     })
 
-    it("refuses a graph text that is not a graph", async () => {
-        const { admin } = await build()
-
-        await expect(admin.publish(ACTOR, { ...publishing, graphJson: "{not json" })).rejects.toMatchObject({
-            code: AgentGraphsErrorCode.DocumentInvalid,
-        })
-        await expect(admin.publish(ACTOR, { ...publishing, graphJson: "{}" })).rejects.toMatchObject({
-            code: AgentGraphsErrorCode.DocumentInvalid,
-        })
-    })
 })
 
 describe("AgentWorkflowsAdminService: adding and mapping", () => {
-    it("adds a workflow from a template, or from scratch with a name", async () => {
+    it("adds a workflow from a template (a workflow is always a template's copy: no blank workflow)", async () => {
         const { admin, workflows } = await build()
 
         await admin.create(ACTOR, { installationId: "inst-1", templateId: "booking.remind" })
-        await admin.create(ACTOR, { installationId: "inst-1", name: " Chi " })
 
         expect(workflows.createFromTemplate).toHaveBeenCalledWith(
             "ws-1",
@@ -357,16 +311,7 @@ describe("AgentWorkflowsAdminService: adding and mapping", () => {
             expect.objectContaining({ memberId: "member-1" }),
             "vi",
         )
-        expect(workflows.createBlank).toHaveBeenCalledWith(
-            "ws-1",
-            "agent-1",
-            { name: "Chi", moduleKey: "booking" },
-            expect.anything(),
-            "vi",
-        )
-        await expect(admin.create(ACTOR, { installationId: "inst-1", name: "  " })).rejects.toMatchObject({
-            code: AgentGraphsErrorCode.WorkflowRefused,
-        })
+        expect(Object.getOwnPropertyNames(AgentWorkflowsService.prototype)).not.toContain("createBlank")
     })
 
     it("maps a status and a diff request onto the service", async () => {
@@ -443,65 +388,220 @@ describe("AgentWorkflowsAdminService.agreeRights: the owner's picks of a stream'
     })
 })
 
-// The owner's door for ONE node's `auto|ask` (nivo-frame `rights` rules 5 + 10; MX-CORE: no working way to set a node to `ask` existed:
-// `agreeAgentNodeRights` is the removed agreement and every sales/chatbot node declares `auto`, so no approval stop could be raised on dev).
-describe("AgentWorkflowsAdminService.setNodeMode: the owner sets one node of a workflow to auto or ask", () => {
-    const ASKING: GraphSpec = {
+// THE ONE DOOR of a node's settings (`node-settings.policy`): the owner sets a node step's mode and / or which of the agent's attached
+// accounts it uses, in try order. Each setting is judged by rule (the step takes it; the accounts are attached, working, of a provider
+// the step lists, sandbox only while the sandbox is on, named once); the change is a NEW version through the judged publish road.
+describe("AgentWorkflowsAdminService.setNodeSettings: the owner sets a node step's mode and accounts", () => {
+    const REPLYING: GraphSpec = {
         ...GRAPH,
         nodes: [
-            { key: "reply", kind: "execute", step: "chatbot.answer", mode: "auto", next: "end" },
+            {
+                key: "reply",
+                kind: "execute",
+                step: "chatbot.answer",
+                mode: "auto",
+                accounts: [
+                    { kind: "messaging", provider: "zalo_oa", connectionId: null },
+                    { kind: "messaging", provider: "telegram", connectionId: null },
+                ],
+                next: "hand",
+            },
+            { key: "hand", kind: "execute", step: "core.call-workflow", next: "end" },
             { key: "end", kind: "output", step: "stop" },
         ],
     }
-    const setting = { installationId: "inst-1", workflowId: "wf-1", nodeKey: "reply", mode: "ask", expectedLatest: 1 }
+    const [REPLY, HAND, END] = REPLYING.nodes as [GraphSpec["nodes"][number], GraphSpec["nodes"][number], GraphSpec["nodes"][number]]
+    const setting = { installationId: "inst-1", workflowId: "wf-1", nodeKey: "reply", expectedLatest: 1 }
+    const replying = async (role: Role = "owner", options: { readonly sandboxOn?: boolean } = {}) => {
+        const seat = await build(role, options)
+        seat.workflows.detail.mockResolvedValue({ ...DETAIL, graph: REPLYING })
+        return seat
+    }
 
-    it("writes a NEW version of the running graph with only that node's mode replaced, through the publish road, as the owner", async () => {
-        const owner = await build("owner")
-        owner.workflows.detail.mockResolvedValue({ ...DETAIL, graph: ASKING })
+    it("writes a NEW version with only that node's mode replaced, through the publish road, as the owner", async () => {
+        const owner = await replying()
 
-        await expect(owner.admin.setNodeMode(ACTOR, setting)).resolves.toMatchObject({ id: "wfv-2" })
+        await expect(owner.admin.setNodeSettings(ACTOR, { ...setting, mode: "ask" })).resolves.toMatchObject({ id: "wfv-2" })
 
         expect(owner.workflows.publish).toHaveBeenCalledWith(
             "ws-1",
             "wf-1",
-            { ...ASKING, nodes: [{ ...ASKING.nodes[0], mode: "ask" }, ASKING.nodes[1]] },
+            { ...REPLYING, nodes: [{ ...REPLY, mode: "ask" }, HAND, END] },
             { kind: "owner", memberId: "member-1", role: "owner" },
             1,
             "reply: ask",
         )
     })
 
-    it("writes nothing for a node already in that mode and answers the running version", async () => {
-        const owner = await build("owner")
-        owner.workflows.detail.mockResolvedValue({ ...DETAIL, graph: ASKING })
+    it("binds the chosen accounts on the step's entries in try order (one entry per chosen account), the other providers left to the default pick", async () => {
+        const owner = await replying()
 
-        await expect(owner.admin.setNodeMode(ACTOR, { ...setting, mode: "auto" })).resolves.toMatchObject({ id: "wfv-2", number: 2 })
+        await owner.admin.setNodeSettings(ACTOR, { ...setting, accountIds: [ZALO_2, ZALO_1] })
+
+        expect(owner.workflows.publish).toHaveBeenCalledWith(
+            "ws-1",
+            "wf-1",
+            {
+                ...REPLYING,
+                nodes: [
+                    {
+                        ...REPLY,
+                        accounts: [
+                            { kind: "messaging", provider: "zalo_oa", connectionId: ZALO_2 },
+                            { kind: "messaging", provider: "zalo_oa", connectionId: ZALO_1 },
+                            { kind: "messaging", provider: "telegram", connectionId: null },
+                        ],
+                    },
+                    HAND,
+                    END,
+                ],
+            },
+            expect.anything(),
+            1,
+            `reply: accounts ${ZALO_2},${ZALO_1}`,
+        )
+    })
+
+    it("an empty choice goes back to the default pick: the entries as the template states them", async () => {
+        const owner = await replying()
+        const chosen: GraphSpec = {
+            ...REPLYING,
+            nodes: [
+                {
+                    ...REPLY,
+                    accounts: [
+                        { kind: "messaging", provider: "zalo_oa", connectionId: ZALO_2 },
+                        { kind: "messaging", provider: "telegram", connectionId: null },
+                    ],
+                },
+                HAND,
+                END,
+            ],
+        }
+        owner.workflows.detail.mockResolvedValue({ ...DETAIL, graph: chosen })
+
+        await owner.admin.setNodeSettings(ACTOR, { ...setting, accountIds: [] })
+
+        expect(owner.workflows.publish).toHaveBeenCalledWith("ws-1", "wf-1", REPLYING, expect.anything(), 1, "reply: accounts default")
+    })
+
+    it("writes nothing for settings already in force and answers the running version", async () => {
+        const owner = await replying()
+
+        await expect(owner.admin.setNodeSettings(ACTOR, { ...setting, mode: "auto", accountIds: [] })).resolves.toMatchObject({
+            id: "wfv-2",
+            number: 2,
+        })
+        expect(owner.workflows.publish).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ["an account the agent is not attached to", [UNATTACHED], AgentGraphsErrorCode.NodeAccountNotAttached],
+        ["an account of a provider the step does not list (a bank feed on a reply step)", [BANK], AgentGraphsErrorCode.NodeAccountNotListed],
+        ["an account that is not working", [ZALO_DOWN], AgentGraphsErrorCode.NodeAccountNotConnected],
+        ["a sandbox account while the sandbox is off", [ZALO_SANDBOX], AgentGraphsErrorCode.NodeAccountSandboxOff],
+        ["one account named twice", [ZALO_1, ZALO_1], AgentGraphsErrorCode.NodeAccountRepeated],
+    ])("refuses, typed, %s, and writes nothing", async (_name, accountIds, code) => {
+        const owner = await replying()
+
+        await expect(owner.admin.setNodeSettings(ACTOR, { ...setting, accountIds })).rejects.toMatchObject({ code })
+        expect(owner.workflows.publish).not.toHaveBeenCalled()
+    })
+
+    it("takes a sandbox account while the sandbox is on", async () => {
+        const owner = await replying("owner", { sandboxOn: true })
+
+        await owner.admin.setNodeSettings(ACTOR, { ...setting, accountIds: [ZALO_SANDBOX] })
+
+        expect(owner.workflows.publish).toHaveBeenCalledTimes(1)
+    })
+
+    it("refuses, typed, a setting the step does not take: a mode or accounts on an engine control step", async () => {
+        const owner = await replying()
+
+        await expect(owner.admin.setNodeSettings(ACTOR, { ...setting, nodeKey: "hand", mode: "ask" })).rejects.toMatchObject({
+            code: AgentGraphsErrorCode.NodeSettingUnsettable,
+            params: { setting: "mode" },
+        })
+        await expect(owner.admin.setNodeSettings(ACTOR, { ...setting, nodeKey: "hand", accountIds: [] })).rejects.toMatchObject({
+            code: AgentGraphsErrorCode.NodeSettingUnsettable,
+            params: { setting: "accounts" },
+        })
         expect(owner.workflows.publish).not.toHaveBeenCalled()
     })
 
     it("is the owner's alone: a manager and staff are refused before anything is read or written", async () => {
         for (const role of ["manager", "staff"] as const) {
-            const seat = await build(role)
-            await expect(seat.admin.setNodeMode(ACTOR, setting)).rejects.toMatchObject({ code: AgentGraphsErrorCode.Forbidden })
+            const seat = await replying(role)
+            await expect(seat.admin.setNodeSettings(ACTOR, { ...setting, mode: "ask" })).rejects.toMatchObject({
+                code: AgentGraphsErrorCode.Forbidden,
+            })
             expect(seat.workflows.detail).not.toHaveBeenCalled()
             expect(seat.workflows.publish).not.toHaveBeenCalled()
         }
     })
 
     it("refuses, typed, a word that is no mode, a key no node has, and a workflow of another agent", async () => {
-        const owner = await build("owner")
-        owner.workflows.detail.mockResolvedValue({ ...DETAIL, graph: ASKING })
+        const owner = await replying()
 
-        await expect(owner.admin.setNodeMode(ACTOR, { ...setting, mode: "never" })).rejects.toMatchObject({
+        await expect(owner.admin.setNodeSettings(ACTOR, { ...setting, mode: "never" })).rejects.toMatchObject({
             code: AgentGraphsErrorCode.WorkflowRefused,
             params: { reason: "mode" },
         })
-        await expect(owner.admin.setNodeMode(ACTOR, { ...setting, nodeKey: "gone" })).rejects.toMatchObject({
+        await expect(owner.admin.setNodeSettings(ACTOR, { ...setting, nodeKey: "gone", mode: "ask" })).rejects.toMatchObject({
             code: AgentGraphsErrorCode.WorkflowRefused,
             params: { reason: "node" },
         })
         owner.workflows.detail.mockResolvedValue({ ...DETAIL, workflow: { ...VIEW, agentId: "agent-2" } })
-        await expect(owner.admin.setNodeMode(ACTOR, setting)).rejects.toMatchObject({ code: AgentGraphsErrorCode.WorkflowNotFound })
+        await expect(owner.admin.setNodeSettings(ACTOR, { ...setting, mode: "ask" })).rejects.toMatchObject({
+            code: AgentGraphsErrorCode.WorkflowNotFound,
+        })
         expect(owner.workflows.publish).not.toHaveBeenCalled()
+    })
+})
+
+describe("AgentWorkflowsAdminService.detail: every step's node settings, for the fe to draw without guessing", () => {
+    it("answers per step what is settable, what is in force and the attached accounts it could use (default and sandbox marked)", async () => {
+        const owner = await build("manager")
+        owner.workflows.detail.mockResolvedValue({
+            ...DETAIL,
+            graph: {
+                ...GRAPH,
+                nodes: [
+                    {
+                        key: "reply",
+                        kind: "execute",
+                        step: "chatbot.answer",
+                        mode: "ask",
+                        accounts: [{ kind: "messaging", provider: "zalo_oa", connectionId: ZALO_2 }],
+                        next: "hand",
+                    },
+                    { key: "hand", kind: "execute", step: "core.call-workflow", next: "end" },
+                    { key: "end", kind: "output", step: "stop" },
+                ],
+            },
+        })
+
+        const read = await owner.admin.detail(ACTOR, { installationId: "inst-1", workflowId: "wf-1" })
+
+        expect(read.nodeSettings).toEqual([
+            {
+                nodeKey: "reply",
+                settable: ["mode", "accounts"],
+                mode: "ask",
+                accountIds: [ZALO_2],
+                accounts: [ZALO_1, ZALO_2, ZALO_SANDBOX, ZALO_DOWN].map((connectionId) =>
+                    expect.objectContaining({
+                        connectionId,
+                        provider: "zalo_oa",
+                        isDefault: connectionId === ZALO_2,
+                        sandbox: connectionId === ZALO_SANDBOX,
+                        connected: connectionId !== ZALO_DOWN,
+                    }),
+                ),
+            },
+            { nodeKey: "hand", settable: [], mode: null, accountIds: [], accounts: [] },
+            { nodeKey: "end", settable: [], mode: null, accountIds: [], accounts: [] },
+        ])
     })
 })

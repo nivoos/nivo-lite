@@ -82,10 +82,16 @@ export {
     providerSpecOf,
     mutatesOf,
     providerOfChannel,
+    channelCapabilitiesOf,
+    personAddressedChannels,
+    DEFAULT_CHANNEL_CAPABILITIES,
+    ZALO_REPLY_WINDOW_MS,
     servesTool,
 } from "./provider-abilities.policy"
 export type {
     AccountPick,
+    ChannelCapabilities,
+    PersonAddressedChannel,
     AccountPickedBy,
     AttachmentVerdict,
     NamedAccount,
@@ -96,3 +102,4 @@ export type {
 } from "./provider-abilities.policy"
 export type { AbilityLabel } from "./messages/provider-abilities.labels"
 export { abilityLabelOf } from "./messages/provider-abilities.labels"
+export { accountLabelOf } from "./account-label.policy"

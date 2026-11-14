@@ -1,11 +1,11 @@
 import { Test } from "@nestjs/testing"
 import { builder, mock, mockEntityManager } from "@starci/jest-preset"
-import { JOB_CLAIMS } from "@modules/platform/jobs"
-import type { ClaimedJob, JobClaims } from "@modules/platform/jobs"
+import type { ClaimedJob } from "@modules/platform/jobs"
+import { classifyFailure } from "@modules/platform/queue"
 import { Secret } from "@modules/platform/config"
 import type { DoorApi, JobDefinition, WorkflowApi } from "@nivo-lite/agent-sdk/mutation"
-import type { EngineDoorProvider, EngineFailureAlerts, EngineWorkflowProvider } from "./entity-engine.contracts"
-import { ENGINE_FAILURE_ALERTS, ENTITY_ENGINE_OPTIONS } from "./entity-engine.decorators"
+import type { EngineDoorProvider, EngineWorkflowProvider } from "./entity-engine.contracts"
+import { ENTITY_ENGINE_OPTIONS } from "./entity-engine.decorators"
 import type { EntityEngineOptions } from "./entity-engine.options"
 import { EntityEngineService } from "./entity-engine.service"
 import { EntityPortsService } from "./entity-ports.service"
@@ -86,8 +86,6 @@ const build = async (buildId?: string, withDoor = true) => {
     ports.portsFor.mockReturnValue({ handle: "ports" })
     const agents = mock<ModuleAgentService>()
     agents.scopeOf.mockResolvedValue(AGENT)
-    const claims = mock<JobClaims>()
-    const alerts = mock<EngineFailureAlerts>()
     const handle = mock<DoorApi>()
     const door = mock<EngineDoorProvider>()
     door.doorApi.mockReturnValue(handle)
@@ -105,8 +103,6 @@ const build = async (buildId?: string, withDoor = true) => {
                     cursorKey: new Secret("a2V5"),
                 })(buildId === undefined ? {} : { buildId }),
             },
-            { provide: JOB_CLAIMS, useValue: claims },
-            { provide: ENGINE_FAILURE_ALERTS, useValue: alerts },
         ],
     }).compile()
     const runner = moduleRef.get(ModuleJobRunnerService)
@@ -121,8 +117,6 @@ const build = async (buildId?: string, withDoor = true) => {
         starting,
         recording,
         agents,
-        claims,
-        alerts,
         door,
         handle,
     }
@@ -187,14 +181,14 @@ describe("ModuleJobRunnerService", () => {
         expect(engine.scoped.mock.calls[0]?.[2]).toBeUndefined()
     })
 
-    it("parks a job that reaches records when its module has no installed agent, writing nothing", async () => {
-        const { runner, engine, plain, agents, claims } = await build("build-1")
-        claims.park.mockResolvedValue(false)
+    it("refuses a job that reaches records when its module has no installed agent, writing nothing: the failure throws to the jobs runner", async () => {
+        const { runner, engine, plain, agents } = await build("build-1")
         agents.scopeOf.mockRejectedValue(new EntityEngineError({ code: EntityEngineErrorCode.AgentMissing }))
 
-        await runner.run(claimed(payloadOf("sales.confirmNotice")))
+        await expect(runner.run(claimed(payloadOf("sales.confirmNotice")))).rejects.toMatchObject({
+            code: EntityEngineErrorCode.AgentMissing,
+        })
 
-        expect(claims.park).toHaveBeenCalledWith(expect.objectContaining({ reason: "ENTITY_ENGINE_AGENT_MISSING" }))
         expect(engine.scoped).not.toHaveBeenCalled()
         expect(plain.run).not.toHaveBeenCalled()
     })
@@ -265,97 +259,63 @@ describe("ModuleJobRunnerService", () => {
         expect(binding?.scopeOpen()).toBe(false)
     })
 
-    it("parks a door job in an app that registered no door provider", async () => {
-        const { runner, calling, claims } = await build("build-1", false)
-        claims.park.mockResolvedValue(false)
+    it("refuses a door job in an app that registered no door provider: the failure throws to the jobs runner", async () => {
+        const { runner, calling } = await build("build-1", false)
 
-        await runner.run(claimed(payloadOf("sales.sendNotice")))
+        await expect(runner.run(claimed(payloadOf("sales.sendNotice")))).rejects.toMatchObject({
+            code: EntityEngineErrorCode.PortUnprovided,
+        })
 
         expect(calling.run).not.toHaveBeenCalled()
-        expect(claims.park).toHaveBeenCalledWith(expect.objectContaining({ reason: "ENTITY_ENGINE_PORT_UNPROVIDED" }))
     })
 })
 
-describe("ModuleJobRunnerService park", () => {
-    it("parks a delivery that does not address a job, with the class of its failure", async () => {
-        const { runner, plain, claims } = await build("build-1")
-        claims.park.mockResolvedValue(false)
+describe("ModuleJobRunnerService failures", () => {
+    it("throws a delivery that does not address a job, a refusal the jobs runner judges as input", async () => {
+        const { runner, plain } = await build("build-1")
 
-        await runner.run(claimed({ workspaceId: WS }))
+        const failure: unknown = await runner.run(claimed({ workspaceId: WS })).catch((error_: unknown) => error_)
 
-        expect(claims.park).toHaveBeenCalledWith({
-            jobId: "j-1",
-            expectedFencingToken: 2,
-            failureClass: "input",
-            reason: "ENTITY_ENGINE_JOB_PAYLOAD_INVALID",
-            build: "build-1",
-            queue: "module_jobs",
-        })
+        expect(failure).toMatchObject({ code: EntityEngineErrorCode.JobPayloadInvalid })
+        expect(classifyFailure(failure)).toBe("input")
         expect(plain.run).not.toHaveBeenCalled()
     })
 
-    it("parks a job no module declares and raises the one alert of the park", async () => {
-        const { runner, claims, alerts } = await build("build-1")
-        claims.park.mockResolvedValue(true)
+    it("throws a job no module declares, judged as input", async () => {
+        const { runner } = await build("build-1")
 
-        await runner.run(claimed(payloadOf("sales.nothing")))
+        const failure: unknown = await runner.run(claimed(payloadOf("sales.nothing"))).catch((error_: unknown) => error_)
 
-        expect(alerts.raise).toHaveBeenCalledWith({
-            kind: "flow-parked",
-            jobId: "j-1",
-            flowKind: "module-jobs.run",
-            failureClass: "input",
-            reason: "ENTITY_ENGINE_JOB_UNKNOWN",
-            correlationId: "j-1",
-            build: "build-1",
-            action: "resume",
-        })
+        expect(failure).toMatchObject({ code: EntityEngineErrorCode.JobUnknown })
+        expect(classifyFailure(failure)).toBe("input")
     })
 
-    it("parks a job whose input the declaration rejects and raises no second alert", async () => {
-        const { runner, claims, alerts, plainInput, engine } = await build()
-        claims.park.mockResolvedValue(false)
+    it("throws a job whose input the declaration rejects, judged as input, and opens no scope", async () => {
+        const { runner, plainInput, engine } = await build()
         plainInput.safeParse.mockReturnValue({ success: false, error: mock<ParseFailure>() })
 
-        await runner.run(claimed(payloadOf("sales.confirmNotice")))
+        const failure: unknown = await runner.run(claimed(payloadOf("sales.confirmNotice"))).catch((error_: unknown) => error_)
 
-        expect(claims.park.mock.calls[0]?.[0]).toMatchObject({
-            failureClass: "input",
-            reason: "ENTITY_ENGINE_JOB_INPUT_INVALID",
-            build: "unknown",
-        })
-        expect(alerts.raise).not.toHaveBeenCalled()
+        expect(failure).toMatchObject({ code: EntityEngineErrorCode.JobInputInvalid })
+        expect(classifyFailure(failure)).toBe("input")
         expect(engine.scoped).not.toHaveBeenCalled()
     })
-})
 
-describe("ModuleJobRunnerService park on failure", () => {
-    it("parks a job that fails with a bug, naming the failure", async () => {
-        const { runner, plain, claims } = await build()
-        claims.park.mockResolvedValue(false)
-        plain.run.mockRejectedValue(new Error("boom"))
+    it("lets the failure of a job's own code through untouched, whatever it is", async () => {
+        const { runner, plain } = await build()
+        const bug = new Error("boom")
+        plain.run.mockRejectedValueOnce(bug).mockRejectedValueOnce("oops")
 
-        await runner.run(claimed(payloadOf("sales.confirmNotice")))
-
-        expect(claims.park.mock.calls[0]?.[0]).toMatchObject({ failureClass: "code", reason: "boom" })
+        await expect(runner.run(claimed(payloadOf("sales.confirmNotice")))).rejects.toBe(bug)
+        await expect(runner.run(claimed(payloadOf("sales.confirmNotice")))).rejects.toBe("oops")
     })
 
-    it("parks a job that throws something that is not an error", async () => {
-        const { runner, plain, claims } = await build()
-        claims.park.mockResolvedValue(false)
-        plain.run.mockRejectedValue("oops")
-
-        await runner.run(claimed(payloadOf("sales.confirmNotice")))
-
-        expect(claims.park.mock.calls[0]?.[0]).toMatchObject({ failureClass: "code", reason: "unknown" })
-    })
-
-    it("lets a transient failure reach the runner so the queue retries it", async () => {
-        const { runner, plain, claims } = await build()
+    it("lets a transient failure through untouched so the jobs runner retries it on the ladder", async () => {
+        const { runner, plain } = await build()
         const cause = Object.assign(new Error("reset"), { code: "ECONNRESET" })
         plain.run.mockRejectedValue(cause)
 
         await expect(runner.run(claimed(payloadOf("sales.confirmNotice")))).rejects.toBe(cause)
-        expect(claims.park).not.toHaveBeenCalled()
+        expect(classifyFailure(cause)).toBe("transient")
     })
 })

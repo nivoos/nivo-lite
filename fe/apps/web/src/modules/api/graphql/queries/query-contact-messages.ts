@@ -34,6 +34,7 @@ const query1: Document = gql`
                     name
                     contentType
                     caption
+                    notKept
                 }
             }
         }

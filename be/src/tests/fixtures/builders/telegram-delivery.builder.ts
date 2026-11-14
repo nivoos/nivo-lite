@@ -11,7 +11,7 @@ import type { EntityManager } from "typeorm"
 import { AccountDataIntakeService } from "@modules/domain/account-data"
 import {
     TelegramDeliveryQueue,
-    isTelegramDeliveryRecorded,
+    DELIVER_TELEGRAM_JOB,
     TELEGRAM_DELIVERY_QUEUE,
 } from "@modules/queues/telegram-delivery"
 
@@ -62,7 +62,7 @@ export const buildTelegramDelivery = async (
     const queue = new TelegramDeliveryQueue(actual)
     const publication = mock<QueueOutbox>()
     publication.write.mockImplementation((tx, _name, payload) => {
-        if (!isTelegramDeliveryRecorded(payload)) return Promise.resolve()
+        if (!DELIVER_TELEGRAM_JOB.payload(payload)) return Promise.resolve()
         return queue.enqueueDeliveryRecorded(payload, tx)
     })
     const catalog = mock<MessageCatalog>()

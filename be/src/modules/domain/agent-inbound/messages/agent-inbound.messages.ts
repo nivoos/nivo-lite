@@ -11,7 +11,6 @@ export const AGENT_INBOUND_MESSAGES: MessageBundle = {
         "errors.AGENT_INBOUND_BODY_INVALID": "Nội dung webhook phải là một đối tượng JSON.",
         "errors.AGENT_INBOUND_EVENT_TYPE_INVALID": "Webhook chưa nêu loại sự kiện hợp lệ.",
         "errors.AGENT_INBOUND_ENDPOINT_UNKNOWN": "Không tìm thấy điểm nhận webhook này.",
-        "errors.AGENT_INBOUND_JOB_PAYLOAD_INVALID": "Việc cần chạy không nêu sự kiện nào.",
     },
     en: {
         "errors.AGENT_INBOUND_ADAPTER_UNKNOWN": "The event source {{adapter}} is not registered.",
@@ -22,6 +21,5 @@ export const AGENT_INBOUND_MESSAGES: MessageBundle = {
         "errors.AGENT_INBOUND_BODY_INVALID": "The webhook body must be a JSON object.",
         "errors.AGENT_INBOUND_EVENT_TYPE_INVALID": "The webhook names no valid event type.",
         "errors.AGENT_INBOUND_ENDPOINT_UNKNOWN": "That webhook endpoint was not found.",
-        "errors.AGENT_INBOUND_JOB_PAYLOAD_INVALID": "The job names no event.",
     },
 }

@@ -9,7 +9,6 @@ import {
     JobsModule,
 } from "@modules/platform/jobs"
 import assert from "node:assert/strict"
-import { ZaloWebhookGateService } from "@modules/domain/channels"
 import { ZaloInboxService } from "@modules/domain/zalo-inbox"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { QUEUE_OUTBOX, type QueueOutbox, type QueueWriteOptions } from "@modules/platform/queue"
@@ -82,9 +81,6 @@ export const zaloPublicationBuilder = (world: LiteWorld): ZaloPublicationBuilder
         await removeReceipts(world.db.primary, "zalo", message.deliveryId)
     })
     const actual = world.resolve<QueueOutbox>(QUEUE_OUTBOX)
-    // The connection of a delivery proof holds no OA secret key, and a call to such a connection is closed unread: the proof is about the
-    // road after the gate, so the gate is told the key is held.
-    jest.spyOn(world.resolve(ZaloWebhookGateService), "holdsProofKey").mockResolvedValue(true)
     return {
         message,
         queue: world.resolve(ZaloDeliveryQueue),
@@ -98,7 +94,7 @@ type ZaloDeliveryBuilderResultClaimsShape = {
 }
 
 type ZaloDeliveryBuilderResultInboxShape = {
-    processRecordedDelivery: jest.SpyInstance<Promise<void>, [message: ZaloDeliveryRecorded]>
+    processRecordedDelivery: jest.SpyInstance<Promise<void>, [message: ZaloDeliveryRecorded, job: ClaimedJob]>
 }
 
 type ZaloDeliveryBuilderResultShape = {
@@ -139,7 +135,8 @@ export const zaloDeliveryBuilder = async (world: LiteWorld): Promise<ZaloDeliver
     const connection = publication.message.deliveryId.split(":")[0]
     assert(connection !== undefined)
     await persistZaloAccount(world, connection)
-    await publication.service.acceptZaloDelivery(ZALO_PROOF_BODY, connection)
+    // The proof is about the road after the door: the delivery arrives with the door's PROVEN verdict.
+    await publication.service.acceptZaloDelivery(ZALO_PROOF_BODY, connection, "proven")
     const actual = world.resolve<JobClaims>(JOB_CLAIMS)
     const jobKey = world.key(publication.message.deliveryId)
     const claim = () =>

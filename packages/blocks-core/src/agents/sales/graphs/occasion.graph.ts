@@ -22,11 +22,11 @@ const OCCASION_LEAD_DAYS = 7
 const CATALOGUE: TemplateCatalogue = {
     name: { vi: "Nh\u1eafc d\u1ecbp \u0111\u1eb7c bi\u1ec7t", en: "Occasion reminder" },
     summary: { vi: "Nh\u1eafc kh\u00e1ch tr\u01b0\u1edbc d\u1ecbp h\u1ecd \u0111\u00e3 k\u1ec3", en: "Reminds the customer before an occasion they mentioned" },
-    version: 11,
-    publishedAt: "2026-11-14T03:00:00.000Z",
+    version: 12,
+    publishedAt: "2026-11-14T18:55:00.000Z",
     notes: {
-        vi: "Đọc sự kiện theo một đường chung: route, liên hệ, tài khoản và dữ liệu của sự kiện (trigger.data)",
-        en: "Reads its event on the one pipeline: the route, the contact, the account and the event's data (trigger.data)",
+        vi: "Bước chờ không còn đọc việc khách dặn đừng nhắn: hệ thống từ chối lời nhắn chủ động khi liên hệ đã đặt dấu không liên hệ",
+        en: "The wait no longer reads whether the customer asked to stop: the engine refuses an unprompted message when the contact's do-not-contact fact is set",
     },
     // Seeded ACTIVE (TOOLS-LEAD item 6): a seed or re-seed adds it to the agent active, so its trigger reaches it.
     seedActive: true,

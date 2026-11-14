@@ -14,6 +14,8 @@ import { chatbotAnswerNode } from "../nodes/answer.node"
 import { chatbotComplaintNotifyNode } from "../nodes/complaint-notify.node"
 import { chatbotComplaintReplyNode } from "../nodes/complaint-reply.node"
 import { chatbotHearNode } from "../nodes/hear.node"
+import { chatbotStopKeepNode } from "../nodes/stop-keep.node"
+import { chatbotStopReplyNode } from "../nodes/stop-reply.node"
 import { chatbotUnderstandNode } from "../nodes/understand.node"
 
 /** The key of the front-desk workflow inside the Chatbot agent. */
@@ -82,7 +84,9 @@ const paidHandOff = {
  * so the model greets; ruling R45). `understand` reads the words and the pictures (a picture-only line has no words) and routes: buy -> the
  * Sales consult (with the visit's start, `since`: it reads the engine's thread itself); book -> the Booking `book` (with the recent lines);
  * paid -> the Sales money-in graph (`sales.payment`: it answers the customer and tells the team; the money settles on the bank's credit);
- * complaint -> one reply to the customer, then a side notice to the team, then the owner's outcome; question -> one answer from the
+ * complaint -> one reply to the customer, then a side notice to the team, then the owner's outcome; stop (the person asks the shop to stop
+ * messaging them) -> the contact's one do-not-contact fact is kept (`stop-keep`), then ONE short acknowledgement on the person's own line
+ * (`stop-reply`), and the run ends `stopped`; question -> one answer from the
  * shop's public knowledge. A send a person declined on its card is the step's unsuccessful ending: the ENGINE tells the team and the run
  * ends `declined` (R68). Who holds the thread is the ENGINE's staff hold on the
  * route (ruling R43): the engine starts no run for a held route and its send door refuses every AI send to one (`route_held`); the graph
@@ -115,7 +119,7 @@ export const frontDeskGraph: TemplateGraph = defineTemplateGraph({
         "nothing-to-answer": outcome({ name: "nothing", label: { vi: "Không có gì để trả lời", en: "Nothing to answer" } }),
         understand: node(chatbotUnderstandNode, {
             input: { text: ref("steps.hear.output.text"), messages: ref("steps.hear.output.messages"), since: ref("steps.hear.output.startedAt") },
-            routes: { buy: "to-consult", book: "to-booking", paid: "to-payment", complaint: "complaint-reply", question: "answer" },
+            routes: { buy: "to-consult", book: "to-booking", paid: "to-payment", complaint: "complaint-reply", stop: "stop-keep", question: "answer" },
         }),
         "to-consult": callWorkflow({ agent: "sales", workflow: "consult", version: "latest", input: consultHandOff }),
         // The booking has its own input contract (the customer by `contactId`, the core contact). A workspace without the Booking agent
@@ -123,6 +127,20 @@ export const frontDeskGraph: TemplateGraph = defineTemplateGraph({
         // the model, so a wish to book is a question the front desk answers itself; nothing is routed into a missing target.
         "to-booking": callWorkflow({ agent: "booking", workflow: "book", version: "latest", input: bookingHandOff }),
         "to-payment": callWorkflow({ agent: "sales", workflow: "payment", version: "latest", input: paidHandOff }),
+        // The person asked the shop to stop messaging them: the model's judgement (the `stop` route), written as the contact's consent fact,
+        // then one acknowledgement on their own line (an answer on their line is always allowed). Each step makes one write; the engine
+        // tells the team when either ends unsuccessfully (a decline on its card, a refusal) and the run ends `declined`.
+        "stop-keep": node(chatbotStopKeepNode, {
+            input: { contactId: ref("trigger.contactId", { default: null }), reason: ref("steps.understand.output.summary") },
+            next: "stop-reply",
+            unsuccessful: { then: "end", outcome: "declined" },
+        }),
+        "stop-reply": node(chatbotStopReplyNode, {
+            input: { conversationId: ref("steps.hear.output.conversationId"), text: ref("steps.hear.output.text"), since: ref("steps.hear.output.startedAt") },
+            next: "stopped",
+            unsuccessful: { then: "end", outcome: "declined" },
+        }),
+        stopped: outcome({ name: "stopped", label: { vi: "Kh\u00e1ch xin ng\u1eebng nh\u1eafn tin", en: "Asked not to be messaged" } }),
         "complaint-reply": node(chatbotComplaintReplyNode, {
             input: {
                 conversationId: ref("steps.hear.output.conversationId"),
@@ -157,11 +175,11 @@ export const frontDeskGraph: TemplateGraph = defineTemplateGraph({
             vi: "Đón tin nhắn Zalo, Telegram, Facebook và Instagram, trả lời và chuyển đúng quy trình",
             en: "Greets Zalo, Telegram, Facebook and Instagram messages, answers and passes on to the right workflow",
         },
-        version: 26,
-        publishedAt: "2026-11-14T18:00:00.000Z",
+        version: 27,
+        publishedAt: "2026-11-14T19:10:00.000Z",
         notes: {
-            vi: "Câu trả lời bị từ chối duyệt thì hệ thống tự báo đội rồi kết thúc như trước; quy trình chỉ còn các bước lễ tân",
-            en: "A reply declined on its card is told to the team by the engine, then the run ends as before; the workflow keeps only the front desk's steps",
+            vi: "Thêm hướng khách xin đừng nhắn tin: ghi dấu không liên hệ trên liên hệ của khách rồi nhắn lại một lời cảm ơn ngắn trên đúng cuộc trò chuyện",
+            en: "New route for a customer who asks not to be messaged: keeps the do-not-contact fact on their contact, then one short thanks on the same conversation",
         },
     },
 })

@@ -11,7 +11,7 @@ import { TelegramUserSyncService } from "./telegram-user-sync.service"
 @Injectable()
 /**
  * Hands the owner's database pull and the personal Telegram pull (each live and sandbox) to the data connector registry and their
- * sandbox catalogues to the sandbox page's registry, once, when the app starts. (The mailbox's is `ImapConnectorRegistrationService`.)
+ * sandbox catalogues to the sandbox page's registry, once, when the app starts. (A mailbox is no data connector: its inbound half is the one poll job's, `MailInboundRegistrationService`.)
  */
 export class DataConnectorRegistrationService implements OnModuleInit {
     constructor(

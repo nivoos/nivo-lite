@@ -69,7 +69,7 @@ describe("installedPluginsOf", () => {
         expect(coreGraphs).toBeGreaterThan(0)
         expect(both.templates().length).toBe((BASE_PLUGIN.templates ?? []).length + coreGraphs + 2)
         expect(both.templatesOf(FIXTURE_MODULE).map((template) => template.primary)).toEqual([true, false])
-        expect(both.templateOf(FIXTURE_PRIMARY.id)).toBe(FIXTURE_PRIMARY)
+        expect(both.templateOf(FIXTURE_PRIMARY.id)).toEqual(FIXTURE_PRIMARY)
         expect(both.templateOf("nobody.none")).toBeNull()
     })
 
@@ -100,7 +100,7 @@ describe("installedPluginsOf", () => {
     it("hands the step runner the nodes, effects, tools, data kinds and words of every plugin, and the catalogue its servers", async () => {
         const { both } = await build()
         const install = both.nodeInstall()
-        expect(install.nodes.length).toBe((BASE_PLUGIN.nodes ?? []).length + 2)
+        expect(install.nodes.length).toBe((BASE_PLUGIN.nodes ?? []).length + 1)
         expect(install.effects.map((effect) => effect.id)).toContain(FIXTURE_TOOL)
         expect(install.tools).toEqual(BASE_PLUGIN.tools)
         expect(install.dataKinds).toEqual(BASE_PLUGIN.dataKinds)

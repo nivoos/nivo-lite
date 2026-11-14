@@ -5,13 +5,11 @@ import { PROVIDER_TRIGGER_RECEIVERS } from "@modules/domain/provider-triggers"
 import { AgentWorkflowTriggerReceiversService } from "./agent-workflow-trigger-receivers.service"
 import { AgentNodeRequestsService } from "./agent-node-requests.service"
 import { AgentNodeRoutesService } from "./agent-node-routes.service"
-import { AgentGraphContractSetupService } from "./agent-graph-contract-setup.service"
 import { AgentGraphFlowService } from "./agent-graph-flow.service"
 import { AGENT_GRAPHS_OPTIONS, GRAPH_FACT_READERS } from "./agent-graphs.decorators"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./agent-graphs.module-definition"
 import { AgentGraphAdminService } from "./agent-graph-admin.service"
 import { AgentGraphContextService } from "./agent-graph-context.service"
-import { AgentGraphProposalsService } from "./agent-graph-proposals.service"
 import { AgentGraphPublishService } from "./agent-graph-publish.service"
 import { AgentGraphRightsService } from "./agent-graph-rights.service"
 import { AgentRightsNoticesService } from "./agent-rights-notices.service"
@@ -32,7 +30,6 @@ import { AgentWorkflowStoreService } from "./agent-workflow-store.service"
 import { AgentWorkflowsService } from "./agent-workflows.service"
 import { AgentWorkflowInstallService } from "./agent-workflow-install.service"
 import { AgentWorkflowInstallRunService } from "./agent-workflow-install-run.service"
-import { AgentGraphLayoutService } from "./agent-graph-layout.service"
 import { AgentWorkflowsAdminService } from "./agent-workflows-admin.service"
 import { AgentWorkflowStartService } from "./agent-workflow-start.service"
 import { AgentGraphFlowRunsService } from "./agent-graph-flow-runs.service"
@@ -130,7 +127,6 @@ const DOORS_ONLY: Part = {
         AgentWorkflowAdoptionService,
         AgentWorkflowsService,
         AgentWorkflowRunsService,
-        AgentGraphLayoutService,
         AgentWorkflowsAdminService,
         AgentWorkflowStartService,
     ],
@@ -157,12 +153,10 @@ const WHOLE: Part = {
         AgentGraphSeedService,
         AgentGraphFlowService,
         AgentGraphPublishService,
-        AgentGraphProposalsService,
         AgentGraphViewService,
         AgentGraphAdminService,
         AgentGraphWatchService,
         AgentGraphSetupService,
-        AgentGraphContractSetupService,
         AgentGraphSubjectHoldsService,
         AgentGraphCallGuardService,
         AgentGraphHoursGateService,
@@ -186,7 +180,6 @@ const WHOLE: Part = {
         AgentWorkflowRunsService,
         WorkflowTriggerPicksService,
         AgentWorkflowTriggerReceiversService,
-        AgentGraphLayoutService,
         AgentWorkflowsAdminService,
         AgentWorkflowStartService,
     ],

@@ -1,16 +1,16 @@
 import { Test } from "@nestjs/testing"
-import { fakeIds, mock, mockEntityManager } from "@starci/jest-preset"
+import { fakeIds, fakeTransaction, mock, mockEntityManager, recordingQueueOutbox } from "@starci/jest-preset"
 import { AgentDirectoryService } from "@modules/domain/agents"
 import type { AgentCard } from "@modules/domain/agents"
 import { ConnectionsService } from "@modules/domain/connections"
-import { ContactsService } from "@modules/domain/contacts"
-import type { ContactIdentity } from "@modules/domain/contacts"
 import { EntityEngineErrorCode } from "@modules/domain/entity-engine"
 import { InboundEventsService } from "@modules/domain/inbound-events"
 import { WorkspaceMembersService } from "@modules/domain/workspace-members"
 import type { WorkspaceMember } from "@modules/domain/workspace-members"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { IDS } from "@modules/platform/ids"
+import { QUEUE_OUTBOX } from "@modules/platform/queue"
+import { DELIVER_WEBSITE_FORM_JOB, WEBSITE_FORM_QUEUE } from "@modules/queues/website-form"
 import {
     WEBSITE_AGENT as AGENT,
     WEBSITE_KEY as KEY,
@@ -18,13 +18,11 @@ import {
     websiteSite as siteOf,
 } from "@tests/fixtures/builders/website-site.builder"
 import { websiteIntakeEntities } from "./persistence/entities"
-import { WebsiteLeadWakeService } from "./website-lead-wake.service"
 import { WebsiteOwnerService } from "./website-owner.service"
 import { WebsiteSitesService } from "./website-sites.service"
 import type { WebsiteSubmission } from "./website-sites.service"
 
 const [WebsiteSiteEntity] = websiteIntakeEntities
-const CONTACT = "33333333-3333-4333-8333-333333333333"
 const SITE = "site-1"
 const VISITOR = "7c9e6679-7425-40de-944b-e07fc1f90ae7"
 
@@ -40,32 +38,29 @@ const FORM: WebsiteSubmission = {
     submissionId: "sub-1",
 }
 
-/** The service is built with no entity engine at all: the intake cannot write a record of any agent. */
+/** The service is built with no entity engine at all: the intake cannot write a record of any agent. The manager runs `transaction` as a fake one. */
 const build = async (em = mockEntityManager()) => {
+    fakeTransaction(em)
     const members = mock<WorkspaceMembersService>()
     const connections = mock<ConnectionsService>()
     const directory = mock<AgentDirectoryService>()
-    const contacts = mock<ContactsService>()
     const inbound = mock<InboundEventsService>()
-    const wakes = mock<WebsiteLeadWakeService>()
     const owners = mock<WebsiteOwnerService>()
     members.require.mockResolvedValue(mock<WorkspaceMember>())
     connections.publicOrigin.mockReturnValue("https://nivo.example")
-    contacts.meetChannel.mockResolvedValue(CONTACT)
-    contacts.linkIdentity.mockResolvedValue({ kind: "proposed", identity: mock<ContactIdentity>() })
-    inbound.recordInput.mockResolvedValue({ duplicate: false, inboundEventId: "ev-1" })
+    inbound.recordInputInTransaction.mockResolvedValue({ duplicate: false, inboundEventId: "ev-1" })
+    const outbox = recordingQueueOutbox()
+    const write = jest.spyOn(outbox, "write")
     owners.agentOf.mockImplementation((_workspace, siteAgent) => Promise.resolve(siteAgent))
-    wakes.wake.mockResolvedValue(true)
     const moduleRef = await Test.createTestingModule({
         providers: [
             WebsiteSitesService,
             { provide: WorkspaceMembersService, useValue: members },
             { provide: ConnectionsService, useValue: connections },
             { provide: AgentDirectoryService, useValue: directory },
-            { provide: ContactsService, useValue: contacts },
             { provide: InboundEventsService, useValue: inbound },
-            { provide: WebsiteLeadWakeService, useValue: wakes },
             { provide: WebsiteOwnerService, useValue: owners },
+            { provide: QUEUE_OUTBOX, useValue: outbox },
             { provide: IDS, useValue: fakeIds() },
             { provide: PRIMARY_ENTITY_MANAGER, useValue: em },
         ],
@@ -75,10 +70,10 @@ const build = async (em = mockEntityManager()) => {
         members,
         connections,
         directory,
-        contacts,
         inbound,
-        wakes,
         owners,
+        outbox,
+        write,
         em,
     }
 }
@@ -194,222 +189,162 @@ describe("WebsiteSitesService adoptFrontDoor", () => {
     })
 })
 
+/** The dedupe key a producer passed to the outbox (the 4th argument of the write). */
+const dedupeKeyOf = (call: ReadonlyArray<unknown>): string | undefined => (call[3] as { readonly dedupeKey?: string } | undefined)?.dedupeKey
+
 describe("WebsiteSitesService submit", () => {
-    it("stores the raw submission as one input and meets the core contact by the site's id of the visitor, with the typed phone as a claim", async () => {
-        const { sites, contacts, inbound } = await build(
-            mockEntityManager({ findOne: [WebsiteSiteEntity, siteOf({})] }),
-        )
+    it("stores the raw submission as one input and writes its delivery job as a queue outbox row in the SAME transaction", async () => {
+        const { sites, inbound, outbox, write, em } = await build(mockEntityManager({ findOne: [WebsiteSiteEntity, siteOf({})] }))
 
-        await expect(sites.submit(KEY, FORM)).resolves.toEqual({
-            contactId: CONTACT,
-            inboundEventId: "ev-1",
-            duplicate: false,
-        })
+        await expect(sites.submit(KEY, FORM)).resolves.toEqual({ inboundEventId: "ev-1", duplicate: false })
 
-        expect(inbound.recordInput).toHaveBeenCalledWith({
-            workspaceId: WORKSPACE,
-            channel: "website",
-            kind: "message",
-            senderName: "Cam",
-            senderContact: "84900000101",
-            body: "roses",
-            externalRef: null,
-            eventId: `${KEY}:sub-1`,
-            customerKey: "phone:84900000101",
-            source: { page: "/dat-hoa", device: "mobile" },
-        })
-        expect(contacts.meetChannel).toHaveBeenCalledWith(WORKSPACE, {
-            channel: "website",
-            account: SITE,
-            userId: "submission:sub-1",
-            name: "Cam",
-        })
-        expect(contacts.linkIdentity).toHaveBeenCalledTimes(1)
-        expect(contacts.linkIdentity).toHaveBeenCalledWith(
-            WORKSPACE,
-            CONTACT,
-            { kind: "phone", value: "84900000101" },
-            { kind: "channel" },
+        expect(inbound.recordInputInTransaction).toHaveBeenCalledWith(
+            {
+                workspaceId: WORKSPACE,
+                channel: "website",
+                kind: "message",
+                senderName: "Cam",
+                senderContact: "84900000101",
+                body: "roses",
+                externalRef: null,
+                eventId: `${KEY}:sub-1`,
+                customerKey: "phone:84900000101",
+                source: { page: "/dat-hoa", device: "mobile" },
+            },
+            expect.anything(),
         )
-        expect(inbound.mark).not.toHaveBeenCalled()
+        expect(em.transaction).toHaveBeenCalledTimes(1)
+        // The store and the job went through the one transaction view: neither is left to a second, separate commit.
+        expect(inbound.recordInputInTransaction.mock.calls[0]?.[1]).toBe(write.mock.calls[0]?.[0])
+        expect(outbox.allInTransaction).toBe(true)
+        expect(outbox.jobsOf(WEBSITE_FORM_QUEUE)).toEqual([
+            {
+                queue: WEBSITE_FORM_QUEUE,
+                payload: {
+                    workspaceId: WORKSPACE,
+                    siteId: SITE,
+                    agentId: AGENT,
+                    inboundEventId: "ev-1",
+                    visitorKey: "submission:sub-1",
+                    name: "Cam",
+                    phone: "84900000101",
+                    email: null,
+                    request: "roses",
+                    source: { page: "/dat-hoa", device: "mobile" },
+                    claims: [{ kind: "phone", value: "84900000101" }],
+                },
+            },
+        ])
+        expect(dedupeKeyOf(write.mock.calls[0] ?? [])).toBe("website-form:ev-1")
+        expect(dedupeKeyOf(write.mock.calls[0] ?? [])).toBe(DELIVER_WEBSITE_FORM_JOB.onceKey(write.mock.calls[0]?.[2] as never))
+        // The door meets no contact and wakes nobody: the job does (the intake owns no ContactsService any more).
     })
 
-    it("resolves the existing contact of a returning visitor: the same visitor id meets the contact that holds it", async () => {
-        const { sites, contacts, wakes } = await build(mockEntityManager({ findOne: [WebsiteSiteEntity, siteOf({})] }))
-        contacts.meetChannel.mockResolvedValueOnce("existing-contact")
+    it("the same submission twice is one stored input and the SAME job: same event id, same dedupe key, the repeat answers duplicate", async () => {
+        const { sites, inbound, write } = await build(mockEntityManager({ findOne: [WebsiteSiteEntity, siteOf({})] }))
+        inbound.recordInputInTransaction.mockResolvedValueOnce({ duplicate: false, inboundEventId: "ev-1" })
+        inbound.recordInputInTransaction.mockResolvedValueOnce({ duplicate: true, inboundEventId: "ev-1" })
 
-        await expect(sites.submit(KEY, { ...FORM, visitor: VISITOR })).resolves.toMatchObject({
-            contactId: "existing-contact",
-        })
+        await sites.submit(KEY, FORM)
+        await expect(sites.submit(KEY, FORM)).resolves.toMatchObject({ duplicate: true, inboundEventId: "ev-1" })
 
-        expect(contacts.meetChannel.mock.calls[0]?.[1]).toMatchObject({ account: SITE, userId: `visitor:${VISITOR}` })
-        expect(contacts.linkIdentity.mock.calls[0]?.[1]).toBe("existing-contact")
-        expect(wakes.wake.mock.calls[0]?.[2]).toMatchObject({ contactId: "existing-contact" })
+        expect(inbound.recordInputInTransaction.mock.calls[1]?.[0].eventId).toBe(inbound.recordInputInTransaction.mock.calls[0]?.[0].eventId)
+        expect(write.mock.calls.map((call) => dedupeKeyOf(call))).toEqual(["website-form:ev-1", "website-form:ev-1"])
+        expect(write.mock.calls[1]?.[2]).toEqual(write.mock.calls[0]?.[2])
+    })
+
+    it("a failed store writes no job: the visitor is refused and sends it again", async () => {
+        const { sites, inbound, outbox } = await build(mockEntityManager({ findOne: [WebsiteSiteEntity, siteOf({})] }))
+        inbound.recordInputInTransaction.mockRejectedValueOnce(new Error("store failed"))
+
+        await expect(sites.submit(KEY, FORM)).rejects.toThrow("store failed")
+
+        expect(outbox.jobs).toEqual([])
+    })
+
+    it("a failed job write fails the whole transaction (the store is not left alone): the error reaches the visitor", async () => {
+        const { sites, outbox } = await build(mockEntityManager({ findOne: [WebsiteSiteEntity, siteOf({})] }))
+        outbox.failNext("write", new Error("outbox down"))
+
+        await expect(sites.submit(KEY, FORM)).rejects.toThrow("outbox down")
     })
 })
 
-describe("WebsiteSitesService submit claims", () => {
-    it("keeps an email as a claim, and claims nothing for a visitor who left neither", async () => {
-        const first = await build(mockEntityManager({ findOne: [WebsiteSiteEntity, siteOf({})] }))
-        await first.sites.submit(KEY, {
-            ...FORM,
-            phone: null,
-            email: "Cam@Shop.test",
-            message: null,
-            submissionId: null,
-        })
-        expect(first.contacts.linkIdentity).toHaveBeenCalledWith(
-            WORKSPACE,
-            CONTACT,
-            { kind: "email", value: "cam@shop.test" },
-            { kind: "channel" },
-        )
+describe("WebsiteSitesService submit visitor and claims", () => {
+    const payloadOf = async (form: WebsiteSubmission, site = siteOf({})) => {
+        const built = await build(mockEntityManager({ findOne: [WebsiteSiteEntity, site] }))
+        await built.sites.submit(KEY, form)
+        return { ...built, payload: built.outbox.jobs[0]?.payload as Record<string, unknown> }
+    }
 
-        const second = await build(mockEntityManager({ findOne: [WebsiteSiteEntity, siteOf({})] }))
-        await second.sites.submit(KEY, { ...FORM, phone: null, name: null, visitor: VISITOR, submissionId: null })
-        expect(second.contacts.linkIdentity).not.toHaveBeenCalled()
-        expect(second.contacts.meetChannel.mock.calls[0]?.[1]).toMatchObject({ userId: `visitor:${VISITOR}`, name: null })
-        expect(second.inbound.recordInput.mock.calls[0]?.[0]).toMatchObject({
+    it("names the visitor by the id the page keeps for them, lower-cased: the same browser is the same visitor key", async () => {
+        const one = await payloadOf({ ...FORM, visitor: VISITOR, submissionId: "a" })
+        const upper = await payloadOf({ ...FORM, visitor: VISITOR.toUpperCase(), submissionId: "b" })
+
+        expect(one.payload).toMatchObject({ visitorKey: `visitor:${VISITOR}`, siteId: SITE })
+        expect(upper.payload).toMatchObject({ visitorKey: `visitor:${VISITOR}` })
+    })
+
+    it("names a visitor the page did not name by the submission: a new visitor key for every submission id", async () => {
+        const first = await payloadOf({ ...FORM, visitor: null, submissionId: "a" })
+        const second = await payloadOf({ ...FORM, visitor: null, submissionId: "b" })
+
+        expect(first.payload["visitorKey"]).toBe("submission:a")
+        expect(second.payload["visitorKey"]).toBe("submission:b")
+    })
+
+    it("treats a malformed visitor id as none and still accepts the submission", async () => {
+        for (const bad of ["v-1", "x".repeat(100), "7c9e6679-7425-40de-944b-e07fc1f90ae", "' or 1=1 --", "  "]) {
+            const built = await payloadOf({ ...FORM, visitor: bad, submissionId: "bad" })
+            expect(built.payload).toMatchObject({ visitorKey: "submission:bad" })
+            expect(built.inbound.recordInputInTransaction.mock.lastCall?.[0]).toMatchObject({ customerKey: "phone:84900000101" })
+        }
+    })
+
+    it("keeps an email as a claim, and claims nothing for a visitor who left neither", async () => {
+        const first = await payloadOf({ ...FORM, phone: null, email: "Cam@Shop.test", message: null, submissionId: null })
+        expect(first.payload["claims"]).toEqual([{ kind: "email", value: "cam@shop.test" }])
+        expect(first.payload).toMatchObject({ visitorKey: "submission:00000000-0000-4000-8000-000000000001", request: null })
+
+        const second = await payloadOf({ ...FORM, phone: null, name: null, visitor: VISITOR, submissionId: null })
+        expect(second.payload["claims"]).toEqual([])
+        expect(second.payload).toMatchObject({ name: null, visitorKey: `visitor:${VISITOR}` })
+        expect(second.inbound.recordInputInTransaction.mock.calls[0]?.[0]).toMatchObject({
             customerKey: `web:${VISITOR}`,
             eventId: `${KEY}:00000000-0000-4000-8000-000000000001`,
             senderName: null,
             senderContact: null,
         })
     })
-
-    it("keeps dedupe: the same submission twice is one input, the same contact and one wake key", async () => {
-        const { sites, inbound, contacts, wakes } = await build(
-            mockEntityManager({ findOne: [WebsiteSiteEntity, siteOf({})] }),
-        )
-        inbound.recordInput.mockResolvedValueOnce({ duplicate: false, inboundEventId: "ev-1" })
-        inbound.recordInput.mockResolvedValueOnce({ duplicate: true, inboundEventId: "ev-1" })
-
-        await sites.submit(KEY, FORM)
-        await expect(sites.submit(KEY, FORM)).resolves.toMatchObject({ duplicate: true, inboundEventId: "ev-1" })
-
-        expect(inbound.recordInput.mock.calls[1]?.[0].eventId).toBe(inbound.recordInput.mock.calls[0]?.[0].eventId)
-        expect(contacts.meetChannel.mock.calls[1]?.[1]).toEqual(contacts.meetChannel.mock.calls[0]?.[1])
-        expect(wakes.wake.mock.calls[1]?.[2].inboundEventId).toBe("ev-1")
-    })
 })
 
-describe("WebsiteSitesService submit visitor identity", () => {
-    /** A contacts fake that keeps one contact per (account, user id), as the core does for a channel identity. */
-    const withStatefulContacts = async (site = siteOf({})) => {
-        const built = await build(mockEntityManager({ findOne: [WebsiteSiteEntity, site] }))
-        const known = new Map<string, string>()
-        built.contacts.meetChannel.mockImplementation((_workspace, person) => {
-            const key = `${person.account}|${person.userId}`
-            const found = known.get(key) ?? `contact-${known.size + 1}`
-            known.set(key, found)
-            return Promise.resolve(found)
-        })
-        return built
-    }
-
-    it("meets the same contact for the same visitor id sent twice, with different typed phones", async () => {
-        const { sites } = await withStatefulContacts()
-
-        const first = await sites.submit(KEY, { ...FORM, visitor: VISITOR, submissionId: "a" })
-        const second = await sites.submit(KEY, { ...FORM, phone: "0911 111 111", visitor: VISITOR, submissionId: "b" })
-
-        expect(second.contactId).toBe(first.contactId)
-    })
-
-    it("gives a new contact to every submission that sends no visitor id", async () => {
-        const { sites, contacts } = await withStatefulContacts()
-
-        const first = await sites.submit(KEY, { ...FORM, visitor: null, submissionId: "a" })
-        const second = await sites.submit(KEY, { ...FORM, visitor: null, submissionId: "b" })
-
-        expect(second.contactId).not.toBe(first.contactId)
-        expect(contacts.meetChannel.mock.calls[0]?.[1]).toMatchObject({ userId: "submission:a" })
-    })
-
-    it("treats a malformed visitor id as none and still accepts the submission", async () => {
-        const { sites, contacts, inbound } = await withStatefulContacts()
-
-        for (const bad of ["v-1", "x".repeat(100), "7c9e6679-7425-40de-944b-e07fc1f90ae", "' or 1=1 --", "  "]) {
-            await expect(sites.submit(KEY, { ...FORM, visitor: bad, submissionId: "bad" })).resolves.toMatchObject({
-                duplicate: false,
-            })
-            expect(contacts.meetChannel.mock.lastCall?.[1]).toMatchObject({ userId: "submission:bad" })
-        }
-        expect(inbound.recordInput.mock.lastCall?.[0]).toMatchObject({ customerKey: "phone:84900000101" })
-    })
-
-    it("reads an upper-case visitor id as the same visitor", async () => {
-        const { sites } = await withStatefulContacts()
-
-        const first = await sites.submit(KEY, { ...FORM, visitor: VISITOR, submissionId: "a" })
-        const second = await sites.submit(KEY, { ...FORM, visitor: VISITOR.toUpperCase(), submissionId: "b" })
-
-        expect(second.contactId).toBe(first.contactId)
-    })
-
-    it("scopes the visitor id to the site: the identity is held under the site's own id, so another site meets another contact", async () => {
-        const one = await withStatefulContacts(siteOf({}))
-        await one.sites.submit(KEY, { ...FORM, visitor: VISITOR })
-        const other = await withStatefulContacts(siteOf({ id: "site-2" }))
-        await other.sites.submit(KEY, { ...FORM, visitor: VISITOR })
-
-        expect(one.contacts.meetChannel.mock.calls[0]?.[1]).toMatchObject({ account: SITE, userId: `visitor:${VISITOR}` })
-        expect(other.contacts.meetChannel.mock.calls[0]?.[1]).toMatchObject({ account: "site-2", userId: `visitor:${VISITOR}` })
-    })
-})
-
-describe("WebsiteSitesService submit wakes the agent", () => {
-    it("wakes the agent of the site with the contact and the submission, after the contact is met; no agent record is written", async () => {
-        const { sites, contacts, wakes, owners } = await build(
-            mockEntityManager({ findOne: [WebsiteSiteEntity, siteOf({})] }),
-        )
+describe("WebsiteSitesService submit names the agent", () => {
+    it("names the agent of the site in the job; no agent record is written", async () => {
+        const { sites, owners, outbox } = await build(mockEntityManager({ findOne: [WebsiteSiteEntity, siteOf({})] }))
 
         await sites.submit(KEY, FORM)
 
         expect(owners.agentOf).toHaveBeenCalledWith(WORKSPACE, AGENT)
-        expect(wakes.wake).toHaveBeenCalledWith(WORKSPACE, AGENT, {
-            contactId: CONTACT,
-            siteId: SITE,
-            inboundEventId: "ev-1",
-            visitorKey: "submission:sub-1",
-            name: "Cam",
-            phone: "84900000101",
-            email: null,
-            request: "roses",
-            source: { page: "/dat-hoa", device: "mobile" },
-        })
-        expect(contacts.meetChannel.mock.invocationCallOrder[0]).toBeLessThan(
-            wakes.wake.mock.invocationCallOrder[0] ?? 0,
-        )
+        expect(outbox.jobs[0]?.payload).toMatchObject({ agentId: AGENT })
     })
 
-    it("wakes the installed front door when the site names none", async () => {
-        const { sites, wakes, owners } = await build(
-            mockEntityManager({ findOne: [WebsiteSiteEntity, siteOf({ agentId: null })] }),
-        )
+    it("names the installed front door when the site names none", async () => {
+        const { sites, outbox, owners } = await build(mockEntityManager({ findOne: [WebsiteSiteEntity, siteOf({ agentId: null })] }))
         owners.agentOf.mockResolvedValueOnce("front-door-1")
 
         await sites.submit(KEY, FORM)
 
-        expect(wakes.wake).toHaveBeenCalledWith(
-            WORKSPACE,
-            "front-door-1",
-            expect.objectContaining({ contactId: CONTACT }),
-        )
+        expect(outbox.jobs[0]?.payload).toMatchObject({ agentId: "front-door-1" })
     })
 
-    it("refuses the form when no agent owns the site: nothing is stored, no contact is met, nobody is woken", async () => {
-        const { sites, contacts, inbound, wakes, owners } = await build(
-            mockEntityManager({ findOne: [WebsiteSiteEntity, siteOf({ agentId: null })] }),
-        )
+    it("refuses the form when no agent owns the site: nothing is stored and no job is written", async () => {
+        const { sites, inbound, outbox, owners } = await build(mockEntityManager({ findOne: [WebsiteSiteEntity, siteOf({ agentId: null })] }))
         owners.agentOf.mockResolvedValueOnce(null)
 
         await expect(sites.submit(KEY, FORM)).rejects.toMatchObject({ code: EntityEngineErrorCode.AgentMissing })
 
-        expect(inbound.recordInput).not.toHaveBeenCalled()
-        expect(contacts.meetChannel).not.toHaveBeenCalled()
-        expect(contacts.linkIdentity).not.toHaveBeenCalled()
-        expect(wakes.wake).not.toHaveBeenCalled()
+        expect(inbound.recordInputInTransaction).not.toHaveBeenCalled()
+        expect(outbox.jobs).toEqual([])
     })
 })
 
@@ -426,16 +361,14 @@ describe("WebsiteSitesService submit refusals", () => {
     })
 
     it("refuses a form with nothing to answer before anything is written", async () => {
-        const { sites, inbound, contacts } = await build(
-            mockEntityManager({ findOne: [WebsiteSiteEntity, siteOf({})] }),
-        )
+        const { sites, inbound, outbox } = await build(mockEntityManager({ findOne: [WebsiteSiteEntity, siteOf({})] }))
 
         await expect(sites.submit(KEY, { ...FORM, phone: null, message: " ", email: null })).rejects.toMatchObject({
             code: "INBOX_LEADS_SUBMISSION_EMPTY",
         })
 
-        expect(inbound.recordInput).not.toHaveBeenCalled()
-        expect(contacts.meetChannel).not.toHaveBeenCalled()
+        expect(inbound.recordInputInTransaction).not.toHaveBeenCalled()
+        expect(outbox.jobs).toEqual([])
     })
 })
 

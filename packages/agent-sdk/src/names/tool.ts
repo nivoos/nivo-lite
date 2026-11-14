@@ -105,6 +105,8 @@ export const TOOL = {
     brainFactList: "nivo.tool.brain.fact.list",
     /** The truths in force the truth graph links to one truth, with the relation. */
     brainFactRelated: "nivo.tool.brain.fact.related",
+    /** The workspace's policies in force that the caller may read: the truths the truth graph's policy judgement marks as policies. */
+    brainPolicyList: "nivo.tool.brain.policy.list",
     /** Finds passages of the business documents the caller may read, by words or meaning; snippets only. */
     brainPassageSearch: "nivo.tool.brain.passage.search",
     /** Reads a passage of a business document with its neighbours, or a stretch of a document from a position. */
@@ -131,8 +133,6 @@ export const TOOL = {
     mailMessageList: "nivo.tool.mail.message.list",
     /** One mail of an attached mailbox with its plain text, bounded; lines that address an AI come marked as quotes. */
     mailMessageGet: "nivo.tool.mail.message.get",
-    /** Sends a mail through provider `smtp`: it SENDS; whether a person is asked first is the calling node's mode (`auto` sends, `ask` interrupts before). */
-    mailMessageSend: "nivo.tool.mail.message.send",
     /** Posts a report card to the team chat. */
     teamChatReportPost: "nivo.tool.team-chat.report.post",
     /** Whether a domain name can be registered now, with its prices per period when the registrar states them. A read. */
@@ -253,6 +253,7 @@ export const DEFAULT_AI_READ_TOOLS: ReadonlyArray<ToolId> = [
     TOOL.brainFactGet,
     TOOL.brainFactList,
     TOOL.brainFactRelated,
+    TOOL.brainPolicyList,
     TOOL.brainPassageSearch,
     TOOL.brainPassageRead,
     TOOL.brainDocumentRead,
@@ -314,6 +315,9 @@ export type CustomerMessageSendRefusal =
     | "outside_window"
     | "plan_blocked"
     | "not_delivered"
+    | "subject_required"
+    | "address_not_accepted"
+    | "entrance_incomplete"
     | "already_told_for_this_stop"
 
 /** What every record tool may refuse of the type a call names: no package declares it. */

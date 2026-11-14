@@ -5,13 +5,17 @@ import { AI } from "@modules/integrations/ai"
 import type { AiChatAnswer, AiService } from "@modules/integrations/ai"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
+import { classifyFailure } from "@modules/platform/queue"
+import { aiChainProviders } from "@tests/fixtures/builders/brain-ai-effects.builder"
 import { DRAFT_SYSTEM_PROMPT, PUBLIC_DRAFT_PROMPT_VERSION, draftPrompt } from "./draft-prompt.policy"
 import { DRAFT_OUTPUT_SCHEMA } from "./draft-answer.policy"
 import { DRAFT_READ_SCHEMA } from "./draft.schema"
+import { PublicDocumentsErrorCode } from "./errors/public-documents.error"
 import { PublicDraftWriterService } from "./public-draft-writer.service"
 import type { PublicDraftBrief } from "./public-documents.contracts"
 
 const WS = "11111111-1111-4111-8111-111111111111"
+const KEY = "job-1:draft"
 /** A laundry's public document. */
 const brief: PublicDraftBrief = {
     workspaceId: WS,
@@ -36,23 +40,25 @@ const build = async () => {
     const usage = mock<UsageMeterService>()
     usage.blockedBy.mockResolvedValue(false)
     const logger = mock<Logger>()
+    const chain = aiChainProviders()
     const moduleRef = await Test.createTestingModule({
         providers: [
+            ...chain.providers,
             PublicDraftWriterService,
             { provide: AI, useValue: ai },
             { provide: UsageMeterService, useValue: usage },
             { provide: LOGGER, useValue: logger },
         ],
     }).compile()
-    return { writer: moduleRef.get(PublicDraftWriterService), ai, usage, logger }
+    return { writer: moduleRef.get(PublicDraftWriterService), ai, usage, logger, ledger: chain.ledger }
 }
 
 describe("PublicDraftWriterService", () => {
-    it("asks the model once with the prompt, the read schema and the closed structured output, and answers its answer", async () => {
-        const { writer, ai, logger } = await build()
+    it("asks the model once with the prompt, the read schema and the closed structured output, under the job's key, and answers its answer", async () => {
+        const { writer, ai, logger, ledger } = await build()
         ai.attempt.mockResolvedValue({ ok: true, answer: answerOf() })
 
-        await expect(writer.write(brief)).resolves.toEqual(READING)
+        await expect(writer.write(brief, KEY)).resolves.toEqual(READING)
 
         expect(ai.attempt).toHaveBeenCalledTimes(1)
         expect(ai.attempt).toHaveBeenCalledWith({
@@ -66,9 +72,9 @@ describe("PublicDraftWriterService", () => {
             timeoutMs: 90_000,
             context: null,
         })
+        expect(ledger.keys()).toEqual([KEY])
         expect(logger.info).toHaveBeenCalledWith("public_documents.draft.read", {
             promptVersion: PUBLIC_DRAFT_PROMPT_VERSION,
-            attempt: 1,
             answers: true,
             bodyChars: READING.body.length,
         })
@@ -78,7 +84,7 @@ describe("PublicDraftWriterService", () => {
         const { writer, ai, usage } = await build()
         ai.attempt.mockResolvedValue({ ok: true, answer: answerOf() })
 
-        await writer.write(brief)
+        await writer.write(brief, KEY)
 
         expect(usage.record).toHaveBeenCalledWith({
             workspaceId: WS,
@@ -92,9 +98,6 @@ describe("PublicDraftWriterService", () => {
         })
     })
 
-})
-
-describe("PublicDraftWriterService: unreadable answers and the bounded retry", () => {
     it("reads the JSON out of the text when the structured answer is missing", async () => {
         const { writer, ai } = await build()
         ai.attempt.mockResolvedValue({
@@ -102,67 +105,59 @@ describe("PublicDraftWriterService: unreadable answers and the bounded retry", (
             answer: answerOf({ parsed: null, text: `Here:\n\`\`\`json\n${JSON.stringify(READING)}\n\`\`\`` }),
         })
 
-        await expect(writer.write(brief)).resolves.toEqual(READING)
+        await expect(writer.write(brief, KEY)).resolves.toEqual(READING)
     })
+})
 
-    it("answers null without a retry when the model is unavailable", async () => {
+describe("PublicDraftWriterService: a model that did not answer throws a typed failure, never a value", () => {
+    it.each(["timeout", "provider"] as const)("throws the transient DraftUnavailable on %s: the job's ladder retries it", async (failure) => {
         const { writer, ai } = await build()
-        ai.attempt.mockResolvedValue({ ok: false, failure: "timeout" })
+        ai.attempt.mockResolvedValue({ ok: false, failure })
 
-        await expect(writer.write(brief)).resolves.toBeNull()
+        const thrown = await writer.write(brief, KEY).catch((cause: unknown) => cause)
+
+        expect(thrown).toMatchObject({ code: PublicDocumentsErrorCode.DraftUnavailable })
+        expect(classifyFailure(thrown)).toBe("transient")
         expect(ai.attempt).toHaveBeenCalledTimes(1)
     })
 
-    it("asks again once when the first answer does not fit and uses the second", async () => {
-        const { writer, ai, usage, logger } = await build()
-        ai.attempt
-            .mockResolvedValueOnce({ ok: true, answer: answerOf({ parsed: { body: "old shape" }, text: "{ not json" }) })
-            .mockResolvedValueOnce({ ok: true, answer: answerOf() })
+    it("throws a config failure when no endpoint is configured", async () => {
+        const { writer, ai } = await build()
+        ai.attempt.mockResolvedValue({ ok: false, failure: "unconfigured" })
 
-        await expect(writer.write(brief)).resolves.toEqual(READING)
-        expect(usage.record).toHaveBeenCalledTimes(2)
-        expect(logger.warn).toHaveBeenCalledWith("public_documents.answer.unreadable", {
-            attempt: 1,
-            promptVersion: PUBLIC_DRAFT_PROMPT_VERSION,
-        })
+        const thrown = await writer.write(brief, KEY).catch((cause: unknown) => cause)
+
+        expect(thrown).toMatchObject({ code: PublicDocumentsErrorCode.DraftUnconfigured })
+        expect(classifyFailure(thrown)).toBe("config")
     })
 
     it.each(["no json here", "{ not json }", '{"usable":[1],"excluded":[],"paragraphs":[]}', '{"answers":"yes","body":"x"}'])(
-        "answers null after two unreadable answers and never calls a third time: %s",
+        "throws the refusal DraftRefused (input: a dead letter, never a retry) on an answer that does not fit, and never calls a second time: %s",
         async (text) => {
-            const { writer, ai } = await build()
+            const { writer, ai, logger } = await build()
             ai.attempt.mockResolvedValue({ ok: true, answer: answerOf({ parsed: null, text }) })
 
-            await expect(writer.write(brief)).resolves.toBeNull()
-            expect(ai.attempt).toHaveBeenCalledTimes(2)
+            const thrown = await writer.write(brief, KEY).catch((cause: unknown) => cause)
+
+            expect(thrown).toMatchObject({ code: PublicDocumentsErrorCode.DraftRefused })
+            expect(classifyFailure(thrown)).toBe("input")
+            expect(ai.attempt).toHaveBeenCalledTimes(1)
+            expect(logger.warn).toHaveBeenCalledWith("public_documents.answer.unreadable", { promptVersion: PUBLIC_DRAFT_PROMPT_VERSION })
         },
     )
-})
 
-describe("PublicDraftWriterService: cut tries and the credit pool", () => {
-    const spent = { promptTokens: 300, completionTokens: 4000, totalTokens: 4300, costUsd: null }
-    const served = { upstream: "anthropic", finishReason: "max_tokens", durationMs: 5 }
-
-    it("does not retry when the credit pool is empty after an unreadable answer", async () => {
+    it("throws the refusal for a cut answer and books what it spent, once", async () => {
         const { writer, ai, usage } = await build()
-        ai.attempt.mockResolvedValueOnce({ ok: true, answer: answerOf({ parsed: null, text: "{ not json" }) })
-        usage.blockedBy.mockResolvedValue(true)
-
-        await expect(writer.write(brief)).resolves.toBeNull()
-
-        expect(ai.attempt).toHaveBeenCalledTimes(1)
-        expect(usage.blockedBy).toHaveBeenCalledWith(WS, "brain", false)
-    })
-
-    it("answers null for a cut answer and books what it spent", async () => {
-        const { writer, ai, usage } = await build()
+        const spent = { promptTokens: 300, completionTokens: 4000, totalTokens: 4300, costUsd: null }
+        const served = { upstream: "anthropic", finishReason: "max_tokens", durationMs: 5 }
         ai.attempt.mockResolvedValue({
             ok: false,
             failure: "length",
             spent: { model: "claude-haiku-5-5", usage: spent, served, cap: null },
         })
 
-        await expect(writer.write(brief)).resolves.toBeNull()
+        await expect(writer.write(brief, KEY)).rejects.toMatchObject({ code: PublicDocumentsErrorCode.DraftRefused })
+
         expect(usage.record).toHaveBeenCalledTimes(1)
         expect(usage.record).toHaveBeenCalledWith(
             expect.objectContaining({ model: "claude-haiku-5-5", usage: spent, completionChars: 0 }),

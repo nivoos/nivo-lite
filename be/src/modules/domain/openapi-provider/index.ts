@@ -10,3 +10,5 @@ export type {
     OpenApiSandboxOperationFixture,
     OpenApiSandboxReadsBack,
 } from "./openapi-sandbox-fixtures.contracts"
+export { sandboxFixturesOf } from "./openapi-sandbox-fixtures.policy"
+export type { SandboxFixturesReading } from "./openapi-sandbox-fixtures.policy"

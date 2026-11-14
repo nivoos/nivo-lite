@@ -1,5 +1,4 @@
 import { Injectable, Optional } from "@nestjs/common"
-import { GraphNodeRegistryService } from "@modules/domain/graph-nodes"
 import { InstallationRecordsService } from "@modules/domain/module-installations"
 import type { WorkspaceRole } from "@modules/domain/workspace-members"
 import { AgentGraphContextService } from "./agent-graph-context.service"
@@ -8,7 +7,7 @@ import { AgentRightsRecordsService } from "./agent-rights-records.service"
 import { AgentWorkflowAdoptionService } from "./agent-workflow-adoption.service"
 import { AgentGraphsError, AgentGraphsErrorCode } from "./errors/agent-graphs.error"
 import { AgentGraphsService, type GraphState, type PublishInput } from "./agent-graphs.service"
-import type { GraphChangeKind, GraphDocument, GraphMode, GraphVersionView } from "./agent-graphs.contracts"
+import type { GraphChangeKind, GraphDocument, GraphVersionView } from "./agent-graphs.contracts"
 import { graphDiff } from "./policies/graph-diff.policy"
 import { flowChanged, requireSoundFlow } from "./policies/flow.policy"
 import { graphProblems } from "./policies/graph-problems.policy"
@@ -50,7 +49,7 @@ const NOTHING_AGREED: ReadonlyArray<AgreedRight> = []
 @Injectable()
 /**
  * The only road a graph changes what an agent does. The draft is checked first (no cycle or dead end, an `else` that never runs
- * alone, no gap or overlap, every tool and datum with a right, a node graph whose spec the installed nodes take), a change that widens the reach of the agent or changes its node graph
+ * alone, no gap or overlap, every tool and datum with a right, a flow that is an installed template version's copy), a change that widens the reach of the agent or changes its node graph
  * needs the owner, and the frozen version is a new row. Publishing never writes
  * a grant of a tool or a datum: the graph only narrows what the grants allow. What the nodes of the flow ask for on the agent's
  * connected accounts passes the rights gate (`AgentGraphRightsService`): asking for more than the primary workflow holds activates
@@ -63,7 +62,6 @@ export class AgentGraphPublishService {
         private readonly graphs: AgentGraphsService,
         private readonly context: AgentGraphContextService,
         private readonly installations: InstallationRecordsService,
-        private readonly nodes: GraphNodeRegistryService,
         @Optional() private readonly rights?: AgentGraphRightsService,
         @Optional() private readonly adoption?: AgentWorkflowAdoptionService,
         @Optional() private readonly rows?: AgentRightsRecordsService,
@@ -94,42 +92,6 @@ export class AgentGraphPublishService {
         await this.rightsOf(state, state.draft, { by, note: "", kind: "edit", agreed: NOTHING_AGREED })
     }
 
-    /** Publishes the graph a confirmed proposal made as the next version, under the same checks as any change (a widening is the owner's alone). */
-    async publishLearned(
-        workspaceId: string,
-        agentId: string,
-        document: GraphDocument,
-        by: Publisher,
-        agreed: ReadonlyArray<AgreedRight> = NOTHING_AGREED,
-    ): Promise<GraphVersionView> {
-        const state = await this.requireState(workspaceId, agentId)
-        return this.publishDocument(state, document, { by, note: "", kind: "learned", agreed })
-    }
-
-    /** Publishes the graph a confirmed contract proposal made as the next version (a change made in the setup chat), under the same checks as any change. */
-    async publishContract(
-        workspaceId: string,
-        agentId: string,
-        document: GraphDocument,
-        by: Publisher,
-        agreed: ReadonlyArray<AgreedRight> = NOTHING_AGREED,
-    ): Promise<GraphVersionView> {
-        const state = await this.requireState(workspaceId, agentId)
-        return this.publishDocument(state, document, { by, note: "", kind: "chat", agreed })
-    }
-
-    /** Publishes the graph a confirmed Brain conflict made as the next version, under the same checks as any change. */
-    async publishConflict(
-        workspaceId: string,
-        agentId: string,
-        document: GraphDocument,
-        by: Publisher,
-        agreed: ReadonlyArray<AgreedRight> = NOTHING_AGREED,
-    ): Promise<GraphVersionView> {
-        const state = await this.requireState(workspaceId, agentId)
-        return this.publishDocument(state, document, { by, note: "", kind: "conflict", agreed })
-    }
-
     /**
      * Publishes the graph a sibling agent of the same role runs as the next version of a new agent ("copy the setup of"), under the same
      * checks as any change, and a widening only by the owner.
@@ -144,26 +106,6 @@ export class AgentGraphPublishService {
     ): Promise<GraphVersionView> {
         const state = await this.requireState(workspaceId, agentId)
         return this.publishDocument(state, document, { by, note: "", kind: "copy", agreed, unagreed })
-    }
-
-    /** Goes back to an older version by publishing it again as a new one, so nothing in the history changes. */
-    async restore(
-        workspaceId: string,
-        agentId: string,
-        versionId: string,
-        by: Publisher,
-        agreed: ReadonlyArray<AgreedRight> = NOTHING_AGREED,
-    ): Promise<GraphVersionView> {
-        const state = await this.requireState(workspaceId, agentId)
-        const document = await this.graphs.documentOf(workspaceId, agentId, versionId)
-        return this.publishDocument(state, document, { by, note: "", kind: "rollback", agreed })
-    }
-
-    /** Sets whether the graph decides or only records. Only the owner does, either way: turning a graph off widens what the agent may do. */
-    setMode(workspaceId: string, agentId: string, mode: GraphMode, by: Publisher): Promise<GraphState> {
-        if (by.role !== "owner")
-            return Promise.reject(new AgentGraphsError({ code: AgentGraphsErrorCode.WidensNeedsOwner }))
-        return this.graphs.setMode(workspaceId, agentId, mode, by.memberId)
     }
 
     private async requireState(workspaceId: string, agentId: string): Promise<GraphState> {
@@ -257,7 +199,7 @@ export class AgentGraphPublishService {
         const installation = await this.installations.findById(state.installationId)
         if (installation === null) throw new AgentGraphsError({ code: AgentGraphsErrorCode.GraphNotFound })
         const context = await this.context.contextOf({ ...state, moduleKey: installation.moduleKey })
-        if (document.flow !== undefined) requireSoundFlow(document.flow, this.nodes.installed())
+        if (document.flow !== undefined) requireSoundFlow(document.flow)
         const problems = graphProblems(document, context)
         if (problems.length > 0)
             throw new AgentGraphsError({

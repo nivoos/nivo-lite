@@ -5,6 +5,8 @@ export const KNOWLEDGE_MESSAGES: MessageBundle = {
     vi: {
         "errors.KNOWLEDGE_MODULE_UNKNOWN": "Không tìm thấy agent này.",
         "errors.KNOWLEDGE_EMBEDDING_UNAVAILABLE": "Chưa kết nối được dịch vụ nhúng văn bản. Sẽ thử lại sau.",
+        "errors.KNOWLEDGE_PAYLOAD_INVALID": "Công việc đọc tài liệu có dữ liệu không hợp lệ.",
+        "errors.KNOWLEDGE_SOURCE_REFUSED": "Không đọc được tài liệu này.",
         "reading.refusal.DOCUMENT_TYPE_UNSUPPORTED":
             "Chưa đọc được loại tệp này. Hãy dùng PDF, Word, Excel, PowerPoint, văn bản, CSV, trang HTML hoặc ảnh chụp (JPG, PNG).",
         "reading.refusal.DOCUMENT_LEGACY_OFFICE":
@@ -31,6 +33,8 @@ export const KNOWLEDGE_MESSAGES: MessageBundle = {
     },
     en: {
         "errors.KNOWLEDGE_MODULE_UNKNOWN": "This agent was not found.",
+        "errors.KNOWLEDGE_PAYLOAD_INVALID": "The document job carried data it cannot read.",
+        "errors.KNOWLEDGE_SOURCE_REFUSED": "This document cannot be read.",
         "errors.KNOWLEDGE_EMBEDDING_UNAVAILABLE":
             "The text embedding service could not be reached. It will be tried again.",
         "reading.refusal.DOCUMENT_TYPE_UNSUPPORTED":

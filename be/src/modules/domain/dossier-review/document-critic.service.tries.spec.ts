@@ -1,8 +1,10 @@
+import { claimedAiJob } from "@tests/fixtures/builders/brain-ai-effects.builder"
 import {
     answered,
     buildCriticSubject,
     rowOf,
     sectionsOf,
+    uploadAndFailReview,
     uploadAndReview,
     v1Facts,
 } from "@tests/fixtures/builders/dossier-review-critic.builder"
@@ -23,12 +25,12 @@ describe("shop-document critic: isolated per document (D-N-3; owner 2026-11-11: 
 
     it("D-N-3: only a WAITING critique is taken; a not_done one is asked for again through the request, and runs with no reason left on it", async () => {
         const subject = await buildCriticSubject()
-        await uploadAndReview(subject, V1, v1Facts)
+        await uploadAndFailReview(subject, V1, v1Facts)
         expect(rowOf(subject)).toMatchObject({ state: "not_done", reason: "model" })
         const calls = subject.bundles.length
 
         // Another run of the workspace that picked the same row a moment ago: the critique is not its to take.
-        await expect(subject.critic.critique(WS, SRC)).resolves.toMatchObject({ state: "skipped" })
+        await expect(subject.critic.critique(WS, SRC, claimedAiJob())).resolves.toMatchObject({ state: "skipped" })
         expect(rowOf(subject)).toMatchObject({ state: "not_done", reason: "model" })
         expect(subject.bundles).toHaveLength(calls)
 
@@ -39,26 +41,27 @@ describe("shop-document critic: isolated per document (D-N-3; owner 2026-11-11: 
             return answered([])
         })
         await subject.critic.request(WS, SRC)
-        await subject.critic.runWaiting(WS)
+        await subject.critic.runWaiting(WS, claimedAiJob())
         expect(seen).toEqual([["running", null]])
         expect(rowOf(subject)).toMatchObject({ state: "done", reason: null })
     })
 
-    it("D-N-3: one document whose critique fails never ends the batch: the next document of the workspace is still critiqued", async () => {
+    it("one document whose critique fails is thrown (the review job's ladder judges it): the documents that ended before it keep their end, the failed one is left in its typed state", async () => {
         const subject = await buildCriticSubject()
         subject.world.upload(V1)
         subject.world.facts = v1Facts(subject.world)
-        subject.world.critiques.push({ id: "bad", workspaceId: WS, sourceId: "bad-source", state: "waiting", reason: null, reviewedHashes: [], requestedAt: NOW })
         await subject.critic.request(WS, SRC)
+        subject.world.critiques.push({ id: "bad", workspaceId: WS, sourceId: "bad-source", state: "waiting", reason: null, reviewedHashes: [], requestedAt: NOW })
         subject.script.push(empty)
         const real = subject.critic.critique.bind(subject.critic)
-        jest.spyOn(subject.critic, "critique").mockImplementation((workspaceId, sourceId) =>
+        jest.spyOn(subject.critic, "critique").mockImplementation((workspaceId, sourceId, job) =>
             sourceId === "bad-source"
                 ? Promise.reject(new DossierReviewError({ code: DossierReviewErrorCode.CriticNotFound }))
-                : real(workspaceId, sourceId),
+                : real(workspaceId, sourceId, job),
         )
 
-        await expect(subject.critic.runWaiting(WS)).resolves.toBe(1)
+        await expect(subject.critic.runWaiting(WS, claimedAiJob())).rejects.toMatchObject({ code: DossierReviewErrorCode.CriticNotFound })
+
         expect(rowOf(subject)).toMatchObject({ state: "done", reason: null })
     })
 })
@@ -70,15 +73,16 @@ describe("shop-document critic: resumable, and a try is never the one before it 
     const failed = (reason: "unreadable" | "cut" | "unavailable") => (): CritiqueTry => ({ ok: false, reason })
 
 
-    it("D-N-2: an unreadable answer is asked again ONCE, told what was wrong; unreadable again ends the tries at two calls, never three identical ones", async () => {
+    it("D-N-2: an unreadable answer is asked again ONCE, told what was wrong; unreadable again is a refusal at two calls, never three identical ones", async () => {
         const subject = await buildCriticSubject()
         subject.script.push(failed("unreadable"), failed("unreadable"), empty)
-        const view = await uploadAndReview(subject, V1, v1Facts)
+        const { failure, view } = await uploadAndFailReview(subject, V1, v1Facts)
 
+        expect(failure).toMatchObject({ code: DossierReviewErrorCode.ModelRefused })
         expect(subject.model.critique).toHaveBeenCalledTimes(2)
         expect(jest.mocked(subject.model.critique).mock.calls.map(([, after]) => after)).toEqual([undefined, "unreadable"])
-        // The two tries are the calls above; `attempts` counts runs without progress (D-V-1): no passage was reviewed, so 1.
-        expect(view.review).toEqual(expect.objectContaining({ state: "not_done", reason: "model", attempts: 1 }))
+        // The two calls are paid; nothing was reviewed, and the critique is left in its typed state for a person to hand back.
+        expect(view.review).toEqual(expect.objectContaining({ state: "not_done", reason: "model", attempts: 0 }))
     })
 
     it("D-N-2: an answer cut at the token cap is asked again over HALF the passages; the rest are read by the next call; the document ends done", async () => {
@@ -101,14 +105,15 @@ describe("shop-document critic: resumable, and a try is never the one before it 
         subject.script.push(empty, () => {
             throw new DossierReviewError({ code: DossierReviewErrorCode.CriticNotFound })
         })
-        await uploadAndReview(subject, LONG, () => [])
+        const { failure } = await uploadAndFailReview(subject, LONG, () => [])
+        expect(failure).toMatchObject({ code: DossierReviewErrorCode.CriticNotFound })
         const first = subject.bundles[0]?.changed.length ?? 0
         expect(rowOf(subject)).toMatchObject({ state: "not_done", reason: "model" })
         expect(rowOf(subject).reviewedHashes).toHaveLength(first)
 
         subject.script.push(empty, empty, empty, empty, empty)
         await subject.critic.request(WS, SRC)
-        await subject.critic.runWaiting(WS)
+        await subject.critic.runWaiting(WS, claimedAiJob())
         const again = subject.bundles.slice(2).flatMap((bundle) => bundle.changed.map((item) => item.text))
         const before = new Set(subject.bundles[0]?.changed.map((item) => item.text))
         expect(again.some((text) => before.has(text))).toBe(false)

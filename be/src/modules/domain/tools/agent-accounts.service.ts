@@ -77,6 +77,12 @@ interface ServingAccount extends BoundAccount {
 /** The account a call is handed: its provider and its connection only. */
 const plainOf = ({ provider, connectionId }: BoundAccount): BoundAccount => ({ provider, connectionId })
 
+/** The accounts a step's node settings chose, by provider, in the node's order (the entries a choice bound, `node-settings.policy`). */
+const chosenOfRequest =
+    (accounts: ReadonlyArray<{ readonly provider: string; readonly connectionId: string | null }>) =>
+    (provider: string): ReadonlyArray<string> =>
+        accounts.flatMap((account) => (account.provider === provider && account.connectionId !== null ? [account.connectionId] : []))
+
 /** The accounts a node binds, and the first listed provider of which the agent holds several accounts and no rule picks one. */
 interface NodeBinding {
     /** The bound accounts, in the node's order of providers. */
@@ -350,9 +356,27 @@ export class AgentAccountsService {
     }
 
     /**
+     * The accounts a step's NODE SETTINGS chose, in try order, that the agent is still attached to (a choice is judged when it is set; an
+     * account detached since names nothing), each under the provider key the node names it by. None outside a step, for a step whose
+     * request cannot be read, and for a step with no choice (the default pick). What a send that picks its own account (the customer
+     * send's channel identity) prefers after the account the run was woken on.
+     */
+    async chosenAccountsOf(workspaceId: string, agentId: string, seen?: RightSeen): Promise<ReadonlyArray<BoundAccount>> {
+        const step = workflowStepOf(seen)
+        if (step === null) return []
+        const request = await this.readRequest(workspaceId, agentId)(step)
+        const chosen = (request?.accounts ?? []).flatMap((account) =>
+            account.connectionId === null ? [] : [{ provider: account.provider, connectionId: account.connectionId }],
+        )
+        if (chosen.length === 0) return []
+        const attached = new Set((await this.rows.listOfAgent(workspaceId, agentId)).map((row) => row.connectionId))
+        return chosen.filter((account) => attached.has(account.connectionId))
+    }
+
+    /**
      * The attached accounts a step's node binds, in the node's order of providers (none when its request cannot be read), and the first
      * listed provider still to pick. Of several attached accounts of one provider the order `pickAccountOf` names one (never a guess):
-     * the run's trigger, the run's earlier calls, the agent's default account of the provider. The run's facts are read only when a
+     * the run's trigger, the run's earlier calls, the step's chosen accounts (its node settings), the agent's default account of the provider. The run's facts are read only when a
      * listed provider has several accounts, so the single-account path reads nothing more than before.
      */
     private async bindingOf(
@@ -369,9 +393,10 @@ export class AgentAccountsService {
         const facts = several && run !== undefined ? await this.runFactsOf(workspaceId, run) : undefined
         const defaultOf = (provider: string): string | null =>
             named.find((account) => account.provider === provider && account.isDefault)?.connectionId ?? null
+        const chosenOf = chosenOfRequest(request.accounts)
         return {
-            bound: bindNodeProviders(providers, named, defaultOf, facts).map(plainOf),
-            unpicked: unpickedOf(providers, named, defaultOf, facts)[0] ?? null,
+            bound: bindNodeProviders(providers, named, defaultOf, facts, chosenOf).map(plainOf),
+            unpicked: unpickedOf(providers, named, defaultOf, facts, chosenOf)[0] ?? null,
         }
     }
 

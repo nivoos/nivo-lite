@@ -1,5 +1,5 @@
 import { Test } from "@nestjs/testing"
-import { mock } from "@starci/jest-preset"
+import { fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
 import { DOC_SOURCE, DOC_WS, docSourceOf } from "@tests/fixtures/builders/document-facts.builder"
 import { BrainExtractionsService } from "@modules/domain/brain-extractions"
 import { BrainFactsError, BrainFactsErrorCode, BrainFactsReadService, BrainFactsService } from "@modules/domain/brain-facts"
@@ -8,6 +8,7 @@ import type { GuardedBound } from "@modules/domain/brain-facts/in-force-bound.se
 import type { InForceBound } from "@modules/domain/brain-facts/in-force.policy"
 import { PublicDocumentsService } from "@modules/domain/public-documents"
 import { WorkspaceMembersService } from "@modules/domain/workspace-members"
+import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
 import { CritiqueDecisionsService, DocumentCriticService } from "@modules/domain/dossier-review"
@@ -39,6 +40,7 @@ const guarded = (bound: InForceBound | undefined): bound is GuardedBound => boun
 
 const build = async (waiting: ReadonlyArray<FactRecord>, critique: PassageCritique = reviewed, bare = false) => {
     const logger = mock<Logger>()
+    const tx = fakeTransaction(mockEntityManager({}))
     const facts = mock<BrainFactsService>()
     const reads = mock<BrainFactsReadService>()
     const extractions = mock<BrainExtractionsService>()
@@ -54,6 +56,7 @@ const build = async (waiting: ReadonlyArray<FactRecord>, critique: PassageCritiq
         providers: [
             DocumentSettleService,
             { provide: LOGGER, useValue: logger },
+            { provide: PRIMARY_ENTITY_MANAGER, useValue: tx.em },
             { provide: BrainFactsService, useValue: facts },
             { provide: BrainFactsReadService, useValue: reads },
             { provide: BrainExtractionsService, useValue: extractions },
@@ -67,7 +70,7 @@ const build = async (waiting: ReadonlyArray<FactRecord>, critique: PassageCritiq
             { provide: TRUTH_CRITIQUE_GATE, useValue: bare ? {} : critic },
         ],
     }).compile()
-    return { service: moduleRef.get(DocumentSettleService), facts, reads, extractions, ceiling, critic, parts, publicDocuments, logger, vectors, decisions }
+    return { service: moduleRef.get(DocumentSettleService), facts, reads, extractions, ceiling, critic, parts, publicDocuments, logger, vectors, decisions, tx }
 }
 
 describe("DocumentSettleService: a member's document goes in force as soon as it is read (owner 2026-11-12)", () => {
@@ -78,12 +81,13 @@ describe("DocumentSettleService: a member's document goes in force as soon as it
 
         expect(t.facts.applyUnannounced).toHaveBeenCalledTimes(2)
         expect(t.facts.announceChanged).toHaveBeenCalledTimes(1)
-        expect(t.facts.announceChanged).toHaveBeenCalledWith(WS, ["f1", "f2"])
+        expect(t.facts.announceChanged).toHaveBeenCalledWith(WS, ["f1", "f2"], expect.anything())
         expect(t.reads.ofSources).toHaveBeenCalledWith(WS, [SOURCE], ["proposed"], 2000)
         expect(t.extractions.save).toHaveBeenCalledWith(
             WS,
             SOURCE,
             objectLike({ status: "running", stage: "settle", counts: objectLike({ factsApplied: 2, factsAsked: 0, factsWaiting: 0 }) }),
+            expect.anything(),
         )
     })
 
@@ -109,7 +113,7 @@ describe("DocumentSettleService: a member's document goes in force as soon as it
             expect(t.facts.applyUnannounced).not.toHaveBeenCalled()
             expect(t.critic.truthGateOf).not.toHaveBeenCalled()
             expect(t.ceiling.room).not.toHaveBeenCalled()
-            expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsWaiting: 1 }) }))
+            expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsWaiting: 1 }) }), expect.anything())
         }
     })
 
@@ -153,7 +157,7 @@ describe("DocumentSettleService: a member's document goes in force as soon as it
         await t.service.settle(founderDoc, [], STATE)
 
         expect(t.facts.applyUnannounced).toHaveBeenCalledWith(WS, "f1", "Founder", stringLike("direct:"), BOUND)
-        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 0 }) }))
+        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 0 }) }), expect.anything())
     })
 })
 
@@ -179,11 +183,12 @@ describe("DocumentSettleService: the room at the ceiling and the listeners", () 
             ["a", BOUND],
             ["b", BOUND],
         ])
-        expect(t.facts.announceChanged).toHaveBeenCalledWith(WS, ["a"])
+        expect(t.facts.announceChanged).toHaveBeenCalledWith(WS, ["a"], expect.anything())
         expect(t.extractions.save).toHaveBeenCalledWith(
             WS,
             SOURCE,
             objectLike({ status: "at_ceiling", counts: objectLike({ factsApplied: 1, factsAsked: 0, factsWaiting: 2 }) }),
+            expect.anything(),
         )
         expect(t.logger.error).not.toHaveBeenCalled()
     })
@@ -195,11 +200,42 @@ describe("DocumentSettleService: the room at the ceiling and the listeners", () 
 
         await expect(t.service.settle(founderDoc, [], STATE)).rejects.toThrow("judge down")
 
+        // Told on the plain path (no transaction): what was written is in force whatever ends the settle.
         expect(t.facts.announceChanged).toHaveBeenCalledWith(WS, ["a"])
         const [wrote = 0] = t.facts.applyUnannounced.mock.invocationCallOrder
         const [told = 0] = t.facts.announceChanged.mock.invocationCallOrder
         expect(wrote).toBeGreaterThan(0)
         expect(told).toBeGreaterThan(wrote)
+    })
+})
+
+describe("DocumentSettleService: ONE finishing transaction (the listeners' writes and the saved counts commit together)", () => {
+    it("announces the changed truths and saves the counts on the SAME transaction, which commits once", async () => {
+        const t = await build([proposalOf()])
+
+        await t.service.settle(founderDoc, [], STATE)
+
+        const [, , tx] = t.facts.announceChanged.mock.calls[0] ?? []
+        expect(tx).toBeDefined()
+        expect(t.extractions.save.mock.calls[0]?.[3]).toBe(tx)
+        expect(t.tx.commits).toBe(1)
+        expect(t.tx.rollbacks).toBe(0)
+    })
+
+    it("a kill inside the finishing transaction (a listener cannot write its job) saves no counts and commits nothing; the job's run again writes both once", async () => {
+        const t = await build([proposalOf()])
+        t.facts.announceChanged.mockRejectedValueOnce(Object.assign(new Error("worker killed"), { code: "ECONNRESET" }))
+
+        await expect(t.service.settle(founderDoc, [], STATE)).rejects.toMatchObject({ code: "ECONNRESET" })
+
+        expect(t.tx.rollbacks).toBe(1)
+        expect(t.tx.commits).toBe(0)
+        expect(t.extractions.save).not.toHaveBeenCalled()
+
+        await t.service.settle(founderDoc, [], STATE)
+
+        expect(t.tx.commits).toBe(1)
+        expect(t.extractions.save).toHaveBeenCalledTimes(1)
     })
 })
 
@@ -226,9 +262,9 @@ describe("DocumentSettleService: the race of two documents settled at once, chec
         await expect(t.service.settle(founderDoc, [], STATE)).resolves.toBeNull()
 
         expect(t.facts.applyUnannounced).toHaveBeenCalledWith(WS, "f1", "Founder", stringLike("direct:"), BOUND)
-        expect(t.facts.announceChanged).toHaveBeenCalledWith(WS, [])
+        expect(t.facts.announceChanged).toHaveBeenCalledWith(WS, [], expect.anything())
         expect(t.facts.mergeDuplicate).not.toHaveBeenCalled()
-        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsApplied: 0, factsAsked: 1 }) }))
+        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsApplied: 0, factsAsked: 1 }) }), expect.anything())
         expect(t.logger.error).not.toHaveBeenCalled()
     })
 
@@ -239,8 +275,8 @@ describe("DocumentSettleService: the race of two documents settled at once, chec
         await t.service.settle(founderDoc, [], STATE)
 
         expect(t.facts.mergeDuplicate).toHaveBeenCalledWith(WS, "f1", "a1")
-        expect(t.facts.announceChanged).toHaveBeenCalledWith(WS, [])
-        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsApplied: 0, factsAsked: 0 }) }))
+        expect(t.facts.announceChanged).toHaveBeenCalledWith(WS, [], expect.anything())
+        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsApplied: 0, factsAsked: 0 }) }), expect.anything())
     })
 
     it.each([
@@ -277,7 +313,7 @@ describe("DocumentSettleService: the race of two documents settled at once, chec
 
         await t.service.settle(founderDoc, [], STATE)
 
-        expect(t.facts.announceChanged).toHaveBeenCalledWith(WS, ["f1"])
+        expect(t.facts.announceChanged).toHaveBeenCalledWith(WS, ["f1"], expect.anything())
     })
 })
 
@@ -303,7 +339,7 @@ describe("DocumentSettleService: what the founder's answer decides", () => {
         const waits = await build([proposalOf()], { ...reviewed, decided })
         await waits.service.settle(founderDoc, [], STATE)
         expect(waits.decisions.factsChanged).not.toHaveBeenCalled()
-        expect(waits.facts.announceChanged).toHaveBeenCalledWith(WS, ["f1"])
+        expect(waits.facts.announceChanged).toHaveBeenCalledWith(WS, ["f1"], expect.anything())
     })
 
     it("never bounds the founder's own answer: a confirmed truth is written with no bound, whatever the room", async () => {
@@ -335,7 +371,7 @@ describe("DocumentSettleService: what the founder's answer decides", () => {
         expect(t.reads.byIds).toHaveBeenCalledWith(WS, ["own"])
         // No name was kept with the answer: the member behind the document decides.
         expect(t.facts.applyUnannounced).toHaveBeenCalledWith(WS, "own", "Founder", stringLike(`corrected:${SOURCE}`))
-        expect(t.facts.announceChanged).toHaveBeenCalledWith(WS, ["own"])
+        expect(t.facts.announceChanged).toHaveBeenCalledWith(WS, ["own"], expect.anything())
     })
 
     it("an answered value that is not of the type of the truth in force stays a question", async () => {
@@ -347,7 +383,7 @@ describe("DocumentSettleService: what the founder's answer decides", () => {
         await t.service.settle(founderDoc, [], STATE)
 
         expect(t.facts.applyUnannounced).not.toHaveBeenCalled()
-        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 1 }) }))
+        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsAsked: 1 }) }), expect.anything())
     })
 })
 
@@ -379,7 +415,7 @@ describe("DocumentSettleService: only a holding point asks", () => {
 
             expect(t.facts.applyUnannounced).toHaveBeenCalledTimes(1)
             expect(t.facts.applyUnannounced).toHaveBeenCalledWith(WS, "f2", "Founder", stringLike(`direct:${SOURCE}`), BOUND)
-            expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsApplied: 1, factsAsked: 1, factsWaiting: 0 }) }))
+            expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsApplied: 1, factsAsked: 1, factsWaiting: 0 }) }), expect.anything())
         },
     )
 
@@ -407,6 +443,6 @@ describe("DocumentSettleService: only a holding point asks", () => {
 
         expect(t.facts.applyUnannounced).toHaveBeenCalledTimes(1)
         expect(t.facts.applyUnannounced).toHaveBeenCalledWith(WS, "f1", CHI_LAN_VI, stringLike(`confirmed:${SOURCE}`))
-        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsApplied: 1, factsAsked: 1 }) }))
+        expect(t.extractions.save).toHaveBeenCalledWith(WS, SOURCE, objectLike({ counts: objectLike({ factsApplied: 1, factsAsked: 1 }) }), expect.anything())
     })
 })

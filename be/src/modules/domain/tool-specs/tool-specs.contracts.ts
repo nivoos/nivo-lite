@@ -75,11 +75,42 @@ export interface ToolSpec {
      */
     readonly repeatable: boolean
     /**
+     * How the engine learns whether a call of this write HAPPENED when its outcome is unknown (an intent with no result after a crash,
+     * a timeout, an operation still pending): a declared READ, made through the same runner and door as the step (concept saga-forward-only
+     * rule 3, QB-P3 rule I-3). Absent: an unknown outcome is settled by `repeatable` or stops for a person. Never guessed by the engine.
+     */
+    readonly confirmBy?: ToolConfirmBy | undefined
+    /**
      * The members of the arguments that are the CONTENT a person approves (the customer send: its `text` and its `images`): the approval
      * card carries them in full, read by shape (a string is words, a list of `{ url }` is addresses), beyond the short facts. Absent or
      * empty: the card shows the call's facts only.
      */
     readonly approvalContent?: ReadonlyArray<string> | undefined
+}
+
+/**
+ * Where one argument of a confirmation read comes from (declared, QB-P3 rule I-4): a member of the write's own arguments, a member of the
+ * answer of the read made before the write (`before`), or a fixed value.
+ */
+export type ConfirmArg =
+    | { readonly from: "args"; readonly member: string }
+    | { readonly from: "before"; readonly member: string }
+    | { readonly from: "value"; readonly value: string | number | boolean | null }
+
+/** One read the engine makes for a write's confirmation: the read tool and how each of its arguments is filled. */
+export interface ConfirmRead {
+    /** The read tool (a core tool whose spec does not write). */
+    readonly tool: string
+    /** Its arguments, each from where it is declared to come. */
+    readonly args: Readonly<Record<string, ConfirmArg>>
+}
+
+/** How a write declares its confirmation (`ToolSpec.confirmBy`). */
+export interface ToolConfirmBy extends ConfirmRead {
+    /** A read made BEFORE the write and kept with it, whose answer the confirmation read's arguments may name (`from: "before"`). */
+    readonly before?: ConfirmRead | undefined
+    /** The member of the confirmation read's answer, and the value of it, that say the write happened. */
+    readonly happened: { readonly member: string; readonly equals: string | number | boolean }
 }
 
 /** A spec whose refusals the SDK types `R`. */

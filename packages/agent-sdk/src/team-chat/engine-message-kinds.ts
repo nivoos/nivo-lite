@@ -277,6 +277,48 @@ export const backgroundStoppedKind: AgentMessageKind<z.ZodType<BackgroundStopped
     actions: { approve: false, edit: "none", reject: false },
 }
 
+/** Why a job will not run on its own (the web words it as `chat.jobParked.class.<code>`). */
+export const JOB_PARKED_FAILURE_CLASSES = ["transient", "input", "code", "config"] as const
+
+/** One failure class of a parked job. */
+export type JobParkedFailureClass = (typeof JOB_PARKED_FAILURE_CLASSES)[number]
+
+/** The payload of a `job.parked` card: codes and ids only, never words (the web words the job through `chat.jobParked.job.<name>`). */
+export interface JobParkedPayload {
+    /** The shape of this payload. */
+    readonly version: 1
+    /** The parked job (its id). */
+    readonly jobId: string
+    /** The job's name (a stable key, at most 120 characters). */
+    readonly job: string
+    /** Why it will not run on its own. */
+    readonly failureClass: JobParkedFailureClass
+    /** The failure code. */
+    readonly reason: string
+    /** The park episode: how many times a person resumed the job before this park. */
+    readonly episode: number
+    /** When it parked, ISO. */
+    readonly since: string
+}
+
+/** The payload of a `job.parked` card as it is stored. */
+export const jobParkedPayload: z.ZodType<JobParkedPayload> = z.object({
+    version: z.literal(1),
+    jobId: z.string().uuid(),
+    job: z.string().min(1).max(120),
+    failureClass: z.enum(JOB_PARKED_FAILURE_CLASSES),
+    reason: z.string().min(1).max(200),
+    episode: z.number().int().min(0),
+    since: z.string().min(1).max(40),
+})
+
+/** NIVO's "a job stopped for a fix" card: it only tells; resume and close are the person's door (stopped work), not an action of the card. Read only. */
+export const jobParkedKind: AgentMessageKind<z.ZodType<JobParkedPayload>> = {
+    id: "job.parked",
+    payload: jobParkedPayload,
+    actions: { approve: false, edit: "none", reject: false },
+}
+
 /** The payload of a `chain.stopped` line: how deep the chain of agent wakes went, why it stopped, and the event type. */
 export interface ChainStoppedPayload {
     /** The shape of this payload. */

@@ -5,9 +5,18 @@ import type { ContactDetailView, ContactIdentityView, ContactsPanesCopy } from "
 interface ContactIdentityCardProps {
     readonly copy: Pick<
         ContactsPanesCopy,
-        "editLabel" | "noWayLine" | "rowMenuLabel" | "unlinkLabel" | "linkIdentityLabel" | "mergeLabel" | "deleteLabel"
+        "editLabel"
+        | "noWayLine"
+        | "rowMenuLabel"
+        | "unlinkLabel"
+        | "linkIdentityLabel"
+        | "mergeLabel"
+        | "deleteLabel"
+        | "consentTitle"
+        | "consentSetLabel"
+        | "consentClearLabel"
     >
-    readonly person: Pick<ContactDetailView, "id" | "name" | "initial" | "line" | "identities" | "canDelete">
+    readonly person: Pick<ContactDetailView, "id" | "name" | "initial" | "line" | "identities" | "consent" | "canDelete">
     readonly isLoading: boolean
     readonly on: {
         readonly edit: () => void
@@ -15,6 +24,8 @@ interface ContactIdentityCardProps {
         readonly merge: () => void
         readonly unlink: (identityId: string) => void
         readonly remove: () => void
+        /** Asks before the mark "do not message first" is set (true) or cleared (false). */
+        readonly consent: (doNotContact: boolean) => void
     }
 }
 
@@ -43,6 +54,29 @@ const personRowOf = (props: ContactIdentityCardProps): ListRowData => ({
     actionPlacement: "end",
     menu: { label: props.copy.rowMenuLabel, entries: personMenuOf(props) },
 })
+
+/**
+ * Whether the agents may message the person first, as one row: the label, the state in words (when it is set: since when, by whom,
+ * and the reason, 12 muted) and the one neutral command that flips it.
+ */
+const consentRowOf = (consent: ContactDetailView["consent"], props: ContactIdentityCardProps): ListRowData => {
+    const detail = [consent.line, consent.reason].filter((part): part is string => part !== null)
+    return {
+        id: "consent",
+        title: props.copy.consentTitle,
+        description: (
+            <Text as="span" size="xs" tone="muted">
+                {[consent.state, ...detail].join(" · ")}
+            </Text>
+        ),
+        action: {
+            label: consent.isRefused ? props.copy.consentClearLabel : props.copy.consentSetLabel,
+            intent: "neutral",
+            press: () => props.on.consent(!consent.isRefused),
+        },
+        actionPlacement: "end",
+    }
+}
 
 /** One identity as a row: its channel mark, where it is (a channel the staff hold says by whom, 12 muted), and at its end (muted) why it is linked to this person. */
 const identityRowOf = (identity: ContactIdentityView, props: ContactIdentityCardProps): ListRowData => ({
@@ -93,7 +127,11 @@ export const ContactIdentityCard = (props: ContactIdentityCardProps) => (
         kind="list"
         ariaLabel={props.person.name}
         isLoading={props.isLoading}
-        items={[personRowOf(props), ...props.person.identities.map((identity) => identityRowOf(identity, props))]}
+        items={[
+            personRowOf(props),
+            ...props.person.identities.map((identity) => identityRowOf(identity, props)),
+            consentRowOf(props.person.consent, props),
+        ]}
         empty={null}
     />
 )

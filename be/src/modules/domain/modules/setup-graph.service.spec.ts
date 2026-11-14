@@ -31,14 +31,6 @@ describe("SetupGraphService with a graph", () => {
 
         expect(found.graph.publish).toHaveBeenCalledWith(APPLIER)
     })
-
-    it("asks the graph for the contracts the applied setup calls for", async () => {
-        const { service, graph } = await build({ proposeContracts: jest.fn().mockResolvedValue(3) })
-
-        await expect(service.proposeContracts(APPLIER)).resolves.toBe(3)
-
-        expect(graph.proposeContracts).toHaveBeenCalledWith(APPLIER)
-    })
 })
 
 describe("SetupGraphService checkPublish", () => {
@@ -62,6 +54,5 @@ describe("SetupGraphService with no graph", () => {
 
         await expect(service.checkPublish(APPLICANT)).resolves.toBe(0)
         await expect(service.publish(APPLIER)).resolves.toBeUndefined()
-        await expect(service.proposeContracts(APPLIER)).resolves.toBe(0)
     })
 })

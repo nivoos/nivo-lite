@@ -16,6 +16,7 @@ import { deliveryFailureFieldsOf } from "./delivery-failure-fields.policy"
 import { ChannelsLogEvent } from "./channels.log-events"
 import { ChannelsError, ChannelsErrorCode } from "./errors/channels.error"
 import { CustomerSendRegistryService } from "./customer-send-registry.service"
+import type { OptionalEntranceMissing } from "./customer-send-ports.contracts"
 
 const DELIVERED: DeliveryReceipt = { delivered: true, failure: null, outcome: "acknowledged" }
 const NOT_DELIVERED: DeliveryReceipt = { delivered: false, failure: null, outcome: "rejected" }
@@ -28,7 +29,8 @@ const ZALO_NOT_CONNECTED: DeliveryResult = { delivered: false, failure: "zalo_no
  * delivery ledger fences each send key around it. EVERY channel call of an account (the customer send, the person's name, a staff text,
  * "typing") goes through the port `CustomerSendRegistryService.portFor(account)` answers, THE ONE SWITCH between live and sandbox: a live
  * account reaches the provider's real route, a sandbox account its sandbox twin, never the live one. This service holds no channel client
- * of its own. A failure becomes a receipt, never a throw, except a busy Zalo token refresh, which the caller settles and retries.
+ * of its own. A failure becomes a receipt, never a throw, except the port's one channel-neutral "nothing was sent, try later"
+ * (`CHANNELS_SEND_UNAVAILABLE`), which the caller settles and retries.
  */
 export class ChannelDeliveryService {
     constructor(
@@ -43,7 +45,8 @@ export class ChannelDeliveryService {
      * Sends one message to a PERSON on one of their channel identities and answers the channel's receipt. It reads and writes no conversation
      * record: the executor of the customer send fences the send key in the engine's delivery ledger around this call and settles it from
      * the receipt. The route, the account and the person's id on the channel come with the request; the Zalo window is judged by the caller
-     * (`windowChecked`). A failure becomes a receipt, except a busy Zalo token refresh, which is thrown for the caller to settle and retry.
+     * (`windowChecked`). A failure becomes a receipt, except the port's "nothing was sent, try later" (`CHANNELS_SEND_UNAVAILABLE`), which
+     * is thrown for the caller to settle and retry.
      */
     async deliverToPerson(request: PersonDeliveryRequest): Promise<DeliveryReceipt> {
         const target = {
@@ -58,12 +61,27 @@ export class ChannelDeliveryService {
             conversationId: request.routeId,
             messageId: request.sendKey,
             text: request.text,
+            ...(request.subject === undefined ? {} : { subject: request.subject }),
+            ...(request.answers === undefined || request.answers.length === 0 ? {} : { answers: request.answers }),
             windowChecked: request.windowChecked ?? false,
             ...(request.images === undefined || request.images.length === 0 ? {} : { images: request.images }),
         })
         if (result.failure === "channel_plan") await this.planNotice.planBlocked(target)
         if (result.delivered && target.connectionId !== null) await this.planNotice.recovered(target)
         return result
+    }
+
+    /**
+     * What the account a person is reached through misses to be a customer ENTRANCE (MAIL-IN rule MI-3), as its provider's send port
+     * declares it; `outbound` for an account whose provider sends nothing on the channel; null when it is one, or when the account is gone
+     * (the caller's own "connection missing" says that) or is no account (the website).
+     */
+    async entranceOf(workspaceId: string, accountId: string | null): Promise<OptionalEntranceMissing> {
+        if (accountId === null || accountId === "") return null
+        const account = await this.connections.find(workspaceId, accountId)
+        if (account === null) return null
+        if (!this.customerSends.has(account.provider)) return "outbound"
+        return this.customerSends.portFor(account)?.entranceOf?.(account) ?? null
     }
 
     /** Shows "typing" in the customer's chat while the AI works, through the port of the account (only Telegram has it); a failure here never stops the reply. */
@@ -104,12 +122,15 @@ export class ChannelDeliveryService {
         await port.sendToPerson(account, request)
     }
 
-    /** Sends the reply; a failure becomes a receipt, except a busy Zalo refresh, which is rethrown. */
+    /**
+     * Sends the reply; a failure becomes a receipt, except the port's one "nothing was sent, try later" (`CHANNELS_SEND_UNAVAILABLE`,
+     * whatever the channel), which is passed through for the caller to settle and retry.
+     */
     private async attemptSend(target: ChannelTarget, request: DeliveryRequest): Promise<DeliveryReceipt> {
         try {
             return await this.send(target, request)
         } catch (cause) {
-            if (cause instanceof ChannelsError && cause.code === ChannelsErrorCode.ZaloRefreshBusy) throw cause
+            if (cause instanceof ChannelsError && cause.code === ChannelsErrorCode.SendUnavailable) throw cause
             return this.failed(target, cause)
         }
     }

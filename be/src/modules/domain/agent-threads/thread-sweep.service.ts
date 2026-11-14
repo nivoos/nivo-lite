@@ -107,8 +107,9 @@ const localeOf = (view: ThreadView | null): "vi" | "en" => {
  *   (interrupted) thread is never re-driven: only a decision moves a stop. The re-drive is a wake of the run's scope (`redrive`), once per
  *   position of the thread; it runs the same node function, where every recorded call answers from the ledger and an outcome-unknown
  *   code becomes a stop for a person, so an effect whose outcome is unknown is never run again by the machine. A thread that crashes
- *   again at a place it was already re-driven from, with that wake gone, is closed as failed (`thread_redrive_exhausted`): its dead wake
- *   was told to the founder once, by the flow.
+ *   again at a place it was already re-driven from, with that wake gone, gets ONE last re-drive that refuses the steps it waits to run:
+ *   one engine stop (`thread_redrive_exhausted`), one card, the run in flight and holding its subject. Only when that last wake is gone
+ *   too is the run closed as failed (`thread_redrive_exhausted`).
  * - PROJECTION repair: a thread that ended while its run row still reads open closes the row (done, or skipped by the founder whose
  *   decision the stop keeps); a stopped thread whose run row still reads running gets the stop's step fact written again from the step
  *   row; a run with no thread at all and no live wake (its start never got a checkpoint) is closed as failed (`thread_never_started`).
@@ -234,13 +235,24 @@ export class ThreadSweepService {
         return this.crashed(ref, row, view)
     }
 
-    /** A thread with unfinished work and no interrupt that nobody drives: one re-drive per position, then the run is closed. */
+    /**
+     * A thread with unfinished work and no interrupt that nobody drives: one re-drive per position; when that one is spent, ONE last
+     * re-drive that refuses the steps it waits to run (rule RE-DRIVE SPENT: one engine stop for a person, the run in flight and holding
+     * its subject). Only when that last wake is gone too (the stop could not be written) is the run closed as failed.
+     */
     private async crashed(ref: ThreadRef, row: StoredRun, view: ThreadView): Promise<Done> {
         if (await this.live(ref, row)) return null
-        const admission = await this.runs.redrive(ref, threadPositionOf(view))
+        const position = threadPositionOf(view)
+        const admission = await this.runs.redrive(ref, position)
         if (admission.kind === "refused") return null
         if (admission.fresh) {
-            this.logger.info(AgentThreadsLogEvent.ThreadRedriven, { runId: ref.runId, position: threadPositionOf(view) })
+            this.logger.info(AgentThreadsLogEvent.ThreadRedriven, { runId: ref.runId, position })
+            return "redriven"
+        }
+        const last = await this.runs.redriveSpent(ref, position)
+        if (last.kind === "refused") return null
+        if (last.fresh) {
+            this.logger.warn(AgentThreadsLogEvent.ThreadRedriven, { runId: ref.runId, position, spent: true })
             return "redriven"
         }
         return this.abandoned(ref, view, "thread_redrive_exhausted")

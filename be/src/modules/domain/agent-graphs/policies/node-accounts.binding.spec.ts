@@ -137,13 +137,14 @@ describe("bindNodeProviders over a node's providers", () => {
         )
     })
 
-    it("@1 entry pinning an account: the provider carries the pin", async () => {
+    it("an entry naming a chosen account: the provider is listed once, with no pin (the choice orders the call's pick)", async () => {
         const subject = await build()
         const node: BindableNode = {
             key: "a",
             accounts: [{ kind: "messaging", provider: "zalo_oa", connectionId: "z2", operations: { [SEND]: "auto" } }],
         }
-        expect(subject.providers(node).map((wanted) => [wanted.provider, wanted.pinned])).toEqual([["zalo_oa", "z2"]])
+        expect(subject.providers(node).map((wanted) => wanted.provider)).toEqual(["zalo_oa"])
+        expect(subject.providers(node)[0]).not.toHaveProperty("pinned")
     })
 
     it("narrowing kept: a step that drops a provider binds exactly the one it keeps", async () => {

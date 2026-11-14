@@ -3,7 +3,6 @@ import { IsNull, type EntityManager, type FindOptionsWhere } from "typeorm"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { eachInOrder } from "@modules/platform/primitives"
-import { KnowledgeProgressService } from "./knowledge-progress.service"
 import { KnowledgeSourcesLogEvent } from "./knowledge-sources.log-events"
 import { KnowledgeSourceEntity } from "./persistence/entities"
 import { NOW } from "./source-input.policy"
@@ -20,11 +19,10 @@ const WAITING_MAX = 500
 export class SourceCriticStageService {
     constructor(
         @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
-        private readonly progress: KnowledgeProgressService,
         @InjectLogger() private readonly logger: Logger,
     ) {}
 
-    /** The critic's run for this document is queued: a ready document with no stage wears `critic` and every member is told. */
+    /** The critic's run for this document is queued: a ready document with no stage wears `critic`. */
     async enter(workspaceId: string, sourceId: string): Promise<void> {
         await this.move(workspaceId, sourceId, { status: "ready", stage: IsNull() }, "critic")
     }
@@ -48,7 +46,7 @@ export class SourceCriticStageService {
         }
     }
 
-    /** Writes the stage of the source where it still stands as `from` says, then announces the row when one changed. */
+    /** Writes the stage of the source where it still stands as `from` says. */
     private async move(
         workspaceId: string,
         sourceId: string,
@@ -56,12 +54,11 @@ export class SourceCriticStageService {
         stage: "critic" | null,
     ): Promise<void> {
         try {
-            const moved = await this.entityManager.update(
+            await this.entityManager.update(
                 KnowledgeSourceEntity,
                 { id: sourceId, workspaceId, ...from },
                 { stage, updatedAt: NOW },
             )
-            if ((moved.affected ?? 0) > 0) await this.progress.announce(workspaceId, sourceId)
         } catch (cause) {
             this.logger.error(KnowledgeSourcesLogEvent.ProgressFailed, cause, { sourceId })
         }

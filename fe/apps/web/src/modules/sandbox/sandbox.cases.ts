@@ -1,5 +1,6 @@
 import type { SandboxCasesQuery, SandboxLatestRequestQuery, SandboxNextCasesQuery } from "@/modules/api"
-import type { SandboxCasesData, SandboxInputView } from "@/modules/types"
+import type { SandboxCasesData, SandboxInputView, SandboxScopeView } from "@/modules/types"
+import { SANDBOX_SCOPE_ALL } from "./sandbox.purposes"
 import { SANDBOX_JOIN, type SandboxWords } from "./sandbox.words"
 
 /** One case, its input and the agent's latest request as the back end answers them. */
@@ -38,7 +39,9 @@ export const casesDataOf = (
     next: SandboxNextCasesQuery["sandboxNextCases"],
     latest: LatestWire,
     edits: Readonly<Record<string, string>>,
+    dropWebhook: boolean,
     words: SandboxWords,
+    scope: SandboxScopeView | null,
 ): SandboxCasesData => {
     const inputs = inputsOf(cases)
     const fields: ReadonlyArray<SandboxInputView> = inputs.map((input) => ({
@@ -55,12 +58,16 @@ export const casesDataOf = (
             direction: one.direction === "inbound" ? "inbound" : "outbound",
             operation: one.operation ?? null,
             isDefault: one.isDefault,
+            // The back end names only the every-call pick: with one purpose chosen no row claims to be the next.
             isNext:
                 one.direction !== "inbound" &&
+                (scope === null || scope.selectedId === SANDBOX_SCOPE_ALL) &&
                 next.some((entry) => entry.operation === one.operation && entry.caseId === one.id),
         })),
         fields,
+        dropWebhook,
         latestLine: shown.length === 0 ? null : words.latest(shown.join(SANDBOX_JOIN)),
         nextLines: next.map((entry) => words.next(entry.operation, entry.caseId)),
+        scope,
     }
 }

@@ -3,16 +3,13 @@ export { PROVIDER_TRIGGERS_MESSAGES } from "./messages/provider-triggers.message
 export { providerTriggersEntities } from "./persistence/entities"
 export type { ProviderTriggerState, TriggerDeciderChange, TriggerSwitchChange } from "./provider-trigger-states.contracts"
 export { ProviderTriggerStatesService } from "./provider-trigger-states.service"
-export { BANK_FEED_PROVIDERS, MAIL_RECEIVED, RENDER_COMPLETED, TRANSACTION_RECEIVED } from "./provider-triggers.catalogue"
 export type {
     DeliverInput,
     DeliverResult,
     DeliveredEvent,
     DeliveredRaw,
     TriggerTaker,
-    ProviderEvent,
     ProviderTriggerCoreDeciders,
-    ProviderTriggerDeclaration,
     ProviderTriggerReceivers,
     ProviderWake,
     TriggerSwitchView,
@@ -25,16 +22,22 @@ export {
 } from "./provider-triggers.decorators"
 export { ProviderTriggersLogEvent } from "./provider-triggers.log-events"
 export { ProviderTriggersModule } from "./provider-triggers.module"
+export { PROVIDER_TRIGGER_TAG_SOURCE, providerTriggerKeyOf, wakeContextOf } from "./provider-triggers.policy"
 export {
-    PROVIDER_TRIGGER_TAG_SOURCE,
-    declarationOf,
-    switchedOn,
-    providerTriggerKeyOf,
-    triggerDeciderOf,
+    canCatchUpOf,
+    declaredOf,
+    onByDefaultOf,
     providerTriggerLookup,
-    triggersOf,
-    wakeContextOf,
-} from "./provider-triggers.policy"
+    sampleDataOf,
+    switchDeclarationOf,
+    switchableOf,
+    switchedOn,
+    triggerDeciderOf,
+    triggerInfoOf,
+    triggerMembersOf,
+    type SwitchedDeclaration,
+    type TriggerMember,
+} from "./trigger-declarations.policy"
 export { ProviderTriggersService } from "./provider-triggers.service"
 export { TriggerDeclarationsRegistry, triggerDeclarations } from "./trigger-declarations.registry"
 export {
@@ -58,7 +61,12 @@ export type {
     OptionalCanonicalEvent,
     TriggerDeclaration,
     TriggerOrigin,
+    TriggerOwnerWords,
     TriggerSettle,
+    TriggerSwitch,
     TriggerVia,
+    TriggerWays,
+    TriggerWithoutPoll,
+    TriggerWords,
 } from "./trigger-declaration.contracts"
 export { DeliveredWakesService, type DeliveredEventRef } from "./delivered-wakes.service"

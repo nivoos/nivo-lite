@@ -9,7 +9,7 @@ import { chatRecordsModules } from "./chat-records-modules"
 import { ChannelDeliveryService, type PersonDeliveryRequest } from "@modules/domain/channels"
 import { ContactsModule } from "@modules/domain/contacts"
 import { CustomerRoutesModule } from "@modules/domain/customer-routes"
-import { EntityEngineModule, ReadOnlyEngineAlertsService } from "@modules/domain/entity-engine"
+import { EntityEngineModule } from "@modules/domain/entity-engine"
 import { EventsModule } from "@modules/domain/events"
 import { ApiKnowledgeSourcesService, SourceQuotaService } from "@modules/domain/knowledge-sources"
 import { KNOWLEDGE_STORAGE } from "../../modules/domain/knowledge-sources/knowledge-sources.decorators"
@@ -29,6 +29,7 @@ import { I18nModule } from "@modules/platform/i18n"
 import { INBOX, InboxService } from "@modules/platform/inbox"
 import { IdsModule } from "@modules/platform/ids"
 import { JobsModule } from "@modules/platform/jobs"
+import { EffectsModule } from "@modules/platform/effects"
 import { QueueModule, type QueueOptions } from "@modules/platform/queue"
 import { KnowledgeQueueModule } from "@modules/queues/knowledge"
 import { TeamChatProofModule } from "./team-chat-proof.module"
@@ -160,6 +161,7 @@ export const publicApiProofModules = (options: QueueOptions): Array<DynamicModul
         leaseMs: 1000,
         scheduler: { enabled: false },
     }),
+    EffectsModule.register({ isGlobal: true, connection: PRIMARY_ENTITY_MANAGER }),
     I18nModule.register({ isGlobal: true, bundles: [] }),
     // The real work items service stamps each new item with an id from this port.
     IdsModule.register({ isGlobal: true }),
@@ -167,7 +169,6 @@ export const publicApiProofModules = (options: QueueOptions): Array<DynamicModul
     AgentsModule.register({ isGlobal: true, directoryOnly: true }),
     EntityEngineModule.register({
         isGlobal: true,
-        alerts: ReadOnlyEngineAlertsService,
         entities: INSTALLED.entities(),
         jobs: INSTALLED.jobs(),
         cursorKey: PUBLIC_API_PROOF_TOKEN_KEY,

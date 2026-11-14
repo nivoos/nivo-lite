@@ -4,6 +4,6 @@ export enum VideoComposeLogEvent {
     RenderReceived = "video_compose.render_received",
     /** A proven render webhook's body was no JSON: the provider and the parser's words, never the body. */
     RenderUnreadable = "video_compose.render_unreadable",
-    /** Firing `render.completed` for a kept render row failed; the row stays pending and the run's wait falls back on its timeout. */
-    RenderFireFailed = "video_compose.render_fire_failed",
+    /** A kept render row was delivered after its account was gone (another provider holds it, or it was removed): the row is completed and nothing is woken. */
+    RenderAccountGone = "video_compose.render_account_gone",
 }

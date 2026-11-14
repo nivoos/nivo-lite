@@ -16,6 +16,10 @@ export enum AccountDataErrorCode {
     WriteMode = "ACCOUNT_DATA_WRITE_MODE",
     /** The member is not the first member of a declared index of the type. */
     IndexUndeclared = "ACCOUNT_DATA_INDEX_UNDECLARED",
+    /** Two admissions were registered for one type: a wiring error at boot. */
+    AdmissionTaken = "ACCOUNT_DATA_ADMISSION_TAKEN",
+    /** A new row of a type with no registered admission was handed on: a wiring error. */
+    AdmissionMissing = "ACCOUNT_DATA_ADMISSION_MISSING",
 }
 
 /** How each account-data code travels. */
@@ -27,6 +31,8 @@ export const ACCOUNT_DATA_ERROR_KINDS: Record<AccountDataErrorCode, ErrorKind> =
     [AccountDataErrorCode.ValueTooLarge]: "invalid",
     [AccountDataErrorCode.WriteMode]: "internal",
     [AccountDataErrorCode.IndexUndeclared]: "internal",
+    [AccountDataErrorCode.AdmissionTaken]: "internal",
+    [AccountDataErrorCode.AdmissionMissing]: "internal",
 }
 
 /** The one error class of the account-data capability. */

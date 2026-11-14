@@ -22,7 +22,6 @@ const query1: TypedDocumentNode<QueryAgentGraphResponse, InputVariables<QueryAge
             isDraftChanged
             mode
             problemsJson
-            proposalsJson
         }
     }
 `

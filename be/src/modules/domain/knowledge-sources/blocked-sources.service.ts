@@ -3,7 +3,6 @@ import type { EntityManager } from "typeorm"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { KnowledgeQueue } from "@modules/queues/knowledge"
-import { KnowledgeProgressService } from "./knowledge-progress.service"
 import { KnowledgeSourceEntity } from "./persistence/entities"
 import { NOW } from "./source-input.policy"
 
@@ -27,7 +26,6 @@ export class BlockedSourcesService {
         @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
         @InjectClock() private readonly clock: Clock,
         private readonly queue: KnowledgeQueue,
-        private readonly progress: KnowledgeProgressService,
     ) {}
 
     /**
@@ -48,8 +46,8 @@ export class BlockedSourcesService {
      * Puts a document that waits for credits back on the index queue. Only a `blocked_credits` document moves, and its job is queued
      * in the same transaction, so two ticks never queue it twice. Answers whether THIS call moved it.
      */
-    async resume(workspaceId: string, sourceId: string): Promise<boolean> {
-        const queued = await this.entityManager.transaction(async (tx) => {
+    resume(workspaceId: string, sourceId: string): Promise<boolean> {
+        return this.entityManager.transaction(async (tx) => {
             const requeued = await tx.update(
                 KnowledgeSourceEntity,
                 { id: sourceId, workspaceId, status: "blocked_credits" },
@@ -59,7 +57,5 @@ export class BlockedSourcesService {
             await this.queue.enqueueIndex({ sourceId, workspaceId }, tx, this.clock.now().getTime())
             return true
         })
-        if (queued) await this.progress.announce(workspaceId, sourceId)
-        return queued
     }
 }

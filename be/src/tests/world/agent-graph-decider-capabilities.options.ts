@@ -1,6 +1,5 @@
 import type { DynamicModule } from "@nestjs/common"
 import { AgentGraphsModule } from "@modules/domain/agent-graphs"
-import { ProposalsProofModule } from "./agent-graph-proposals-proof.module"
 import { EventsModule } from "@modules/domain/events"
 import { StaffModule } from "@modules/domain/staff"
 import { WorkspaceMembersModule } from "@modules/domain/workspace-members"
@@ -17,8 +16,5 @@ const AGENT_GRAPH_RIGHTS_MODULES: ReadonlyArray<DynamicModule> = [
     AgentGraphsModule.register({ isGlobal: true, rightsOnly: true }),
 ]
 
-/** The graph store as the apps that edit graphs use it: the store's modules with the proposals the owner decides. */
-export const AGENT_GRAPH_STORE_MODULES: ReadonlyArray<DynamicModule> = [
-    ...AGENT_GRAPH_RIGHTS_MODULES,
-    ProposalsProofModule.register(),
-]
+/** The graph store as the apps that read graphs use it: the store's modules (no proposal: no door edits a graph, R89). */
+export const AGENT_GRAPH_STORE_MODULES: ReadonlyArray<DynamicModule> = AGENT_GRAPH_RIGHTS_MODULES

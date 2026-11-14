@@ -29,6 +29,8 @@ export interface ReachAsked {
     readonly accountId: string | undefined
     /** The route the run was woken on, when it is the same person's: its channel and account. */
     readonly woken: { readonly channel: string; readonly accountId: string | null } | null
+    /** The accounts the sending step's node settings chose, in try order (`node-settings.policy`); absent or empty: none chosen. */
+    readonly chosen?: ReadonlyArray<string> | undefined
 }
 
 /** The identity a send reaches, or why none can be picked. */
@@ -49,10 +51,12 @@ export const channelsOf = (identities: ReadonlyArray<ContactIdentity>): Readonly
 ]
 
 /**
- * The channel identity a message goes to. The call's channel and account narrow the person's channel identities; of what is left, the
- * route the run was woken on wins, a single identity is taken, and with no word from the call or the run the newest identity (the one
- * the person came in on last) is. Several identities of a channel the call named, with no account and no woken route among them, are
- * ambiguous: the caller names the account.
+ * The channel identity a message goes to (THE ONE ORDER of the account pick, `pickAccountOf`, read on the person's identities). The
+ * call's channel and account narrow the person's channel identities; of what is left, the route the run was woken on wins (an inbound
+ * line is answered on the account the person wrote to, whatever the step chose), then the first of the step's CHOSEN accounts the person
+ * is reached on (the node settings, in try order), then a single identity is taken, and with no word from the call, the run or the step
+ * the newest identity (the one the person came in on last) is. Several identities of a channel the call named, with no account, no
+ * woken route and no chosen account among them, are ambiguous: the caller names the account.
  */
 export const reachPicked = (identities: ReadonlyArray<ContactIdentity>, asked: ReachAsked): ReachPicked => {
     const channels = channelsOf(identities)
@@ -68,6 +72,10 @@ export const reachPicked = (identities: ReadonlyArray<ContactIdentity>, asked: R
         (identity) => asked.woken !== null && identity.provider === asked.woken.channel && identity.account === (asked.woken.accountId ?? ""),
     )
     if (woken !== undefined) return { kind: "picked", reach: reachOf(woken) }
+    for (const account of asked.chosen ?? []) {
+        const byNode = named.find((identity) => identity.account === account)
+        if (byNode !== undefined) return { kind: "picked", reach: reachOf(byNode) }
+    }
     if (rest.length === 0) return { kind: "picked", reach: reachOf(first) }
     if (asked.channel !== undefined || asked.accountId !== undefined)
         return { kind: "ambiguous", reason: SEND_REFUSAL.channelAmbiguous, channels }

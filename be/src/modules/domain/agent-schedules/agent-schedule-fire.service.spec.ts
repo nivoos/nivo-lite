@@ -5,10 +5,10 @@ import { AgentTriggersService } from "@modules/domain/agent-work"
 import type { AgentTriggerRecord } from "@modules/domain/agent-work"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { LOGGER } from "@modules/platform/logging"
+import type { ClaimedJob } from "@modules/platform/jobs"
 import type { Logger } from "@modules/platform/logging"
 import type { QueueSchedules } from "@modules/platform/queue"
 import { AgentScheduleFireService } from "./agent-schedule-fire.service"
-import { AgentSchedulesErrorCode } from "./errors/agent-schedules.error"
 import { AgentSchedulesLogEvent } from "./agent-schedules.log-events"
 import { AgentTriggerSyncService } from "./agent-trigger-sync.service"
 import { ClockTickDeliveryService } from "./clock-tick-delivery.service"
@@ -16,6 +16,8 @@ import { ClockTickDeliveryService } from "./clock-tick-delivery.service"
 const SLOT = "1794283200000"
 const PAYLOAD = { workspaceId: "ws-1", agentId: "agent-1", triggerId: "trigger-1", slot: SLOT }
 const NEXT = new Date("2026-11-10T04:06:00.000Z")
+/** The job a worker holds for one slot. */
+const jobOf = (payload: object = PAYLOAD): ClaimedJob => ({ jobId: "job-1", kind: "agent-schedule.fire", fencingToken: 1, currentStep: "fire", payload })
 
 const record = (over: Partial<AgentTriggerRecord> = {}): AgentTriggerRecord => ({
     id: "trigger-1",
@@ -64,7 +66,7 @@ describe("AgentScheduleFireService.fire", () => {
     it("delivers the slot of the row through the clock's entry for the row's agent and records the fire in the same transaction", async () => {
         const { service, wakes, triggers, tx } = await build()
 
-        await expect(service.fire(PAYLOAD)).resolves.toBe(true)
+        await expect(service.fire(jobOf())).resolves.toBe(true)
 
         expect(wakes.deliverSlot).toHaveBeenCalledWith(expect.anything(), "ws-1", record(), SLOT, null)
         expect(wakes.deliverSlot.mock.calls[0]?.[0]).toBe(triggers.recordFire.mock.calls[0]?.[0])
@@ -79,7 +81,7 @@ describe("AgentScheduleFireService.fire", () => {
     ])("removes its own scheduler for %s and writes no wake", async (_name, trigger) => {
         const { service, wakes, sync, logger } = await build(trigger)
 
-        await expect(service.fire(PAYLOAD)).resolves.toBe(false)
+        await expect(service.fire(jobOf())).resolves.toBe(false)
 
         expect(sync.unschedule).toHaveBeenCalledWith("trigger-1")
         expect(wakes.deliverSlot).not.toHaveBeenCalled()
@@ -89,21 +91,28 @@ describe("AgentScheduleFireService.fire", () => {
     it("makes the scheduler agree when the work of the agent is switched off, and writes no wake", async () => {
         const { service, wakes, sync } = await build(record(), false)
 
-        await expect(service.fire(PAYLOAD)).resolves.toBe(false)
+        await expect(service.fire(jobOf())).resolves.toBe(false)
 
         expect(sync.reconcile).toHaveBeenCalledWith("ws-1", record())
         expect(wakes.deliverSlot).not.toHaveBeenCalled()
     })
 
-    it("ends the job for a payload that holds no trigger or no slot", async () => {
+    it("refuses a payload that holds no trigger or no slot as a flow failure of class input (the runner parks it at once)", async () => {
         const { service, wakes } = await build()
 
-        await expect(service.fire({ triggerId: "trigger-1" })).rejects.toMatchObject({
-            code: AgentSchedulesErrorCode.FirePayloadInvalid,
-            params: { unrecoverable: 1 },
-        })
+        await expect(service.fire(jobOf({ triggerId: "trigger-1" }))).rejects.toMatchObject({ params: { failureClass: "input" } })
 
         expect(wakes.deliverSlot).not.toHaveBeenCalled()
+    })
+
+    it("throws the failure of the delivery as it is: nothing is caught, nothing is recorded as fired", async () => {
+        const { service, wakes, triggers } = await build()
+        const down = Object.assign(new Error("database down"), { code: "ECONNRESET" })
+        wakes.deliverSlot.mockRejectedValue(down)
+
+        await expect(service.fire(jobOf())).rejects.toBe(down)
+
+        expect(triggers.recordFire).not.toHaveBeenCalled()
     })
 })
 

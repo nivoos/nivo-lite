@@ -65,6 +65,7 @@ export class AccountDataRowsPageService {
                 typeVersion: row.typeVersion,
                 occurredAt: row.occurredAt.toISOString(),
                 value: row.value,
+                sameFactOf: row.sameFactOf ?? null,
             })),
         }
     }

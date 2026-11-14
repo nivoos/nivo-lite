@@ -28,6 +28,8 @@ const PROVIDERS: Readonly<Record<Provider, true>> = {
     json2video: true,
     misa_amis: true,
     misa_meinvoice: true,
+    // The model endpoint as an account: only a SANDBOX model account has a row (lane concept provider-sandbox, the model row).
+    model: true,
 }
 
 const STATUSES: Readonly<Record<ConnectionStatus, true>> = {

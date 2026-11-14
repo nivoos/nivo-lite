@@ -90,17 +90,6 @@ describe("AgentWorkflowsService: a workflow from a template", () => {
         expect(version).toMatchObject({ changeKind: "template", authorKind: "owner", authorId: "member-1" })
     })
 
-    it("makes a blank workflow of one step from a name, and keeps keys unique", async () => {
-        const world = await buildWorld()
-        const blank = { name: "Chi phi", moduleKey: "webbooks" }
-
-        const first = await world.workflows.createBlank("ws-1", "agent-1", blank, OWNER, "vi")
-        const second = await world.workflows.createBlank("ws-1", "agent-1", blank, OWNER, "vi")
-
-        expect([first.key, second.key]).toEqual(["chi-phi", "chi-phi-2"])
-        expect(first).toMatchObject({ template: null, stepCount: 1, templateChangedSteps: null })
-    })
-
     it("seeds the primary workflow and a workflow per other template of the module, once", async () => {
         const world = await buildWorld()
 
@@ -167,24 +156,13 @@ describe("AgentWorkflowsService: a template version to accept", () => {
         expect(versionsOf(world)).toHaveLength(1)
     })
 
-    it("refuses a newer version the catalogue does not hold, and a workflow that came from no template", async () => {
+    it("refuses a newer version the catalogue does not hold", async () => {
         const world = await buildWorld()
         const primary = await primaryOf(world)
-        const blank = await world.workflows.createBlank(
-            "ws-1",
-            "agent-1",
-            { name: "Chi phi", moduleKey: "webbooks" },
-            OWNER,
-            "vi",
-        )
 
         await expect(
             world.workflows.acceptTemplate("ws-1", primary.id, NEWEST + 1, OWNER, null, ""),
         ).rejects.toMatchObject({ code: AgentGraphsErrorCode.TemplateNotFound })
-        await expect(world.workflows.templatePreview("ws-1", blank.id, NEWEST, "vi")).rejects.toMatchObject({
-            code: AgentGraphsErrorCode.WorkflowRefused,
-            params: { reason: "no-template" },
-        })
         expect(versionsOf(world).filter((version) => version.workflowId === primary.id)).toHaveLength(1)
     })
 })

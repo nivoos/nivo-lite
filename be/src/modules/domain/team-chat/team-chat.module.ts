@@ -48,6 +48,7 @@ export class TeamChatModule extends ConfigurableModuleClass {
                 TeamChatChainStopReporterService,
             ],
             exports: [
+                TEAM_CHAT_TAGS,
                 TeamChatRoomsService,
                 TeamChatAudienceService,
                 TeamChatNativeService,

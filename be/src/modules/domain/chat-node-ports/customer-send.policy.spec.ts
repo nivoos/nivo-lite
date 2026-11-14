@@ -21,6 +21,19 @@ const PHONE = identity({ id: "i-4", kind: "phone", provider: "", account: "", va
 const NO_ASK = { channel: undefined, accountId: undefined, woken: null }
 
 describe("reachPicked", () => {
+    it("after the woken route, the first of the step's CHOSEN accounts the person is reached on wins over the newest identity", () => {
+        // A run that serves no inbound account (a clock-started nudge): the step's choice decides.
+        expect(reachPicked([ZALO_1, ZALO_2], { ...NO_ASK, chosen: ["z1"] })).toMatchObject({ kind: "picked", reach: { accountId: "z1" } })
+        expect(reachPicked([ZALO_1, ZALO_2], { ...NO_ASK, chosen: ["gone", "z1"] })).toMatchObject({ reach: { accountId: "z1" } })
+        // An inbound line is answered on the account the person wrote to, whatever the step chose.
+        const woken = { channel: "zalo", accountId: "z2" }
+        expect(reachPicked([ZALO_1, ZALO_2], { ...NO_ASK, woken, chosen: ["z1"] })).toMatchObject({ reach: { accountId: "z2" } })
+        // A choice the person is not reached on names nothing: the newest identity, as before.
+        expect(reachPicked([ZALO_1, ZALO_2], { ...NO_ASK, chosen: ["z9"] })).toMatchObject({ reach: { accountId: "z2" } })
+        // Several identities of a channel the call named: the choice settles what was ambiguous.
+        expect(reachPicked([ZALO_1, ZALO_2], { ...NO_ASK, channel: "zalo", chosen: ["z1"] })).toMatchObject({ reach: { accountId: "z1" } })
+    })
+
     it("takes the single channel identity, and ignores phones and mails", () => {
         expect(reachPicked([PHONE, TELEGRAM], NO_ASK)).toEqual({
             kind: "picked",

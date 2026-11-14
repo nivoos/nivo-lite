@@ -26,11 +26,11 @@ const CATALOGUE: TemplateCatalogue = {
         vi: "C\u1ea3m \u01a1n kh\u00e1ch khi kho\u1ea3n ti\u1ec1n v\u1ec1 kh\u1edbp \u0111\u01a1n",
         en: "Thanks the customer once the bank's money pays the order",
     },
-    version: 17,
-    publishedAt: "2026-11-14T18:00:00.000Z",
+    version: 18,
+    publishedAt: "2026-11-14T18:55:00.000Z",
     notes: {
-        vi: "Lời cảm ơn không tới được khách (bị chặn hoặc bị từ chối duyệt) thì hệ thống tự báo đội kèm mã đơn, chăm sóc vẫn tiếp tục; quy trình chỉ còn các bước chăm sóc",
-        en: "A thank-you that did not reach the customer (refused or declined) is told to the team by the engine with the order's code and the care goes on; the workflow keeps only the care's steps",
+        vi: "Không còn tự đọc việc khách dặn đừng nhắn: gửi lời cảm ơn là việc của bước, hệ thống từ chối khi khách đã dặn (một dấu duy nhất trên liên hệ) và báo đội kèm mã đơn; chăm sóc vẫn tiếp tục",
+        en: "No longer reads whether the customer asked to stop: the step just sends the thank-you and the engine refuses it when the contact's one do-not-contact fact says so, telling the team with the order's code; the care goes on",
     },
     // Seeded ACTIVE (TOOLS-LEAD item 6): a seed or re-seed adds it to the agent active, so its trigger reaches it.
     seedActive: true,
@@ -42,8 +42,8 @@ const CATALOGUE: TemplateCatalogue = {
  * the sale's record of the person); only when it reached the customer (`sent`) and the sale keeps a record of the person (`has-record`; a
  * new customer has none yet: no move, the care goes on) the consult stage moves to `after_sale` (`stage`); a thank-you the send did not
  * deliver (refused or declined, not `route_held`) is the step's unsuccessful ending: the ENGINE tells the team the order's code and the
- * care goes on (R45, R68). Then the check-in after delivery (`plan-delivery`) and the occasion reminders (`plan-occasions`) are armed, each of them silent for a customer who
- * opted out. `plan-delivery` and `plan-occasions` declined -> outcome `declined` (a person declining a timer on its card is a business
+ * care goes on (R45, R68). Then the check-in after delivery (`plan-delivery`) and the occasion reminders (`plan-occasions`) are armed (a customer who asked
+ * not to be written to unprompted is the engine's to refuse at each send, not a branch here). `plan-delivery` and `plan-occasions` declined -> outcome `declined` (a person declining a timer on its card is a business
  * outcome; no team notice: it is a timer).
  */
 export const salesAfterSaleGraph: TemplateGraph = defineTemplateGraph({

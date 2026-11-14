@@ -4,14 +4,8 @@ import { templateGraphProblems } from "@nivo-lite/agent-sdk/template"
 import { AgentWorkflowTriggerReceiversService } from "@modules/domain/agent-graphs/agent-workflow-trigger-receivers.service"
 import { templateTriggerLookup } from "@modules/domain/agent-graphs/policies/template-lookups.policy"
 import { AgentWorkReadService, tagContextOf, type AgentTurnView } from "@modules/domain/agent-work"
-import {
-    PROVIDER_TRIGGER_TAG_SOURCE,
-    RENDER_COMPLETED,
-    declarationOf,
-    wakeContextOf,
-    type ProviderWake,
-} from "@modules/domain/provider-triggers"
-import { planWakes } from "@modules/domain/provider-triggers/provider-triggers.policy"
+import { PROVIDER_TRIGGER_TAG_SOURCE, providerTriggerKeyOf, wakeContextOf, type ProviderWake } from "@modules/domain/provider-triggers"
+import { RENDER_COMPLETED } from "@modules/domain/video-compose/video-render-data.policy"
 import type { AccountAttachmentsService } from "@modules/domain/tool-grants"
 import { agentTurnViewOf } from "@tests/fixtures/builders/agent-work.builder"
 import {
@@ -27,8 +21,7 @@ import { coreProcessOf, coreStarted, noteActsOf, threadOf } from "./thread-world
 
 // ENGINE CORE: A TRIGGER LISTED ONLY IN A `wait` STEP (generic). The agent's graph G registers NO head trigger for the verb (the generic
 // `video.render.completed`, whichever compose provider rendered); its first step starts outside work, then the run WAITS on the same thread
-// for that work's completion, matched by the work's id. Real: the provider trigger's planned wake and its context (`planWakes`,
-// `wakeContextOf`, the catalogue's declaration), who an account's event reaches (`AgentWorkflowTriggerReceiversService.registered`: head
+// for that work's completion, matched by the work's id. Real: the provider trigger's wake and its context (`wakeContextOf`), who an account's event reaches (`AgentWorkflowTriggerReceiversService.registered`: head
 // triggers OR a wait of an active workflow), the flow's take and run of the wake (the waits first, then `no_waiter`), the thread engine,
 // the wait node (park + deadline job), the once-key of the park and the drain. Faked: the outside world, the test write's executor, the
 // queue outbox (it records the job), the attachments (one compose account of the agent).
@@ -71,16 +64,12 @@ const parked = async () => {
     return { db, outbox, process, runId }
 }
 
-/** The ONE planned wake of a render completion on the compose account, as the emit point plans it from the catalogue's declaration. */
-const plannedRender = (renderId: string, status = "done"): ProviderWake => {
-    const declaration = declarationOf(PROVIDER.shotstack, RENDER_COMPLETED)
-    if (declaration === null) throw new Error("render.completed is not declared for shotstack")
-    const [planned] = planWakes(declaration, COMPOSE, [
-        { id: renderId, occurredAt: null, payload: { renderRowId: `row-${renderId}`, renderId, status } },
-    ])
-    if (planned === undefined) throw new Error("no wake planned")
-    return planned.wake
-}
+/** The ONE wake of a render completion on the compose account: its trigger, the account and the render's members. */
+const plannedRender = (renderId: string, status = "done"): ProviderWake => ({
+    providerTrigger: providerTriggerKeyOf(PROVIDER.shotstack, RENDER_COMPLETED),
+    connectionId: COMPOSE,
+    params: { renderRowId: `row-${renderId}`, renderId, status },
+})
 
 /** The turn the tag door's wake of a planned render gives the flow (the emit point's tag: its trigger, the account, the params). */
 const renderTurn = (db: ThreadDb, wake: ProviderWake, wakeId?: string): AgentTurnView => {
@@ -131,7 +120,7 @@ describe("a trigger only a `wait` step lists reaches the waiting thread", () => 
         const receivers = receiversOf(db)
 
         await expect(receivers.attachedTo(WS, COMPOSE)).resolves.toEqual([FRONT])
-        const mail: ProviderWake = { providerTrigger: "imap:mail.received", connectionId: COMPOSE, params: { eventIds: ["s1"], count: 1 } }
+        const mail: ProviderWake = { providerTrigger: "smtp:mail.received", connectionId: COMPOSE, params: { eventIds: ["s1"], count: 1 } }
         await expect(receivers.registered(WS, FRONT, [plannedRender("render-77"), mail])).resolves.toEqual([true, false])
     })
 

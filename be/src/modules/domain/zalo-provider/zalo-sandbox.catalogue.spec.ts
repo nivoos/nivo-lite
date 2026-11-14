@@ -80,7 +80,7 @@ describe("ZALO_SANDBOX_CATALOGUE (owner ruling R62)", () => {
         expect(body).toMatchObject({ event_name: "user_send_text", timestamp: String(AT.getTime() - 49 * 3_600_000) })
         const kept = zaloMessagesOf(await sandbox.call(ACCOUNT, "peek", {}, { answer: (state) => state.read(ZALO_SANDBOX_MESSAGES_STATE, "") }))
         expect(kept).toHaveLength(1)
-        expect(kept[0]).toMatchObject({ stale: true, kind: "text" })
+        expect(kept[0]).toMatchObject({ sentAt: AT.getTime() - 49 * 3_600_000, kind: "text" })
     })
 
     it("keeps the last line time per user (state last-line) and the messages for the poll, readable by zaloLastLineAt", async () => {
@@ -97,10 +97,10 @@ describe("ZALO_SANDBOX_CATALOGUE (owner ruling R62)", () => {
         expect(await read("8800110044")).toBe(AT.getTime() - 49 * 3_600_000)
         expect(await read("8800110099")).toBeNull()
         const kept = zaloMessagesOf(await sandbox.call(ACCOUNT, "peek", {}, { answer: (state) => state.read(ZALO_SANDBOX_MESSAGES_STATE, "") }))
-        expect(kept.map((one) => [one.messageId, one.kind, one.stale])).toEqual([
-            ["sbx-zmsg-000001", "text", false],
-            ["sbx-zmsg-000002", "text", true],
-            ["sbx-zmsg-000003", "photo", false],
+        expect(kept.map((one) => [one.messageId, one.kind])).toEqual([
+            ["sbx-zmsg-000001", "text"],
+            ["sbx-zmsg-000002", "text"],
+            ["sbx-zmsg-000003", "photo"],
         ])
     })
 

@@ -189,6 +189,8 @@ export const NODE_UI: Readonly<Record<string, NodeUiEntry>> = {
     "chatbot.answer": { kind: "action", icon: "message" },
     "chatbot.complaint-reply": { kind: "action", icon: "warning" },
     "chatbot.complaint-notify": { kind: "event", icon: "bell" },
+    "chatbot.stop-keep": { kind: "action", icon: "hand" },
+    "chatbot.stop-reply": { kind: "action", icon: "message" },
     "team.chat": { kind: "action", icon: "message" },
     "team.truth-propose": { kind: "action", icon: "book" },
     "team.answer-post": { kind: "action", icon: "send" },

@@ -26,7 +26,11 @@ const ID_MAX = 400
 /** The longest transfer content a row keeps; banks cut theirs far shorter. */
 const CONTENT_MAX = 2000
 
-/** One delivery of a bank door's webhook (or the same transaction read back by a poll): the consumer's work row, swept 30 days after it was processed. */
+/**
+ * The delivery row of the retired two-step road (a door kept a delivery, its job kept the movements): nothing writes it any more, a door and
+ * the poll keep the movement itself. Declared only because its partition is in the committed migration text, which cannot name an
+ * undeclared type; it goes with the migration that drops the three partitions (needs: TRIGGER-LEAD).
+ */
 const deliveryOf = (provider: string): AccountDataTypeDef =>
     defineAccountDataType({
         name: `${provider}.delivery`,
@@ -39,14 +43,18 @@ const deliveryOf = (provider: string): AccountDataTypeDef =>
             source: { type: "text", required: false, maxLength: 8 },
         },
         key: ["deliveryId"],
-        wakes: true,
+        wakes: false,
         retention: { days: 30 },
         indexes: [],
         secretFields: BANK_FEED_SECRET_FIELDS,
         purpose: "bank.event",
     })
 
-/** One bank movement as the provider reported it, keyed by the provider's own transaction id, kept for good. */
+/**
+ * One bank movement as the provider reported it, keyed by the provider's own transaction id, kept for good. A door (the webhook) or the poll
+ * keeps it once; the new row is admitted (its job marks the account fed and hands the movement to its trigger) and stays pending until that
+ * job completes it.
+ */
 const transactionOf = (provider: string): AccountDataTypeDef =>
     defineAccountDataType({
         name: `${provider}.transaction`,
@@ -66,7 +74,7 @@ const transactionOf = (provider: string): AccountDataTypeDef =>
         },
         key: ["transactionId"],
         occurredAt: "at",
-        wakes: false,
+        wakes: true,
         retention: "keep",
         indexes: [
             { name: "account", on: ["account"] },

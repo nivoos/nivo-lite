@@ -53,32 +53,32 @@ const book: ReadinessNode = {
     accounts: [{ provider: "google", operations: { [TOOL.ledgerEntryAppend]: "ask" } }],
 }
 
-const MAIL = TOOL.mailMessageSend
+const INVOICE = TOOL.invoiceCreate
 
 /** The CRM the installed NIVO Web package is written against, by its provider key, and two of its generated operations. */
 const CRM = "crm.nivoweb"
 const CUSTOMER_GET = "nivo.api.crm.nivoweb.get.customers.code"
 const CUSTOMER_BALANCE = "nivo.api.crm.nivoweb.get.customers.code.balance"
 
-/** A blocking node that reads the CRM and sends a mail (`webbooks.notice-draft`): the CRM reads under the CRM, the mail under SMTP. */
+/** A blocking node that reads the CRM and issues an invoice: the CRM reads under the CRM, the issue under the e-invoice provider. */
 const notice: ReadinessNode = {
     key: "notice",
-    step: "webbooks.notice-draft",
+    step: "world.notice",
     accounts: [
         { provider: CRM, operations: { [CUSTOMER_GET]: "auto", [CUSTOMER_BALANCE]: "auto" } },
-        { provider: "smtp", operations: { [MAIL]: "auto" } },
+        { provider: "misa_meinvoice", operations: { [INVOICE]: "auto" } },
     ],
 }
 
-/** A blocking tell node: the send under three messaging providers, the mail under SMTP. */
+/** A blocking node with two writes: the send under three messaging providers, the invoice under the e-invoice provider. */
 const tell: ReadinessNode = {
     key: "tell",
-    step: "webrenew.tell",
+    step: "world.tell",
     accounts: [
         { provider: "zalo_oa", operations: { [SEND]: "auto" } },
         { provider: "telegram", operations: { [SEND]: "auto" } },
         { provider: "meta", operations: { [SEND]: "auto" } },
-        { provider: "smtp", operations: { [MAIL]: "auto" } },
+        { provider: "misa_meinvoice", operations: { [INVOICE]: "auto" } },
     ],
 }
 
@@ -179,12 +179,12 @@ const CASES: ReadonlyArray<Case> = [
         expected: shown(),
     },
     {
-        name: "a CRM operation no attached snapshot holds hides the graph, `tool_unavailable` naming the operation, the CRM's other operation and SMTP met",
+        name: "a CRM operation no attached snapshot holds hides the graph, `tool_unavailable` naming the operation, the CRM's other operation and the e-invoice provider met",
         nodes: [notice],
         input: {
             attachments: [
                 { connectionId: "c1", provider: CRM },
-                { connectionId: "s1", provider: "smtp" },
+                { connectionId: "s1", provider: "misa_meinvoice" },
             ],
             served: new Map([
                 [CUSTOMER_GET, new Set(["c1"])],
@@ -203,7 +203,7 @@ const CASES: ReadonlyArray<Case> = [
         input: {
             attachments: [
                 { connectionId: "c1", provider: CRM },
-                { connectionId: "s1", provider: "smtp" },
+                { connectionId: "s1", provider: "misa_meinvoice" },
             ],
             served: new Map([
                 [CUSTOMER_GET, new Set(["c1"])],
@@ -218,7 +218,7 @@ const CASES: ReadonlyArray<Case> = [
         input: {
             attachments: [
                 { connectionId: "c1", provider: CRM },
-                { connectionId: "s1", provider: "smtp" },
+                { connectionId: "s1", provider: "misa_meinvoice" },
             ],
             served: new Map([
                 [CUSTOMER_GET, new Set(["c1"])],
@@ -291,7 +291,7 @@ const CASES: ReadonlyArray<Case> = [
         expected: hidden(["zalo_oa", "telegram", "meta"]),
     },
     {
-        name: "@1 node pinning an account the agent is not attached to: hidden even with another account of the provider",
+        name: "a step whose chosen account is no longer attached, with one other account of the provider: shown (the pick takes that one)",
         nodes: [
             {
                 key: "say",
@@ -302,7 +302,7 @@ const CASES: ReadonlyArray<Case> = [
             },
         ],
         input: { attachments: [{ connectionId: "z1", provider: "zalo_oa" }] },
-        expected: hidden(["zalo_oa"]),
+        expected: shown(),
     },
     {
         name: "a @1 definition that says side (no blocking on the graph node): skipped, not hidden",
@@ -328,7 +328,7 @@ const CASES: ReadonlyArray<Case> = [
         expected: shown(),
     },
     {
-        name: "an entry pinned to an account the agent is not attached to: not_connected, whatever other accounts of the provider it holds",
+        name: "an entry whose CHOSEN account the agent is no longer attached to: shown (a choice orders the call's pick, never hides a graph)",
         nodes: [{ key: "say", step: "x", accounts: [{ kind: "chat", provider: "zalo_oa", connectionId: "z9", operations: { [SEND]: "auto" } }] }],
         input: {
             attachments: [
@@ -336,7 +336,7 @@ const CASES: ReadonlyArray<Case> = [
                 { connectionId: "z2", provider: "zalo_oa" },
             ],
         },
-        expected: hidden(["zalo_oa"]),
+        expected: shown(),
     },
     {
         name: "one account of the provider and no pick: bound",
@@ -345,18 +345,18 @@ const CASES: ReadonlyArray<Case> = [
         expected: shown(),
     },
     {
-        name: "per tool: a CRM read and an SMTP send need both; the CRM alone leaves it waiting for SMTP only",
+        name: "per tool: a CRM read and an e-invoice issue need both; the CRM alone leaves it waiting for the e-invoice provider only",
         nodes: [notice],
         input: { attachments: [{ connectionId: "c1", provider: CRM }] },
-        expected: hidden(["smtp"]),
+        expected: hidden(["misa_meinvoice"]),
     },
     {
-        name: "per tool: a CRM read and an SMTP send with both attached: shown",
+        name: "per tool: a CRM read and an e-invoice issue with both attached: shown",
         nodes: [notice],
         input: {
             attachments: [
                 { connectionId: "c1", provider: CRM },
-                { connectionId: "s1", provider: "smtp" },
+                { connectionId: "s1", provider: "misa_meinvoice" },
             ],
         },
         expected: shown(),
@@ -365,29 +365,29 @@ const CASES: ReadonlyArray<Case> = [
         name: "per tool: with nothing attached it waits for the providers of both tools",
         nodes: [notice],
         input: { attachments: [] },
-        expected: hidden([CRM, "smtp"]),
+        expected: hidden([CRM, "misa_meinvoice"]),
     },
     {
-        name: "per tool: a send under three messaging providers and a mail under SMTP need one messenger AND SMTP",
+        name: "per tool: a send under three messaging providers and an invoice under the e-invoice provider need one messenger AND the e-invoice provider",
         nodes: [tell],
         input: { attachments: [{ connectionId: "m1", provider: "meta" }] },
-        expected: hidden(["smtp"]),
+        expected: hidden(["misa_meinvoice"]),
     },
     {
-        name: "per tool: one of three messengers and SMTP bound: shown",
+        name: "per tool: one of three messengers and the e-invoice provider bound: shown",
         nodes: [tell],
         input: {
             attachments: [
                 { connectionId: "m1", provider: "meta" },
-                { connectionId: "s1", provider: "smtp" },
+                { connectionId: "s1", provider: "misa_meinvoice" },
             ],
         },
         expected: shown(),
     },
     {
-        name: "per tool: SMTP alone leaves the send waiting for any of its three messengers",
+        name: "per tool: the e-invoice provider alone leaves the send waiting for any of its three messengers",
         nodes: [tell],
-        input: { attachments: [{ connectionId: "s1", provider: "smtp" }] },
+        input: { attachments: [{ connectionId: "s1", provider: "misa_meinvoice" }] },
         expected: hidden(["zalo_oa", "telegram", "meta"]),
     },
     {
@@ -398,12 +398,12 @@ const CASES: ReadonlyArray<Case> = [
                 step: "x.mixed",
                 accounts: [
                     { provider: "nivo", operations: { [TOOL.contactGet]: "auto" } },
-                    { provider: "smtp", operations: { [MAIL]: "auto" } },
+                    { provider: "misa_meinvoice", operations: { [INVOICE]: "auto" } },
                 ],
             },
         ],
         input: { attachments: [] },
-        expected: hidden(["smtp"]),
+        expected: hidden(["misa_meinvoice"]),
     },
     {
         name: "per tool: a side node waiting for one of its tools is skipped",

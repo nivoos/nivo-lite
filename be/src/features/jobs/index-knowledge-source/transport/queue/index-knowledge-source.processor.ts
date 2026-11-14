@@ -1,8 +1,8 @@
 import { Injectable } from "@nestjs/common"
 import { KnowledgeJobsService } from "@modules/domain/knowledge"
-import { FencedProcessor, type ClaimedJob } from "@modules/platform/jobs"
+import { FencedProcessor, type ClaimedJob, type JobDefinition } from "@modules/platform/jobs"
 import type { QueueDelivery } from "@modules/platform/queue"
-import { KNOWLEDGE_INDEX_QUEUE, KnowledgeJob } from "@modules/queues/knowledge"
+import { INDEX_SOURCE_JOB, KNOWLEDGE_INDEX_QUEUE, type KnowledgeSourcePayload } from "@modules/queues/knowledge"
 import { IndexSourceStep } from "../../steps/index-source.step"
 
 /**
@@ -21,7 +21,7 @@ const INDEX_WORKSPACE_HEADROOM = 3
  */
 export class IndexKnowledgeSourceProcessor extends FencedProcessor {
     override readonly queue: "knowledge_index" = KNOWLEDGE_INDEX_QUEUE
-    override readonly job: KnowledgeJob.Index = KnowledgeJob.Index
+    override readonly definition: JobDefinition<KnowledgeSourcePayload> = INDEX_SOURCE_JOB
     override readonly workspaceHeadroom: number = INDEX_WORKSPACE_HEADROOM
 
     constructor(
@@ -31,12 +31,12 @@ export class IndexKnowledgeSourceProcessor extends FencedProcessor {
         super()
     }
 
-    /** Indexes the source; a stale token throws the fenced-out error from the guarded write before the effect. */
+    /** Indexes the source (one domain method); a stale token throws the fenced-out error from the guarded write before the effect. */
     async process(job: ClaimedJob): Promise<void> {
         await this.indexSource.run(job)
     }
 
-    /** The job ended as failed: the source is closed with the stored code of the cause. */
+    /** The job was dead-lettered (one item for a person): the source is closed as failed with the stored code of the reason; a resume indexes it again. */
     override async onFailed(delivery: QueueDelivery, cause: unknown): Promise<void> {
         await this.knowledge.indexFailed(delivery.payload, cause)
     }

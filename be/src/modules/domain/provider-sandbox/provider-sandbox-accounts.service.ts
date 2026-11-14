@@ -8,6 +8,7 @@ import type {
     SandboxInput,
     SandboxInputField,
     SandboxLatestRequest,
+    SandboxPayLinkStatus,
 } from "./provider-sandbox.contracts"
 import { InjectSandboxWebhookPoster } from "./provider-sandbox.decorators"
 import { ProviderSandboxService } from "./provider-sandbox.service"
@@ -34,6 +35,17 @@ export interface SandboxSendResult {
     readonly caseId: string
     readonly input: SandboxInput
     readonly deliveries: ReadonlyArray<SandboxDelivery>
+    /** True when the send was asked to drop its webhook: the account's state was written, nothing was posted (so no delivery). */
+    readonly webhookDropped: boolean
+}
+
+/** What one send may be asked beside its inputs. */
+export interface SandboxSendOptions {
+    /**
+     * Record the case as the provider would remember it (its kept state, the `inbound` call in the log) but do NOT post the webhook: the
+     * account's provider poll (its sandbox read) brings the row back, as a webhook the provider never delivered would be recovered.
+     */
+    readonly dropWebhook?: boolean | undefined
 }
 
 /** The account's next case of one outbound operation: the picked case, or the default (success) case when nothing is picked. */
@@ -43,6 +55,31 @@ export interface SandboxNextCase {
     /** True when nothing is picked and the default case answers. */
     readonly isDefault: boolean
 }
+
+/** One pay link a sandbox account issued, as the pay page shows it (SBX-6): no provider name in its shape. */
+export interface SandboxPayLinkView {
+    /** The sandbox account the link belongs to. */
+    readonly account: { readonly id: string; readonly provider: string; readonly label: string }
+    /** The link id. */
+    readonly linkId: string
+    /** The amount asked, in VND. */
+    readonly amountVnd: number
+    /** The transfer content (the description) the link was made with. */
+    readonly content: string
+    /** The provider's order code of the link, as text. */
+    readonly orderCode: string
+    /** Where the link is. */
+    readonly status: SandboxPayLinkStatus
+    /** What was received on it so far, in VND. */
+    readonly amountReceivedVnd: number
+    /** The inbound cases that apply to it: the ones that pay it while it is open, none once it is paid, cancelled or expired. */
+    readonly caseIds: ReadonlyArray<string>
+    /** The values the link gives the inputs of those cases (the order code, or the content and the amount). */
+    readonly inputs: SandboxInput
+}
+
+/** The longest scope a next case may be picked for (the store keeps keys of at most 200 characters). */
+const SCOPE_MAX = 200
 
 /** The roles that may use the sandbox doors. */
 const MANAGERS = ["owner", "manager"] as const
@@ -172,15 +209,23 @@ export class ProviderSandboxAccountsService {
      * provider's webhook payload(s) (logged on the account as one `inbound` call) -> each POSTed, in order, to the provider's OWN route on
      * NIVO with the account's sandbox key, through this api's own listener (`SandboxWebhookPoster`). Inputs not given are prefilled from
      * the account's latest request (R62 "latest payment request"), else the case's examples; an input of the wrong kind is refused. A
-     * route's refusal is answered in its delivery (status and body), not thrown, so the page shows what NIVO did.
+     * route's refusal is answered in its delivery (status and body), not thrown, so the page shows what NIVO did. With `dropWebhook` the
+     * case is still recorded as the provider would remember it, but nothing is POSTed (a webhook the provider never delivered).
      */
-    async send(actor: ConnectionActor, connectionId: string, caseId: string, given: SandboxInput = {}): Promise<SandboxSendResult> {
+    async send(
+        actor: ConnectionActor,
+        connectionId: string,
+        caseId: string,
+        given: SandboxInput = {},
+        options: SandboxSendOptions = {},
+    ): Promise<SandboxSendResult> {
         const account = await this.accountOf(actor, connectionId)
         const inbound = this.catalogues.caseOf(account.provider, caseId)?.inbound
         if (inbound === undefined) throw new ProviderSandboxError({ code: ProviderSandboxErrorCode.CaseUnknown, params: { caseId } })
         const prefilled = (await this.latestOf(account))?.input ?? {}
         const input = inputOf(inbound.inputs, given, prefilled)
         const events = await this.sandbox.inbound(account, caseId, inbound, input, this.clock.now())
+        if (options.dropWebhook === true) return { caseId, input, deliveries: [], webhookDropped: true }
         const key = await this.keyOf(account.workspaceId, account.id)
         const path = inbound.path(account.id)
         const deliveries: Array<SandboxDelivery> = []
@@ -190,7 +235,42 @@ export class ProviderSandboxAccountsService {
             const reply = await this.poster.post({ path, body: event.body, headers: { ...event.headers, [SANDBOX_KEY_HEADER]: key } })
             deliveries.push({ path, status: reply.status, body: reply.body })
         }
-        return { caseId, input, deliveries }
+        return { caseId, input, deliveries, webhookDropped: false }
+    }
+
+    /**
+     * One pay link by its id (owner or manager of the workspace): the provider's catalogue says which account the id names, the account's
+     * own kept state tells the link. An id no catalogue knows, an account the workspace does not hold, or a link the account never made is
+     * refused `PROVIDER_SANDBOX_PAY_LINK_UNKNOWN`; an id that names a LIVE account is refused `PROVIDER_SANDBOX_LIVE_ACCOUNT` (a live
+     * account's links are never read here); the sandbox off is refused `PROVIDER_SANDBOX_OFF`.
+     */
+    async payLink(actor: ConnectionActor, linkId: string): Promise<SandboxPayLinkView> {
+        this.on()
+        await this.connections.authorize(actor, MANAGERS)
+        for (const [provider, links] of this.catalogues.payLinkProviders()) {
+            const connectionId = links.accountOf(linkId)
+            if (connectionId === null) continue
+            // eslint-disable-next-line no-await-in-loop
+            const found = await this.connections.find(actor.workspaceId, connectionId)
+            if (found === null || found.provider !== provider) continue
+            this.sandbox.assertOpen(found)
+            // eslint-disable-next-line no-await-in-loop
+            const link = await links.read(linkId, (name, key) => this.sandbox.kept(found, name, key), this.clock.now())
+            if (link === null) continue
+            const open = link.status === "open"
+            return {
+                account: { id: found.id, provider: found.provider, label: found.name === "" ? found.id : found.name },
+                linkId: link.linkId,
+                amountVnd: link.amountVnd,
+                content: link.content,
+                orderCode: link.orderCode,
+                status: link.status,
+                amountReceivedVnd: link.amountReceivedVnd,
+                caseIds: open ? links.caseIds.filter((id) => this.catalogues.caseOf(provider, id)?.inbound !== undefined) : [],
+                inputs: links.inputsOf(link),
+            }
+        }
+        throw new ProviderSandboxError({ code: ProviderSandboxErrorCode.PayLinkUnknown, params: { linkId } })
     }
 
     /** The request the agent last made of the account (a payment instruction), read as inputs; null when it made none. */
@@ -213,13 +293,22 @@ export class ProviderSandboxAccountsService {
         return found
     }
 
-    /** Picks the account's next case of that case's own operation (sticky until changed; picking the default case goes back to success). */
-    async setNextCase(actor: ConnectionActor, connectionId: string, caseId: string): Promise<SandboxNextCase> {
+    /**
+     * Picks the account's next case of that case's own operation (sticky until changed; picking the default case goes back to success). With
+     * a `scope`, the pick holds for that narrower key only (a provider that logs its calls under a key of their own: the model logs each call
+     * under its purpose) and wins over the pick of the operation; picking the default case for the scope goes back for it alone.
+     */
+    async setNextCase(actor: ConnectionActor, connectionId: string, caseId: string, scope?: string): Promise<SandboxNextCase> {
         const account = await this.accountOf(actor, connectionId)
         const picked = this.outboundOf(account.provider).find((one) => one.id === caseId)
         if (picked?.operation === undefined) throw new ProviderSandboxError({ code: ProviderSandboxErrorCode.CaseUnknown, params: { caseId } })
-        await this.sandbox.setNextCase(account, picked.operation, caseId)
-        return { operation: picked.operation, caseId, isDefault: false }
+        const key = scope?.trim() ?? ""
+        if (scope !== undefined && (key === "" || key.length > SCOPE_MAX)) {
+            throw new ProviderSandboxError({ code: ProviderSandboxErrorCode.InputInvalid, params: { field: "scope" } })
+        }
+        const operation = key === "" ? picked.operation : key
+        await this.sandbox.setNextCase(account, operation, caseId)
+        return { operation, caseId, isDefault: false }
     }
 
     /** A sandbox account of the actor's workspace (owner or manager), refused when the sandbox is off, unknown, removed or live. */

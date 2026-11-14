@@ -205,9 +205,9 @@ export class AgentWorkflowStoreService {
         return found
     }
 
-    /** Refuses a graph the installed nodes do not take; an app that installed no nodes judges nothing. */
+    /** Refuses a graph that is no installed template version's copy (`requireSoundFlow`); an app that installed no nodes judges nothing. */
     requireSound(graph: GraphSpec): void {
-        if (this.nodes !== undefined) requireSoundFlow(graph, this.nodes.installed())
+        if (this.nodes !== undefined) requireSoundFlow(graph)
     }
 
     /** The grant of a graph cut to what its installed steps need. */

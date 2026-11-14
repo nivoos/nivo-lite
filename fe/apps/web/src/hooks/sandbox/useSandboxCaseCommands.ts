@@ -20,13 +20,16 @@ const REFUSED_FROM = 400
 interface SendInput {
     readonly connectionId: string
     readonly caseId: string
+    /** The send skips the webhook, so only the poll can bring the event. */
+    readonly dropWebhook?: boolean
     readonly inputs: ReadonlyArray<{ readonly name: string; readonly value: string }>
 }
 
 /** The commands on the cases of an account: send an inbound one, choose the next outbound one. */
 export interface SandboxCaseCommands {
     readonly send: (input: SendInput) => Promise<boolean>
-    readonly choose: (connectionId: string, caseId: string) => Promise<boolean>
+    /** Picks the next case: for every call, or, with a `scope`, for that purpose only. */
+    readonly choose: (connectionId: string, caseId: string, scope?: string) => Promise<boolean>
     /** The case being sent, or chosen; null when none is. */
     readonly sendingId: string | null
     readonly choosingId: string | null
@@ -49,6 +52,7 @@ export const useSandboxCaseCommands = (): SandboxCaseCommands => {
                 })
                 if (answer === undefined) return false
                 const refused = answer.deliveries.find((delivery) => delivery.status >= REFUSED_FROM)
+                if (answer.webhookDropped) toast.warning(t("toastWebhookDropped"))
                 if (refused !== undefined) {
                     toast.warning(t("toastRefused", { status: refused.status, path: refused.path }))
                 }
@@ -62,10 +66,10 @@ export const useSandboxCaseCommands = (): SandboxCaseCommands => {
                 setSendingId(null)
             }
         },
-        choose: async (connectionId, caseId) => {
+        choose: async (connectionId, caseId, scope) => {
             setChoosingId(caseId)
             try {
-                const answer = await run(() => choosing.trigger({ connectionId, caseId }), {
+                const answer = await run(() => choosing.trigger({ connectionId, caseId, ...(scope === undefined ? {} : { scope }) }), {
                     successMessage: t("toastChosen", { id: caseId }),
                 })
                 if (answer === undefined) return false

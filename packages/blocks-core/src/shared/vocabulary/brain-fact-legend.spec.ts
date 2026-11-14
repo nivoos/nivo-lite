@@ -41,7 +41,7 @@ describe("the legend of a served truth", () => {
                 words: modelWordsOf,
             }
             const request = guidedModelRequest(frame, { purpose: "consult", instructions: "Consult.", input: {} })
-            const opening = request.instructions.slice(0, request.sharedLength)
+            const opening = request.opening?.craft ?? ""
             // The opening lays the tool set out as JSON, so the legend (it quotes a price: `"55.000 d"`) stands in it JSON-escaped: count that form.
             const escaped = JSON.stringify(BRAIN_FACT_LEGEND).slice(1, -1)
             expect(opening.split(escaped).length - 1).toBe(1)

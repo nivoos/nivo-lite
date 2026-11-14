@@ -9,6 +9,11 @@ export enum ProviderTriggersLogEvent {
      * `routeId`, `verb`, `eventId`).
      */
     RouteHeld = "provider_triggers.route_held",
+    /**
+     * An event reported a fact an earlier row had already reported (the declaration's `factKey`): kept as its raw row, not handed on
+     * (`workspaceId`, `verb`, `eventId`, `earlierRowId`; no value).
+     */
+    SameFact = "provider_triggers.same_fact",
     /** One try of a hand-over threw; it is tried again while tries are left. */
     HandOverRetried = "provider_triggers.hand_over_retried",
     /** A run could not be started for an agent after its retries and was kept as dead. */

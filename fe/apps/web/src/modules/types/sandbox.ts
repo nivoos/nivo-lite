@@ -22,6 +22,10 @@ export interface SandboxCopy {
         readonly emptyTitle: string
         readonly emptyBody: string
     }
+    /** The choice list of the width a next case is picked for (every call, or one purpose of the call log). */
+    readonly scope: {
+        readonly title: string
+    }
     readonly cases: {
         readonly title: string
         readonly empty: string
@@ -30,6 +34,8 @@ export interface SandboxCopy {
         readonly defaultBadge: string
         readonly nextBadge: string
         readonly inputsLabel: string
+        readonly dropWebhookLabel: string
+        readonly dropWebhookHint: string
         readonly errorTitle: string
     }
     readonly calls: {
@@ -158,14 +164,33 @@ export interface SandboxInputView {
     readonly value: string
 }
 
+/** One width a next case may be picked for: every call, or one purpose seen in the call log. */
+export interface SandboxScopeChoiceView {
+    readonly id: string
+    /** What it is in words, never the raw key alone. */
+    readonly label: string
+    /** The explanation of the choice (12, muted): for a generic purpose, its key; null when there is none. */
+    readonly hint: string | null
+}
+
+/** The widths a next case may be picked for on the open account and the one chosen. */
+export interface SandboxScopeView {
+    readonly choices: ReadonlyArray<SandboxScopeChoiceView>
+    readonly selectedId: string
+}
+
 /** The cases block of the open account. */
 export interface SandboxCasesData {
     readonly rows: ReadonlyArray<SandboxCaseRowView>
     readonly fields: ReadonlyArray<SandboxInputView>
+    /** Whether the next send leaves the webhook out (the checkbox in the header zone). */
+    readonly dropWebhook: boolean
     /** "Latest request: ..." (12, muted); null when the agent has asked for nothing yet. */
     readonly latestLine: string | null
     /** One line per outbound operation with the case it answers next. */
     readonly nextLines: ReadonlyArray<string>
+    /** The widths a next case may be picked for (the model account only); null for every other account. */
+    readonly scope: SandboxScopeView | null
 }
 
 /** One line of the call log. */
@@ -294,8 +319,11 @@ export interface SandboxPanesBaseProps {
         readonly setName: (value: string) => void
         readonly submitOpen: () => void
         readonly setInput: (name: string, value: string) => void
+        readonly setDropWebhook: (isDropped: boolean) => void
         readonly send: (caseId: string) => void
         readonly choose: (caseId: string) => void
+        /** Picks the width the next case applies to: `*` for every call, else a purpose of the call log. */
+        readonly chooseScope: (scopeId: string) => void
         readonly moreCalls: () => void
         readonly askClear: () => void
         readonly cancelClear: () => void

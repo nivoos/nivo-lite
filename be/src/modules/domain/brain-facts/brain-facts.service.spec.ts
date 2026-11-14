@@ -438,3 +438,32 @@ describe("BrainFactsService", () => {
     registerDecisions()
     registerChoices()
 })
+
+describe("BrainFactsService.announceChanged: told inside a job's finishing transaction", () => {
+    it("hands the transaction to every listener, in order, and a listener that fails fails the announcement (nothing is swallowed)", async () => {
+        const service = await build(mockEntityManager({}))
+        const tx = mockEntityManager({})
+        const first = { factsChanged: jest.fn().mockResolvedValue(undefined) }
+        const second = { factsChanged: jest.fn().mockRejectedValue(new Error("cannot write its job")) }
+        service.whenChanged(first)
+        service.whenChanged(second)
+
+        await expect(service.announceChanged(facts.WS, ["f1", "f1"], tx)).rejects.toThrow("cannot write its job")
+
+        expect(first.factsChanged).toHaveBeenCalledWith(facts.WS, ["f1"], tx)
+        expect(second.factsChanged).toHaveBeenCalledWith(facts.WS, ["f1"], tx)
+    })
+
+    it("without a transaction a failing listener never fails the write nor the next listener, and no transaction is handed over", async () => {
+        const service = await build(mockEntityManager({}))
+        const failing = { factsChanged: jest.fn().mockRejectedValue(new Error("logs its own failure")) }
+        const next = { factsChanged: jest.fn().mockResolvedValue(undefined) }
+        service.whenChanged(failing)
+        service.whenChanged(next)
+
+        await expect(service.announceChanged(facts.WS, ["f1"])).resolves.toBeUndefined()
+
+        expect(failing.factsChanged).toHaveBeenCalledWith(facts.WS, ["f1"])
+        expect(next.factsChanged).toHaveBeenCalledTimes(1)
+    })
+})

@@ -40,7 +40,6 @@ const WIRING_POLL_SCHEDULE = {
     unavailableRecheckMs: DAY_MS,
     batchSize: 50,
     leaseMs: 600_000,
-    maxInlineWaitMs: 5_000,
     backfillChunkPages: 2,
 }
 
@@ -208,7 +207,6 @@ const options = {
     misaAmis: parseMisaAmisConfig(new EnvSource({})),
     misaMeinvoice: parseMisaMeinvoiceConfig(new EnvSource({})),
     toolsConfig: { defaultTimeoutMs: 4000 },
-    knowledge: { indexChunkDelayMs: 0 },
     // No vector index in a proof: vectors stay in Postgres (the one switch is QDRANT_URL).
     qdrant: { url: null, apiKey: null, timeoutMs: 5000 },
 }

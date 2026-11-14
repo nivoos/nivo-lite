@@ -87,12 +87,10 @@ export const orderAnswerSchema: NodeSchema<CareOrderAnswer> = z.object({
     }),
 })
 
-/** What care knows of the customer: the opt-out, the receiver they named, their dates. */
+/** What care knows of the customer: the receiver they named, their dates. */
 export type CareFacts = {
     /** The lead whose care facts these are. */
     readonly leadId: string
-    /** True when the customer asked not to be contacted for care messages. */
-    readonly optedOut: boolean
     /** Who receives what the customer buys (a name); null when not known. */
     readonly recipient: string | null
     /** The dates the customer wants to be reminded of. */
@@ -105,10 +103,9 @@ export type CareFacts = {
     }>
 }
 
-/** What care knows of the customer (`nivo.tool.lead.care.get { leadId }`): the opt-out, the receiver they named, their dates. */
+/** What care knows of the customer (`nivo.tool.lead.care.get { leadId }`): the receiver they named, their dates. */
 export const careAnswerSchema: NodeSchema<CareFacts> = z.object({
     leadId: id,
-    optedOut: z.boolean(),
     recipient: text.nullable(),
     occasions: z.array(
         z.object({
@@ -187,7 +184,7 @@ export const careOrderOf = async (
     return read.ok ? read.value.order : null
 }
 
-/** What care knows of the customer; a refused read (no such customer) leaves the step nothing to do, as an opt-out does. */
+/** What care knows of the customer; a refused read (no such customer) leaves the step nothing to do. */
 export const careFactsOf = async (
     context: Pick<NodeContext, "tools" | "fail">,
     leadId: string,
@@ -246,26 +243,19 @@ export const saleLeadListOf = (contactId: string): JsonObject => ({
     limit: 1,
 })
 
-/** The person an order is for and whether they asked care to leave them alone. */
+/** The person an order is for. */
 export interface OrderPerson {
     /** The order's contact. */
     readonly contactId: string
-    /** True when the sale's record of the person says they opted out of care. */
-    readonly optedOut: boolean
 }
 
 /**
- * The person of an order (its `contactId`, from the sale's own order record) and care's opt-out, kept on the sale's record of the person
- * (`blocks-core.sales.lead` by `contactId`); null when the order has no person, or care cannot be read for them (nothing to do, as an
- * opt-out). A person the sale keeps no record of has not opted out.
+ * The person of an order (its `contactId`, from the sale's own order record); null when the order has no person (nothing to do). Whether
+ * the person may be written to unprompted is the contact's consent, judged by the engine's send door, never read here.
  */
 export const orderPersonOf = async (context: Pick<NodeContext, "tools" | "fail">, orderId: string): Promise<OrderPerson | null> => {
     const { contactId } = await readOrder(context, orderId)
-    if (contactId === null) return null
-    const leadId = await saleLeadOf(context, contactId)
-    if (leadId === null) return { contactId, optedOut: false }
-    const facts = await careFactsOf(context, leadId)
-    return facts === null ? null : { contactId, optedOut: facts.optedOut }
+    return contactId === null ? null : { contactId }
 }
 
 /** The contact of the sale's record of a person (`nivo.tool.record.get` on `blocks-core.sales.lead`), or null when it names none. */

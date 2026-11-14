@@ -28,7 +28,6 @@ interface ImapWizardActionsInput {
     readonly state: ImapWizardState
     readonly onClose: (changed: boolean) => void
     readonly setConnectionAgents: (connectionId: string, wanted: ReadonlyArray<string>) => Promise<Settled<true>>
-    readonly startSync: (connectionId: string) => Promise<void>
 }
 
 /** The view `useImapWizardActions` returns. */
@@ -53,7 +52,6 @@ export const useImapWizardActions = ({
     state,
     onClose,
     setConnectionAgents,
-    startSync,
 }: ImapWizardActionsInput): ImapWizardActionsView => {
     const [isPending, startTransition] = useTransition()
     const setField = (key: TextField) => (value: string) => {
@@ -98,11 +96,10 @@ export const useImapWizardActions = ({
                 ...request(),
                 folders: [...state.folders],
                 sinceDays: state.sinceDays,
-                syncEveryMinutes: state.every,
             })
             if (answer.kind !== "ok") return patch({ error: answer.message })
             form.setValue("password", "")
-            patch({ savedId: answer.value, index: 3 })
+            patch({ savedId: answer.value, index: 2 })
         })
 
     const finish = () => {
@@ -111,7 +108,6 @@ export const useImapWizardActions = ({
         startTransition(async () => {
             const answer = await setConnectionAgents(id, state.agentIds)
             if (answer.kind !== "ok") return patch({ error: answer.message })
-            void startSync(id)
             onClose(true)
         })
     }

@@ -6,14 +6,10 @@ export enum AgentGraphsErrorCode {
     GraphNotFound = "AGENT_GRAPHS_GRAPH_NOT_FOUND",
     /** The version is not a version of the agent. */
     VersionNotFound = "AGENT_GRAPHS_VERSION_NOT_FOUND",
-    /** The proposal is not a proposal of the agent. */
-    ProposalNotFound = "AGENT_GRAPHS_PROPOSAL_NOT_FOUND",
     /** Someone saved the draft after it was read. */
     DraftConflict = "AGENT_GRAPHS_DRAFT_CONFLICT",
     /** The graph still has problems the owner must fix before it is published. */
     PublishRefused = "AGENT_GRAPHS_PUBLISH_REFUSED",
-    /** A new version whose params or refs are broken (`graphRefProblems`): an unknown field, a type mismatch, a ref that may not have run. */
-    RefsRefused = "AGENT_GRAPHS_REFS_REFUSED",
     /** A draft whose flow names a model the vocabulary does not know, or a model on a node that calls no AI. */
     ModelRefused = "AGENT_GRAPHS_MODEL_REFUSED",
     /** The agent's module belongs to a private plugin the workspace may no longer use (its enterprise identifier does not match). */
@@ -44,6 +40,8 @@ export enum AgentGraphsErrorCode {
     WorkflowConflict = "AGENT_GRAPHS_WORKFLOW_CONFLICT",
     /** The workflow change is refused: its graph has problems, the status move or the template version is not allowed. */
     WorkflowRefused = "AGENT_GRAPHS_WORKFLOW_REFUSED",
+    /** A person's queued start of a workflow reached the pipeline and no live registration of the agent took it (the workflow was paused or replaced since): nothing was claimed, and a resume delivers it once the workflow runs again. */
+    WorkflowStartUntaken = "AGENT_GRAPHS_WORKFLOW_START_UNTAKEN",
     /** A workflow wake reached the flow before the thread engine registered: the app composed no engine to run it. */
     EngineMissing = "AGENT_GRAPHS_ENGINE_MISSING",
     /**
@@ -51,16 +49,26 @@ export enum AgentGraphsErrorCode {
      * an account that does not read that stream (owner key `triggerOneSource2026_11_12`): nothing is written.
      */
     TriggerPickRefused = "AGENT_GRAPHS_TRIGGER_PICK_REFUSED",
+    /** A node setting the step does not take (`params.setting`: `mode` on a control step, `accounts` on a step that lists no provider). */
+    NodeSettingUnsettable = "AGENT_GRAPHS_NODE_SETTING_UNSETTABLE",
+    /** A chosen account the agent is not attached to (`params.connectionId`). */
+    NodeAccountNotAttached = "AGENT_GRAPHS_NODE_ACCOUNT_NOT_ATTACHED",
+    /** A chosen account whose connection does not work (not `connected`; `params.connectionId`). */
+    NodeAccountNotConnected = "AGENT_GRAPHS_NODE_ACCOUNT_NOT_CONNECTED",
+    /** A chosen account of a provider the step does not list (`params.connectionId`, `params.provider`). */
+    NodeAccountNotListed = "AGENT_GRAPHS_NODE_ACCOUNT_NOT_LISTED",
+    /** A chosen SANDBOX account where the sandbox is off (`params.connectionId`). */
+    NodeAccountSandboxOff = "AGENT_GRAPHS_NODE_ACCOUNT_SANDBOX_OFF",
+    /** One account chosen twice in one choice (`params.connectionId`). */
+    NodeAccountRepeated = "AGENT_GRAPHS_NODE_ACCOUNT_REPEATED",
 }
 
 /** How each agent-graphs code travels. */
 export const AGENT_GRAPHS_ERROR_KINDS: Record<AgentGraphsErrorCode, ErrorKind> = {
     [AgentGraphsErrorCode.GraphNotFound]: "not-found",
     [AgentGraphsErrorCode.VersionNotFound]: "not-found",
-    [AgentGraphsErrorCode.ProposalNotFound]: "not-found",
     [AgentGraphsErrorCode.DraftConflict]: "conflict",
     [AgentGraphsErrorCode.PublishRefused]: "invalid",
-    [AgentGraphsErrorCode.RefsRefused]: "invalid",
     [AgentGraphsErrorCode.ModelRefused]: "invalid",
     [AgentGraphsErrorCode.ModuleClosed]: "forbidden",
     [AgentGraphsErrorCode.ContractRefused]: "invalid",
@@ -74,8 +82,15 @@ export const AGENT_GRAPHS_ERROR_KINDS: Record<AgentGraphsErrorCode, ErrorKind> =
     [AgentGraphsErrorCode.TemplateNotFound]: "not-found",
     [AgentGraphsErrorCode.WorkflowConflict]: "conflict",
     [AgentGraphsErrorCode.WorkflowRefused]: "invalid",
+    [AgentGraphsErrorCode.WorkflowStartUntaken]: "conflict",
     [AgentGraphsErrorCode.EngineMissing]: "internal",
     [AgentGraphsErrorCode.TriggerPickRefused]: "invalid",
+    [AgentGraphsErrorCode.NodeSettingUnsettable]: "invalid",
+    [AgentGraphsErrorCode.NodeAccountNotAttached]: "invalid",
+    [AgentGraphsErrorCode.NodeAccountNotConnected]: "invalid",
+    [AgentGraphsErrorCode.NodeAccountNotListed]: "invalid",
+    [AgentGraphsErrorCode.NodeAccountSandboxOff]: "invalid",
+    [AgentGraphsErrorCode.NodeAccountRepeated]: "invalid",
 }
 
 /** The one error class of the agent-graphs capability. */

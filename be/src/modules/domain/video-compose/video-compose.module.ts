@@ -3,11 +3,19 @@ import { triggerDeclarations } from "@modules/domain/provider-triggers"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./video-compose.module-definition"
 import { VideoComposeRegistryService } from "./video-compose-registry.service"
 import { VideoComposeNativeService } from "./video-compose.service"
+import { VideoRenderAdmissionService } from "./video-render-admission.service"
+import { VideoRenderDeliveryService } from "./video-render-delivery.service"
 import { VideoRenderIntakeService } from "./video-render-intake.service"
 import { VideoRenderProofsService } from "./video-render-proofs.service"
 import { renderTriggerOf } from "./video-render.trigger"
 
-const EXPORTED = [VideoComposeRegistryService, VideoComposeNativeService, VideoRenderIntakeService]
+const EXPORTED = [
+    VideoComposeRegistryService,
+    VideoComposeNativeService,
+    VideoRenderIntakeService,
+    VideoRenderDeliveryService,
+    VideoRenderAdmissionService,
+]
 
 @Module({})
 /**
@@ -19,7 +27,10 @@ const EXPORTED = [VideoComposeRegistryService, VideoComposeNativeService, VideoR
  * compose provider has registered its port, the render trigger of each is registered (one declaration per provider, the generic translate).
  */
 export class VideoComposeModule extends ConfigurableModuleClass implements OnApplicationBootstrap {
-    constructor(private readonly composers: VideoComposeRegistryService) {
+    constructor(
+        private readonly composers: VideoComposeRegistryService,
+        private readonly admission: VideoRenderAdmissionService,
+    ) {
         super()
     }
 
@@ -29,8 +40,9 @@ export class VideoComposeModule extends ConfigurableModuleClass implements OnApp
         return { ...base, providers: [...(base.providers ?? []), ...EXPORTED, VideoRenderProofsService], exports: EXPORTED }
     }
 
-    /** Registers the render trigger of every compose provider that registered its port. */
+    /** Registers the render trigger and the admission of the render type of every compose provider that registered its port. */
     onApplicationBootstrap(): void {
+        this.admission.register()
         triggerDeclarations.register(...this.composers.providers().map((provider) => renderTriggerOf(provider)))
     }
 }

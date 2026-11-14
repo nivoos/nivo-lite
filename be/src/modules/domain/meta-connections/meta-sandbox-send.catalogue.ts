@@ -6,8 +6,8 @@ export const META_SEND_OPERATION = "send"
 /**
  * The outbound cases of the Meta customer send, Messenger and Instagram (R62: the account's NEXT CASE picks one, sticky; META-SEND-1
  * answers while nothing is picked). The 24-hour window rule applies before any of them: a person whose last line is older than 24 hours is
- * refused whatever case is picked. The live sender answers only yes or no, so a refusal and a timeout reach the engine as the same
- * unknown outcome; the sandbox answers exactly that.
+ * refused whatever case is picked. A refusal and a timeout reach the engine as the same unknown outcome, as live; only a refusal FOR NOW
+ * with nothing taken (Meta's rate limit) is the port's not-sent answer (META-SEND-4); the sandbox answers exactly that.
  */
 export const META_SEND_SANDBOX_CASES: ReadonlyArray<SandboxCase> = [
     {
@@ -24,6 +24,11 @@ export const META_SEND_SANDBOX_CASES: ReadonlyArray<SandboxCase> = [
     {
         id: "META-SEND-3",
         label: "The send times out: Meta never answers, so the outcome is unknown (ambiguous receipt)",
+        operation: META_SEND_OPERATION,
+    },
+    {
+        id: "META-SEND-4",
+        label: "The send is NOT SENT: Meta answers its rate limit (Graph code 613) before any part went out: the port's not-sent answer CHANNELS_SEND_UNAVAILABLE, so the engine retries later",
         operation: META_SEND_OPERATION,
     },
 ]

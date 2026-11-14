@@ -61,7 +61,7 @@ export class AgentGraphAiNodeType {
 }
 
 @ObjectType()
-/** The graph of one agent as the editor opens it. The graph, its problems, gaps, cards and proposals travel as JSON text. */
+/** The graph of one agent as the editor opens it. The graph, its problems, gaps and cards travel as JSON text. */
 export class AgentGraphType {
     /** The agent. */
     @Field(() => String)
@@ -103,17 +103,9 @@ export class AgentGraphType {
     @Field(() => String)
     cardsJson!: string
 
-    /** The proposals waiting for a person, as JSON text. */
-    @Field(() => String)
-    proposalsJson!: string
-
     /** The facts a condition may be written on (key, label, type, unit, allowed), as JSON text. */
     @Field(() => String)
     factsJson!: string
-
-    /** The sums the setup text states as a rule that the graph does not hold, as JSON text. */
-    @Field(() => String)
-    unheldRulesJson!: string
 
     /** The AI nodes of the draft with their model and credits over the last days; null where the graph is answered by a write. */
     @Field(() => [AgentGraphAiNodeType], { nullable: true })
