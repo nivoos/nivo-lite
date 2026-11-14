@@ -1,8 +1,18 @@
-kind: core.set
+config:
+  properties:
+    set:
+      type: object
+  required:
+    - set
+  type: object
+input: &a1
+  type: object
 key: core.set
+kind: core.set
+output: *a1
+semantics:
+  mutates: false
+title:
+  en: Set workflow variables
+  vi: Đặt biến của quy trình
 version: 1
-title: { vi: "Đặt biến của quy trình", en: "Set workflow variables" }
-input: { type: object }
-output: { type: object }
-config: { type: object, required: [set], properties: { set: { type: object } } }
-semantics: { mutates: false }

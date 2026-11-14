@@ -1,8 +1,31 @@
-kind: tool
+body:
+  account: none
+  servedBy: primitive:record.update
+input:
+  properties:
+    fields:
+      type: object
+    recordId:
+      type: string
+  required:
+    - recordId
+    - fields
+  type: object
 key: nivo.tool.record.update
+kind: tool
+output:
+  properties:
+    updated:
+      type: boolean
+  required:
+    - updated
+  type: object
+semantics:
+  mutates: true
+  outside: false
+  refusals:
+    - record_locked
+title:
+  en: Update a record
+  vi: Cập nhật bản ghi
 version: 1
-title: { vi: "Cập nhật bản ghi", en: "Update a record" }
-input: { type: object, required: [recordId, fields], properties: { recordId: { type: string }, fields: { type: object } } }
-output: { type: object, required: [updated], properties: { updated: { type: boolean } } }
-semantics: { mutates: true, outside: false, refusals: [record_locked] }
-body: { account: none, servedBy: "primitive:record.update" }

@@ -1,10 +1,29 @@
-kind: tool
+body:
+  account: any
+  servedBy:
+    model: nivo.api.model.complete
+input:
+  properties:
+    prompt:
+      type: string
+  required:
+    - prompt
+  type: object
 key: demo.model.complete
-version: 1
-title: { vi: "Mô hình viết tóm tắt", en: "Model completion" }
-input: { type: object, required: [prompt], properties: { prompt: { type: string } } }
-output: { type: object, required: [text], properties: { text: { type: string } } }
+kind: tool
+output:
+  properties:
+    text:
+      type: string
+  required:
+    - text
+  type: object
 semantics:
+  metered:
+    price: reported
+    usage: tokens
   mutates: false
-  metered: { usage: tokens, price: reported }
-body: { account: any, servedBy: { model: nivo.api.model.complete } }
+title:
+  en: Model completion
+  vi: Mô hình viết tóm tắt
+version: 1

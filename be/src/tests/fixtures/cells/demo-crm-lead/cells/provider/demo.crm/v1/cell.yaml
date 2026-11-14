@@ -1,13 +1,20 @@
-kind: provider
-key: demo.crm
-version: 1
-title: { vi: "CRM mẫu", en: "Demo CRM" }
-input: { type: object }
-output: { type: object }
-semantics: { mutates: false }
 body:
-  roles: [crm]
-  auth: { scheme: api-key }
-  baseUrl: "https://crm.example.invalid"
-  accountFields: [apiKey]
+  accountFields:
+    - apiKey
   accountOwner: workspace
+  auth:
+    scheme: api-key
+  baseUrl: https://crm.example.invalid
+  roles:
+    - crm
+input: &a1
+  type: object
+key: demo.crm
+kind: provider
+output: *a1
+semantics:
+  mutates: false
+title:
+  en: Demo CRM
+  vi: CRM mẫu
+version: 1

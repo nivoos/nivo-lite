@@ -1,40 +1,73 @@
 key: demo.payment
-version: 1
 start: remember
-triggers:
-  - { verb: nivo.trigger.payment.credit.received, accounts: [sepay] }
-vars:
-  paidAmount: { schema: { type: number } }
 steps:
-  remember:
-    kind: core.set
-    config:
-      set: { paidAmount: { $ref: trigger.data.amountVnd } }
-      next: match
+  ask:
+    accounts:
+      - sepay
+    cell:
+      key: demo.ask-to-pay
+      kind: node
+      version: 1
+    input:
+      orderId:
+        $ref: trigger.data.orderId
+      total:
+        $ref: trigger.data.total
+    kind: node
+    mode: auto
+    next: wait
   match:
     kind: core.if
-    label: { vi: "Đủ tiền?", en: "Paid in full?" }
-    when: { op: gte, ref: { $ref: vars.paidAmount }, value: { $ref: trigger.data.total } }
-    yes: paid
+    label:
+      en: Paid in full?
+      vi: Đủ tiền?
     no: ask
-  ask:
-    kind: node
-    cell: { kind: node, key: demo.ask-to-pay, version: 1 }
-    input: { orderId: { $ref: trigger.data.orderId }, total: { $ref: trigger.data.total } }
-    mode: auto
-    accounts: [sepay]
-    next: wait
+    when:
+      op: gte
+      ref:
+        $ref: vars.paidAmount
+      value:
+        $ref: trigger.data.total
+    yes: paid
+  paid:
+    config:
+      name: paid
+      output:
+        amountVnd:
+          $ref: vars.paidAmount
+        payKey:
+          $ref: steps.ask.output.payKey
+    kind: core.outcome
+  remember:
+    config:
+      next: match
+      set:
+        paidAmount:
+          $ref: trigger.data.amountVnd
+    kind: core.set
+  unpaid:
+    config:
+      name: unpaid
+    kind: core.outcome
   wait:
-    kind: core.wait
     config:
       keys:
-        - { verb: nivo.trigger.payment.credit.received, where: { op: present, ref: { $ref: trigger.data.creditId } } }
-      timeout: { hours: 24 }
+        - verb: nivo.trigger.payment.credit.received
+          where:
+            op: present
+            ref:
+              $ref: trigger.data.creditId
       next: paid
       onTimeout: unpaid
-  paid:
-    kind: core.outcome
-    config: { name: paid, output: { payKey: { $ref: steps.ask.output.payKey }, amountVnd: { $ref: vars.paidAmount } } }
-  unpaid:
-    kind: core.outcome
-    config: { name: unpaid }
+      timeout:
+        hours: 24
+    kind: core.wait
+triggers:
+  - accounts:
+      - sepay
+    verb: nivo.trigger.payment.credit.received
+vars:
+  paidAmount:
+    schema:
+      type: number
+version: 1

@@ -1,29 +1,40 @@
 key: demo.lead-intake
-version: 1
 start: each
-triggers:
-  - { verb: nivo.trigger.crm.leads.received, accounts: [demo-crm] }
 steps:
-  each:
-    kind: core.loop
+  done:
     config:
-      over: { $ref: trigger.data.leads }
-      key: email
-      max: 50
-      concurrency: 1
+      name: filed
+    kind: core.outcome
+  each:
+    config:
       body:
         start: file
         steps:
           file:
-            kind: node
-            cell: { kind: node, key: demo.file-lead, version: 1 }
+            accounts:
+              - demo-crm
+            cell:
+              key: demo.file-lead
+              kind: node
+              version: 1
             input:
-              recordId: { $ref: item.recordId }
-              name: { $ref: item.name }
-              email: { $ref: item.email }
+              email:
+                $ref: item.email
+              name:
+                $ref: item.name
+              recordId:
+                $ref: item.recordId
+            kind: node
             mode: auto
-            accounts: [demo-crm]
+      concurrency: 1
+      key: email
+      max: 50
       next: done
-  done:
-    kind: core.outcome
-    config: { name: filed }
+      over:
+        $ref: trigger.data.leads
+    kind: core.loop
+triggers:
+  - accounts:
+      - demo-crm
+    verb: nivo.trigger.crm.leads.received
+version: 1

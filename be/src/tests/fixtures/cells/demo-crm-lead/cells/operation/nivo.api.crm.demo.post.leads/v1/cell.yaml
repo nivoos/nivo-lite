@@ -1,13 +1,37 @@
-kind: operation
+body:
+  method: POST
+  path: /leads
+  provider: demo.crm
+  replayKeyHeader: Idempotency-Key
+input:
+  properties:
+    email:
+      type: string
+    name:
+      type: string
+  required:
+    - name
+    - email
+  type: object
 key: nivo.api.crm.demo.post.leads
-version: 1
-title: { vi: "Tạo lead trên CRM", en: "Post a lead to the CRM" }
-input: { type: object, required: [name, email], properties: { name: { type: string }, email: { type: string } } }
-output: { type: object, required: [leadId], properties: { leadId: { type: string } } }
+kind: operation
+output:
+  properties:
+    leadId:
+      type: string
+  required:
+    - leadId
+  type: object
 semantics:
+  finalRefusals:
+    - invalid_lead
   mutates: true
   outside: true
+  refusals:
+    - duplicate_email
+    - invalid_lead
   repeatable: true
-  refusals: [duplicate_email, invalid_lead]
-  finalRefusals: [invalid_lead]
-body: { provider: demo.crm, method: POST, path: /leads, replayKeyHeader: Idempotency-Key }
+title:
+  en: Post a lead to the CRM
+  vi: Tạo lead trên CRM
+version: 1

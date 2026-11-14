@@ -1,8 +1,31 @@
-kind: tool
+body:
+  account: any
+  servedBy: primitive:customer.message.send
+input:
+  properties:
+    text:
+      type: string
+  required:
+    - text
+  type: object
 key: nivo.tool.customer.message.send
+kind: tool
+output:
+  properties:
+    delivered:
+      type: boolean
+  required:
+    - delivered
+  type: object
+semantics:
+  finalRefusals:
+    - customer_blocked
+  mutates: true
+  outside: true
+  refusals:
+    - customer_blocked
+  repeatable: false
+title:
+  en: Send the customer a message
+  vi: Gửi tin cho khách
 version: 1
-title: { vi: "Gửi tin cho khách", en: "Send the customer a message" }
-input: { type: object, required: [text], properties: { text: { type: string } } }
-output: { type: object, required: [delivered], properties: { delivered: { type: boolean } } }
-semantics: { mutates: true, outside: true, repeatable: false, refusals: [customer_blocked], finalRefusals: [customer_blocked] }
-body: { account: any, servedBy: "primitive:customer.message.send" }

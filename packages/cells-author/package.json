@@ -1,0 +1,16 @@
+{
+  "name": "@nivo-lite/cells-author",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The authoring helper of NIVO V2 cells: typed builders that EMIT the seed data files (cell.yaml, graph.yaml, cells.package.yaml, byte-stable), the compile step that turns a cell's TypeScript origin into the ONE self-contained JavaScript text the cell stores, `emit --check`, and the ambient types for cell sources. It runs outside the engine; the engine never imports it (gate D of the cells-isolation check).",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": { "cells-author": "./dist/cli.js" },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./ambient": { "types": "./ambient/node.d.ts" }
+  },
+  "files": ["dist", "ambient"],
+  "scripts": { "build": "tsc -p tsconfig.build.json" },
+  "dependencies": { "typescript": "5.9.3", "yaml": "2.9.1" }
+}

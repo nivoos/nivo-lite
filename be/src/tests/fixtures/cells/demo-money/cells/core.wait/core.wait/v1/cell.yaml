@@ -1,8 +1,20 @@
-kind: core.wait
+config:
+  properties:
+    keys:
+      maxItems: 5
+      minItems: 1
+      type: array
+  required:
+    - keys
+  type: object
+input: &a1
+  type: object
 key: core.wait
+kind: core.wait
+output: *a1
+semantics:
+  mutates: false
+title:
+  en: Wait for an event
+  vi: Chờ sự kiện
 version: 1
-title: { vi: "Chờ sự kiện", en: "Wait for an event" }
-input: { type: object }
-output: { type: object }
-config: { type: object, required: [keys], properties: { keys: { type: array, minItems: 1, maxItems: 5 } } }
-semantics: { mutates: false }
