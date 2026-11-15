@@ -108,6 +108,18 @@ const REQUEST_ENDED = or(equals(REQUEST_NOW_STATUS, "cancelled"), equals(REQUEST
 /** What woke the payment round, by the route the wait took: `credit`, `said`, `ordered`, or `timeout`. */
 const WOKE_BY = ref("steps.await.output.trigger")
 
+/**
+ * The customer's message of THIS round asked to cancel the order: the round was woken by a message (only then did `order-talk` run in it)
+ * and the order talk's outcome is `cancel` (the model's reading, by meaning).
+ */
+const CANCEL_ASKED = and(equals(WOKE_BY, "said"), equals(ref("steps.order-talk.output.topic", { default: null }), "cancel"))
+
+/** The payment loop's own cancel step cancelled the order (its number answered; a declined cancel answers none). */
+const CANCELLED_HERE = present(ref("steps.pay-cancel-order.output.orderNo", { default: null }))
+
+/** Why the customer asked to cancel, as the order talk read it (null when they gave no reason). */
+const CANCEL_REASON = ref("steps.order-talk.output.cancelReason", { default: null })
+
 /** The consult's last word, read after the talk loop through its `last` (the consult that ended the final round). */
 const CONSULT = {
     branch: ref("steps.talk.output.last.branch", { default: null }),
@@ -133,16 +145,17 @@ const CATALOGUE: TemplateCatalogue = {
         vi: "Một lượt chạy cho cả việc bán: tư vấn từng tin nhắn của khách, ghi đơn, yêu cầu khách thanh toán, chờ tiền về hoặc tin nhắn về đơn, nhắc khi quá hạn",
         en: "One run for the whole sale: consults on each of the customer's messages, records the order, asks the customer to pay, waits for the money or a message about the order, reminds when it is late",
     },
-    version: 33,
-    publishedAt: "2026-11-15T09:00:00.000Z",
+    version: 34,
+    publishedAt: "2026-11-15T16:00:00.000Z",
     notes: {
-        vi: "Bản 33: khi chờ tiền, việc ghi lại đơn (người của tiệm hủy hoặc chốt đơn ở bàn làm việc) đánh thức quy trình ngay: quy trình đọc lại đơn, đơn không còn chờ tiền thì kết thúc `đã đóng`, không nhắc, không cảm ơn; đơn vẫn chờ tiền thì chờ tiếp, không nhắc; tin nhắn của khách trên kênh nào cũng là một loại sự kiện. Bản 32: yêu cầu thanh toán qua tài khoản nhận tiền của tiệm (link thanh toán, mã QR hoặc thông tin chuyển khoản, tùy nhà cung cấp); khoản tiền về được nhận theo mã yêu cầu của nhà cung cấp (hoặc nội dung chuyển khoản khi nhà cung cấp không giữ yêu cầu); mỗi lần chờ tiền được đánh thức, quy trình đọc lại cả yêu cầu thanh toán: khách đã hủy ở trang thanh toán hoặc yêu cầu hết hạn thì kết thúc `đã đóng`; hủy đơn thì rút lại yêu cầu còn mở. Bản 31: quy trình chỉ còn các bước bán hàng: bước bị từ chối hoặc không tới được khách thì hệ thống tự báo đội (kèm mã đơn, tổng tiền) rồi đi tiếp hoặc kết thúc như trước; hết lượt nhắc mà đơn chưa trả thì hệ thống báo đội; mỗi lần chờ tiền được đánh thức, quy trình đọc lại đơn: khoản tiền về cho đơn đã hủy hoặc đã trả không được ghi, chỉ báo đội như khoản tiền lạ, rồi kết thúc `đã đóng`",
-        en: "Version 33: while waiting for the money, a write of the order (the shop cancelling or settling it on the workbench) wakes the run at once: it re-reads the order and, when the order no longer waits for money, ends `closed` with no reminder and no thank-you; an order still waiting waits on, with no reminder; the customer's message on any channel is one kind of event. Version 32: asks the customer to pay through the shop's money account (a pay link, a QR or the transfer details, as the provider gives); the money is recognised by the provider's request reference (or the transfer content when the provider keeps no request); every wake of the payment wait also reads the payment request: cancelled at checkout or expired ends the run `closed`; cancelling the order withdraws a request still open. Version 31: the workflow keeps only the sale's steps: a step declined or not delivered to the customer is told to the team by the engine (with the order's code and total), then the run goes on or ends as before; an order still unpaid after every reminder is told to the team by the engine; a bank credit or the timeout of the payment wait first reads the order as it stands now: a credit for an order that no longer waits for money (cancelled, already paid) is told to the team as a stranger credit and never recorded, the run then ends `closed`",
+        vi: "Bản 34: khi chờ tiền mà khách muốn huỷ đơn, bước trao đổi về đơn không trả lời bằng lời mà chọn kết quả `muốn huỷ đơn`: quy trình đọc lại đơn và yêu cầu thanh toán, đơn còn chờ tiền thì huỷ đơn (chủ tiệm duyệt nếu bước để chế độ hỏi), rút lại yêu cầu thanh toán còn mở rồi báo khách đã huỷ và kết thúc `đã đóng`; chủ tiệm không đồng ý thì báo khách đơn được giữ và chờ tiền tiếp. Bản 33: khi chờ tiền, việc ghi lại đơn (người của tiệm hủy hoặc chốt đơn ở bàn làm việc) đánh thức quy trình ngay: quy trình đọc lại đơn, đơn không còn chờ tiền thì kết thúc `đã đóng`, không nhắc, không cảm ơn; đơn vẫn chờ tiền thì chờ tiếp, không nhắc; tin nhắn của khách trên kênh nào cũng là một loại sự kiện. Bản 32: yêu cầu thanh toán qua tài khoản nhận tiền của tiệm (link thanh toán, mã QR hoặc thông tin chuyển khoản, tùy nhà cung cấp); khoản tiền về được nhận theo mã yêu cầu của nhà cung cấp (hoặc nội dung chuyển khoản khi nhà cung cấp không giữ yêu cầu); mỗi lần chờ tiền được đánh thức, quy trình đọc lại cả yêu cầu thanh toán: khách đã hủy ở trang thanh toán hoặc yêu cầu hết hạn thì kết thúc `đã đóng`; hủy đơn thì rút lại yêu cầu còn mở. Bản 31: quy trình chỉ còn các bước bán hàng: bước bị từ chối hoặc không tới được khách thì hệ thống tự báo đội (kèm mã đơn, tổng tiền) rồi đi tiếp hoặc kết thúc như trước; hết lượt nhắc mà đơn chưa trả thì hệ thống báo đội; mỗi lần chờ tiền được đánh thức, quy trình đọc lại đơn: khoản tiền về cho đơn đã hủy hoặc đã trả không được ghi, chỉ báo đội như khoản tiền lạ, rồi kết thúc `đã đóng`",
+        en: "Version 34: while waiting for the money, a customer's wish to cancel is no longer answered in words: the order talk chooses the outcome `cancel`; the run re-reads the order and its payment request and, while the order still waits for money, cancels it (the owner approves when the step is set to ask), withdraws the request still open, tells the customer it is cancelled and ends `closed`; when the owner declines, the customer is told the order stays and the wait goes on. Version 33: while waiting for the money, a write of the order (the shop cancelling or settling it on the workbench) wakes the run at once: it re-reads the order and, when the order no longer waits for money, ends `closed` with no reminder and no thank-you; an order still waiting waits on, with no reminder; the customer's message on any channel is one kind of event. Version 32: asks the customer to pay through the shop's money account (a pay link, a QR or the transfer details, as the provider gives); the money is recognised by the provider's request reference (or the transfer content when the provider keeps no request); every wake of the payment wait also reads the payment request: cancelled at checkout or expired ends the run `closed`; cancelling the order withdraws a request still open. Version 31: the workflow keeps only the sale's steps: a step declined or not delivered to the customer is told to the team by the engine (with the order's code and total), then the run goes on or ends as before; an order still unpaid after every reminder is told to the team by the engine; a bank credit or the timeout of the payment wait first reads the order as it stands now: a credit for an order that no longer waits for money (cancelled, already paid) is told to the team as a stranger credit and never recorded, the run then ends `closed`",
     },
 }
 
 /**
- * `sales.consult` version 33 (v32 + the order's own write wakes the payment wait, `ordered`; the four channel keys are ONE key `said`)
+ * `sales.consult` version 34 (v33 + a wish to cancel during the payment wait is the order talk's outcome `cancel`, which takes the
+ * payment loop's cancel road; see PAYMENT LOOP) (v33: v32 + the order's own write wakes the payment wait, `ordered`; the four channel keys are ONE key `said`)
  * (v32: v31 + the ONE payment request, owner ruling R111: see ORDER, PAYMENT LOOP and CANCEL) (v31: the payment wait
  * re-reads the order on every wake) (R68: pure business; every "was it declined / not delivered -> team notice" pair is gone: the step declares
  * its `unsuccessful` ending and the ENGINE tells the team, then goes on or ends `declined`): THE SALE AS ONE RUN (owner's final rule 7;
@@ -165,8 +178,12 @@ const CATALOGUE: TemplateCatalogue = {
  *   writes, as the provider's feed and its request declare it; never a text the graph chooses) and that is money IN (`data.direction` = `in`, R32),
  *   or a message of the person, 24 h at most. A credit: read it, the exact total records the order paid, another total tells the customer
  *   the difference and the team (`short-notice`, R32 money facts). A credit naming no waiting sale is the registered `sales.payment`
- *   graph's. A message: `order-talk` (the model decides by meaning whether it is about the order: `about` answers it; `off` hands the
- *   event back, `give-back`). The timeout: the reminder. An answer or a reminder that did not reach the customer (refused or declined; not
+ *   graph's. A message: `order-talk` (the model decides by meaning what it is: `about` answers it; `off` hands the event back,
+ *   `give-back`; v34 `cancel`, a wish to cancel this order, says nothing and takes the read of the order below: an order still waiting for
+ *   money is cancelled (`pay-cancel-order`, the owner approves when the step is set to ask), its request still open withdrawn
+ *   (`pay-cancel-request`) and the customer told (`pay-tell-cancelled`), then the loop leaves and the run ends `closed`; a person declining the
+ *   cancel (the engine tells the team) leaves the order as it is: the customer is told it stays (`pay-tell-kept`) and the wait goes on; an
+ *   order that no longer waits takes the read's own road and the run ends `closed`. Words of a hand-off never stand in for that road). The timeout: the reminder. An answer or a reminder that did not reach the customer (refused or declined; not
  *   `route_held`): the engine tells the team and the wait goes on. A person declining the paid record: the engine tells the team which
  *   order and the run ends `declined`. Paid: the after-sale is called, then `paid`. Out of rounds: the engine tells the team the order and
  *   its total, then `unpaid`. The talk loop running out ends `quiet` with no notice (a customer going quiet is normal).
@@ -313,9 +330,12 @@ export const salesConsultGraph: TemplateGraph = defineTemplateGraph({
             label: { vi: "Thanh toán", en: "Payment" },
             // The order is recorded paid, or its record no longer waits for money (the owner cancelled it, a person settled it), or its payment
             // request can no longer be paid: the run does not wait on, `settled` tells the two apart.
-            until: or(present(ref("steps.paid-order.output.orderNo", { default: null })), NO_LONGER_AWAITING, REQUEST_ENDED),
+            until: or(present(ref("steps.paid-order.output.orderNo", { default: null })), NO_LONGER_AWAITING, REQUEST_ENDED, CANCELLED_HERE),
             exits: {
-                until: { vi: "Thoát khi đơn đã trả hoặc không còn chờ tiền", en: "Leaves when the order is paid or no longer waits for money" },
+                until: {
+                    vi: "Thoát khi đơn đã trả, đã huỷ hoặc không còn chờ tiền",
+                    en: "Leaves when the order is paid, cancelled or no longer waits for money",
+                },
                 exhausted: { vi: "Hết 6 vòng mà chưa trả", en: "6 rounds and still unpaid" },
             },
             max: PAY_ROUNDS,
@@ -367,7 +387,54 @@ export const salesConsultGraph: TemplateGraph = defineTemplateGraph({
                         label: { vi: "Hết giờ chờ?", en: "The wait timed out?" },
                         when: equals(WOKE_BY, "timeout"),
                         yes: "remind",
+                        no: "pay-cancel-asked",
+                    }),
+                    // v34: the customer's message of this round asked to cancel an order that still waits for money.
+                    "pay-cancel-asked": ifNode({
+                        label: { vi: "Khách muốn huỷ đơn?", en: "The customer asks to cancel?" },
+                        when: CANCEL_ASKED,
+                        yes: "pay-cancel-order",
                         no: endRound,
+                    }),
+                    // The order is cancelled (the owner approves first when the step is set to ask). A person declining it is their
+                    // decision: the engine tells the team which order, the order stays, and the round goes on to tell the customer.
+                    "pay-cancel-order": node(salesOrderCancelNode, {
+                        input: { orderId: ref("steps.create-order.output.orderId"), reason: CANCEL_REASON },
+                        next: "pay-cancelled",
+                        unsuccessful: { then: "continue", facts: [ORDER] },
+                    }),
+                    "pay-cancelled": ifNode({
+                        label: { vi: "Đã huỷ đơn?", en: "Order cancelled?" },
+                        when: CANCELLED_HERE,
+                        yes: "pay-cancel-request",
+                        no: "pay-tell-kept",
+                    }),
+                    // The cancelled order's payment request is withdrawn while it can still be paid (none kept: nothing is called).
+                    "pay-cancel-request": node(salesRequestCancelNode, {
+                        input: { requestRef: ref("steps.order-now.output.paymentRequestRef", { default: null }), reason: CANCEL_REASON },
+                        next: "pay-tell-cancelled",
+                    }),
+                    // Then the customer hears how it ended, and the loop leaves (`CANCELLED_HERE`): the run ends `closed`.
+                    "pay-tell-cancelled": node(salesOrderCancelTellNode, {
+                        input: {
+                            conversationId: ref("trigger.data.conversationId"),
+                            orderNo: ref("steps.pay-cancel-order.output.orderNo", { default: null }),
+                            cancelled: true,
+                            locale: LOCALE,
+                        },
+                        next: endRound,
+                        unsuccessful: { facts: [ORDER] },
+                    }),
+                    // The owner kept the order: the customer is told it stays, and the wait goes on.
+                    "pay-tell-kept": node(salesOrderCancelTellNode, {
+                        input: {
+                            conversationId: ref("trigger.data.conversationId"),
+                            orderNo: ref("steps.create-order.output.orderNo"),
+                            cancelled: false,
+                            locale: LOCALE,
+                        },
+                        next: endRound,
+                        unsuccessful: { facts: [ORDER] },
                     }),
                     // The order no longer waits for money. A credit that names it is never recorded: it is a stranger credit, the team is told
                     // (the same notice as any credit the sale cannot settle); the timeout and a write of the order send nothing. Then the loop
@@ -437,7 +504,9 @@ export const salesConsultGraph: TemplateGraph = defineTemplateGraph({
                             locale: LOCALE,
                         },
                         // `off`: not about the order: the message goes back to whoever else waits for it (the front desk), the round ends.
-                        routes: { about: endRound, off: "give-back" },
+                        // `cancel` (v34): a wish to cancel this order: nothing was said; the order and its request are read as they stand
+                        // NOW, and an order still waiting for money takes the cancel road below (`pay-cancel-asked`).
+                        routes: { about: endRound, off: "give-back", cancel: "order-now" },
                         unsuccessful: { facts: [ORDER] },
                     }),
                     "give-back": handBack({ label: { vi: "Trả lại tin", en: "Hand the message back" }, wait: "await" }),
@@ -525,6 +594,7 @@ export const salesConsultGraph: TemplateGraph = defineTemplateGraph({
             input: {
                 conversationId: ref("trigger.data.conversationId"),
                 orderNo: ref("steps.cancel-order.output.orderNo", { default: null }),
+                cancelled: true,
                 locale: LOCALE,
             },
             next: "quiet",

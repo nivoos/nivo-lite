@@ -12,6 +12,9 @@ import { salesOrderReadNode } from "../nodes/order-read.node"
 import { salesRequestPayNode } from "../nodes/request-pay.node"
 import { salesRequestReadNode } from "../nodes/request-read.node"
 import { salesRequestCancelNode } from "../nodes/request-cancel.node"
+import { salesOrderCancelNode } from "../nodes/order-cancel.node"
+import { salesOrderCancelTellNode } from "../nodes/order-cancel-tell.node"
+import { salesOrderTalkNode } from "../nodes/order-talk.node"
 import { orderEntity } from "../entities/order.entity"
 import { salesConsultGraph } from "./consult.graph"
 
@@ -61,11 +64,11 @@ const refsOf = (expr: unknown): ReadonlyArray<string> => {
     return Object.values(expr).flatMap((part) => refsOf(part))
 }
 
-describe("sales.consult v33: the sale as one run", () => {
+describe("sales.consult v34: the sale as one run", () => {
     // v28 (ruling R45): the hand-off also carries the visit's start (`since`): the consult reads the engine's thread itself.
-    it("is version 33, called by the front desk with the route, the words, the channel, the person and the visit's start (no recentLines)", () => {
+    it("is version 34, called by the front desk with the route, the words, the channel, the person and the visit's start (no recentLines)", () => {
         expect(salesConsultGraph.key).toBe("sales.consult")
-        expect(salesConsultGraph.spec.catalogue?.version).toBe(33)
+        expect(salesConsultGraph.spec.catalogue?.version).toBe(34)
         expect(salesConsultGraph.spec.triggers).toEqual([{ verb: TRIGGER.workflowCalled }])
         expect(callInputsOf(salesConsultGraph.spec.contract).map((one) => one.name).toSorted()).toEqual(["channel", "contactId", "conversationId", "since", "text"])
         const consult = JSON.stringify((stepOf("consult") as { params: unknown }).params)
@@ -185,11 +188,12 @@ describe("sales.consult v30: the business shape", () => {
     /**
      * The most steps the sale may hold (v30 had 35: v29 had 55; v31 adds the order's status check at a credit and at the timeout: 8 steps;
      * v32 adds the payment request's read at the wake and its withdrawal at a cancel: 2 steps; v33 adds the timeout test after a wake of
-     * an order still waiting, so a write of the order reminds nobody: 1 step).
+     * an order still waiting, so a write of the order reminds nobody: 1 step; v34 adds the payment wait's cancel road (CANCEL-GAP): the test of
+     * the round's cancel wish, the cancel, its result, the request's withdrawal and the two words to the customer: 6 steps).
      */
-    const STEPS_MAX = 46
+    const STEPS_MAX = 52
 
-    it("holds two until loops, two waits, two hand-backs and at most 46 steps", () => {
+    it("holds two until loops, two waits, two hand-backs and at most 52 steps", () => {
         expect(steps.filter((step) => step.kind === "loop").map((step) => step.key)).toEqual(["talk", "pay"])
         expect(steps.filter((step) => step.kind === "wait").map((step) => step.key)).toEqual(["hear", "await"])
         expect(steps.filter((step) => step.kind === "hand-back").map((step) => step.key)).toEqual(["give-back-talk", "give-back"])
@@ -212,7 +216,7 @@ describe("sales.consult v30: the business shape", () => {
             .map((step) => step.key)
         expect(unnamed).toEqual([])
         expect(salesConsultGraph.spec.outcomes.every((end) => end.title !== undefined)).toBe(true)
-        expect(stepOf("pay")).toMatchObject({ exits: { until: { vi: "Thoát khi đơn đã trả hoặc không còn chờ tiền" }, exhausted: { vi: "Hết 6 vòng mà chưa trả" } } })
+        expect(stepOf("pay")).toMatchObject({ exits: { until: { vi: "Thoát khi đơn đã trả, đã huỷ hoặc không còn chờ tiền" }, exhausted: { vi: "Hết 6 vòng mà chưa trả" } } })
         expect(stepOf("exact")).toMatchObject({ label: { vi: "Đủ tiền?" } })
     })
 })
@@ -473,5 +477,101 @@ describe("sales.consult v32: the payment request (R111)", () => {
         expect(JSON.stringify((stepOf("cancel-request") as { params: unknown }).params)).toContain("steps.cancel-read.output.paymentRequestRef")
         const outputs = salesRequestCancelNode.examples.flatMap((example) => ("output" in example ? [example.output] : []))
         expect(outputs).toEqual(expect.arrayContaining([{ withdrawn: true, status: "cancelled" }, { withdrawn: false, status: null }]))
+    })
+})
+
+// CANCEL-GAP (2026-11-15, production run 5704ee0e): the customer asked three times to cancel the order while the sale waited for the money;
+// `order-talk` knew only `about` (answer in words) and `off`, so each wish was answered `about` with words promising a hand-off to the owner,
+// the round ended and the cancel road stayed unreached. Nature: a step tells a person only what its declared outcome makes the run do; a
+// wish the workflow must act on is an OUTCOME of the step with a road, never words. A round of the payment loop is walked here on the
+// compiled graph with the nodes' OWN example outputs standing in for the model's fixed answers (the examples run in the node specs).
+describe("sales.consult v34: a wish to cancel during the payment wait takes the cancel road (CANCEL-GAP)", () => {
+    type Outputs = Readonly<Record<string, Record<string, JsonValue>>>
+    const wish = exampleOutput(salesOrderTalkNode.examples, (output) => output["topic"] === "cancel")
+    const answered = exampleOutput(salesOrderTalkNode.examples, (output) => output["topic"] === "about")
+    const cancelled = exampleOutput(salesOrderCancelNode.examples, (output) => output["declined"] === false)
+    const declined = exampleOutput(salesOrderCancelNode.examples, (output) => output["declined"] === true)
+    const withdrawn = exampleOutput(salesRequestCancelNode.examples, (output) => output["withdrawn"] === true)
+    const told = exampleOutput(salesOrderCancelTellNode.examples, (output) => output["declined"] === false)
+    const waiting = { status: "confirmed", orderId: "o7", orderNo: "DH-7", paymentRequestRef: "1789000000001" }
+    const open = { status: "open" }
+
+    /**
+     * One round of the payment loop as the engine walks it: from the wait's route, each if-step by its stored condition, each node by its
+     * declared route member (none written: the round ends) or its `next`; a hand-back ends the round. Answers the steps walked and the scope.
+     */
+    const round = (trigger: string, outputs: Outputs, before: Outputs = {}): { readonly path: ReadonlyArray<string>; readonly scope: Record<string, JsonValue> } => {
+        const scope: Record<string, { output: JsonValue }> = { await: { output: { trigger } } }
+        for (const [key, output] of Object.entries(before)) scope[key] = { output }
+        const read = (): ReturnType<typeof readerOf> => readerOf({ steps: scope as unknown as JsonValue })
+        const path: Array<string> = []
+        let at: string | undefined = (stepOf("await") as unknown as { routes: Record<string, string> }).routes[trigger]
+        while (at !== undefined) {
+            path.push(at)
+            const step = stepOf(at) as unknown as { kind: string; routes?: Record<string, string>; routeBy?: string; next?: string; params: Record<string, StoredExpr> }
+            if (step.kind === "if") at = step.routes?.[exprHolds(step.params["when"] as StoredExpr, read()) ? "yes" : "no"]
+            else if (step.kind === "node") {
+                const output = outputs[at]
+                if (output === undefined) throw new Error(`the walk reached ${at} with no output scripted`)
+                scope[at] = { output }
+                at = step.routeBy === undefined ? step.next : step.routes?.[String(output[step.routeBy])]
+            } else at = undefined
+        }
+        return { path, scope: scope as unknown as Record<string, JsonValue> }
+    }
+    const leaves = (scope: Record<string, JsonValue>): boolean => exprHolds(conditionOf("pay", "until"), readerOf({ steps: scope as JsonValue }))
+
+    it("the order talk declares the outcome `cancel` with its road: the order and its request are read as they stand now", () => {
+        expect(salesOrderTalkNode.routes).toEqual({ by: "topic", names: ["about", "cancel", "off"] })
+        expect(wish).toEqual({ topic: "cancel", sent: false, refusal: null, cancelReason: expect.any(String) })
+        expect((stepOf("order-talk") as unknown as { routes: Record<string, string> }).routes).toEqual({ off: "give-back", cancel: "order-now" })
+    })
+
+    it("the case: a wish to cancel an order still waiting reaches the cancel, withdraws the open request, tells the customer and leaves the loop `closed`", () => {
+        const walked = round("said", { "order-talk": wish, "order-now": waiting, "request-now": open, "pay-cancel-order": cancelled, "pay-cancel-request": withdrawn, "pay-tell-cancelled": told })
+        expect(walked.path).toEqual(["order-talk", "order-now", "request-now", "awaiting", "credit-woke", "late-woke", "pay-cancel-asked", "pay-cancel-order", "pay-cancelled", "pay-cancel-request", "pay-tell-cancelled"])
+        expect(leaves(walked.scope)).toBe(true)
+        // The loop's last word is the customer's message, which names no order paid: `settled` ends the run `closed`, no after-sale.
+        expect(exprHolds(conditionOf("settled", "when"), readerOf({ steps: { pay: { output: { rounds: 1, stopped: true, last: told } } } }))).toBe(false)
+        const wired = JSON.stringify((stepOf("pay-cancel-request") as { params: unknown }).params)
+        expect(wired).toContain("steps.order-now.output.paymentRequestRef")
+        expect(JSON.stringify((stepOf("pay-cancel-order") as { params: unknown }).params)).toContain("steps.order-talk.output.cancelReason")
+    })
+
+    it("a person declines the cancel: the engine tells the team (the step's ending), the customer is told the order stays, the wait goes on", () => {
+        expect(stepOf("pay-cancel-order")).toMatchObject({ unsuccessful: { then: "continue" } })
+        const walked = round("said", { "order-talk": wish, "order-now": waiting, "request-now": open, "pay-cancel-order": declined, "pay-tell-kept": told })
+        expect(walked.path).toEqual(["order-talk", "order-now", "request-now", "awaiting", "credit-woke", "late-woke", "pay-cancel-asked", "pay-cancel-order", "pay-cancelled", "pay-tell-kept"])
+        expect(walked.path).not.toContain("pay-cancel-request")
+        expect(leaves(walked.scope)).toBe(false)
+        expect(JSON.stringify((stepOf("pay-tell-kept") as { params: unknown }).params)).toContain('"cancelled":false')
+        expect(JSON.stringify((stepOf("pay-tell-cancelled") as { params: unknown }).params)).toContain('"cancelled":true')
+    })
+
+    it("production's rounds as recorded (`about` every time) end the round in words and never leave: the gap v34 closes is the missing outcome", () => {
+        const walked = round("said", { "order-talk": answered })
+        expect(walked.path).toEqual(["order-talk"])
+        expect(leaves(walked.scope)).toBe(false)
+    })
+
+    it("a wish to cancel an order that no longer waits takes the read's own road: no cancel, the loop leaves `closed`", () => {
+        const walked = round("said", { "order-talk": wish, "order-now": { ...waiting, status: "cancelled" }, "request-now": open })
+        expect(walked.path).toEqual(["order-talk", "order-now", "request-now", "awaiting", "closed-credit"])
+        expect(leaves(walked.scope)).toBe(true)
+    })
+
+    it("a later round woken by a write of the order or the timeout never re-runs an earlier round's cancel wish", () => {
+        const earlier = { "order-talk": wish, "pay-cancel-order": declined }
+        const ordered = round("ordered", { "order-now": waiting, "request-now": open }, earlier)
+        expect(ordered.path).toEqual(["order-now", "request-now", "awaiting", "credit-woke", "late-woke", "pay-cancel-asked"])
+        expect(leaves(ordered.scope)).toBe(false)
+    })
+
+    it("the cancel steps of both roads are the same nodes; the talk loop's road tells the customer the order is cancelled", () => {
+        expect(stepOf("pay-cancel-order")).toMatchObject({ kind: "node", step: "sales.order-cancel", loop: "pay" })
+        expect(stepOf("pay-cancel-request")).toMatchObject({ kind: "node", step: "sales.request-cancel", loop: "pay" })
+        expect(stepOf("pay-tell-cancelled")).toMatchObject({ kind: "node", step: "sales.order-cancel-tell", loop: "pay" })
+        expect(stepOf("pay-tell-kept")).toMatchObject({ kind: "node", step: "sales.order-cancel-tell", loop: "pay" })
+        expect(JSON.stringify((stepOf("tell-cancelled") as { params: unknown }).params)).toContain('"cancelled":true')
     })
 })
