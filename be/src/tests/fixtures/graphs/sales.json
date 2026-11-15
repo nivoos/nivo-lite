@@ -688,6 +688,13 @@
                                     "value": "expired"
                                 }
                             ]
+                        },
+                        {
+                            "ref": {
+                                "$ref": "steps.pay-cancel-order.output.orderNo",
+                                "default": null
+                            },
+                            "op": "present"
                         }
                     ]
                 },
@@ -728,8 +735,8 @@
             },
             "exits": {
                 "until": {
-                    "vi": "Thoát khi đơn đã trả hoặc không còn chờ tiền",
-                    "en": "Leaves when the order is paid or no longer waits for money"
+                    "vi": "Thoát khi đơn đã trả, đã huỷ hoặc không còn chờ tiền",
+                    "en": "Leaves when the order is paid, cancelled or no longer waits for money"
                 },
                 "exhausted": {
                     "vi": "Hết 6 vòng mà chưa trả",
@@ -965,11 +972,228 @@
                 }
             },
             "routes": {
-                "yes": "remind"
+                "yes": "remind",
+                "no": "pay-cancel-asked"
             },
             "label": {
                 "vi": "Hết giờ chờ?",
                 "en": "The wait timed out?"
+            }
+        },
+        {
+            "key": "pay-cancel-asked",
+            "kind": "condition",
+            "step": "core.when",
+            "params": {
+                "when": {
+                    "and": [
+                        {
+                            "ref": {
+                                "$ref": "steps.await.output.trigger",
+                                "default": null
+                            },
+                            "op": "eq",
+                            "value": "said"
+                        },
+                        {
+                            "ref": {
+                                "$ref": "steps.order-talk.output.topic",
+                                "default": null
+                            },
+                            "op": "eq",
+                            "value": "cancel"
+                        }
+                    ]
+                }
+            },
+            "routes": {
+                "yes": "pay-cancel-order"
+            },
+            "label": {
+                "vi": "Khách muốn huỷ đơn?",
+                "en": "The customer asks to cancel?"
+            }
+        },
+        {
+            "key": "pay-cancel-order",
+            "kind": "execute",
+            "step": "sales.order-cancel",
+            "params": {
+                "orderId": {
+                    "$ref": "steps.create-order.output.orderId"
+                },
+                "reason": {
+                    "$ref": "steps.order-talk.output.cancelReason",
+                    "default": null
+                }
+            },
+            "next": "pay-cancelled",
+            "mode": "auto",
+            "accounts": [],
+            "unsuccessful": {
+                "then": "continue",
+                "facts": [
+                    {
+                        "label": {
+                            "vi": "Mã đơn",
+                            "en": "Order"
+                        },
+                        "value": {
+                            "$ref": "steps.create-order.output.orderNo",
+                            "default": null
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "key": "pay-cancelled",
+            "kind": "condition",
+            "step": "core.when",
+            "params": {
+                "when": {
+                    "ref": {
+                        "$ref": "steps.pay-cancel-order.output.orderNo",
+                        "default": null
+                    },
+                    "op": "present"
+                }
+            },
+            "routes": {
+                "yes": "pay-cancel-request",
+                "no": "pay-tell-kept"
+            },
+            "label": {
+                "vi": "Đã huỷ đơn?",
+                "en": "Order cancelled?"
+            }
+        },
+        {
+            "key": "pay-cancel-request",
+            "kind": "execute",
+            "step": "sales.request-cancel",
+            "params": {
+                "requestRef": {
+                    "$ref": "steps.order-now.output.paymentRequestRef",
+                    "default": null
+                },
+                "reason": {
+                    "$ref": "steps.order-talk.output.cancelReason",
+                    "default": null
+                }
+            },
+            "next": "pay-tell-cancelled",
+            "mode": "auto",
+            "accounts": [
+                {
+                    "kind": "payment",
+                    "provider": "payos",
+                    "connectionId": null
+                },
+                {
+                    "kind": "payment",
+                    "provider": "sepay",
+                    "connectionId": null
+                }
+            ]
+        },
+        {
+            "key": "pay-tell-cancelled",
+            "kind": "execute",
+            "step": "sales.order-cancel-tell",
+            "params": {
+                "conversationId": {
+                    "$ref": "trigger.data.conversationId"
+                },
+                "orderNo": {
+                    "$ref": "steps.pay-cancel-order.output.orderNo",
+                    "default": null
+                },
+                "cancelled": true,
+                "locale": "vi"
+            },
+            "model": "claude-sonnet-5-5",
+            "mode": "auto",
+            "accounts": [
+                {
+                    "kind": "messaging",
+                    "provider": "zalo_oa",
+                    "connectionId": null
+                },
+                {
+                    "kind": "messaging",
+                    "provider": "telegram",
+                    "connectionId": null
+                },
+                {
+                    "kind": "messaging",
+                    "provider": "meta",
+                    "connectionId": null
+                }
+            ],
+            "unsuccessful": {
+                "then": "continue",
+                "facts": [
+                    {
+                        "label": {
+                            "vi": "Mã đơn",
+                            "en": "Order"
+                        },
+                        "value": {
+                            "$ref": "steps.create-order.output.orderNo",
+                            "default": null
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "key": "pay-tell-kept",
+            "kind": "execute",
+            "step": "sales.order-cancel-tell",
+            "params": {
+                "conversationId": {
+                    "$ref": "trigger.data.conversationId"
+                },
+                "orderNo": {
+                    "$ref": "steps.create-order.output.orderNo"
+                },
+                "cancelled": false,
+                "locale": "vi"
+            },
+            "model": "claude-sonnet-5-5",
+            "mode": "auto",
+            "accounts": [
+                {
+                    "kind": "messaging",
+                    "provider": "zalo_oa",
+                    "connectionId": null
+                },
+                {
+                    "kind": "messaging",
+                    "provider": "telegram",
+                    "connectionId": null
+                },
+                {
+                    "kind": "messaging",
+                    "provider": "meta",
+                    "connectionId": null
+                }
+            ],
+            "unsuccessful": {
+                "then": "continue",
+                "facts": [
+                    {
+                        "label": {
+                            "vi": "Mã đơn",
+                            "en": "Order"
+                        },
+                        "value": {
+                            "$ref": "steps.create-order.output.orderNo",
+                            "default": null
+                        }
+                    }
+                ]
             }
         },
         {
@@ -1211,7 +1435,8 @@
             },
             "model": "claude-sonnet-5-5",
             "routes": {
-                "off": "give-back"
+                "off": "give-back",
+                "cancel": "order-now"
             },
             "mode": "auto",
             "accounts": [
@@ -1584,6 +1809,7 @@
                     "$ref": "steps.cancel-order.output.orderNo",
                     "default": null
                 },
+                "cancelled": true,
                 "locale": "vi"
             },
             "model": "claude-sonnet-5-5",

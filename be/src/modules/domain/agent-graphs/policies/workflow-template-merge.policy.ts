@@ -44,7 +44,21 @@ export const templateMergeOf = (
     // its newest): the workflow's own stored copy of that version stands in, so an installed copy never needs it to still exist.
     const base = templateVersionOf(template, link.templateVersion)?.graph ?? storedTemplateCopyOf(workflow, versions)
     if (base === null) throw new AgentGraphsError({ code: AgentGraphsErrorCode.TemplateNotFound })
-    const merged = mergeTemplate(base, current, templateGraphOf(template, templateVersion))
-    return { merged, template, link }
+    const theirs = templateGraphOf(template, templateVersion)
+    const merged = mergeTemplate(base, current, theirs)
+    return { merged: inTemplateOrder(merged, theirs), template, link }
+}
+
+/**
+ * The merge in the newer template's step order when every merged step is one of its steps (INTEG-077): `mergeTemplate` appends the
+ * steps a template added after the owner's, and the store writes a version only as a COPY of a template version, content for content
+ * and step for step in its order (`templateFlowProblems`), so a template that inserts a step in the middle was refused
+ * `GRAPH_TEMPLATE_EDITED` on accept. A merge that keeps a step the template does not have stays in the merge's own order.
+ */
+const inTemplateOrder = (merged: MergeOutcome["merged"], theirs: GraphSpec): MergeOutcome["merged"] => {
+    const position = new Map(theirs.nodes.map((node, index) => [node.key, index]))
+    if (!merged.graph.nodes.every((node) => position.has(node.key))) return merged
+    const nodes = merged.graph.nodes.toSorted((left, right) => (position.get(left.key) ?? 0) - (position.get(right.key) ?? 0))
+    return { ...merged, graph: { ...merged.graph, nodes } }
 }
 

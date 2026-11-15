@@ -63,4 +63,15 @@ describe("templateMergeOf: an installed copy never needs its template version to
             expect.objectContaining({ code: AgentGraphsErrorCode.TemplateNotFound }),
         )
     })
+
+    it("keeps the newest template's step order when the older copy lacked a step it inserts in the middle (INTEG-077)", () => {
+        const newest = templateGraph(TEMPLATE)
+        const middle = newest.nodes[Math.floor(newest.nodes.length / 2)]
+        const older = { ...newest, nodes: newest.nodes.filter((node) => node.key !== middle?.key) }
+        const versions = [{ ...versionOf(1, DROPPED), document: jsonOf(older) }]
+
+        const { merged } = templateMergeOf(workflowOf(DROPPED), older, NEWEST, versions)
+
+        expect(merged.graph.nodes.map((node) => node.key)).toEqual(newest.nodes.map((node) => node.key))
+    })
 })
