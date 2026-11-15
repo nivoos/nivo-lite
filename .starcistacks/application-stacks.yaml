@@ -1225,7 +1225,7 @@ release:
     - {name: lint, command: [npm, run, lint]}
     - name: build-fe
       # admin left out of release 0.7.0 (its Next build fails; no production service): the release build-fe skips it.
-      command: [npm, run, build:fe, --, "--filter=!@nivo-lite/admin"]
+      command: [npx, turbo, run, build, --filter=@nivo-lite/web, --filter=@nivo-lite/landing]
       env: {NEXT_PUBLIC_SITE_URL: "https://nivo.vn", NEXT_PUBLIC_APP_URL: "https://app.nivo.vn"}
     - {name: test, command: [npm, run, test], summary: jest}
 # Database history for `starci app db migrate` / `post-cutover` (the 24 restamped versions come from be/docs/runbooks/migration-restamp.md).
