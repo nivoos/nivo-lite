@@ -1,4 +1,4 @@
-# HANDOFF 2026-11-16 (00:30, giờ máy): nivo-lite
+# HANDOFF 2026-11-16 (cập nhật 01:40 giờ máy, INTEG-077): nivo-lite
 
 Viết cho phiên kế tiếp. Chủ dự án ("thầy") ra lệnh dừng mọi việc, merge sạch vào `main`, push kèm file này.
 Nguồn chi tiết từng việc: `D:/starci-tmp/claude-20261105/lanes/decouple-20261113/R4-NOTES.md` (các mục `## DEPLOY`, `## PROD-WIRE`,
@@ -7,7 +7,7 @@ Nguồn chi tiết từng việc: `D:/starci-tmp/claude-20261105/lanes/decouple-
 ## 1. Production đang chạy gì
 
 - Stack Swarm `nivo` trên một VPS: `app.nivo.vn` (console), `api.nivo.vn`, `nivo.vn` (landing).
-- Release `4c7a18a9b73c40ac` = **v0.7.6** (commit `f4a0f2c6b`). Mọi thứ merge sau commit đó (mục 3) CHƯA deploy.
+- Release `2419b4cc5cf9e36a` = **v0.7.7** (commit `4409cd110`, tag `v0.7.7`), deploy 16/11 ~01:27 giờ máy (INTEG-077). Rollback: `4c7a18a9b73c40ac` (v0.7.6). Backup trước deploy `nivo-lite-20261115T182709131Z.tar.age` trên manager (giải mã thử 4 phần). Migration `20261115230000_workflow-stop.sql` đã áp (lịch sử 52). Image mới: api `sha256:592813ec…`, web `sha256:53cc24a5…`; mcp, db, landing giữ nguyên.
 - Database: volume `nivo-engine_postgres-data-20261115`, đã seed. Dữ liệu production cũ (trước 15/11) nằm nguyên ở volume
   `nivo-engine_postgres-data` (không gắn vào stack) và bản nén mã hoá trong `/srv/nivo/archive-20261115/`; volume OpenClaw cũng còn.
   Xoá hẳn hai thứ này chờ lời thầy.
@@ -24,18 +24,24 @@ Nguồn chi tiết từng việc: `D:/starci-tmp/claude-20261105/lanes/decouple-
 Tư vấn → gợi ý mẫu → agent hỏi đội về giờ giao → chốt đơn `DH-20261115-0001` → thẻ duyệt → gửi link payOS thật → trả lời khách trong lúc
 chờ tiền. CHƯA thấy chạy thật: tiền về qua payOS rồi khớp đơn và tin cảm ơn; mọi luồng của NIVO Web với khách thật.
 
-## 3. `main` hiện tại = v0.7.6 + hai nhánh vừa merge, CHƯA deploy, CHƯA chạy thử
+## 3. v0.7.7 (đã deploy, đã chạy thử trên dev trước)
 
-| Merge | Nội dung | Mức kiểm |
+| Phần | Nội dung | Đã kiểm trên dev (sandbox, 16/11) |
 |---|---|---|
-| `feat/run-end` | Kết thúc một lần chạy ở mọi trạng thái (một cửa; lệnh cancel cũ đã xoá), tạm dừng / chạy tiếp một lần chạy, dừng / chạy lại workflow (giữ hoặc bỏ sự kiện), "kết thúc tất cả", ô "báo khách một câu"; nút ở 4 chỗ trong console; migration `20261115230000_workflow-stop.sql` (chỉ thêm) | `tsc` be + web 0 lỗi. CHƯA chạy lần nào trên database nào; `next build` chưa chạy; migration chưa áp ở đâu |
-| `fix/cancel-gap` | blocks-core `sales.consult` v34: khách xin huỷ đơn lúc chờ tiền → thẻ "Huỷ đơn" cho chủ → rút yêu cầu payOS → báo khách; agent-sdk `CLAIM_RULE` (một bước chỉ nói với khách điều kết cục của nó thật sự làm) | Bài kiểm trong code. CHƯA chạy thật |
+| `feat/run-end` | Kết thúc một lần chạy ở mọi trạng thái, tạm dừng / chạy tiếp, dừng / chạy lại workflow (giữ hoặc bỏ sự kiện), "kết thúc tất cả", ô "báo khách một câu"; nút ở 4 chỗ | Đạt: kết thúc khi đang chờ khách / đang chờ duyệt / đang tạm dừng / đang chạy dở / đã kết thúc; tạm dừng rồi chạy tiếp (tin giữ lại được trả lời 1 lần); dừng workflow giữ sự kiện (chạy bù 1 lần) và bỏ sự kiện (ghi lại + 1 thông báo); kết thúc tất cả (51 lần, 0 tin tới khách); ô báo khách gửi 1 câu |
+| `fix/cancel-gap` | `sales.consult` v34: khách xin huỷ lúc chờ tiền → thẻ duyệt cho chủ → huỷ đơn + rút yêu cầu payOS → báo khách | Đạt cả hai nhánh: Đồng ý (đơn huỷ, yêu cầu payOS sandbox huỷ, khách được báo, lần chạy đóng); Không (khách được báo giữ đơn, tiếp tục chờ tiền, rồi trả tiền → sau bán) |
+| sửa thêm `609562a5f` | Nhận bản cập nhật mẫu trong console bị từ chối `GRAPH_TEMPLATE_EDITED` khi mẫu chèn bước giữa (consult v33 → v34): nay giữ thứ tự bước của mẫu; hai file sinh tự động (registry hash, graph seed) được sinh lại | Đạt (nhận v34 trên dev) |
 
-**Trước khi deploy bản kế (0.7.7): phải chạy thử hai phần này trên dev (sandbox).** Việc đó đã giao cho một agent (INTEG-077) rồi bị
-dừng theo lệnh; xem `## INTEG-077 handover` trong R4-NOTES nếu có. Sau khi deploy api có v34 mới chạy seed cho shop: chuẩn seed
-`blocks-core-seed-standard` đã push tới `86a4fdd` (ghim consult v34, `cancel-order` / `pay-cancel-order` hỏi trước), nhưng khai báo
-production còn ghim `7ff765c`: ghim lại kèm `force: true`, `forceKinds: ["node-settings"]`, rồi
-`node scripts/seed-standards-oneshot.mjs --env production --dry|--execute`.
+Seed: `blocks-core-seed-standard` ghim lại `86a4fdd` (force, node-settings) và chạy one-shot trên production: consult = mẫu v34, 19 bước cửa done,
+`tell-order`, `cancel-order`, `pay-cancel-order` hỏi trước; Telegram và payOS thật vẫn `connected`. NIVO Web không đụng.
+
+Còn lệch so với bản vẽ / quan sát (không chặn phát hành, chưa sửa):
+- Hộp "Kết thúc lần chạy?" ở đầu trang lần chạy và ở hàng bảng lần chạy KHÔNG có ô "Báo khách một câu" cho lần chạy tư vấn (web chỉ hiện khi
+  nguồn lần chạy là `customer`, mà tư vấn do lễ tân gọi = `agent`). Thẻ "Cuộc trò chuyện" của khách và thẻ dừng thì có.
+- Thẻ duyệt huỷ đơn có tiêu đề chung "AI cần bạn duyệt trước khi chạy nivo.tool.record.update", chưa phải "Huỷ đơn".
+- Thông báo đội khi kết thúc ghi "Khách không nhận thêm tin nào" kể cả khi đã chọn báo khách; câu báo khách do model viết có thể hứa "nhân viên
+  sẽ hỗ trợ". "Kết thúc tất cả" gửi một thông báo cho MỖI lần chạy. Thẻ đã kết thúc ghi "Quy trình đã chạy tiếp".
+- Chưa thấy chạy thật trên production: một lần huỷ đơn thật, một lần kết thúc / tạm dừng thật trong console.
 
 ## 4. Cách deploy (đường thủ công, đã chạy 6 lần tối 15/11)
 
@@ -54,7 +60,7 @@ Mỗi lúc một người phát hành. Ổ D: phải còn ít nhất 15 GB trư�
 - Hiển thị bước chờ duyệt: đã sửa ở 0.7.6 ("Chờ bạn" → "Xong"); chưa ai nhìn thấy trên production sau khi sửa.
 - Đăng nhập trên Chrome có dữ liệu cũ: đã sửa ở 0.7.5 (`@starci/auth` 0.7.1); chưa có xác nhận từ Chrome của thầy.
 - "Dừng đi không mua nữa" bị đọc thành "đừng nhắn tôi nữa" (gắn cờ không liên hệ): ca thật về đọc nghĩa, chưa sửa.
-- Console chưa có nút huỷ lần chạy (có trong `feat/run-end`, chưa deploy). Cách tạm: xoá khách trong Liên hệ (đóng mọi run của khách đó).
+- Console có nút kết thúc / tạm dừng lần chạy từ v0.7.7.
 - Trang tài khoản sandbox hiện form và cảnh báo của tài khoản thật: dễ hiểu nhầm là thiếu credential.
 - NIVO Web: Zalo chờ cấp quyền; sau đó hai bước `webdesk.front` `answer` / `complaint-reply` cần gắn `zalo-main` (chạy lại seed có ép,
   hoặc chọn tay trong console). Webhook SePay và Zalo thầy tự dán bên hãng (URL trong `D:/.claude/.scratch-owner/nivo-prod-credentials-20261115.md`).
