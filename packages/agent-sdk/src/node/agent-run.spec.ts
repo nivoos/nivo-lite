@@ -151,6 +151,8 @@ describe("context.agent.run", () => {
             '"required":["nivo.tool.payment.order.settle"],"tools":["nivo.tool.payment.order.settle","agent-message.post"]}',
         )
         expect(instructions).toContain('"outputSchema":{')
+        // CANCEL-GAP: every road tells the agent that its words claim only what a call, the chosen outcome or the step's instructions do.
+        expect(instructions).toContain("What you tell a person is only what happens")
         expect(second?.input).toEqual({ input: { orderId: "o-1", transactionId: "tx-1" }, turnsLeft: 3 })
         expect(second?.turns).toEqual([
             expect.objectContaining({ tool: "nivo.tool.payment.order.settle", ok: true, turnsLeft: 2 }),
@@ -578,6 +580,7 @@ describe("context.agent.run on a host that takes the turns itself (`ports.agent`
         expect(loop?.purpose).toBe("payment.settle:agent")
         expect(loop?.maxTurns).toBe(4)
         expect(loop?.instructions).toContain("You act by calling tools")
+        expect(loop?.instructions).toContain("What you tell a person is only what happens")
         expect(loop?.instructions).not.toContain('{"call"')
         expect(loop?.instructions).not.toContain('"name":"nivo.tool.payment.order.settle"')
         expect(loop?.step).toContain("Mark the order paid with the bank transaction, then tell the team.")

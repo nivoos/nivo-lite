@@ -126,7 +126,7 @@ describe("sales.order-talk: the pay loop's talk answers every unread line once (
         expect(memberOf(host.asked[0], "message")).toBe(ALL_UNREAD)
         expect(host.asked[0]?.images).toEqual([PICTURE])
         expect(host.sends()).toHaveLength(1)
-        expect(output).toEqual({ topic: "about", sent: true, refusal: null })
+        expect(output).toEqual({ topic: "about", sent: true, refusal: null, cancelReason: null })
     })
 
     it("a thread with nothing unread (the shop spoke last) falls back to the line that woke the step", async () => {

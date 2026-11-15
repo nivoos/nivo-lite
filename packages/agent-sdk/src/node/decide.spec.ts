@@ -70,6 +70,7 @@ describe("context.model.decide", () => {
         expect(asked?.purpose).toBe("core.pick:pick")
         expect(asked?.instructions.startsWith("Pick the order the text names.")).toBe(true)
         expect(asked?.instructions).toContain('"confused"')
+        expect(asked?.instructions).toContain("What you tell a person is only what happens")
     })
 
     it("answers the confusion, in the AI's own words, when the AI says it cannot decide", async () => {

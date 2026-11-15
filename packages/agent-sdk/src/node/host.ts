@@ -80,12 +80,24 @@ const toolsOf = (request: NodeRunRequest, ports: NodeHostPorts): NodeTools => {
 /** The longest reason or question an AI gives when it is confused. */
 const CONFUSION_MAX = 2000
 
+/**
+ * What every agent of every step is told about its words (CANCEL-GAP, 2026-11-15): a person is told only what the run does. A claim that
+ * something was done, or that the team will take it up, is backed by a call, by the step's declared outcome or by the step's own
+ * instructions (which state what the workflow does after it); a wish none of them carries goes to a person through the agent's one way
+ * out (confusion: the engine stops the step and the team sees it), never through words. The same words for every call, in engine words only.
+ */
+const CLAIM_RULE =
+    "What you tell a person is only what happens: never say that something was done, recorded, cancelled, changed or passed on, or that a person of the team will take it up, " +
+    "unless a tool you called did it, the output you give chooses the step's outcome that does it, or this step's own instructions say the workflow does it. " +
+    "When the person asks for something none of these does, do not word it as handled: answer that you cannot reach the goal, with the reason and what a person must answer; the engine then hands it to the team."
+
 /** What `decide` adds to a node's own instructions: the way out of guessing. */
 const DECIDE_RULE =
     'Answer ONLY with JSON, in one of two shapes. When you can decide from what you are given: {"answer": <the answer described above>}. ' +
     "When you cannot decide without guessing (the data is missing, contradicts itself, or does not fit what you were asked): " +
     '{"confused": {"reason": "<why you cannot decide, plainly>", "question": "<what a person must answer for you to go on, or null>"}}. ' +
-    "Never guess to avoid the second shape."
+    "Never guess to avoid the second shape. " +
+    CLAIM_RULE
 
 /** The schema of a `decide` answer: the node's own schema under `answer`, or the confusion. */
 const decisionSchemaOf = <S extends z.ZodType>(
@@ -182,7 +194,8 @@ const AGENT_RULE =
     'To call one tool the step allows: {"call": {"tool": "<name>", "args": {<arguments fitting that tool\'s schema>}}}. You then see its result, or why it was refused, after your turn (each earlier turn is shown in order, with `turnsLeft` after it): a refusal is a fact, never retry the same call unchanged, never work around it. ' +
     'When the goal is reached: {"done": <the output, fitting the step\'s `outputSchema`>}. Every tool the step lists as `required` must have succeeded before that. ' +
     'When you cannot reach the goal without guessing: {"confused": {"reason": "<why, plainly>", "question": "<what a person must answer, or null>"}}. ' +
-    "Never type an amount, a total, a name or any fact that is not in what you are given or in a tool's result: tools take ids and work the rest out themselves."
+    "Never type an amount, a total, a name or any fact that is not in what you are given or in a tool's result: tools take ids and work the rest out themselves. " +
+    CLAIM_RULE
 
 /**
  * How an agent acts when the host takes its turns (`NodeHostPorts.agent`): the part of `AGENT_RULE` that is about acting, without the
@@ -194,7 +207,8 @@ const AGENT_ACT_RULE =
     "You see the result of each call, or why it was refused: a refusal is a fact, never retry the same call unchanged, never work around it. " +
     "Every tool the step lists as `required` must have succeeded before you give the step's output, which must fit its `outputSchema`. " +
     "When you cannot reach the goal without guessing, say so with the reason and what a person must answer. " +
-    "Never type an amount, a total, a name or any fact that is not in what you are given or in a tool's result: tools take ids and work the rest out themselves."
+    "Never type an amount, a total, a name or any fact that is not in what you are given or in a tool's result: tools take ids and work the rest out themselves. " +
+    CLAIM_RULE
 
 /**
  * The engine's order of authority (owner 2026-11-10, concept `engine-core.md`), stated ONCE in L1 for every agent: the same words for
