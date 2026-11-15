@@ -95,37 +95,8 @@ services:
       rollback_config: { parallelism: 1, order: start-first, monitor: 30s }
       restart_policy: { condition: any, delay: 5s }
 
-  nivo-admin:
-    image: ghcr.io/starci183/nivo-lite-admin@sha256:0000000000000000000000000000000000000000000000000000000000000000
-    environment:
-      PORT: "3000"
-      HOSTNAME: 0.0.0.0
-      NODE_OPTIONS: --max-old-space-size=256
-    networks:
-      edge:
-        aliases: [nivo-admin]
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:3000/health/live',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 40s
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "5" }
-    deploy:
-      replicas: 1
-      resources: { limits: { memory: 300M } }
-      update_config:
-        { parallelism: 1, order: start-first, failure_action: rollback, monitor: 30s, max_failure_ratio: 0, delay: 5s }
-      rollback_config: { parallelism: 1, order: start-first, monitor: 30s }
-      restart_policy: { condition: any, delay: 5s }
+  # nivo-admin (admin.nivo.vn) is left out of release 0.7.0 (coordinator 2026-11-15): its Next build fails (server/client boundary); it ran no
+  # service in production before either. Its source is unchanged; put the service back with its image once the admin app builds.
 
   nivo-api:
     image: ghcr.io/starci183/nivo-lite-api@sha256:0000000000000000000000000000000000000000000000000000000000000000

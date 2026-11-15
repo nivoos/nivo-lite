@@ -711,9 +711,6 @@ environments:
       nivo-landing:
         replicas: 1
         port: 3000
-      nivo-admin:
-        replicas: 1
-        port: 3000
       nivo-n8n:
         replicas: 1
         port: 5678
@@ -1032,8 +1029,6 @@ environments:
         nivo-api: {app: api}
         nivo-mcp: {app: mcp}
         db: {app: db}
-        # stack.yaml runs nivo-admin (admin.nivo.vn); without this entry the render keeps its placeholder digest (STACK_PLACEHOLDER_DIGEST).
-        nivo-admin: {app: admin}
         nivo-web-app:
           app: web
           buildArgs:
@@ -1229,7 +1224,8 @@ release:
     - {name: build-be, command: [npm, run, build:be]}
     - {name: lint, command: [npm, run, lint]}
     - name: build-fe
-      command: [npm, run, build:fe]
+      # admin left out of release 0.7.0 (its Next build fails; no production service): the release build-fe skips it.
+      command: [npm, run, build:fe, --, "--filter=!@nivo-lite/admin"]
       env: {NEXT_PUBLIC_SITE_URL: "https://nivo.vn", NEXT_PUBLIC_APP_URL: "https://app.nivo.vn"}
     - {name: test, command: [npm, run, test], summary: jest}
 # Database history for `starci app db migrate` / `post-cutover` (the 24 restamped versions come from be/docs/runbooks/migration-restamp.md).
