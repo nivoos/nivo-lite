@@ -15,7 +15,11 @@ export const ASK_TO_PAY_SOURCE = "export default async (ctx) => ({ asked: ctx.in
 export const FILE_LEAD_SOURCE = "export default async (ctx) => ({ filed: ctx.input.lead })"
 
 /** The source input of a text, written by a package. */
-export const packageSourceOf = (text: string): CellSourceInput => ({ text, authorKind: "package", authorRef: "demo-pkg" })
+export const packageSourceOf = (text: string): CellSourceInput => ({
+    text,
+    authorKind: "package",
+    authorRef: "demo-pkg",
+})
 
 /** The node `demo.ask-to-pay` of `demo-money`: stored source, an outside non-repeatable write settled by a read. */
 export const askToPayNode = (source: { readonly id: string; readonly sha256: string }): ValidatedCell => ({
@@ -134,7 +138,8 @@ const isObject = (_value: unknown): _value is object => true
 const asRow = (value: object): Row => Object.fromEntries(Object.entries(value))
 
 /** Evaluates a value the way the database would: a function expression (`() => "now()"`) is the current time. */
-const stamped = (value: unknown): unknown => (typeof value === "function" ? new Date("2026-11-15T00:00:00.000Z") : value)
+const stamped = (value: unknown): unknown =>
+    typeof value === "function" ? new Date("2026-11-15T00:00:00.000Z") : value
 
 const ENTITY_DEFAULTS: Readonly<Record<string, Row>> = {
     CellDefinitionEntity: { deletedAt: null, reviewRef: null, publishedAt: null },
@@ -175,7 +180,9 @@ export class MemoryCellsManager {
 
     findOne(target: Target, options: { readonly where: Row }): Promise<object | null> {
         this.reads[target.name] = (this.reads[target.name] ?? 0) + 1
-        const row = this.rowsOf(target).find((candidate) => Object.entries(options.where).every(([member, value]) => candidate[member] === value))
+        const row = this.rowsOf(target).find((candidate) =>
+            Object.entries(options.where).every(([member, value]) => candidate[member] === value),
+        )
         return Promise.resolve(row === undefined ? null : Object.assign(Object.create(target.prototype), row))
     }
 
@@ -185,8 +192,26 @@ export class MemoryCellsManager {
         return row
     }
 
+    /** The rows matching `where`; `order: { createdAt: "DESC" }` is insertion order reversed (rows are added in time order), `take` keeps the first ones. */
+    find(
+        target: Target,
+        options: { readonly where: Row; readonly order?: Row; readonly take?: number },
+    ): Promise<ReadonlyArray<object>> {
+        const matching = this.rowsOf(target).filter((candidate) =>
+            Object.entries(options.where).every(([member, value]) => candidate[member] === value),
+        )
+        const ordered = options.order?.createdAt === "DESC" ? [...matching].reverse() : matching
+        return Promise.resolve(
+            ordered
+                .slice(0, options.take ?? ordered.length)
+                .map((row) => Object.assign(Object.create(target.prototype), row)),
+        )
+    }
+
     exists(target: Target, options: { readonly where: Row }): Promise<boolean> {
-        const hit = this.rowsOf(target).some((candidate) => Object.entries(options.where).every(([member, value]) => candidate[member] === value))
+        const hit = this.rowsOf(target).some((candidate) =>
+            Object.entries(options.where).every(([member, value]) => candidate[member] === value),
+        )
         return Promise.resolve(hit)
     }
 
@@ -196,11 +221,15 @@ export class MemoryCellsManager {
 
     /** `save(Entity, values)` inserts; `save(entityInstance)` inserts a new instance or writes an instance read earlier back over its row (the class names the table). */
     save(targetOrEntity: Target | object, values?: object): Promise<object> {
-        if (values !== undefined && "name" in targetOrEntity && "prototype" in targetOrEntity) return Promise.resolve(this.add(targetOrEntity, values))
+        if (values !== undefined && "name" in targetOrEntity && "prototype" in targetOrEntity)
+            return Promise.resolve(this.add(targetOrEntity, values))
         const target = { name: targetOrEntity.constructor.name, prototype: targetOrEntity.constructor.prototype }
-        const kept = this.rowsOf(target).find((candidate) => "id" in targetOrEntity && candidate.id === targetOrEntity.id)
+        const kept = this.rowsOf(target).find(
+            (candidate) => "id" in targetOrEntity && candidate.id === targetOrEntity.id,
+        )
         if (kept === undefined) return Promise.resolve(this.add(target, targetOrEntity))
-        for (const [member, value] of Object.entries(targetOrEntity)) if (value !== undefined) kept[member] = stamped(value)
+        for (const [member, value] of Object.entries(targetOrEntity))
+            if (value !== undefined) kept[member] = stamped(value)
         return Promise.resolve(kept)
     }
 
@@ -220,7 +249,8 @@ export class MemoryCellsManager {
     private add(target: Target, values: object): Row {
         const rows = this.rowsOf(target)
         const row: Row = { id: `${target.name}-${String(rows.length + 1)}`, ...ENTITY_DEFAULTS[target.name] }
-        for (const [member, value] of Object.entries(asRow(isObject(values) ? values : {}))) if (value !== undefined) row[member] = stamped(value)
+        for (const [member, value] of Object.entries(asRow(isObject(values) ? values : {})))
+            if (value !== undefined) row[member] = stamped(value)
         rows.push(row)
         return row
     }

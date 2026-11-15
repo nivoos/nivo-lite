@@ -8,6 +8,7 @@ import { MemoryCellDefinitionsWriter } from "@tests/fixtures/builders/cells.buil
 import { CELL_DEFINITIONS_WRITER, CELL_RUNNER } from "./cells.decorators"
 import { CellRunnerClient, readDirsOf } from "./cell-runner.client"
 import { CellSeedService } from "./cell-seed.service"
+import { CellJsonSchemaPolicy } from "./cell-json-schema.policy"
 import { CellValidationService } from "./cell-validation.service"
 
 /*
@@ -16,7 +17,14 @@ import { CellValidationService } from "./cell-validation.service"
  */
 
 const ENTRY = resolve(__dirname, "../../../../../packages/cell-runner/dist/main.js")
-const LIMITS = { memoryBytes: 64 * 1024 * 1024, stackBytes: 1024 * 1024, cpuMs: 2000, wallMs: 8000, outputBytes: 4096, maxCalls: 5 }
+const LIMITS = {
+    memoryBytes: 64 * 1024 * 1024,
+    stackBytes: 1024 * 1024,
+    cpuMs: 2000,
+    wallMs: 8000,
+    outputBytes: 4096,
+    maxCalls: 5,
+}
 
 describe("cells-seed check with the real runner", () => {
     const runner = new CellRunnerClient({ limits: LIMITS, poolSize: 1, entry: ENTRY, readDirs: readDirsOf(ENTRY) })
@@ -30,6 +38,7 @@ describe("cells-seed check with the real runner", () => {
             providers: [
                 CellSeedService,
                 CellValidationService,
+                CellJsonSchemaPolicy,
                 { provide: PRIMARY_ENTITY_MANAGER, useValue: mock<EntityManager>() },
                 { provide: CELL_DEFINITIONS_WRITER, useValue: new MemoryCellDefinitionsWriter() },
                 { provide: CELL_RUNNER, useValue: runner },
@@ -45,10 +54,16 @@ describe("cells-seed check with the real runner", () => {
     })
 
     it("a source QuickJS cannot parse is refused CELLS_SOURCE_SYNTAX by the real runner", async () => {
-        const files = edited(packageFiles("demo-money"), "cells/trigger/demo.bank-credit/v1/translate.js", (text) => `${text}\nfunction broken( {\n`)
+        const files = edited(
+            packageFiles("demo-money"),
+            "cells/trigger/demo.bank-credit/v1/translate.js",
+            (text) => `${text}\nfunction broken( {\n`,
+        )
 
         const view = await (await seedOver()).check(files)
 
-        expect(view.lines.some((line) => line.startsWith("refused trigger:demo.bank-credit@1 CELLS_SOURCE_SYNTAX"))).toBe(true)
+        expect(
+            view.lines.some((line) => line.startsWith("refused trigger:demo.bank-credit@1 CELLS_SOURCE_SYNTAX")),
+        ).toBe(true)
     })
 })

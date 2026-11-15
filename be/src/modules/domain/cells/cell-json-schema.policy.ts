@@ -26,9 +26,23 @@ export class CellJsonSchemaPolicy {
         return validate.errors?.[0]?.instancePath || "/"
     }
 
-    /** Whether a schema is a valid JSON Schema 2020-12 document (the seed asks this at publish time). */
-    isValidSchema(schema: JsonSchema): boolean {
-        return this.ajv.validateSchema(schema) === true
+    /**
+     * The first reason a value is not a schema the executor can use, as `<path>: <reason>`, or null: it must be a JSON Schema 2020-12 document
+     * (the meta-schema) AND compile under the same strict settings the executor validates with, so a schema the seed accepts never fails at run
+     * time. The ONE schema check of cells (the seed's validation and the graph's `vars` use it too).
+     */
+    schemaProblemOf(schema: unknown): string | null {
+        if (typeof schema !== "boolean" && (typeof schema !== "object" || schema === null || Array.isArray(schema)))
+            return "/: a schema is an object or true / false"
+        if (this.ajv.validateSchema(schema as JsonSchema) !== true)
+            return `/: ${this.ajv.errorsText(this.ajv.errors, { dataVar: "schema" })}`
+        try {
+            this.ajv.compile(schema as JsonSchema)
+        } catch (cause: unknown) {
+            // ajv throws an Error for a schema its strict mode refuses (an unknown keyword, a type mismatch of keywords)
+            return `/: ${(cause as Error).message}`
+        }
+        return null
     }
 
     private compile(ref: string, schema: JsonSchema): ValidateFunction {

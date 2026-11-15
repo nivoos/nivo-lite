@@ -52,14 +52,22 @@ describe("CellDefinitionsService putPackage", () => {
         const again = await service.putPackage(manager, PUBLIC_PACKAGE, { repository: "other", commit: "bbbb" })
         expect(again).toBe(first)
         expect(memory.rowsOf(CellPackageEntity)).toEqual([
-            expect.objectContaining({ key: "demo-money", version: "1.0.0", visibility: "public", enterprises: [], repository: ORIGIN.repository }),
+            expect.objectContaining({
+                key: "demo-money",
+                version: "1.0.0",
+                visibility: "public",
+                enterprises: [],
+                repository: ORIGIN.repository,
+            }),
         ])
     })
 
     it("keeps the enterprises of a private package", async () => {
         const { service, memory, manager } = await build()
         await service.putPackage(manager, PRIVATE_PACKAGE, ORIGIN)
-        expect(memory.rowsOf(CellPackageEntity)).toEqual([expect.objectContaining({ visibility: "private", enterprises: ["acme"] })])
+        expect(memory.rowsOf(CellPackageEntity)).toEqual([
+            expect.objectContaining({ visibility: "private", enterprises: ["acme"] }),
+        ])
     })
 
     it.each([
@@ -70,7 +78,9 @@ describe("CellDefinitionsService putPackage", () => {
     ])("refuses the same package version with another %s", async (_name, other) => {
         const { service, manager } = await build()
         await service.putPackage(manager, PRIVATE_PACKAGE, ORIGIN)
-        await expect(refusalOf(service.putPackage(manager, other, ORIGIN))).resolves.toBe(CellsErrorCode.VersionImmutable)
+        await expect(refusalOf(service.putPackage(manager, other, ORIGIN))).resolves.toBe(
+            CellsErrorCode.VersionImmutable,
+        )
     })
 })
 
@@ -118,7 +128,10 @@ describe("CellDefinitionsService putDefinition", () => {
         const { service, memory, manager } = await build()
         const packageId = await service.putPackage(manager, PUBLIC_PACKAGE, ORIGIN)
         const laterId = await service.putPackage(manager, { ...PUBLIC_PACKAGE, version: "1.1.0" }, ORIGIN)
-        const source = { id: await service.putSource(manager, packageSourceOf(FILE_LEAD_SOURCE)), sha256: sourceHashOf(FILE_LEAD_SOURCE) }
+        const source = {
+            id: await service.putSource(manager, packageSourceOf(FILE_LEAD_SOURCE)),
+            sha256: sourceHashOf(FILE_LEAD_SOURCE),
+        }
         await service.putDefinition(manager, packageId, fileLeadNode(source))
         await expect(service.putDefinition(manager, laterId, fileLeadNode(source))).resolves.toBe("unchanged")
         expect(memory.rowsOf(CellDefinitionEntity)).toHaveLength(1)
@@ -127,10 +140,15 @@ describe("CellDefinitionsService putDefinition", () => {
     it("refuses other content for a kept (kind, key, version) with CELLS_VERSION_IMMUTABLE", async () => {
         const { service, manager } = await build()
         const packageId = await service.putPackage(manager, PUBLIC_PACKAGE, ORIGIN)
-        const source = { id: await service.putSource(manager, packageSourceOf(FILE_LEAD_SOURCE)), sha256: sourceHashOf(FILE_LEAD_SOURCE) }
+        const source = {
+            id: await service.putSource(manager, packageSourceOf(FILE_LEAD_SOURCE)),
+            sha256: sourceHashOf(FILE_LEAD_SOURCE),
+        }
         await service.putDefinition(manager, packageId, fileLeadNode(source))
         const changed = { ...fileLeadNode(source), semantics: { mutates: false } }
-        await expect(refusalOf(service.putDefinition(manager, packageId, changed))).resolves.toBe(CellsErrorCode.VersionImmutable)
+        await expect(refusalOf(service.putDefinition(manager, packageId, changed))).resolves.toBe(
+            CellsErrorCode.VersionImmutable,
+        )
     })
 
     it("writes a sourceless draft row with no publish time", async () => {
@@ -169,7 +187,9 @@ describe("CellDefinitionsService putGraph", () => {
         await service.putGraph(manager, packageId, paymentGraph())
         await expect(service.putGraph(manager, packageId, paymentGraph())).resolves.toBe("unchanged")
         const changed = { ...paymentGraph(), document: { ...paymentGraph().document, start: "ask" } }
-        await expect(refusalOf(service.putGraph(manager, packageId, changed))).resolves.toBe(CellsErrorCode.VersionImmutable)
+        await expect(refusalOf(service.putGraph(manager, packageId, changed))).resolves.toBe(
+            CellsErrorCode.VersionImmutable,
+        )
     })
 
     it("refuses a changed vars declaration", async () => {
@@ -177,14 +197,18 @@ describe("CellDefinitionsService putGraph", () => {
         const packageId = await service.putPackage(manager, PRIVATE_PACKAGE, ORIGIN)
         await service.putGraph(manager, packageId, leadIntakeGraph())
         const document = { ...leadIntakeGraph().document, vars: { filed: { schema: { type: "string" } } } }
-        await expect(refusalOf(service.putGraph(manager, packageId, { ...leadIntakeGraph(), document }))).resolves.toBe(CellsErrorCode.VersionImmutable)
+        await expect(refusalOf(service.putGraph(manager, packageId, { ...leadIntakeGraph(), document }))).resolves.toBe(
+            CellsErrorCode.VersionImmutable,
+        )
     })
 
     it("writes a draft graph with no publish time", async () => {
         const { service, memory, manager } = await build()
         const packageId = await service.putPackage(manager, PUBLIC_PACKAGE, ORIGIN)
         await service.putGraph(manager, packageId, { ...paymentGraph(), reviewState: "draft", reviewRef: null })
-        expect(memory.rowsOf(CellGraphEntity)).toEqual([expect.objectContaining({ reviewState: "draft", publishedAt: null })])
+        expect(memory.rowsOf(CellGraphEntity)).toEqual([
+            expect.objectContaining({ reviewState: "draft", publishedAt: null }),
+        ])
     })
 })
 
@@ -222,11 +246,11 @@ describe("CellDefinitionsService retire and soft delete", () => {
         await service.softDeleteGraph(manager, { key: "demo.payment", version: 1 })
         await service.softDeletePackage(manager, "demo-money", "1.0.0")
         await service.softDeletePackage(manager, "demo-money", "1.0.0")
-        expect([CellDefinitionEntity, CellGraphEntity, CellPackageEntity].map((entity) => memory.rowsOf(entity)[0]?.deletedAt)).toEqual([
-            expect.any(Date),
-            expect.any(Date),
-            expect.any(Date),
-        ])
+        expect(
+            [CellDefinitionEntity, CellGraphEntity, CellPackageEntity].map(
+                (entity) => memory.rowsOf(entity)[0]?.deletedAt,
+            ),
+        ).toEqual([expect.any(Date), expect.any(Date), expect.any(Date)])
     })
 
     it("answers CELLS_UNKNOWN for a version, a graph or a package that does not exist", async () => {
@@ -245,14 +269,23 @@ describe("CellDefinitionsService retire and soft delete", () => {
 })
 
 describe("CellDefinitionsService receipt", () => {
-    const report = { created: ["node:demo.ask-to-pay@1"], unchanged: [], refused: [], notInPackage: [] }
+    const report = { created: ["node:demo.ask-to-pay@1"], unchanged: [], refused: [], notInPackage: [], retired: [] }
     const receipt = { packageKey: "demo-money", repository: ORIGIN.repository, commit: "aaaa", forced: false, report }
 
     it("writes the receipt of a package commit once and keeps the first report", async () => {
         const { service, memory, manager } = await build()
         await service.receipt(manager, receipt)
         await service.receipt(manager, { ...receipt, report: { ...report, created: [] } })
-        expect(memory.rowsOf(CellSeedReceiptEntity)).toEqual([expect.objectContaining({ packageKey: "demo-money", commit: "aaaa", forced: false, report })])
+        expect(memory.rowsOf(CellSeedReceiptEntity)).toEqual([
+            expect.objectContaining({ packageKey: "demo-money", commit: "aaaa", forced: false, report }),
+        ])
+    })
+
+    it("answers the report of the latest receipt of a package, and null for a package never applied", async () => {
+        const { service, manager } = await build()
+        await expect(service.lastReport(manager, "demo-money")).resolves.toBeNull()
+        await service.receipt(manager, receipt)
+        await expect(service.lastReport(manager, "demo-money")).resolves.toEqual(report)
     })
 
     it("tells a plain apply from a forced one", async () => {

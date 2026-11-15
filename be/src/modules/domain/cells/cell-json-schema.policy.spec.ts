@@ -29,23 +29,36 @@ describe("CellJsonSchemaPolicy (JSON Schema 2020-12)", () => {
     })
 
     it("reuses a compiled schema whatever the member order of its text", () => {
-        const reordered = { additionalProperties: false, properties: schema.properties, required: schema.required, type: "object" } as const
+        const reordered = {
+            additionalProperties: false,
+            properties: schema.properties,
+            required: schema.required,
+            type: "object",
+        } as const
         expect(policy.problemOf("a", schema, { orderId: "A", total: 1 })).toBeNull()
         expect(policy.problemOf("a", reordered, { orderId: "A", total: 1 })).toBeNull()
     })
 
     it("keeps a bounded number of compiled schemas and still answers after the oldest goes", () => {
         const small = new CellJsonSchemaPolicy()
-        for (let index = 0; index < 501; index += 1) expect(small.problemOf("a", { type: "object", maxProperties: index }, {})).toBeNull()
+        for (let index = 0; index < 501; index += 1)
+            expect(small.problemOf("a", { type: "object", maxProperties: index }, {})).toBeNull()
         expect(small.problemOf("a", { type: "object", maxProperties: 0 }, {})).toBeNull()
     })
 
     it("refuses a schema it cannot compile with CELLS_SCHEMA_INVALID", () => {
-        expect(() => policy.problemOf("tool:x@1", { type: "no-such-type" }, 1)).toThrow(expect.objectContaining({ code: CellsErrorCode.SchemaInvalid, params: { ref: "tool:x@1", path: "/" } }))
+        expect(() => policy.problemOf("tool:x@1", { type: "no-such-type" }, 1)).toThrow(
+            expect.objectContaining({ code: CellsErrorCode.SchemaInvalid, params: { ref: "tool:x@1", path: "/" } }),
+        )
     })
 
-    it("says whether a schema is valid 2020-12", () => {
-        expect(policy.isValidSchema({ type: "object" })).toBe(true)
-        expect(policy.isValidSchema({ type: 5 })).toBe(false)
+    it("is the one schema check: a 2020-12 document that compiles under the executor's strict settings, else the path and the reason", () => {
+        expect(policy.schemaProblemOf({ type: "object", properties: { a: { type: "string" } } })).toBeNull()
+        expect(policy.schemaProblemOf(true)).toBeNull()
+        expect(policy.schemaProblemOf({ type: 5 })).toMatch(/^\/: schema\/type must be/u)
+        expect(policy.schemaProblemOf("object")).toBe("/: a schema is an object or true / false")
+        expect(policy.schemaProblemOf([])).toBe("/: a schema is an object or true / false")
+        expect(policy.schemaProblemOf(null)).toBe("/: a schema is an object or true / false")
+        expect(policy.schemaProblemOf({ type: "object", requird: ["a"] })).toMatch(/^\/: .*requird/u)
     })
 })

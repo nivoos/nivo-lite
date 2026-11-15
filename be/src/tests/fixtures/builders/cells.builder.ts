@@ -26,6 +26,7 @@ import type {
     RunnerRunRequest,
     RunnerRunResult,
     SeedReceiptInput,
+    SeedReport,
     ToolAnswer,
     ToolCallKey,
     UsageFigures,
@@ -102,7 +103,12 @@ export class MemoryCellReader implements CellReader {
 
     listed(filter: CellListFilter): Promise<ReadonlyArray<CellRef>> {
         const refs = [...this.definitions.values()]
-            .filter((view) => view.reviewState === "approved" && !view.deleted && (filter.kind === undefined || view.kind === filter.kind))
+            .filter(
+                (view) =>
+                    view.reviewState === "approved" &&
+                    !view.deleted &&
+                    (filter.kind === undefined || view.kind === filter.kind),
+            )
             .map((view): CellRef => ({ kind: view.kind, key: view.key, version: view.version }))
         return Promise.resolve(refs)
     }
@@ -117,7 +123,11 @@ export interface WriterCall {
     readonly key: string
 }
 
-/** The writer over maps: same content again is `unchanged`, other content for a kept (kind, key, version) throws `CELLS_VERSION_IMMUTABLE`. */
+/**
+ * The writer over maps, with the real writer's rules: a package version is one row whatever commit it is read from; a definition's content is
+ * what its hash covers (never the package, the review state or the review reference); the same content again is `unchanged`, other content for a
+ * kept (kind, key, version) throws `CELLS_VERSION_IMMUTABLE`. Its receipts answer the two receipt reads of the port.
+ */
 export class MemoryCellDefinitionsWriter implements CellDefinitionsWriter {
     readonly calls: Array<WriterCall> = []
     readonly receipts: Array<SeedReceiptInput> = []
@@ -128,8 +138,8 @@ export class MemoryCellDefinitionsWriter implements CellDefinitionsWriter {
     private readonly graphs = new Map<string, string>()
 
     putPackage(_manager: EntityManager, file: CellPackageFile, origin: CellPackageOrigin): Promise<string> {
-        const key = `${file.key}@${file.version}:${origin.commit}`
-        this.calls.push({ method: "putPackage", key })
+        const key = `${file.key}@${file.version}`
+        this.calls.push({ method: "putPackage", key: `${key}:${origin.commit}` })
         return Promise.resolve(this.idOf(this.packages, "package", key))
     }
 
@@ -139,16 +149,26 @@ export class MemoryCellDefinitionsWriter implements CellDefinitionsWriter {
         return Promise.resolve(this.idOf(this.sources, "source", sha256))
     }
 
-    putDefinition(_manager: EntityManager, packageId: string, candidate: ValidatedCell): Promise<"created" | "unchanged"> {
+    putDefinition(
+        _manager: EntityManager,
+        _packageId: string,
+        candidate: ValidatedCell,
+    ): Promise<"created" | "unchanged"> {
         const key = refKeyOf(candidate)
         this.calls.push({ method: "putDefinition", key })
-        return this.settle(this.definitions, key, canonicalJsonOf({ packageId, candidate }), key)
+        const { reviewState: _state, reviewRef: _ref, source, ...content } = candidate
+        return this.settle(
+            this.definitions,
+            key,
+            canonicalJsonOf({ ...content, sourceSha256: source?.sha256 ?? null }),
+            key,
+        )
     }
 
-    putGraph(_manager: EntityManager, packageId: string, graph: ValidatedGraph): Promise<"created" | "unchanged"> {
+    putGraph(_manager: EntityManager, _packageId: string, graph: ValidatedGraph): Promise<"created" | "unchanged"> {
         const key = graphKeyOf(graph)
         this.calls.push({ method: "putGraph", key })
-        return this.settle(this.graphs, key, canonicalJsonOf({ packageId, graph }), key)
+        return this.settle(this.graphs, key, canonicalJsonOf(graph.document), key)
     }
 
     retire(_manager: EntityManager, ref: CellRef): Promise<void> {
@@ -159,8 +179,28 @@ export class MemoryCellDefinitionsWriter implements CellDefinitionsWriter {
 
     receipt(_manager: EntityManager, receipt: SeedReceiptInput): Promise<void> {
         this.calls.push({ method: "receipt", key: `${receipt.packageKey}@${receipt.commit}` })
-        this.receipts.push(receipt)
+        if (
+            !this.receipts.some(
+                (kept) =>
+                    kept.packageKey === receipt.packageKey &&
+                    kept.commit === receipt.commit &&
+                    kept.forced === receipt.forced,
+            )
+        )
+            this.receipts.push(receipt)
         return Promise.resolve()
+    }
+
+    receiptExists(_manager: EntityManager, packageKey: string, commit: string, forced: boolean): Promise<boolean> {
+        return Promise.resolve(
+            this.receipts.some(
+                (kept) => kept.packageKey === packageKey && kept.commit === commit && kept.forced === forced,
+            ),
+        )
+    }
+
+    lastReport(_manager: EntityManager, packageKey: string): Promise<SeedReport | null> {
+        return Promise.resolve(this.receipts.filter((kept) => kept.packageKey === packageKey).at(-1)?.report ?? null)
     }
 
     /** The id kept for a key, or a new `<prefix>-<n>` one. */
@@ -173,7 +213,12 @@ export class MemoryCellDefinitionsWriter implements CellDefinitionsWriter {
     }
 
     /** `created` for a new key, `unchanged` for the same content, a refusal for other content. */
-    private settle(kept: Map<string, string>, key: string, content: string, ref: string): Promise<"created" | "unchanged"> {
+    private settle(
+        kept: Map<string, string>,
+        key: string,
+        content: string,
+        ref: string,
+    ): Promise<"created" | "unchanged"> {
         const before = kept.get(key)
         if (before === undefined) {
             kept.set(key, content)
@@ -193,7 +238,8 @@ export class ScriptedCellRunner implements CellRunner {
     readonly checked: Array<string> = []
 
     constructor(
-        private readonly handler: ScriptedRunnerRun = (request) => Promise.resolve({ type: "done", id: request.id, output: null }),
+        private readonly handler: ScriptedRunnerRun = (request) =>
+            Promise.resolve({ type: "done", id: request.id, output: null }),
         private readonly problems: ReadonlyArray<string> = [],
     ) {}
 
@@ -212,7 +258,10 @@ export class ScriptedCellRunner implements CellRunner {
 export class MemoryCellLedger implements CellLedger {
     private readonly entries = new Map<string, { readonly settled: CellOutcome | null }>()
 
-    async once(key: string, act: () => Promise<CellOutcome>): Promise<{ readonly replayed: boolean; readonly outcome: CellOutcome }> {
+    async once(
+        key: string,
+        act: () => Promise<CellOutcome>,
+    ): Promise<{ readonly replayed: boolean; readonly outcome: CellOutcome }> {
         const entry = this.entries.get(key)
         if (entry !== undefined) {
             return { replayed: true, outcome: entry.settled ?? { kind: "unknown", key } }

@@ -9,6 +9,7 @@ import type {
     CellSourceInput,
     GraphRef,
     SeedReceiptInput,
+    SeedReport,
     ValidatedCell,
     ValidatedGraph,
 } from "./cells.contracts"
@@ -75,7 +76,11 @@ export class CellDefinitionsService implements CellDefinitionsWriter {
     }
 
     /** Inserts a version row; the same content answers `unchanged`; other content throws `CELLS_VERSION_IMMUTABLE`. */
-    async putDefinition(manager: EntityManager, packageId: string, candidate: ValidatedCell): Promise<"created" | "unchanged"> {
+    async putDefinition(
+        manager: EntityManager,
+        packageId: string,
+        candidate: ValidatedCell,
+    ): Promise<"created" | "unchanged"> {
         const definitionHash = definitionHashOf({ ...candidate, sourceSha256: candidate.source?.sha256 ?? null })
         const found = await manager.findOne(CellDefinitionEntity, {
             where: { kind: candidate.kind, key: candidate.key, version: candidate.version },
@@ -193,8 +198,20 @@ export class CellDefinitionsService implements CellDefinitionsWriter {
         return manager.exists(CellSeedReceiptEntity, { where: { packageKey, commit, forced } })
     }
 
+    /** The report of the latest receipt of a package (by apply time), or null when it was never applied. */
+    async lastReport(manager: EntityManager, packageKey: string): Promise<SeedReport | null> {
+        const [last] = await manager.find(CellSeedReceiptEntity, {
+            where: { packageKey },
+            order: { createdAt: "DESC" },
+            take: 1,
+        })
+        return last === undefined ? null : last.report
+    }
+
     private async definitionOf(manager: EntityManager, ref: CellRef): Promise<CellDefinitionEntity> {
-        const found = await manager.findOne(CellDefinitionEntity, { where: { kind: ref.kind, key: ref.key, version: ref.version } })
+        const found = await manager.findOne(CellDefinitionEntity, {
+            where: { kind: ref.kind, key: ref.key, version: ref.version },
+        })
         if (found === null) throw new CellsError({ code: CellsErrorCode.Unknown, params: { ref: refTextOf(ref) } })
         return found
     }

@@ -10,21 +10,17 @@ import {
     CELL_RUNNER,
     CellSeedService,
     CellValidationService,
-    type CellPackageFile,
+    CellJsonSchemaPolicy,
     type CellPackageFiles,
-    type CellPackageOrigin,
     type CellReader,
     type CellRunner,
-    type SeedReceiptInput,
-    type ValidatedCell,
-    type ValidatedGraph,
 } from "@modules/domain/cells"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { MemoryCellDefinitionsWriter, ScriptedCellRunner } from "./cells.builder"
 
 /*
  * Builders of the seed specs (slice S2): the two fixture packages read from `fixtures/cells`, small edits of a package, and the seed service built over
- * the writer double, a scripted runner and an EntityManager double whose receipts are the writer double's.
+ * the writer double, a scripted runner and an EntityManager double that runs each transaction on itself.
  */
 
 /** The folder of the fixture packages. */
@@ -44,7 +40,8 @@ export const packageFiles = (name: string): Map<string, string> => {
         for (const entry of readdirSync(directory, { withFileTypes: true })) {
             const path = join(directory, entry.name)
             if (entry.isDirectory()) walk(path)
-            else if (/\.(ya?ml|js|ts)$/u.test(entry.name)) found.set(relative(root, path).split(sep).join("/"), readFileSync(path, "utf8"))
+            else if (/\.(ya?ml|js|ts)$/u.test(entry.name))
+                found.set(relative(root, path).split(sep).join("/"), readFileSync(path, "utf8"))
         }
     }
     walk(root)
@@ -52,7 +49,11 @@ export const packageFiles = (name: string): Map<string, string> => {
 }
 
 /** A copy of the files with one file's text changed (or added). */
-export const edited = (files: CellPackageFiles, path: string, change: (text: string) => string): Map<string, string> => {
+export const edited = (
+    files: CellPackageFiles,
+    path: string,
+    change: (text: string) => string,
+): Map<string, string> => {
     const copy = new Map(files)
     copy.set(path, change(copy.get(path) ?? ""))
     return copy
@@ -63,7 +64,11 @@ export const edited = (files: CellPackageFiles, path: string, change: (text: str
 export type YamlDocument = any
 
 /** A copy of the files with one yaml file parsed, changed by `mutate` and written back, whatever layout the file had. */
-export const editedYaml = (files: CellPackageFiles, path: string, mutate: (document: YamlDocument) => void): Map<string, string> => {
+export const editedYaml = (
+    files: CellPackageFiles,
+    path: string,
+    mutate: (document: YamlDocument) => void,
+): Map<string, string> => {
     const document: YamlDocument = parse(files.get(path) ?? "")
     mutate(document)
     const copy = new Map(files)
@@ -75,32 +80,11 @@ export const editedYaml = (files: CellPackageFiles, path: string, mutate: (docum
 export const withoutFolder = (files: CellPackageFiles, folder: string): Map<string, string> =>
     new Map([...files].filter(([path]) => !path.startsWith(`${folder}/`)))
 
-/** The writer double with the real writer's package rule: a package version is one row whatever commit it is read from, so a new pin of the same files writes the same rows. */
-class SeedWriterDouble extends MemoryCellDefinitionsWriter {
-    override putPackage(manager: EntityManager, file: CellPackageFile, origin: CellPackageOrigin): Promise<string> {
-        return super.putPackage(manager, file, { ...origin, commit: "" })
-    }
-
-    /** The review reference names the commit, which is not part of a row's content (the real hash is of the content and the source). */
-    override putDefinition(manager: EntityManager, packageId: string, candidate: ValidatedCell): Promise<"created" | "unchanged"> {
-        return super.putDefinition(manager, packageId, { ...candidate, reviewRef: null })
-    }
-
-    override putGraph(manager: EntityManager, packageId: string, graph: ValidatedGraph): Promise<"created" | "unchanged"> {
-        return super.putGraph(manager, packageId, { ...graph, reviewRef: null })
-    }
-}
-
-/** The EntityManager double: a transaction runs its work on the same manager; the receipts are the writer double's. */
-const managerOver = (writer: MemoryCellDefinitionsWriter): EntityManager => {
+/** The EntityManager double: a transaction runs its work on the same manager (the receipts are the writer double's, read through the port). */
+const transactionalManager = (): EntityManager => {
     const manager = mock<EntityManager>()
-    const where = (options: unknown): Partial<SeedReceiptInput> => (Reflect.get(Object(options), "where") ?? {}) as Partial<SeedReceiptInput>
-    const matches = (receipt: SeedReceiptInput, wanted: Partial<SeedReceiptInput>): boolean =>
-        Object.entries(wanted).every(([name, value]) => Reflect.get(receipt, name) === value)
-    manager.transaction.mockImplementation(((work: (inner: EntityManager) => Promise<unknown>) => work(manager)) as never)
-    manager.exists.mockImplementation(((_entity: unknown, options: unknown) => Promise.resolve(writer.receipts.some((receipt) => matches(receipt, where(options))))) as never)
-    manager.find.mockImplementation(((_entity: unknown, options: unknown) =>
-        Promise.resolve(writer.receipts.filter((receipt) => matches(receipt, { packageKey: where(options).packageKey ?? "" })).slice(-1))) as never)
+    manager.transaction.mockImplementation(((work: (inner: EntityManager) => Promise<unknown>) =>
+        work(manager)) as never)
     return manager
 }
 
@@ -114,18 +98,26 @@ export const buildSeed = async (
     readonly runner: ScriptedCellRunner
     readonly manager: EntityManager
 }> => {
-    const writer = new SeedWriterDouble()
+    const writer = new MemoryCellDefinitionsWriter()
     const runner = new ScriptedCellRunner(undefined, options.problems ?? [])
-    const manager = managerOver(writer)
+    const manager = transactionalManager()
     const moduleRef = await Test.createTestingModule({
         providers: [
             CellSeedService,
             CellValidationService,
+            CellJsonSchemaPolicy,
+            CellJsonSchemaPolicy,
             { provide: PRIMARY_ENTITY_MANAGER, useValue: manager },
             { provide: CELL_DEFINITIONS_WRITER, useValue: writer },
             { provide: CELL_RUNNER, useValue: runner satisfies CellRunner },
             ...(options.reader === undefined ? [] : [{ provide: CELL_READER, useValue: options.reader }]),
         ],
     }).compile()
-    return { seed: moduleRef.get(CellSeedService), validation: moduleRef.get(CellValidationService), writer, runner, manager }
+    return {
+        seed: moduleRef.get(CellSeedService),
+        validation: moduleRef.get(CellValidationService),
+        writer,
+        runner,
+        manager,
+    }
 }

@@ -1,5 +1,12 @@
 import { CellsError, CellsErrorCode } from "@modules/domain/cells"
-import { FIXTURE_PACKAGES, buildSeed, edited, editedYaml, packageFiles, type YamlDocument } from "@tests/fixtures/builders/cells-seed.builder"
+import {
+    FIXTURE_PACKAGES,
+    buildSeed,
+    edited,
+    editedYaml,
+    packageFiles,
+    type YamlDocument,
+} from "@tests/fixtures/builders/cells-seed.builder"
 
 const MONEY = "demo-money"
 const CRM = "demo-crm-lead"
@@ -33,19 +40,32 @@ const check = async (files: Files, problems: ReadonlyArray<string> = []): Promis
     return refusalsOf((await seed.check(files)).lines)
 }
 
-const money = (change: (files: Files) => Files = (files) => files, problems: ReadonlyArray<string> = []): Promise<Record<string, string>> => check(change(packageFiles(MONEY)), problems)
+const money = (
+    change: (files: Files) => Files = (files) => files,
+    problems: ReadonlyArray<string> = [],
+): Promise<Record<string, string>> => check(change(packageFiles(MONEY)), problems)
 
 /** A change to one yaml file of the money package. */
-const yamlChange = (path: string, mutate: (document: YamlDocument) => void) => (files: Files): Files => editedYaml(files, path, mutate)
+const yamlChange =
+    (path: string, mutate: (document: YamlDocument) => void) =>
+    (files: Files): Files =>
+        editedYaml(files, path, mutate)
 
 /** A change to the money graph. */
 const graphChange = (mutate: (graph: YamlDocument) => void) => yamlChange(MONEY_GRAPH, mutate)
 
 /** A change to the text of the node source. */
-const sourceChange = (change: (text: string) => string) => (files: Files): Files => edited(files, NODE_JS, change)
+const sourceChange =
+    (change: (text: string) => string) =>
+    (files: Files): Files =>
+        edited(files, NODE_JS, change)
 
 /** The crm graph with the loop body's `file` step followed by a `core.set` of the variable `seen`, the loop running `concurrency` at once. */
-const crmSetting = (declaration: YamlDocument | null, value: YamlDocument, concurrency: number): Promise<Record<string, string>> =>
+const crmSetting = (
+    declaration: YamlDocument | null,
+    value: YamlDocument,
+    concurrency: number,
+): Promise<Record<string, string>> =>
     check(
         editedYaml(packageFiles(CRM), CRM_GRAPH, (graph) => {
             if (declaration !== null) graph.vars = { seen: declaration }
@@ -150,7 +170,12 @@ describe("CellValidationService through the seed check", () => {
     })
 
     it("a module word in a string, a comment or a property name is not a use", async () => {
-        const refused = await money(sourceChange((text) => `// import x from "y"\nconst note = "require(a) and export"\nconst o = { import: 1 }\n${text}`))
+        const refused = await money(
+            sourceChange(
+                (text) =>
+                    `// import x from "y"\nconst note = "require(a) and export"\nconst o = { import: 1 }\n${text}`,
+            ),
+        )
 
         expect(refused).toEqual({})
     })
@@ -162,6 +187,20 @@ describe("CellValidationService through the seed check", () => {
         expect(runnerSays[ASK_REF]).toBe(CellsErrorCode.SourceSyntax)
         expect(runnerSays["trigger:demo.bank-credit@1"]).toBe(CellsErrorCode.SourceSyntax)
         expect(noEntry[ASK_REF]).toBe(CellsErrorCode.SourceSyntax)
+    })
+
+    it("CELLS_SOURCE_SYNTAX: an async entry or any await (C1: the guest is synchronous), on both fixture kinds", async () => {
+        const asyncEntry = await money(sourceChange((text) => text.replace("function run(", "async function run(")))
+        const lead = await check(
+            edited(
+                packageFiles(CRM),
+                "cells/node/demo.file-lead/v1/run.js",
+                (text) => `${text}\nconst later = async () => 1\n`,
+            ),
+        )
+
+        expect(asyncEntry[ASK_REF]).toBe(CellsErrorCode.SourceSyntax)
+        expect(lead["node:demo.file-lead@1"]).toBe(CellsErrorCode.SourceSyntax)
     })
 
     it("CELLS_SOURCE_SYNTAX: a script the parser rejects", async () => {
@@ -262,10 +301,22 @@ describe("CellValidationService through the seed check", () => {
 
     it.each([
         ["an unknown operator", (graph: YamlDocument) => (graph.steps.match.when.op = "gtx")],
-        ["an expression deeper than 4", (graph: YamlDocument) => (graph.steps.match.when = { not: { not: { not: { not: { op: "present", ref: { $ref: "trigger.data.x" } } } } } })],
+        [
+            "an expression deeper than 4",
+            (graph: YamlDocument) =>
+                (graph.steps.match.when = {
+                    not: { not: { not: { not: { op: "present", ref: { $ref: "trigger.data.x" } } } } },
+                }),
+        ],
         ["an order comparison of text", (graph: YamlDocument) => (graph.steps.match.when.value = "big")],
-        ["a ref to a member the node's output does not list", (graph: YamlDocument) => (graph.steps.paid.config.output.payKey.$ref = "steps.ask.output.nope")],
-        ["a ref to a step that is not there", (graph: YamlDocument) => (graph.steps.paid.config.output.payKey.$ref = "steps.zzz.output.payKey")],
+        [
+            "a ref to a member the node's output does not list",
+            (graph: YamlDocument) => (graph.steps.paid.config.output.payKey.$ref = "steps.ask.output.nope"),
+        ],
+        [
+            "a ref to a step that is not there",
+            (graph: YamlDocument) => (graph.steps.paid.config.output.payKey.$ref = "steps.zzz.output.payKey"),
+        ],
         ["item outside a loop", (graph: YamlDocument) => (graph.steps.ask.input.total.$ref = "item.x")],
     ])("CELLS_EXPR_INVALID: %s", async (_name, mutate) => {
         const refused = await money(graphChange(mutate))
@@ -307,7 +358,9 @@ describe("CellValidationService through the seed check", () => {
 
     describe("parallel writes of one variable (D1)", () => {
         it("CELLS_VAR_WRITE_CONFLICT: iterations that run at once write a variable that declares no merge", async () => {
-            expect((await crmSetting({ schema: { type: "number" } }, 1, 3))[LEAD_REF]).toBe(CellsErrorCode.VarWriteConflict)
+            expect((await crmSetting({ schema: { type: "number" } }, 1, 3))[LEAD_REF]).toBe(
+                CellsErrorCode.VarWriteConflict,
+            )
         })
 
         it("a variable that declares merge append may be written in parallel", async () => {
