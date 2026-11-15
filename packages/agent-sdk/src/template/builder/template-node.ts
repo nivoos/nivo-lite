@@ -40,6 +40,8 @@ export interface TemplateNodeShape {
     readonly requires?: ReadonlyArray<ToolId> | undefined
     /** The output member that routes the node and the route names it takes; absent: the node does not route. */
     readonly routes?: { readonly by: string; readonly names: ReadonlyArray<string> } | undefined
+    /** Read as written (`true`, or absent), so an untyped config is judged too: `NODE_HELD_READS_INVALID`. */
+    readonly readsHeldEvents?: unknown
     /** The node's examples, each named. */
     readonly examples: ReadonlyArray<{ readonly name: string }>
 }
@@ -166,7 +168,7 @@ const routeProblems = (node: TemplateNodeShape): ReadonlyArray<Problem> => {
 /**
  * The definition problems of a template node, decided with no engine: a malformed id, a tool listed twice, a `requires` not in `tools`,
  * no description in both languages, no mode or one that is neither `auto` nor `ask`, a provider listed twice, an
- * input or params schema that is not an object, `routes.by` not a member of the output (or names that are not its enum's options), and no example (or two of one name).
+ * input or params schema that is not an object, `routes.by` not a member of the output (or names that are not its enum's options), a `readsHeldEvents` that is not `true`, and no example (or two of one name).
  */
 export const templateNodeProblems = (node: TemplateNodeShape): ReadonlyArray<Problem> => {
     const tools = new Set<string>(node.tools)
@@ -191,6 +193,9 @@ export const templateNodeProblems = (node: TemplateNodeShape): ReadonlyArray<Pro
             ? []
             : [{ code: "NODE_SCHEMA_NOT_OBJECT" as const, at: `${node.id}.params` }]),
         ...routeProblems(node),
+        ...(node.readsHeldEvents === undefined || node.readsHeldEvents === true
+            ? []
+            : [{ code: "NODE_HELD_READS_INVALID" as const, at: `${node.id}.readsHeldEvents` }]),
         ...(examples.length === 0 ? [{ code: "NODE_EXAMPLES_EMPTY" as const, at: `${node.id}.examples` }] : []),
         ...duplicatesOf(examples.map((example) => example.name)).map((name): Problem => ({
             code: "NODE_EXAMPLE_NAME_DUPLICATE",

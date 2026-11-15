@@ -4,7 +4,7 @@ import { eachInOrder } from "@modules/platform/primitives"
 import { WorkspaceSeedError, WorkspaceSeedErrorCode } from "./errors/workspace-seed.error"
 import { SeedReceiptsService } from "./seed-receipts.service"
 import type { SeedStandardCheckout, SeedStandardDriver, SeedStandardRef } from "./seed-standard.port"
-import { SEED_DOCUMENT_PATH, readSeedStandardRefs, sealedPathOf, seedDecisionOf } from "./seed-standard.policy"
+import { SEED_DOCUMENT_PATH, doorsLineOf, readDoorOutcomes, readSeedStandardRefs, sealedPathOf, seedDecisionOf } from "./seed-standard.policy"
 import type { SetProfile } from "./set-seed.contracts"
 import { readSeedDocument } from "./set-seed.policy"
 import { SetSeedService } from "./set-seed.service"
@@ -83,6 +83,17 @@ export class SeedStandardService {
             const nodeSettings = receipt === null || receipt.forcedCommit === null || ref.forceKinds.includes("node-settings")
             await this.applier.printDoors((await this.pinned(ref)).profile, nodeSettings)
         })
+    }
+
+    /**
+     * Records in each standard's receipt the outcome of its door steps (the door script's report on stdin): a refused setting becomes a FAILED
+     * seed step with its typed code, shown by every later bring-up and dry run (never only a log line). A standard with no receipt is named.
+     */
+    async recordDoors(input: string, environment: string): Promise<void> {
+        for (const [name, doors] of readDoorOutcomes(input)) {
+            const recorded = await this.receipts.recordDoors(name, environment, doors)
+            this.options.print(`${name}: ${recorded ? doorsLineOf(doors) : "no receipt in this environment: door outcomes not recorded"}`)
+        }
     }
 
     /**

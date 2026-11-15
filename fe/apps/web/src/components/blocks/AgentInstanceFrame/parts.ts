@@ -12,6 +12,8 @@ export interface InstanceHeaderView {
     readonly name: string
     /** The kind of the agent: its mark is the glyph of the kind on the soft colour of the kind. */
     readonly module: string
+    /** The glyph the module template declares, the mark of a kind with no emblem file; empty when none. */
+    readonly glyph: string
     readonly isEarly: boolean
     readonly statusLabel: string
     readonly statusTone: BadgeTone
@@ -215,6 +217,7 @@ interface InstanceViewInput {
     readonly t: ReturnType<typeof useTranslations<"modulesCore">>
     readonly needs: ReturnType<typeof useConnectionNeedsCopy>
     readonly module: string
+    readonly glyph: string
 }
 
 /** The header view of an agent: its name, status and facts, what it still needs, and the one command and the links its tab offers. */
@@ -224,6 +227,7 @@ export const instanceViewOf = (input: InstanceViewInput): InstanceHeaderView => 
     return {
         name: resolved.name,
         module: input.module,
+        glyph: input.glyph,
         isEarly: resolved.isEarly,
         statusLabel: t(`lifecycle_${resolved.lifecycle}`),
         statusTone: resolved.statusTone,

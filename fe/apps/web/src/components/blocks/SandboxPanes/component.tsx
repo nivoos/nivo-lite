@@ -5,6 +5,7 @@ import { SandboxAttachDrawer } from "@/components/composites/SandboxAttachDrawer
 import { SandboxCallsCard } from "@/components/composites/SandboxCallsCard"
 import { SandboxCasesCard } from "@/components/composites/SandboxCasesCard"
 import { SandboxKeyCard } from "@/components/composites/SandboxKeyCard"
+import { SandboxOutcomesCard } from "@/components/composites/SandboxOutcomesCard"
 import { SandboxOpenDrawer } from "@/components/composites/SandboxOpenDrawer"
 import { SandboxScopeCard } from "@/components/composites/SandboxScopeCard"
 import { SandboxWaitingCard } from "@/components/composites/SandboxWaitingCard"
@@ -22,7 +23,7 @@ const scopeOf = (props: Props) => {
     )
 }
 
-/** The right column of the open account: its cases, its call log, its webhook key, in this order. */
+/** The right column of the open account: its cases, the outcome of its next calls, its call log, its webhook key, in this order. */
 const AccountColumn = (props: Props) => (
     <Stack gap="section">
         <SandboxAgentsCard
@@ -43,11 +44,19 @@ const AccountColumn = (props: Props) => (
             pending={props.props.pending}
             on={{
                 setInput: props.on.setInput,
-                setDropWebhook: props.on.setDropWebhook,
+                setMode: props.on.setMode,
+                setLateAmount: props.on.setLateAmount,
+                setLateUnit: props.on.setLateUnit,
                 send: props.on.send,
                 choose: props.on.choose,
                 retry: props.on.retryCases,
             }}
+        />
+        <SandboxOutcomesCard
+            copy={props.props.copy}
+            slot={props.props.outcomes}
+            pending={props.props.pending}
+            on={{ setOutcome: props.on.setOutcome }}
         />
         <SandboxCallsCard
             copy={props.props.copy}

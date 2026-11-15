@@ -161,27 +161,44 @@ export interface TriggerDeclaration<Raw = unknown, Data extends object = Readonl
     /** The settle time before a run of a key starts; null (or absent) = zero, the run starts at once. */
     readonly settle?: TriggerSettle | null | undefined
     /**
-     * How the pending events of one subject combine (rule Q-4): `each` (absent: every event its own, in order), `latest` (only the newest;
-     * typed, not built yet), `stream` (one marker, the oldest event, with `since` and `count`; the workflow reads the stream). `stream` is
-     * allowed only on a declaration that feeds a stream of the engine: one that declares `line` (the registry refuses any other at boot).
+     * How the pending events of one subject combine (rule Q-4): `each` (absent: every event its own, in order), `latest` (only the newest),
+     * `stream` (one marker, the oldest event, with `since` and `count`; the workflow reads the stream). `stream` is allowed only on a
+     * declaration that FEEDS a stream of the engine (`feeds`; the registry refuses any other at boot).
      */
     readonly combine?: TriggerCombine | undefined
     /**
-     * PURE, optional: this event is a person's message on its route (R26, MESSAGES-PLAN.md E3): the key the source gives the message (once
-     * on the route), its words and the channel's time; null when this event is none (the release door's resume). Read on the PARSED data.
+     * What this trigger adds to an engine STREAM (concept agent-data rule 6), absent = none: the lines of a route (`lines`: its PURE `line`
+     * reads a person's message from the PARSED data, R26: the key the source gives the message, once on the route, its words and the
+     * channel's time; null when this event is none, the release door's resume), or the records of a type (`records`: the engine's own
+     * declaration of a type's write events; the record is already written, nothing is read from the event).
      */
-    line?(data: Data): DeclaredLine | null
+    readonly feeds?: StreamFeed<Data> | undefined
     /**
      * PURE, optional (owner R97): the identity the SOURCE gives the fact this event reports (a bank transfer's reference, a form submission's
      * id), read from declared members of the PARSED data only, never a hash or comparison of words; null when this event carries none. Two
      * events of one workspace and one VERB with the same fact key are ONE fact: the engine delivers the first and records every later one as
      * the same fact as it (counted, with the reason), for as long as the event's account_data type keeps its rows. Absent = every event is its
-     * own fact. A declaration that declares `line` never declares it (two identical lines of a person are two lines: the gate refuses it).
+     * own fact. A declaration that feeds a stream never declares it (two identical lines of a person, or two equal facts of an
+     * append-only type, are two items: the gate refuses it).
      */
     factKey?(data: Data): string | null
 }
 
-/** A person's message as its source declares it: the source's key of the message, its words, the channel's time (ISO) or null. */
+/**
+ * The stream a trigger feeds (concept agent-data rule 6): the lines of a route, read from the event by the source's pure `line`, or the
+ * records of one record type (written by the record tools before the event exists).
+ */
+export type StreamFeed<Data extends object = Readonly<Record<string, unknown>>> =
+    | { readonly stream: "lines"; line(data: Data): DeclaredLine | null }
+    | { readonly stream: "records"; readonly type: string }
+
+/**
+ * A person's message as its source declares it: the source's key of the message, its words, the channel's time (ISO) or null. THE
+ * INBOUND CONTRACT (D3-W2-9): a message with ANY content part is a line. Its words may be empty when the event names its parts as files
+ * (`DeliveredEvent.attachments`: a picture, a voice note, a sticker, a file, a location: every part the channel sends, each kept or typed
+ * not-kept by the pipeline); the source maps every part it receives and drops none for its kind. An event with no words and no part is
+ * no line (the pipeline keeps none, `heard`).
+ */
 export interface DeclaredLine {
     readonly key: string
     readonly text: string

@@ -34,6 +34,8 @@ import { META_INBOUND_QUEUE, META_DELIVERY_QUEUE } from "./meta-inbox.contracts"
 import type { MetaInboundJob } from "./meta-inbox.contracts"
 import { MetaInboxService } from "./meta-inbox.service"
 import { MetaInboxLogEvent } from "./meta-inbox.log-events"
+import { META_INBOUND_CASE, META_SANDBOX_CATALOGUE } from "@modules/domain/meta-connections/meta-sandbox.catalogue"
+import type { SandboxState } from "@modules/domain/provider-sandbox"
 
 /** The connection a queued delivery id names (a uuid), and the account its pending rows belong to. */
 const CONNECTION = "0b9a3c1e-5d7f-4a2b-9c8d-1e2f3a4b5c6d"
@@ -187,9 +189,9 @@ describe("MetaInboxService receipt", () => {
     })
 })
 
-describe("MetaInboxService sandbox receipt", () => {
-    const SANDBOX_OWNER = { id: "11111111-1111-4111-8111-111111111111", workspaceId: "ws-sandbox" }
+const SANDBOX_OWNER = { id: "11111111-1111-4111-8111-111111111111", workspaceId: "ws-sandbox" }
 
+describe("MetaInboxService sandbox receipt", () => {
     it("writes every event of the body as a meta.event row of the named sandbox account, looks up no Page id and queues its reference", async () => {
         const second = event({ mid: "message-2", event_key: "dm:message-2" })
         const other = event({ page_id: "sandbox-page", event_key: "dm:message-3" })
@@ -210,6 +212,19 @@ describe("MetaInboxService sandbox receipt", () => {
     it.each(unreadableReceipts.filter((one) => one.signature !== undefined))("refuses an unreadable body: $rawBody", async ({ rawBody }) => {
         const { service, outbox, intake, tx } = await build([event()])
         await expect(service.acceptSandbox(rawBody, SANDBOX_OWNER)).rejects.toEqual(objectLike({ code: MetaInboxErrorCode.DeliveryInvalid }))
+        expect([intake.write.mock.calls, outbox.jobs, tx.outcomes]).toEqual([[], [], ["rollback"]])
+    })
+})
+
+describe("MetaInboxService sandbox door: the body of the sandbox case META-20", () => {
+    it("is the one body the door refuses (META_INBOX_DELIVERY_INVALID): the case posts exactly the bytes a live non-object delivery would", async () => {
+        const malformed = META_SANDBOX_CATALOGUE.cases.find((one) => one.id === META_INBOUND_CASE.malformed)?.inbound
+        const state = mock<SandboxState>()
+        const sent = (await malformed?.eventsOf({}, { connectionId: SANDBOX_OWNER.id, at: AT, state })) ?? []
+        const { service, outbox, intake, tx } = await build([event()])
+
+        expect(sent).toHaveLength(1)
+        await expect(service.acceptSandbox(Buffer.from(JSON.stringify(sent[0]?.body)), SANDBOX_OWNER)).rejects.toEqual(objectLike({ code: MetaInboxErrorCode.DeliveryInvalid }))
         expect([intake.write.mock.calls, outbox.jobs, tx.outcomes]).toEqual([[], [], ["rollback"]])
     })
 })

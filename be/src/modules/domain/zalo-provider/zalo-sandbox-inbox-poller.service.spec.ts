@@ -33,7 +33,8 @@ describe("ZaloSandboxInboxPollerService", () => {
         const { sandbox, service } = setup()
         await sendCase(sandbox, "ZALO-1", { userId: "8800110022", text: "Chao shop" })
         await sendCase(sandbox, "ZALO-2", { userId: "8800110033" }, new Date("2026-11-14T02:30:00.000Z"))
-        await sendCase(sandbox, "ZALO-3", { userId: "8800110044", text: "Don hom kia?" }, new Date("2026-11-14T03:00:00.000Z"))
+        // ZALO-3 is a `late` case: the frame builds it at the arrival (03:00) minus 49 h = the moment given here.
+        await sendCase(sandbox, "ZALO-3", { userId: "8800110044", text: "Don hom kia?" }, new Date("2026-11-12T02:00:00.000Z"))
 
         const page = await service.fetch(CONNECTION, ALL)
 

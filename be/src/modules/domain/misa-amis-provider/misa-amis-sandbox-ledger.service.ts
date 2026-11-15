@@ -2,6 +2,8 @@ import { Injectable } from "@nestjs/common"
 import { PROVIDER } from "@nivo-lite/agent-sdk/names"
 import type { ConnectionRecord } from "@modules/domain/connections"
 import {
+    ProviderRegistryError,
+    ProviderRegistryErrorCode,
     providerCallFailure,
     providerRefusal,
     withProof,
@@ -28,6 +30,13 @@ const numberOf = (seq: number): string => String(seq + 1).padStart(6, "0")
 const voucherRefusal = (provider: string): unknown =>
     withProof(providerRefusal(provider, "not_available", AMIS_SANDBOX_REFUSAL_OPERATION), "not_sent")
 
+/** The refusal of a ledger connection only the owner can cure, as the ledger port states it (the native ledger tool reads it by the provider). */
+const refusedLedger = (provider: string): ProviderRegistryError =>
+    new ProviderRegistryError({ code: ProviderRegistryErrorCode.LedgerConnectionRefused, params: { provider } })
+
+/** State name: the void vouchers the account added, by bank transaction id. */
+const VOIDED = "voided"
+
 @Injectable()
 /**
  * MISA AMIS's SANDBOX ledger (R56 / R62): the SAME `LedgerPort` as its live twin, which takes the ACCOUNT, so the registry's one switch
@@ -48,7 +57,7 @@ export class MisaAmisSandboxLedgerService implements LedgerPort {
 
     /** A sandbox account is ready, through exactly one sandbox call. */
     async ready(account: ConnectionRecord): Promise<boolean> {
-        return await this.sandbox.call(account, AMIS_SANDBOX_OPERATION.ready, {}, { answer: () => true })
+        return await this.sandbox.call(account, AMIS_SANDBOX_OPERATION.ready, {}, { answer: (state) => state.nextCase !== AMIS_SANDBOX_CASE.notReady })
     }
 
     /** Books one entry as a voucher, by the account's next case of `append`, through exactly one sandbox call keyed by its bank transaction id. */
@@ -58,9 +67,12 @@ export class MisaAmisSandboxLedgerService implements LedgerPort {
             answer: async (state) => {
                 if (state.nextCase === AMIS_SANDBOX_CASE.appendRefused) throw voucherRefusal(this.provider)
                 if (state.nextCase === AMIS_SANDBOX_CASE.appendNoAnswer) throw providerCallFailure("unknown")
+                if (state.nextCase === AMIS_SANDBOX_CASE.appendTransient) throw providerCallFailure("not_sent")
+                if (state.nextCase === AMIS_SANDBOX_CASE.appendCredentialRefused) throw refusedLedger(this.provider)
                 const reference = `SBX-AMIS-${numberOf(state.seq)}`
                 const kept: KeptVoucher = { reference, orderNo: entry.orderNo, amountVnd: entry.amountVnd }
                 await state.write(VOUCHER, entry.transactionId, kept)
+                if (state.nextCase === AMIS_SANDBOX_CASE.appendAppliedLost) throw providerCallFailure("unknown")
                 return reference
             },
         })
@@ -72,10 +84,18 @@ export class MisaAmisSandboxLedgerService implements LedgerPort {
             key: transactionId,
             answer: async (state) => {
                 if (state.nextCase === AMIS_SANDBOX_CASE.voidRefused) throw voucherRefusal(this.provider)
-                if ((await state.read(VOUCHER, transactionId)) === null) {
+                if (state.nextCase === AMIS_SANDBOX_CASE.voidNoAnswer) throw providerCallFailure("unknown")
+                if (state.nextCase === AMIS_SANDBOX_CASE.voidTransient) throw providerCallFailure("not_sent")
+                if (state.nextCase === AMIS_SANDBOX_CASE.voidCredentialRefused) throw refusedLedger(this.provider)
+                if (state.nextCase === AMIS_SANDBOX_CASE.voidNotFound || (await state.read(VOUCHER, transactionId)) === null) {
                     throw withProof(providerRefusal(this.provider, "not_found", "voucher"), "not_sent")
                 }
-                return `SBX-AMIS-VOID-${numberOf(state.seq)}`
+                const reference = `SBX-AMIS-VOID-${numberOf(state.seq)}`
+                if (state.nextCase === AMIS_SANDBOX_CASE.voidAppliedLost) {
+                    await state.write(VOIDED, transactionId, reference)
+                    throw providerCallFailure("unknown")
+                }
+                return reference
             },
         })
     }

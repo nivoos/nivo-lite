@@ -3,7 +3,6 @@
 import { useFormatter, useTranslations } from "next-intl"
 import { useCallback, useMemo, useState } from "react"
 import { SpecWorkbenchFrame } from "@/components/blocks/SpecWorkbenchFrame"
-import type { ModuleKey } from "@/modules/catalog"
 import { agentHref } from "@/modules/installations"
 import { workspaceHref } from "@/modules/routes"
 import { dataViewOf, workbenchSpec } from "@/modules/workbench-spec"
@@ -13,7 +12,7 @@ import { AgentDataBodyBase } from "./component"
 /** What the route hands the data page: the workspace, the type and the instance of the url, and the key of the set. */
 interface AgentDataBodyProps {
     readonly workspaceId: string
-    readonly module: ModuleKey
+    readonly module: string
     readonly installationId: string
     readonly set: string
 }

@@ -1,8 +1,9 @@
 "use client"
 
-import { useTranslations } from "next-intl"
+import { useLocale } from "next-intl"
 import type { AddPreset } from "@/hooks/knowledgeAddTypes"
-import { DOCUMENT_IDEAS } from "@/modules/documents"
+import { useModuleCatalog } from "@/hooks/moduleCatalog"
+import { ideasOf, wordsOfIdea } from "@/modules/documents"
 import { useDocsAddress } from "./useDocsAddress"
 
 /** What the address asks of the drawer that adds documents. */
@@ -19,7 +20,8 @@ interface AddPresetView {
  * with a note about an idea (the topic of the suggestion).
  */
 export const useAddPreset = (): AddPresetView => {
-    const t = useTranslations("knowledge")
+    const locale = useLocale() === "en" ? "en" : "vi"
+    const catalog = useModuleCatalog()
     const address = useDocsAddress()
     const add = address.add
     if (add === undefined) return { isOpen: false, key: "base", preset: null }
@@ -34,7 +36,7 @@ export const useAddPreset = (): AddPresetView => {
             },
         }
     }
-    const idea = DOCUMENT_IDEAS.find((one) => one.key === add)
+    const idea = ideasOf(catalog.list).find((one) => one.key === add)
     if (idea === undefined) return { isOpen: true, key: "base", preset: null }
-    return { isOpen: true, key: add, preset: { topic: t(`suggest_${idea.key}_topic`) } }
+    return { isOpen: true, key: add, preset: { topic: wordsOfIdea(idea, locale).topic } }
 }

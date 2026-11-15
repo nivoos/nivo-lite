@@ -259,6 +259,10 @@ const freezeAll = (entity: AnyEntityDefinition): void => {
         Object.freeze(entity.states.transitions)
         Object.freeze(entity.states)
     }
+    if (entity.events !== undefined) {
+        if (entity.events.members !== undefined) Object.freeze(entity.events.members)
+        Object.freeze(entity.events)
+    }
     Object.freeze(entity)
 }
 

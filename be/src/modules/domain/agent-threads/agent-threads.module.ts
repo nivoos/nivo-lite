@@ -18,7 +18,7 @@ import { StopLearningService } from "./stops/stop-learning.service"
 import { ThreadDeadlineQueueModule } from "@modules/queues/thread-deadline"
 import { ThreadApprovalsService } from "./thread-approvals.service"
 import { ThreadDeadlinesService } from "./thread-deadlines.service"
-import { ThreadWaitExpiryService } from "./thread-wait-expiry.service"
+import { ThreadParkedDeadlinesService } from "./thread-parked-deadlines.service"
 import { ThreadGraphsService } from "./thread-graphs.service"
 import { ThreadProjectionService } from "./thread-projection.service"
 import { ThreadResumeRequestsService } from "./thread-resume-requests.service"
@@ -87,7 +87,7 @@ export class AgentThreadsModule extends ConfigurableModuleClass {
                 ThreadDeadlinesService,
                 ThreadSweepService,
                 // The dev Sandbox page's parked waits + "expire now" (R62/R66): the real deadline road, nothing else.
-                ThreadWaitExpiryService,
+                ThreadParkedDeadlinesService,
             ],
             exports: [
                 AGENT_THREADS_OPTIONS,
@@ -110,7 +110,7 @@ export class AgentThreadsModule extends ConfigurableModuleClass {
                 ErasedSubjectRunsService,
                 CONTACT_RUNS,
                 ThreadDeadlinesService,
-                ThreadWaitExpiryService,
+                ThreadParkedDeadlinesService,
                 ThreadSweepService,
             ],
         }

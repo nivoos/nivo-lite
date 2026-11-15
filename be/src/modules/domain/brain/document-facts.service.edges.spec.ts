@@ -38,7 +38,7 @@ import { ModelJsonService } from "./model-json.service"
 import { TRIAGE_PROMPT } from "./passage-triage.policy"
 import { TruthCeilingService } from "./truth-ceiling.service"
 import { SO_TAY_VI } from "@tests/fixtures/i18n/brain-a-spec.messages"
-import { objectLike } from "@tests/fixtures/builders/brain-document.builder"
+import { holdingSourcesProvider, objectLike } from "@tests/fixtures/builders/brain-document.builder"
 import { FACTS_USAGE, factsDocumentOf, factsProposalOf, factsReviewedAll, scriptFactsWorld, factsRunnersOf, type FactsWorld } from "@tests/fixtures/builders/brain-facts-world.builder"
 
 const WS = DOC_WS
@@ -91,7 +91,7 @@ const build = async (
             { provide: KnowledgeIndexingService, useValue: indexing }, { provide: KnowledgeSourcesService, useValue: sources },
             { provide: KnowledgeChunksService, useValue: chunks }, { provide: UsageMeterService, useValue: usage },
             { provide: DocumentReviewService, useValue: reviews }, { provide: DocumentRelationsService, useValue: links },
-            { provide: FactEmbeddingsService, useValue: vectors }, { provide: DocumentNatureService, useValue: nature },
+            { provide: FactEmbeddingsService, useValue: vectors }, holdingSourcesProvider(), { provide: DocumentNatureService, useValue: nature },
             { provide: WorkspaceTimeZoneService, useValue: mock<WorkspaceTimeZoneService>({ timeZoneOf: () => Promise.resolve("Asia/Ho_Chi_Minh") }) },
             { provide: WorkspaceMembersService, useValue: members }, { provide: TruthCeilingService, useValue: ceiling },
             { provide: TeamChatNoticesService, useValue: notices }, { provide: TRUTH_CRITIQUE_GATE, useValue: critic },
@@ -344,6 +344,31 @@ describe("DocumentFactsService: the edges of a job", () => {
         await expect(gone.service.run(claimedJob(PAYLOAD))).resolves.toBe("skipped")
         expect(gone.chunks.truthPassagesOf).not.toHaveBeenCalled()
         expect(gone.ai.chat).not.toHaveBeenCalled()
+    })
+
+    it("K-9b: a document deleted WHILE the job ran ends the job `origin_gone`: what the job filed is taken back like the deletion takes back the rest, and no truth stands on it", async () => {
+        const t = await build(documentOf(1, 0))
+        // The document is there when the job starts and gone when it has written (the delete landed in between).
+        t.sources.exists.mockResolvedValue(false)
+        t.facts.withdrawSource.mockResolvedValue(["filed-meanwhile"])
+
+        await expect(t.service.run(claimedJob(PAYLOAD))).resolves.toBe("origin_gone")
+
+        expect(t.facts.withdrawSource).toHaveBeenCalledWith(WS, SOURCE, "source changed")
+        expect(t.facts.finalizeOrphans).toHaveBeenCalledWith(WS, ["filed-meanwhile"], objectLike({ kind: "note", ref: `gone:${SOURCE}` }))
+        expect(t.reviews.requestForGoneSource).toHaveBeenCalledWith(WS, SOURCE)
+        expect(t.extractions.finish).not.toHaveBeenCalled()
+        expect(t.sources.settle).not.toHaveBeenCalled()
+    })
+
+    it("a document deleted before the settle stage never reaches it: nothing is put in force and no credit is spent on it", async () => {
+        const t = await build(documentOf(1, 0))
+        t.sources.exists.mockResolvedValue(false)
+
+        await t.service.run(claimedJob(PAYLOAD))
+
+        expect(t.facts.applyUnannounced).not.toHaveBeenCalled()
+        expect(t.ai.chat).not.toHaveBeenCalled()
     })
 
     it("a job that was dead-lettered keeps the document searchable and marks its truths unread; the ONE item is the runner's, so no notice is posted here", async () => {

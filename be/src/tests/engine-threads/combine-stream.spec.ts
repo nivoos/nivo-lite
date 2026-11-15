@@ -52,7 +52,8 @@ describe("stream marker + stream cursor: lines held behind a busy run are ONE ma
         await paused.entered
         const firstRun = [...db.runs.keys()][0] ?? ""
         // hear of the first run read the stream and ENDED: its read is the cursor (the first line).
-        expect(cursor.rows.get(CONV)?.consumed).not.toBeNull()
+        // The cursor is the consuming AGENT's on the route (concept agent-data rule 8): one row, the front desk's.
+        expect([...cursor.rows.entries()].filter(([key]) => key.endsWith(`|lines|${CONV}`)).map(([, row]) => row.consumed)).toEqual([expect.any(String)])
 
         const four = await customersSay(process, [
             { text: "Cho minh dat hoa", key: "m-s1" },

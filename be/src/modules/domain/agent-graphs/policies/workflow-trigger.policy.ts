@@ -193,8 +193,9 @@ export const takingTriggerOf = (
 }
 
 /**
- * The verbs a graph's `wait` steps listen for (`core.wait` `params.on[].verb`, a verb is plain data in the stored graph), each once, in
- * the order the steps list them. What makes an event of a verb no head trigger registers reach the agent: a parked run of it may take it.
+ * The verbs a graph's `wait` steps listen for (`core.wait` `params.on[].verbs`: each key lists the verbs of its one meaning; a verb is
+ * plain data in the stored graph), each once, in the order the steps list them. What makes an event of a verb no head trigger registers
+ * reach the agent: a parked run of it may take it.
  */
 export const waitVerbsOf = (spec: GraphSpec): ReadonlyArray<string> => [
     ...new Set(
@@ -202,9 +203,10 @@ export const waitVerbsOf = (spec: GraphSpec): ReadonlyArray<string> => [
             if (node.step !== TEMPLATE_WAIT_STEP) return []
             const on: unknown = node.params?.on
             if (!Array.isArray(on)) return []
-            return on.flatMap((entry: unknown) =>
-                isRecord(entry) && typeof entry.verb === "string" && entry.verb !== "" ? [entry.verb] : [],
-            )
+            return on.flatMap((entry: unknown) => {
+                const verbs: unknown = isRecord(entry) ? entry.verbs : undefined
+                return Array.isArray(verbs) ? verbs.filter((verb: unknown): verb is string => typeof verb === "string" && verb !== "") : []
+            })
         }),
     ),
 ]

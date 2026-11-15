@@ -40,12 +40,14 @@ const renewInput = z.object({
 })
 
 /**
- * `webrenew.renew` version 14 (Renew at the provider, R57): Accounting calls it for a request it recorded as paid. `check` checks the
+ * `webrenew.renew` version 16 (Renew at the provider, R57): Accounting calls it for a request it recorded as paid. `check` checks the
  * request exactly and reads whether a registrar's tool renews the service; `renew` renews the domain at the registrar (iNET / Tino,
  * mode `ask`: NIVO Web's money) or, when no tool renews it, makes no call (`not_renewable`); `record` writes the registrar's answer on
  * the request in the CRM; `renewed-team` tells the team where it stands on EVERY path (blocking: a renewal never ends unseen). Only a
  * `renewed` outcome (`renewed-check`, exact) tells the customer (`renewed-tell`, a side step) and calls Accounting to invoice; pending,
- * refused and not renewable end `not-renewed` after the team line (a person acts). A person who declines the registrar call made a
+ * and not renewable end `not-renewed` after the team line (a person acts). A registrar's refusal is no outcome: it stops the renew step for
+ * a person (E-FIX12 A-1, one stop card), the run stays in flight.
+ * Change from version 15 (E-FIX12): the renewal outcome `refused` is gone; the `renew` step turns a registrar refusal into `cannot`. A person who declines the registrar call made a
  * decision: it is the step's unsuccessful ending (R68), the ENGINE tells the team with the service's code and the run ends `declined`;
  * a declined team post (`renewed-team-declined`) ends `declined` too (the declined write is itself a team post, no notice).
  * Change from version 13 (E-R57): a `pending` order (the registrar took it, its end date did not move yet) is read again by `settle`, a
@@ -70,13 +72,13 @@ export const renewGraph: TemplateGraph = defineTemplateGraph({
             vi: "Kế toán báo khách đã trả tiền: gia hạn tên miền tại nhà đăng ký khi người duyệt, ghi kết quả vào CRM, báo đội; chỉ khi đã gia hạn mới báo khách và gọi Kế toán xuất hoá đơn",
             en: "Accounting says the customer paid: renews the domain at the registrar once a person approves, records the answer in the CRM and tells the team; only a renewed service tells the customer and calls Accounting to invoice",
         },
-        version: 15,
+        version: 16,
         // The old JSON template had `seedActive: true`: the seed makes an ACTIVE workflow from it.
         seedActive: true,
-        publishedAt: "2026-11-14T22:00:00.000Z",
+        publishedAt: "2026-11-15T12:00:00.000Z",
         notes: {
-            vi: "R57: gia hạn tại nhà đăng ký tên miền (iNET, Tino) có người duyệt, CRM chỉ ghi kết quả; chỉ báo khách và xuất hoá đơn khi đã gia hạn. R68: người duyệt từ chối thì hệ thống tự báo đội kèm mã dịch vụ. Đơn nhà đăng ký đã nhận nhưng chưa đổi ngày hết hạn được đọc lại 30 phút một lần, tối đa 8 vòng. Thư gửi khách đi qua lần gửi chung của hệ thống, kênh thư (không còn công cụ gửi thư riêng)",
-            en: "R57: renews at the domain registrar (iNET, Tino) on a person's approval, the CRM only records the answer; tells the customer and invoices only once renewed. R68: a declined renewal is told to the team by the engine with the service's code. An order the registrar took whose end date did not move is read again every 30 minutes, 8 rounds at most. The customer mail goes through the one customer send of the system on the mail channel (no separate mail tool)",
+            vi: "R57: gia hạn tại nhà đăng ký tên miền (iNET, Tino) có người duyệt, CRM chỉ ghi kết quả; chỉ báo khách và xuất hoá đơn khi đã gia hạn. R68: người duyệt từ chối thì hệ thống tự báo đội kèm mã dịch vụ. Đơn nhà đăng ký đã nhận nhưng chưa đổi ngày hết hạn được đọc lại 30 phút một lần, tối đa 8 vòng. Thư gửi khách đi qua lần gửi chung của hệ thống, kênh thư (không còn công cụ gửi thư riêng). E-FIX12: nhà đăng ký từ chối (hết tiền, khoá tên miền, không nhận) giờ dừng cả lần chạy cho người xử lý thay vì thành một kết quả",
+            en: "R57: renews at the domain registrar (iNET, Tino) on a person's approval, the CRM only records the answer; tells the customer and invoices only once renewed. R68: a declined renewal is told to the team by the engine with the service's code. An order the registrar took whose end date did not move is read again every 30 minutes, 8 rounds at most. The customer mail goes through the one customer send of the system on the mail channel (no separate mail tool). E-FIX12: a registrar's refusal (balance short, domain locked, rejected) now stops the run for a person instead of becoming an outcome",
         },
     },
     nodes: {

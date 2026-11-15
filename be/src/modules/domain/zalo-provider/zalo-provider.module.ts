@@ -8,7 +8,7 @@ import { ZaloInboxPollerService } from "./zalo-inbox-poller.service"
 import { ZALO_TRIGGERS } from "./zalo-message.trigger"
 import { ZaloProfileReaderService } from "./zalo-profile-reader.service"
 import { ZALO_SANDBOX_CATALOGUE } from "./zalo-sandbox.catalogue"
-import { ZALO_SEND_SANDBOX_CASES, ZALO_STAFF_SANDBOX_CASES } from "./zalo-sandbox-send.catalogue"
+import { ZALO_SEND_SANDBOX_CATALOGUE } from "./zalo-sandbox-send.catalogue"
 import { ZaloSandboxSendService } from "./zalo-sandbox-send.service"
 import { ZaloSandboxInboxPollerService } from "./zalo-sandbox-inbox-poller.service"
 import { ZaloStaleJudgeService } from "./zalo-stale-judge.service"
@@ -57,7 +57,7 @@ export class ZaloProviderModule extends ConfigurableModuleClass implements OnMod
         this.profiles.register({ live: this.profileReader, sandbox: this.profileSandbox })
         this.sends.register({ live: this.sendLive, sandbox: this.sendSandbox })
         this.catalogues.register(ZALO_SANDBOX_CATALOGUE)
-        this.catalogues.register({ provider: ZALO_SANDBOX_CATALOGUE.provider, cases: [...ZALO_SEND_SANDBOX_CASES, ...ZALO_STAFF_SANDBOX_CASES] })
+        this.catalogues.register(ZALO_SEND_SANDBOX_CATALOGUE)
         triggerDeclarations.register(...ZALO_TRIGGERS)
     }
 }

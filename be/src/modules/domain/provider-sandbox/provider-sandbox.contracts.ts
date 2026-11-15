@@ -52,6 +52,14 @@ export interface SandboxState {
  */
 export interface SandboxCallPlan<Answer> {
     readonly key?: string | undefined
+    /**
+     * `"outside"` for an answer that awaits the CALLER'S OWN WORK on the caller's connections (a pull that writes what it brings into the
+     * caller's tables) and only READS the account's state: it runs without the account's lock, because a connection holding a lock
+     * never waits for another connection of the same pool. Its `seq` may equal a parallel call's, and a `write` it makes is not one
+     * step with its read. Absent: the answer runs under the account's lock, every read and write on the lock's own transaction, and
+     * awaits nothing but that state (no outside call, no other service).
+     */
+    readonly lock?: "outside" | undefined
     answer(state: SandboxState): Answer | Promise<Answer>
 }
 
@@ -60,6 +68,34 @@ export type SandboxInputValue = string | number
 
 /** The inputs an inbound case is sent with, by field name. */
 export type SandboxInput = Readonly<Record<string, SandboxInputValue>>
+
+/**
+ * How one inbound case reaches NIVO (GENERIC: built once in the frame, every provider's inbound case can be sent with any mode that
+ * applies to it): `once` the provider's event delivered once; `twice` the SAME event delivered two times (the engine must book it once);
+ * `withheld` the provider remembers the event but its webhook never comes (only the provider's poll read finds it: needs `polled`);
+ * `late` the event happened `lateBySeconds` BEFORE it arrives (its own timestamps say so; the arrival is the clock port's now).
+ */
+export type SandboxDeliveryMode = "once" | "twice" | "withheld" | "late"
+
+/** Every delivery mode, in the order the page lists them. */
+export const SANDBOX_DELIVERY_MODES: ReadonlyArray<SandboxDeliveryMode> = ["once", "twice", "withheld", "late"]
+
+/** A delivery mode with the interval of `late` (seconds); the interval is meaningless for the other modes. */
+export interface SandboxDelivering {
+    readonly mode: SandboxDeliveryMode
+    readonly lateBySeconds?: number | undefined
+}
+
+/**
+ * The answers an outbound call of ANY sandbox tool can come to (GENERIC; the provider says its own shape of each in its cases):
+ * `ok` the call succeeds; `refused` a typed PERMANENT refusal the provider gives; `final` a refusal the tool declares FINAL (nobody can make
+ * the act happen through it); `transient` the provider says "not now" (5xx, 429): nothing is known to have happened or nothing was sent,
+ * a retry may pass; `timeout` the provider never answers: the outcome is UNKNOWN.
+ */
+export type SandboxOutcome = "ok" | "refused" | "final" | "transient" | "timeout"
+
+/** Every outcome, in the order the page lists them. */
+export const SANDBOX_OUTCOMES: ReadonlyArray<SandboxOutcome> = ["ok", "refused", "final", "transient", "timeout"]
 
 /** One input field an inbound case declares, for the page's form and the API's check. */
 export interface SandboxInputField {
@@ -102,6 +138,14 @@ export interface SandboxInboundCase {
     readonly inputs: ReadonlyArray<SandboxInputField>
     /** The webhook call(s) the case makes, in order (two of the same body for a duplicate delivery). */
     eventsOf(input: SandboxInput, context: SandboxInboundContext): Promise<ReadonlyArray<SandboxWebhookEvent>>
+    /**
+     * True when the provider's own poll / list read (its sandbox implementation) returns what this case keeps in the state, so the case
+     * can be `withheld` (no webhook) and still come back by the poll. Equals the provider's trigger: `via` has `poll`; a trigger that
+     * declares `withoutPoll` is never `polled` (a spec holds the two together). Absent: webhook only.
+     */
+    readonly polled?: true | undefined
+    /** The delivery this case is a thin NAME for (SEPAY-6 is SEPAY-1 delivered `twice`); a send may still pick another mode. Absent: `once`. */
+    readonly delivery?: SandboxDelivering | undefined
 }
 
 /**
@@ -114,6 +158,8 @@ export interface SandboxCase {
     readonly label: string
     /** The operation (port method) it answers, when it is an outbound case. */
     readonly operation?: string | undefined
+    /** The generic outcome an outbound case is a thin NAME for (`ok` for the default). Every outbound case declares one. */
+    readonly outcome?: SandboxOutcome | undefined
     /** The success case of its operation: answered while the account's selector names nothing. */
     readonly default?: true | undefined
     /** The inbound event it is, when it is one (the page's "send"). */

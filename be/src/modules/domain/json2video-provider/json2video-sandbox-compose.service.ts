@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common"
 import type { ConnectionRecord } from "@modules/domain/connections"
 import { ProviderSandboxService } from "@modules/domain/provider-sandbox"
-import { providerCallFailure, providerRefusal, withProof } from "@modules/domain/provider-registry"
+import { providerRefusal, withProof } from "@modules/domain/provider-registry"
 import type {
     ComposeSpec,
     OptionalRenderCallback,
@@ -12,7 +12,7 @@ import type {
     VideoComposePort,
 } from "@modules/domain/video-compose"
 import { movieOf } from "./json2video-movie.policy"
-import { completionOf } from "./json2video-status.policy"
+import { JSON2VIDEO_TIMEOUT_WORDS, completionOf } from "./json2video-status.policy"
 import {
     JSON2VIDEO_SANDBOX_DEFAULT_START,
     JSON2VIDEO_SANDBOX_FAILED_MESSAGE,
@@ -20,9 +20,11 @@ import {
     JSON2VIDEO_SANDBOX_NO_CREDITS_MESSAGE,
     JSON2VIDEO_SANDBOX_OUTPUT_URL,
     JSON2VIDEO_SANDBOX_PROVIDER,
+    JSON2VIDEO_SANDBOX_READS,
     JSON2VIDEO_SANDBOX_STARTS,
     json2videoSandboxRenderId,
 } from "./json2video-sandbox.catalogue"
+import { json2videoAuthRefused, json2videoRateLimited, json2videoServerError, json2videoUnreachable } from "./json2video-sandbox.failures"
 
 /** The state operation that holds one started render, by its render id: its case and how many status reads it has taken. */
 const RENDER_STATE = "render"
@@ -43,12 +45,13 @@ const keptRenderOf = (value: unknown): KeptRender | null => {
 
 @Injectable()
 /**
- * JSON2Video's SANDBOX implementation of the compose purpose (owner rulings R56 / R59 / R60): used when the provider account is a sandbox
- * account, it answers from the hardcoded catalogue (`JSON2VIDEO-<n>`) and the account's state through the generic sandbox frame, and
- * never reaches a host. A start picks its case by the address of the spec's first clip; the render it answers is read back by `statusOf`
- * as a live poll would see it (queued, rendering, then the end, one step per read), or finished by the provider's webhook (the inbound
- * cases). A refusal is the error the live adapter throws for the same case; the spec is mapped by the live pure mapper first, so a spec
- * the movie JSON cannot carry is refused `rejected`, `not_sent`, as the live does.
+ * Json2Video's SANDBOX implementation of the compose purpose (owner rulings R56 / R59 / R60): used when the provider account is a sandbox
+ * account, it answers from the hardcoded catalogue (`CREATOMATE-<n>`) and the account's state through the generic sandbox frame, and
+ * never reaches a host. A start is answered by the account's NEXT CASE of `start` (default: a render that completes); that case chooses
+ * the render's whole life (completes, fails, never finishes, times out) and the render is read back by `statusOf` as a live poll would see it (queued,
+ * rendering, then the end, one step per read), or finished by the provider's webhook (the inbound cases). A `statusOf` case the account
+ * picked fails the read itself. A failure is the error the live adapter throws for the same case; the spec is mapped by the live pure
+ * mapper first, so a spec the movie JSON cannot carry is refused `rejected`, `not_sent`, as the live does.
  */
 export class Json2VideoSandboxComposeService implements VideoComposePort {
     /** The provider key. */
@@ -59,32 +62,40 @@ export class Json2VideoSandboxComposeService implements VideoComposePort {
 
     constructor(private readonly sandbox: ProviderSandboxService) {}
 
-    /** Starts one render: refused, accepted (its render id is the next running one) or accepted with an unknown outcome. */
+    /** Starts one render as the account's next case says: refused, rate limited, no answer, accepted (the next running id) or accepted with an unknown outcome. */
     start(connection: ConnectionRecord, spec: ComposeSpec, callback: OptionalRenderCallback): Promise<RenderStarted> {
-        const clipUrl = spec.clips[0]?.fileUrl ?? ""
         return this.sandbox.call(
             connection,
             "start",
             { spec, callback },
             {
-                key: clipUrl,
                 answer: async (state) => {
                     const built = movieOf(spec, callback)
                     if (!built.ok) throw withProof(providerRefusal(this.provider, "rejected", built.reason), "not_sent")
-                    const chosen = JSON2VIDEO_SANDBOX_STARTS.find((one) => one.clipUrl === clipUrl) ?? JSON2VIDEO_SANDBOX_DEFAULT_START
-                    if (chosen.outcome === "refused") {
-                        throw withProof(providerRefusal(this.provider, "rejected", JSON2VIDEO_SANDBOX_NO_CREDITS_MESSAGE), "not_sent")
+                    const chosen = JSON2VIDEO_SANDBOX_STARTS.find((one) => one.caseId === state.nextCase) ?? JSON2VIDEO_SANDBOX_DEFAULT_START
+                    switch (chosen.outcome) {
+                        case "refused":
+                            throw withProof(providerRefusal(this.provider, "rejected", JSON2VIDEO_SANDBOX_NO_CREDITS_MESSAGE), "not_sent")
+                        case "auth_refused":
+                            throw json2videoAuthRefused()
+                        case "rate_limited":
+                            throw json2videoRateLimited()
+                        case "timeout":
+                            throw json2videoUnreachable()
+                        case "accepted":
+                        case "unknown":
+                            break
                     }
                     const renderId = json2videoSandboxRenderId(state.seq)
                     await state.write(RENDER_STATE, renderId, { caseId: chosen.caseId, reads: 0 })
-                    if (chosen.outcome === "unknown") throw providerCallFailure("unknown")
+                    if (chosen.outcome === "unknown") throw json2videoServerError()
                     return { renderId }
                 },
             },
         )
     }
 
-    /** The render as one more status read sees it; a render the account never started is the refusal `not_found`. */
+    /** The render as one more status read sees it (or the failure the account's `statusOf` case names); a render the account never started is the refusal `not_found`. */
     statusOf(connection: ConnectionRecord, renderId: string): Promise<RenderState> {
         return this.sandbox.call(
             connection,
@@ -93,6 +104,16 @@ export class Json2VideoSandboxComposeService implements VideoComposePort {
             {
                 key: renderId,
                 answer: async (state) => {
+                    switch (state.nextCase) {
+                        case JSON2VIDEO_SANDBOX_READS.authRefused:
+                            throw json2videoAuthRefused()
+                        case JSON2VIDEO_SANDBOX_READS.rateLimited:
+                            throw json2videoRateLimited()
+                        case JSON2VIDEO_SANDBOX_READS.timeout:
+                            throw json2videoUnreachable()
+                        case JSON2VIDEO_SANDBOX_READS.notFound:
+                            throw withProof(providerRefusal(this.provider, "not_found", JSON2VIDEO_SANDBOX_NOT_FOUND_MESSAGE), "not_sent")
+                    }
                     const kept = keptRenderOf(await state.read(RENDER_STATE, renderId))
                     const chosen = kept === null ? undefined : JSON2VIDEO_SANDBOX_STARTS.find((one) => one.caseId === kept.caseId)
                     if (kept === null || chosen === undefined) {
@@ -101,7 +122,7 @@ export class Json2VideoSandboxComposeService implements VideoComposePort {
                     await state.write(RENDER_STATE, renderId, { caseId: kept.caseId, reads: kept.reads + 1 })
                     const status = chosen.polls[Math.min(kept.reads, chosen.polls.length - 1)] ?? "queued"
                     if (status === "done") return { renderId, status, outputUrl: JSON2VIDEO_SANDBOX_OUTPUT_URL }
-                    if (status === "failed") return { renderId, status, error: JSON2VIDEO_SANDBOX_FAILED_MESSAGE }
+                    if (status === "failed") return { renderId, status, error: chosen.timedOut === true ? JSON2VIDEO_TIMEOUT_WORDS : JSON2VIDEO_SANDBOX_FAILED_MESSAGE }
                     return { renderId, status }
                 },
             },
@@ -113,7 +134,7 @@ export class Json2VideoSandboxComposeService implements VideoComposePort {
         return completionOf(body)
     }
 
-    /** JSON2Video signs nothing, as the live port. */
+    /** Json2Video signs nothing, as the live port. */
     proves(): boolean {
         return true
     }

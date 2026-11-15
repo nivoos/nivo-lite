@@ -203,8 +203,8 @@ export class AgentWakeService {
 
     /** How many wakes wait behind a run (`waiting:<run>`): what the run's `run.waiting` counts. */
     /**
-     * The wakes held behind a run (`waiting:<run>`), oldest first, at most `limit`: what a step of that run that runs again after a
-     * person's decision takes as its queue (rule Q-1, R18 kept generic: the events held behind a stopped run are its work).
+     * The wakes held behind a run (`waiting:<run>`), oldest first, at most `limit`: what a step of that run whose node DECLARES it reads
+     * the run's held events (`readsHeldEvents`, lines and record events alike) takes as its queue; any other step leaves them held.
      */
     async heldBehind(manager: EntityManager, workspaceId: string, runId: string, limit: number): Promise<ReadonlyArray<PendingScopeWake>> {
         const rows = await manager.find(AgentWakeEntity, {

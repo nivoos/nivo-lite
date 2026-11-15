@@ -26,6 +26,22 @@ describe("job-dead-letter-cause.policy", () => {
         })
     })
 
+    it("carries the stable CODE of a coded failure apart from the reason words, so a reader that maps codes never reads words", async () => {
+        const policy = await build()
+        const failure = Object.assign(new Error("BILLING_FORBIDDEN", { cause: new Error("driver words") }), {
+            code: "BILLING_FORBIDDEN",
+            params: { plan: "pro" },
+        })
+        const reason = "BILLING_FORBIDDEN (Error: driver words)"
+
+        expect(policy.deadLetterCauseOf(parked({ failureClass: "input", reason }, failure))).toEqual({
+            failureClass: "input",
+            reason,
+            code: "BILLING_FORBIDDEN",
+            failure,
+        })
+    })
+
     it.each(["transient", "input", "code", "config"])("accepts the class %s", async (failureClass) => {
         const policy = await build()
 

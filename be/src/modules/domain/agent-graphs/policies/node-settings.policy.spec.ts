@@ -29,7 +29,7 @@ const REPLY: GraphSpecNode = {
 const PAY: GraphSpecNode = {
     key: "pay",
     kind: "execute",
-    step: "sales.request-qr",
+    step: "sales.request-pay",
     mode: "auto",
     accounts: [{ kind: "payment", provider: "sepay", connectionId: null }],
     next: "hand",

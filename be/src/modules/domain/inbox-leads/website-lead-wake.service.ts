@@ -1,7 +1,5 @@
 import { Injectable } from "@nestjs/common"
-import type { EntityManager } from "typeorm"
 import { ProviderTriggersService } from "@modules/domain/provider-triggers"
-import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { WebsiteIntakeLogEvent } from "./website-intake.log-events"
 import type { WebsiteSubmissionFacts } from "./website-lead-wake.policy"
@@ -16,7 +14,6 @@ import { WEBSITE_FORM_TRIGGER } from "./website-form.trigger"
  */
 export class WebsiteLeadWakeService {
     constructor(
-        @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
         @InjectLogger() private readonly logger: Logger,
         private readonly triggers: ProviderTriggersService,
     ) {}
@@ -37,18 +34,13 @@ export class WebsiteLeadWakeService {
             { connectionId: facts.siteId },
         )
         if (event === null) return false
-        const delivered = await this.entityManager.transaction((tx) =>
-            this.triggers.deliver(
-                {
-                    workspaceId,
-                    declaration: WEBSITE_FORM_TRIGGER,
-                    connectionId: facts.siteId,
-                    agentId,
-                    events: [{ event, contactId: facts.contactId }],
-                },
-                tx,
-            ),
-        )
+        const delivered = await this.triggers.deliverAlone({
+            workspaceId,
+            declaration: WEBSITE_FORM_TRIGGER,
+            connectionId: facts.siteId,
+            agentId,
+            events: [{ event, contactId: facts.contactId }],
+        })
         if (delivered.status !== "delivered" || delivered.woken.length === 0) {
             let reason: string = delivered.status
             if (delivered.status === "delivered") reason = delivered.repeats > 0 ? "duplicate" : "untaken"

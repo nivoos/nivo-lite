@@ -20,9 +20,15 @@ describe("the settings of the data standard's git layer", () => {
             cache: undefined,
             identity: undefined,
             git: [{ key: "GIT_AUTHOR_NAME", value: undefined }],
+            backupDatabase: undefined,
         })
 
-        expect(options).toEqual({ cache: join(tmpdir(), "starci-seed-standards"), identity: undefined, gitEnv: {} })
+        expect(options).toEqual({
+            cache: join(tmpdir(), "starci-seed-standards"),
+            identity: undefined,
+            gitEnv: {},
+            backupDatabase: undefined,
+        })
     })
 
     it("reads the cache, the identity (kept as a secret) and only the git author keys that are declared", async () => {
@@ -36,11 +42,14 @@ describe("the settings of the data standard's git layer", () => {
                 { key: "GIT_AUTHOR_EMAIL", value: undefined },
                 { key: "GIT_COMMITTER_EMAIL", value: "seed@example.test" },
             ],
+            backupDatabase: "postgres://owner:never-printed@db/app",
         })
 
         expect(options.cache).toBe("/cache/seeds")
         expect(options.identity?.reveal()).toBe("AGE-SECRET-KEY-FAKE")
         expect(options.gitEnv).toEqual({ GIT_AUTHOR_NAME: "seed", GIT_COMMITTER_EMAIL: "seed@example.test" })
+        expect(options.backupDatabase?.reveal()).toBe("postgres://owner:never-printed@db/app")
         expect(JSON.stringify(options)).not.toContain("AGE-SECRET-KEY-FAKE")
+        expect(JSON.stringify(options)).not.toContain("never-printed")
     })
 })

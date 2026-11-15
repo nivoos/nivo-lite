@@ -51,21 +51,26 @@ export const TOOL = {
     /** The payment claims of a lead. A read. */
     paymentClaimList: "nivo.tool.payment.claim.list",
     /**
-     * The bank-transfer instruction (QR and account details) for an amount and a content, into the workspace's receiving account. It
-     * composes the instruction only: it moves no money, records no order and settles nothing. Served by provider `sepay`.
+     * Asks a payer to pay an amount for the caller's reference (R111: ONE purpose, served by every money provider through one port):
+     * `{ amountVnd, reference, expiresAt? }` -> `{ amountVnd, reference, status, payUrl?, qrImageUrl?, qrPayload?, transferContent?, bank?,
+     * requestRef?, payKey, expiresAt? }`. WHICH provider issues the request is the account the pick order chose; the answer holds what the payer
+     * needs (a pay link, a QR picture or payload, the bank details and the words to write) as the provider gave it, and `requestRef` (the
+     * provider's own order code) when the provider keeps a request; `payKey` is what the provider's paid event of the request carries as its
+     * `payKey` (the request reference, or the transfer content for a provider that keeps no request). It moves
+     * no money and settles nothing. A write (some providers create the request at the provider), so it can ask first.
      */
-    paymentTransferCreate: "nivo.tool.payment.transfer.create",
+    paymentRequestCreate: "nivo.tool.payment.request.create",
     /**
-     * A hosted payment LINK at the payment provider under the provider's own integer order code (served by provider `payos`): `{ amountVnd,
-     * description, returnUrl, cancelUrl, reference?, expiresAt? }` -> `{ linkId, orderCode, checkoutUrl, qrPayload?, amountVnd, description,
-     * status, expiresAt?, reference? }`. Its OWN purpose, never merged into `paymentTransferCreate` (a bank-transfer instruction composes
-     * a QR and creates nothing; a link is created at the provider, so the two are not substitutable). It creates, so it can ask first.
+     * One payment request by its `requestRef`: `{ requestRef }` -> `{ requestRef, amountVnd, amountPaidVnd?, status, providerStatus }`, the
+     * neutral status `open | paid | cancelled | expired`. A provider that keeps no request (a bank-transfer instruction) answers the typed
+     * refusal `no_request_state`. A read.
      */
-    paymentLinkCreate: "nivo.tool.payment.link.create",
-    /** One payment link by its id or its order code: its status word and amounts. A read. */
-    paymentLinkGet: "nivo.tool.payment.link.get",
-    /** Cancels one payment link by its id or its order code. Writes at the provider, so it can ask first. */
-    paymentLinkCancel: "nivo.tool.payment.link.cancel",
+    paymentRequestGet: "nivo.tool.payment.request.get",
+    /**
+     * Cancels one payment request by its `requestRef` (`{ requestRef, reason? }`), answering its state as `get` does. A provider that keeps
+     * no request answers `no_request_state`, declared FINAL (nothing to cancel). Writes at the provider, so it can ask first.
+     */
+    paymentRequestCancel: "nivo.tool.payment.request.cancel",
     /**
      * Arms a timer: later (after the run ended) the engine fires `TRIGGER.timerDue` for the same agent and subject with the caller's `ref`
      * and `data`. Arming the same `ref` again for the same agent and subject replaces the due instant.

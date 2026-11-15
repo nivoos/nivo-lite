@@ -4,7 +4,6 @@
  * https://developers.google.com/workspace/calendar/api/v3/reference/freebusy/query). Integer milliseconds throughout; slots are the
  * times a `durationMs` event could start and end inside one free stretch, `stepMs` apart from the stretch's start.
  */
-import { attempt } from "@modules/platform/primitives"
 
 /** A range of instants, `start` inclusive and `end` exclusive, in epoch milliseconds. */
 export interface Span {
@@ -205,10 +204,6 @@ export const isoInZone = (ms: number, timeZone: string): string => {
     const minutes = Math.abs(offset) / MINUTE
     return `${stamp}${offset < 0 ? "-" : "+"}${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`
 }
-
-/** True for an IANA zone name the runtime knows (a form check, not a reading of words). */
-export const knownZone = (name: string): boolean =>
-    attempt(() => new Intl.DateTimeFormat("en-US", { timeZone: name })).ok
 
 /** The minutes after local midnight of a `HH:mm` clock (24:00 closes the day). */
 export const clockMinutesOf = (clock: string): number => {

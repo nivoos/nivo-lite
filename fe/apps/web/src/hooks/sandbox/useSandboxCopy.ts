@@ -4,6 +4,7 @@ import { useFormatter, useLocale, useTranslations } from "next-intl"
 import { providerLabelOf, providerLogoOf } from "@/hooks/providerRights"
 import { SANDBOX_SCOPE_PROVIDER, type SandboxWords } from "@/modules/sandbox"
 import type { SandboxCopy } from "@/modules/types"
+import { modeNamesOf, outcomeNamesOf, unitNamesOf, type SandboxSay } from "./sandbox.names"
 
 /** What the page says: its words and the words its data is worded with. */
 export interface SandboxTexts {
@@ -11,8 +12,7 @@ export interface SandboxTexts {
     readonly words: SandboxWords
 }
 
-/** A reader of the `sandbox` catalog. */
-type Say = ReturnType<typeof useTranslations<"sandbox">>
+type Say = SandboxSay
 
 /** The purposes the app has its own words for, by the key the model account logs the call under (the facts steps and the AI core). */
 const PURPOSE_WORDS: Readonly<Record<string, "purposeDocumentExtract" | "purposeDocumentTriage" | "purposeStepTrouble">> = {
@@ -72,7 +72,7 @@ const pageCopyOf = (
 })
 
 /** The words of the blocks of the open account and of the parked runs. */
-const blockCopyOf = (t: Say): Pick<SandboxCopy, "scope" | "cases" | "calls" | "webhookKey" | "waiting" | "agents" | "attach"> => ({
+const blockCopyOf = (t: Say): Pick<SandboxCopy, "scope" | "cases" | "outcomes" | "calls" | "webhookKey" | "waiting" | "agents" | "attach"> => ({
     agents: {
         title: t("agentsTitle"),
         empty: t("agentsEmpty"),
@@ -101,9 +101,25 @@ const blockCopyOf = (t: Say): Pick<SandboxCopy, "scope" | "cases" | "calls" | "w
         defaultBadge: t("caseDefault"),
         nextBadge: t("caseNext"),
         inputsLabel: t("inputsLabel"),
-        dropWebhookLabel: t("dropWebhookLabel"),
-        dropWebhookHint: t("dropWebhookHint"),
+        deliveryLabel: t("deliveryLabel"),
+        modes: modeNamesOf(t),
+        deliveryBadge: (mode) => t("deliveryBadge", { mode: modeNamesOf(t)[mode] ?? mode }),
+        modeBlocked: t("modeBlocked"),
+        lateAmountLabel: t("lateAmountLabel"),
+        lateUnitLabel: t("lateUnitLabel"),
+        lateUnits: unitNamesOf(t),
+        lateHint: t("lateHint"),
         errorTitle: t("errorCases"),
+    },
+    outcomes: {
+        title: t("outcomesTitle"),
+        hint: t("outcomesHint"),
+        selectLabel: (operation) => t("outcomeSelectLabel", { operation }),
+        names: outcomeNamesOf(t),
+        nowLine: (outcome) => t("outcomeNow", { outcome: outcomeNamesOf(t)[outcome] ?? outcome }),
+        nowCaseLine: (caseId) => t("outcomeNowCase", { caseId }),
+        backLabel: t("outcomeBack"),
+        placeholder: t("outcomePlaceholder"),
     },
     calls: {
         title: t("callsTitle"),

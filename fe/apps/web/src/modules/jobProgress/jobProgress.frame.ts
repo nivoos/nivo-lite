@@ -1,5 +1,5 @@
 /** The states a job's progress frame tells (be/src/modules/platform/jobs: the frame is a view of the job row). */
-type JobProgressFrameState = "running" | "retry" | "done" | "dead_letter"
+type JobProgressFrameState = "running" | "retry" | "done" | "dead_letter" | "closed"
 
 /** One frame of the job-progress stream: a change of a job's state or a report of its step. Keys and numbers only, never a sentence. */
 export interface JobProgressFrame {
@@ -26,7 +26,7 @@ export interface JobProgressFrame {
     readonly at: string
 }
 
-const STATES: ReadonlySet<string> = new Set(["running", "retry", "done", "dead_letter"])
+const STATES: ReadonlySet<string> = new Set(["running", "retry", "done", "dead_letter", "closed"])
 
 /** True when a value is absent or has the type; the optional fields of a frame are absent, never null. */
 const isOptional = (value: unknown, type: "string" | "number"): boolean => value === undefined || typeof value === type

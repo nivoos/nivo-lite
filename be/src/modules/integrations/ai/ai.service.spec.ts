@@ -395,7 +395,7 @@ describe("AiService chat, the answers that give nothing", () => {
         expect(logger.warn).toHaveBeenCalledWith("ai.chat.cut", expect.objectContaining({ answerChars: 16 }))
 
         const off = await build(false)
-        await expect(off.client.attempt(ASK)).resolves.toEqual({ ok: false, failure: "unconfigured" })
+        await expect(off.client.attempt(ASK)).resolves.toEqual({ ok: false, failure: "unconfigured", sent: false })
     })
 
     it("answers null and logs when the answer is empty", async () => {

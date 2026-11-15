@@ -10,34 +10,20 @@ import {
     argumentsOf,
     unknownTool,
 } from "@modules/domain/tools"
-import { PaymentInstructionRegistryService, type TransferInstruction } from "@modules/domain/provider-registry"
 import { BANK_TRANSACTION_PURPOSE, creditOf } from "./payment-credit.policy"
 import { CREDIT_GET_INPUT_SCHEMA, CREDIT_GET_SCHEMA } from "./payment-credit.schema"
-import { TRANSFER_CREATE_INPUT_SCHEMA, TRANSFER_CREATE_SCHEMA } from "./payment-native.schema"
-import { paymentFailureOf, paymentRefusal } from "./payment-refusal.policy"
-import { DomainError } from "@modules/platform/errors"
+import { paymentRefusal } from "./payment-refusal.policy"
 
 /** The tool names inside the connector (the full id is `nivo.tool.<name>`). */
-export const PAYMENT_TOOL = { transferCreate: "payment.transfer.create", creditGet: "payment.credit.get" } as const
+export const PAYMENT_TOOL = { creditGet: "payment.credit.get" } as const
 
-/** The generic payment purpose: named by what it does, never by the provider that does it. */
+/** The bank-move read: named by what it does, never by the provider that does it (the payment request is its own family, `PAYMENT_REQUEST_MANIFEST`). */
 export const PAYMENT_MANIFEST: ToolManifest = {
-    key: "payment-instruction",
+    key: "payment-credit",
     namespace: "nivo.tool",
-    name: "Payment instruction",
-    contractVersion: "payment-native@1",
+    name: "Payment credit",
+    contractVersion: "payment-credit-native@1",
     tools: [
-        {
-            name: PAYMENT_TOOL.transferCreate,
-            description:
-                "The bank-transfer instruction for an amount and a content into the workspace's receiving account: the QR image and the account details a payer needs. It only composes the instruction; it moves no money, records no order and settles nothing.",
-            scope: "read",
-            defaultMode: "auto",
-            inputSchema: TRANSFER_CREATE_INPUT_SCHEMA,
-            argumentSchema: TRANSFER_CREATE_SCHEMA,
-            domain: TOOL.paymentTransferCreate,
-            internalOnly: true,
-        },
         {
             name: PAYMENT_TOOL.creditGet,
             description:
@@ -52,48 +38,24 @@ export const PAYMENT_MANIFEST: ToolManifest = {
     ],
 }
 
-/** The answer: only the members the provider gave. */
-const answerOf = (instruction: TransferInstruction): ToolJson => ({
-    ...(instruction.qrImageUrl === undefined ? {} : { qrImageUrl: instruction.qrImageUrl }),
-    ...(instruction.qrPayload === undefined ? {} : { qrPayload: instruction.qrPayload }),
-    ...(instruction.bankName === undefined ? {} : { bankName: instruction.bankName }),
-    ...(instruction.bankCode === undefined ? {} : { bankCode: instruction.bankCode }),
-    accountNumber: instruction.accountNumber,
-    ...(instruction.accountHolder === undefined ? {} : { accountHolder: instruction.accountHolder }),
-    content: instruction.content,
-    amountVnd: instruction.amountVnd,
-    ...(instruction.expiresAt === undefined ? {} : { expiresAt: instruction.expiresAt }),
-    ...(instruction.providerRef === undefined ? {} : { providerRef: instruction.providerRef }),
-})
-
 @Injectable()
 /**
- * `nivo.tool.payment.transfer.create`: the transfer instruction of the account the tool runner handed (never a silent pick: no account
- * handed is refused `not_connected`), made by the port its provider registered. It is a READ by what its adapters do: the SePay adapter
- * composes the QR address from the connection's own receiving details and calls nothing, so nothing is created anywhere. A provider
- * whose API CREATES something at the provider (a payment link with its own order code) does not fit this tool.
+ * `nivo.tool.payment.credit.get`: one bank move of the account the tool runner handed (never a silent pick: no account handed is refused
+ * `not_connected`), read from NIVO's own kept row of it. A read.
  */
 export class PaymentNativeService implements NativeToolFamily {
     readonly manifest: ToolManifest = PAYMENT_MANIFEST
 
     constructor(
         private readonly connections: ConnectionsService,
-        private readonly instructions: PaymentInstructionRegistryService,
         @Optional() private readonly rows?: AccountDataReadService,
         @Optional() private readonly types?: AccountDataTypesService,
     ) {}
 
     /** Runs the tool. */
     async invoke(workspaceId: string, tool: string, args: ToolJson, caller: NativeCaller): Promise<ToolJson> {
-        if (tool === PAYMENT_TOOL.creditGet) return this.credit(workspaceId, args, caller)
-        if (tool !== PAYMENT_TOOL.transferCreate) throw unknownTool(tool)
-        try {
-            return answerOf(await this.transfer(workspaceId, args, caller))
-        } catch (cause) {
-            const failure = paymentFailureOf(cause)
-            if (failure instanceof DomainError) throw failure
-            throw cause
-        }
+        if (tool !== PAYMENT_TOOL.creditGet) throw unknownTool(tool)
+        return this.credit(workspaceId, args, caller)
     }
 
     /**
@@ -117,14 +79,5 @@ export class PaymentNativeService implements NativeToolFamily {
         const credit = creditOf(asked.transactionId, row.value, row.occurredAt)
         if (credit === null) throw paymentRefusal("not_found")
         return { ...credit }
-    }
-
-    private async transfer(workspaceId: string, args: ToolJson, caller: NativeCaller): Promise<TransferInstruction> {
-        const asked = argumentsOf(PAYMENT_TOOL.transferCreate, TRANSFER_CREATE_SCHEMA, args)
-        if (caller.connectionId === undefined) throw paymentRefusal("not_connected")
-        const connection = await this.connections.find(workspaceId, caller.connectionId)
-        const port = connection === null ? undefined : this.instructions.portFor(connection)
-        if (connection === null || port === undefined) throw paymentRefusal("not_connected")
-        return port.transfer(connection, { amountVnd: asked.amountVnd, content: asked.content })
     }
 }

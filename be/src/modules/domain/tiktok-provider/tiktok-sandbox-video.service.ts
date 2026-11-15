@@ -4,6 +4,7 @@ import type { ConnectionRecord } from "@modules/domain/connections"
 import {
     providerRefusal,
     withProof,
+    type ProviderRegistryError,
     type TiktokCreator,
     type TiktokPublishPort,
     type TiktokPublishRequest,
@@ -13,21 +14,17 @@ import {
 } from "@modules/domain/provider-registry"
 import { ProviderSandboxService } from "@modules/domain/provider-sandbox"
 import {
+    TIKTOK_CASE,
+    TIKTOK_CREATOR_OPERATION,
+    TIKTOK_PUBLISH_OPERATION,
     TIKTOK_SANDBOX_CREATOR,
-    TIKTOK_SANDBOX_DEFAULT_JOB,
-    TIKTOK_SANDBOX_FAILING_JOB,
-    TIKTOK_SANDBOX_FAILING_TITLE,
+    TIKTOK_SANDBOX_JOBS,
     TIKTOK_SANDBOX_POST_ID_PREFIX,
-    TIKTOK_SANDBOX_PRIVACY_REFUSAL,
-    TIKTOK_SANDBOX_REFUSED_TITLES,
+    TIKTOK_SANDBOX_REFUSALS,
+    TIKTOK_STATUS_OPERATION,
     type TiktokSandboxJob,
-    type TiktokSandboxRefusal,
 } from "./tiktok-sandbox.catalogue"
-
-/** The sandbox operation words, the port's own method names. */
-const CREATOR_OPERATION = "creator"
-const PUBLISH_OPERATION = "publish"
-const STATUS_OPERATION = "status"
+import { tiktokNotConfigured, tiktokRateLimited, tiktokServerError, tiktokUnreachable } from "./tiktok-sandbox.failures"
 
 /** State name: the posts the account started, by publish id. */
 const POST = "post"
@@ -39,24 +36,33 @@ interface KeptPost {
     readonly polls: number
 }
 
+/** The job a publish with no named case starts (the default case's). */
+const DEFAULT_JOB: TiktokSandboxJob = TIKTOK_SANDBOX_JOBS[TIKTOK_CASE.accepted] ?? { words: ["PUBLISH_COMPLETE"], failReason: null, withId: true }
+
 /** Where a post stands by TikTok's documented status words alone (the live adapter's own rule). */
 const stateOf = (word: string): TiktokPublishState => {
     if (word === "PUBLISH_COMPLETE") return "published"
     return word === "FAILED" ? "failed" : "pending"
 }
 
-const refusalOf = (refusal: TiktokSandboxRefusal): Error => withProof(providerRefusal(PROVIDER.tiktok, refusal.reason, refusal.detail), "not_sent")
+/** The refusal a refusing case throws, or null when the picked case refuses nothing. */
+const refusalOf = (nextCase: string | null): ProviderRegistryError | null => {
+    const refusal = nextCase === null ? undefined : TIKTOK_SANDBOX_REFUSALS[nextCase]
+    return refusal === undefined ? null : withProof(providerRefusal(PROVIDER.tiktok, refusal.reason, refusal.detail), "not_sent")
+}
 
 @Injectable()
 /**
- * TikTok's SANDBOX implementation of the destination port (`TiktokPublishPort`; owner rulings R56, R59, R60): used when the TikTok
+ * TikTok's SANDBOX implementation of the destination port (`TiktokPublishPort`; owner rulings R56, R59, R60, R62): used when the TikTok
  * account is a sandbox account. It answers through the generic sandbox frame from the hardcoded `TIKTOK-<n>` catalogue and never reaches
- * a host. `creator` is the fixed creator. `publish` is picked by the exact title: a named title is refused as the live twin refuses a
- * TikTok rejection or a refused token (`providerRefusal` proving `not_sent`), a privacy level the creator does not list is refused
- * `rejected`, a title that fails later and any other title are accepted and keep their post in state. The later outcome arrives by the
- * live poll: `status` walks the post's catalogue status words one per read and stays on the last (completed with the public post id, or
- * FAILED with TikTok's reason). Publish ids run `sbx-tt-publish-<n>` by the publishes the account took (`state.seq`). The sandbox adds
- * no idempotency, and a file source is not read (the sandbox has no bytes to send).
+ * a host. The account's NEXT CASE of each operation (`creator`, `publish`, `status`) picks the answer (sticky; the operation's default
+ * while nothing is picked); the request's words pick nothing. `creator` is the fixed creator. `publish` refuses a privacy level the
+ * creator does not list `rejected` first (what TikTok answers, whatever case is picked); a refusing case throws exactly the live refusal
+ * (`providerRefusal` proving `not_sent`); a rate limit, a 5xx, a lost answer and a missing app client throw the live failures
+ * (`tiktok-sandbox.failures.ts`: the same `TiktokError` through the live mapping). An accepted post keeps its job in state: the later
+ * outcome arrives by the live poll, `status` walks the job's status words one per read and stays on the last (completed with the public
+ * post id, completed with none yet, FAILED with TikTok's reason, or processing for ever). Publish ids run `sbx-tt-publish-<n>` by the
+ * publishes the account took (`state.seq`). The sandbox adds no idempotency, and a file source is not read (no bytes to send).
  */
 export class TiktokSandboxVideoService implements TiktokPublishPort {
     /** The provider key. */
@@ -66,22 +72,38 @@ export class TiktokSandboxVideoService implements TiktokPublishPort {
 
     /** The fixed creator of a sandbox account through exactly one sandbox call. */
     async creator(connection: ConnectionRecord): Promise<TiktokCreator> {
-        return await this.sandbox.call(connection, CREATOR_OPERATION, {}, { answer: () => TIKTOK_SANDBOX_CREATOR })
+        return await this.sandbox.call(connection, TIKTOK_CREATOR_OPERATION, {}, {
+            answer: (state) => {
+                const refusal = refusalOf(state.nextCase)
+                if (refusal !== null) throw refusal
+                if (state.nextCase === TIKTOK_CASE.creatorRateLimited) throw tiktokRateLimited()
+                if (state.nextCase === TIKTOK_CASE.creatorTimeout) throw tiktokUnreachable()
+                return TIKTOK_SANDBOX_CREATOR
+            },
+        })
     }
 
     /** Starts one post through exactly one sandbox call keyed by the title; the post is kept in state to be polled. */
     async publish(connection: ConnectionRecord, request: TiktokPublishRequest): Promise<TiktokPublishStarted> {
-        return await this.sandbox.call(connection, PUBLISH_OPERATION, request, {
+        return await this.sandbox.call(connection, TIKTOK_PUBLISH_OPERATION, request, {
             key: request.title ?? "",
             answer: async (state) => {
-                if (!TIKTOK_SANDBOX_CREATOR.privacyLevelOptions.includes(request.privacyLevel)) throw refusalOf(TIKTOK_SANDBOX_PRIVACY_REFUSAL)
-                const refused = request.title === null ? undefined : TIKTOK_SANDBOX_REFUSED_TITLES[request.title]
-                if (refused !== undefined) throw refusalOf(refused)
-                const job = request.title === TIKTOK_SANDBOX_FAILING_TITLE ? TIKTOK_SANDBOX_FAILING_JOB : TIKTOK_SANDBOX_DEFAULT_JOB
+                if (!TIKTOK_SANDBOX_CREATOR.privacyLevelOptions.includes(request.privacyLevel)) {
+                    const mismatch = TIKTOK_SANDBOX_REFUSALS[TIKTOK_CASE.privacyMismatch]
+                    throw withProof(providerRefusal(PROVIDER.tiktok, mismatch?.reason ?? "rejected", mismatch?.detail ?? null), "not_sent")
+                }
+                const refusal = refusalOf(state.nextCase)
+                if (refusal !== null) throw refusal
+                if (state.nextCase === TIKTOK_CASE.notConfigured) throw tiktokNotConfigured()
+                if (state.nextCase === TIKTOK_CASE.rateLimited) throw tiktokRateLimited()
+                if (state.nextCase === TIKTOK_CASE.serverError) throw tiktokServerError()
+                if (state.nextCase === TIKTOK_CASE.timeout) throw tiktokUnreachable()
+                const job = (state.nextCase === null ? undefined : TIKTOK_SANDBOX_JOBS[state.nextCase]) ?? DEFAULT_JOB
                 const number = String(state.seq + 1).padStart(6, "0")
                 const publishId = `sbx-tt-publish-${number}`
-                const kept: KeptPost = { job, postIds: job.failReason === null ? [`${TIKTOK_SANDBOX_POST_ID_PREFIX}${number}`] : [], polls: 0 }
+                const kept: KeptPost = { job, postIds: job.withId ? [`${TIKTOK_SANDBOX_POST_ID_PREFIX}${number}`] : [], polls: 0 }
                 await state.write(POST, publishId, kept)
+                if (state.nextCase === TIKTOK_CASE.appliedNoAnswer) throw tiktokUnreachable()
                 return { publishId }
             },
         })
@@ -89,9 +111,13 @@ export class TiktokSandboxVideoService implements TiktokPublishPort {
 
     /** The post as it stands through exactly one sandbox call keyed by the publish id; each read moves the job one status word on. */
     async status(connection: ConnectionRecord, publishId: string): Promise<TiktokPublishStatus> {
-        return await this.sandbox.call(connection, STATUS_OPERATION, { publishId }, {
+        return await this.sandbox.call(connection, TIKTOK_STATUS_OPERATION, { publishId }, {
             key: publishId,
             answer: async (state) => {
+                const refusal = refusalOf(state.nextCase)
+                if (refusal !== null) throw refusal
+                if (state.nextCase === TIKTOK_CASE.statusRateLimited) throw tiktokRateLimited()
+                if (state.nextCase === TIKTOK_CASE.statusTimeout) throw tiktokUnreachable()
                 const value = await state.read(POST, publishId)
                 if (value === null) throw withProof(providerRefusal(PROVIDER.tiktok, "not_found", "publish id not found"), "not_sent")
                 const kept = value as KeptPost

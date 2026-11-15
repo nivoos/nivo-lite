@@ -23,6 +23,30 @@ const renew = (domain: string): SandboxCallPlan<{ readonly reference: string; re
 })
 
 describe("ProviderSandboxService", () => {
+    it("draws a distinct running number for each of 20 parallel calls of one account (no id is drawn twice), and logs every one", async () => {
+        const account = sandboxAccount()
+        const { sandbox } = sandboxServiceOf(account)
+        const numbered: SandboxCallPlan<number> = { answer: (state) => Promise.resolve(state.seq + 1) }
+
+        const drawn = await Promise.all(Array.from({ length: 20 }, () => sandbox.call(account, "inbound", {}, numbered)))
+
+        expect(new Set(drawn).size).toBe(20)
+        expect([...drawn].sort((a, b) => a - b)).toEqual(Array.from({ length: 20 }, (_, index) => index + 1))
+        expect(await sandbox.calls(account, "inbound")).toHaveLength(20)
+    })
+
+    it("keeps serving after a parallel call threw: the lock is released and the thrown call is logged", async () => {
+        const account = sandboxAccount()
+        const { sandbox } = sandboxServiceOf(account)
+        const failing: SandboxCallPlan<number> = { answer: () => Promise.reject(new RegistrarRefusal("no")) }
+        const numbered: SandboxCallPlan<number> = { answer: (state) => Promise.resolve(state.seq + 1) }
+
+        const settled = await Promise.allSettled([sandbox.call(account, "op", {}, failing), sandbox.call(account, "op", {}, numbered)])
+
+        expect(settled.map((one) => one.status)).toEqual(["rejected", "fulfilled"])
+        expect(settled[1]).toMatchObject({ value: 2 })
+    })
+
     it("answers from the hardcoded case, moves the account's state and numbers the calls, with no idempotency of its own", async () => {
         const account = sandboxAccount()
         const { sandbox } = sandboxServiceOf(account)

@@ -1,6 +1,6 @@
-import { Field, ID, InputType } from "@nestjs/graphql"
+import { Field, ID, InputType, Int } from "@nestjs/graphql"
 import { Type } from "class-transformer"
-import { ArrayMaxSize, IsArray, IsBoolean, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateNested } from "class-validator"
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength, ValidateNested } from "class-validator"
 import { NullAsAbsent } from "@modules/platform/graphql"
 
 @InputType()
@@ -86,7 +86,20 @@ export class SendSandboxCaseInput {
     @Type(() => SandboxInputValueInput)
     inputs?: Array<SandboxInputValueInput>
 
-    /** True: record the case as the provider would remember it but do not post its webhook (the provider's poll brings the row back). */
+    /** How the event is delivered: `once`, `twice`, `withheld` (only the provider's poll brings it back) or `late`; absent: the case's own. */
+    @Field(() => String, { nullable: true })
+    @IsOptional()
+    @IsIn(["once", "twice", "withheld", "late"])
+    mode?: string
+
+    /** The interval of `late`, in seconds (default one hour). */
+    @Field(() => Int, { nullable: true })
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    lateBySeconds?: number
+
+    /** Alias of `mode: withheld` kept for the page until it sends `mode` (a request to fe); the mode wins when both are given. */
     @Field(() => Boolean, { nullable: true, defaultValue: false })
     @NullAsAbsent()
     @IsOptional()
@@ -116,6 +129,27 @@ export class SetSandboxNextCaseInput {
     @MinLength(1)
     @MaxLength(200)
     scope?: string
+}
+
+@InputType()
+/** What setSandboxNextOutcome takes. */
+export class SetSandboxNextOutcomeInput {
+    /** The sandbox account. */
+    @Field(() => ID)
+    @IsUUID()
+    @MaxLength(64)
+    connectionId!: string
+
+    /** The outbound operation (the `operation` of its cases). */
+    @Field(() => String)
+    @IsString()
+    @MaxLength(200)
+    operation!: string
+
+    /** The generic outcome: `ok`, `refused`, `final`, `transient` or `timeout`. */
+    @Field(() => String)
+    @IsIn(["ok", "refused", "final", "transient", "timeout"])
+    outcome!: string
 }
 
 @InputType()

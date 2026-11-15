@@ -1,4 +1,6 @@
 import type { ConnectionRecord } from "@modules/domain/connections"
+import type { SandboxDeliveryMode, SandboxOutcome } from "@modules/domain/provider-sandbox"
+import type { ParkedDeadlineKind } from "@modules/domain/agent-threads"
 
 
 /** What the sandbox reads that is about the workspace only take. */
@@ -93,8 +95,18 @@ export interface SendSandboxCaseRequest extends SandboxAccountRequest {
     readonly caseId: string
     /** The inputs given; a field not given is prefilled by the domain. */
     readonly inputs: ReadonlyArray<SandboxGivenInput>
-    /** True: record the case as the provider would remember it but do not post its webhook (the provider's poll brings it back). */
-    readonly dropWebhook?: boolean | undefined
+    /** The delivery mode (`once`, `twice`, `withheld`, `late`); absent: the case's own. */
+    readonly mode?: SandboxDeliveryMode | undefined
+    /** The interval of `late`, in seconds. */
+    readonly lateBySeconds?: number | undefined
+}
+
+/** What setSandboxNextOutcome takes. */
+export interface SetSandboxNextOutcomeRequest extends SandboxAccountRequest {
+    /** The outbound operation. */
+    readonly operation: string
+    /** The generic outcome to answer next. */
+    readonly outcome: SandboxOutcome
 }
 
 /** What setSandboxNextCase takes. */
@@ -125,11 +137,13 @@ export interface SandboxWaitingRunView {
     readonly personLabel: string
     /** The route the run is about: its context's route, else its conversation; null when it has none. */
     readonly routeId: string | null
-    /** What the wait listens for: each trigger's verb, once, in order. */
+    /** Which deadline the run is parked on (ENGINE-FIN (b): every parked deadline, not only a wait's). */
+    readonly kind: ParkedDeadlineKind
+    /** What a wait listens for: each trigger's verb, once, in order; empty for every other deadline. */
     readonly waitsFor: ReadonlyArray<string>
-    /** The park key of the wait. */
+    /** The key the deadline is filed under. */
     readonly parkKey: string
-    /** When the wait's time runs out (ISO 8601). */
+    /** When the deadline comes (ISO 8601). */
     readonly dueAt: string
 }
 

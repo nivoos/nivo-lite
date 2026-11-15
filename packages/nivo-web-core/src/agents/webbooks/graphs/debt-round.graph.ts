@@ -62,6 +62,9 @@ export const debtRoundGraph: TemplateGraph = defineTemplateGraph({
             en: "09:00 every weekday: finds the project receivables due by the company's terms, tells the person in charge, writes the customer notice mail, records the notice and reports the round to the team",
         },
         version: 9,
+        // Active at the seed (owner 2026-11-15: both packages tested on NIVO Sandbox accounts; NWC-LEAD found the graph complete: every
+        // step's node, tool and hand-off target exists). The original JSON template had no `seedActive` (drafts).
+        seedActive: true,
         publishedAt: "2026-11-14T22:00:00.000Z",
         notes: {
             vi: "R68: ghi nhận lần nhắc bị từ chối duyệt thì hệ thống tự báo đội kèm mã dự án, vòng nhắc vẫn tiếp tục; quy trình chỉ còn các bước nghiệp vụ. Thư gửi khách đi qua lần gửi chung của hệ thống, kênh thư (không còn công cụ gửi thư riêng)",

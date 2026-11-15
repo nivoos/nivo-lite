@@ -1,17 +1,16 @@
-import { MODULE_REGISTRY, type ModuleKey, type RegistryGate } from "@/modules/catalog"
+import type { ModuleCopy, RegistryGate } from "@/modules/catalog"
 import type { ContextSnapshot, DraftSnapshot, GateEntry, GateEvidence } from "./installations.types"
 
-/** What a module must know before it may act. Every gate is required to apply a setup. */
-export const gatesOf = (moduleKey: ModuleKey): ReadonlyArray<Pick<RegistryGate, "key">> =>
-    MODULE_REGISTRY[moduleKey].gates
+/** What a module must know before it may act, as its catalogue row declares it. Every gate is required to apply a setup. */
+export const gatesOf = (copy: ModuleCopy | undefined): ReadonlyArray<Pick<RegistryGate, "key">> => copy?.gates ?? []
 
 /** Gate state, defaulting to missing. */
 export const gateEntry = (evidence: GateEvidence, key: string): GateEntry =>
     evidence[key] ?? { status: "missing", evidence: "" }
 
 /** True when every gate of the module is confirmed. */
-export const allGatesConfirmed = (moduleKey: ModuleKey, evidence: GateEvidence): boolean =>
-    gatesOf(moduleKey).every((gate) => gateEntry(evidence, gate.key).status === "confirmed")
+export const allGatesConfirmed = (copy: ModuleCopy | undefined, evidence: GateEvidence): boolean =>
+    gatesOf(copy).every((gate) => gateEntry(evidence, gate.key).status === "confirmed")
 
 /** The gate title in the reader language. */
 export const gateLabel = (gate: RegistryGate, locale: "vi" | "en"): string =>

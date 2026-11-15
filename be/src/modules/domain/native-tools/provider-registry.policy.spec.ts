@@ -51,7 +51,7 @@ describe("the rights on an account", () => {
         ],
         abilities: [
             { id: "transactions.read", tools: ["nivo.tool.bank.transaction.list"] },
-            { id: "qr.create", tools: ["nivo.tool.payment.transfer.create"] },
+            { id: "request.create", tools: ["nivo.tool.payment.request.create"] },
         ],
         attached: new Set(["a-core", "a-plugin"]),
         registered: new Map([
@@ -73,11 +73,11 @@ describe("the rights on an account", () => {
         ])
         expect(rows[0]?.abilities).toEqual([
             { id: "transactions.read", tools: ["nivo.tool.bank.transaction.list"], allowed: true },
-            { id: "qr.create", tools: ["nivo.tool.payment.transfer.create"], allowed: true },
+            { id: "request.create", tools: ["nivo.tool.payment.request.create"], allowed: true },
         ])
         expect(rows[1]?.abilities.map((ability) => [ability.id, ability.allowed])).toEqual([
             ["transactions.read", true],
-            ["qr.create", true],
+            ["request.create", true],
         ])
         expect(rows[0]?.triggers).toEqual([{ name: "transaction.received", role: "decider" }])
         expect(rows[1]?.triggers).toEqual([{ name: "transaction.received", role: "notice" }])

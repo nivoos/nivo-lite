@@ -31,9 +31,6 @@ export interface AgentCreateView extends Omit<AgentCreateForm, "siblings" | "res
     readonly close: () => void
 }
 
-/** The role whose mark the presets show while no role is chosen yet. */
-const FALLBACK_ROLE = "chatbot"
-
 /** The starts of the setup: a copy of each sibling (the oldest suggested), then the default setup; none while the role has none. */
 const startOptionsOf = (form: AgentCreateForm): ReadonlyArray<StartOptionView> =>
     form.siblings.length === 0
@@ -57,13 +54,12 @@ export const useAgentCreate = (): AgentCreateView => {
     const picture = useAgentCreatePicture()
     const attachments = useAgentAttachmentProposal(form.role)
     const submit = useAgentCreateSubmit(form, picture, t, attachments.input)
-    const role = form.role ?? FALLBACK_ROLE
     const choice = picture.choice
     return {
         ...form,
         roleName: form.roles.find((entry) => entry.key === form.role)?.name ?? "",
         picture,
-        previewSrc: choice.kind === "upload" ? choice.url : choiceSrcOf(choice.preset, role),
+        previewSrc: choice.kind === "upload" ? choice.url : choiceSrcOf(choice.preset, form.role ?? ""),
         choosePreset: (value) => {
             if (isPictureChoice(value)) picture.choosePreset(value)
         },

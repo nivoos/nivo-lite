@@ -61,6 +61,7 @@ export {
     failureClassOf,
     isAiFailure,
     retryVerdictOf,
+    unknownToolOf,
     stuckFactsOf,
     troubleOfConfusion,
     troubleOfFailure,
@@ -70,7 +71,7 @@ export {
 } from "./policies/step-trouble.policy"
 export type { FailureClass, FailureFacts, RetryVerdict, StepSagaKind, StepTrouble } from "./policies/step-trouble.policy"
 export { effectsBeyond } from "./policies/workflow-grant.policy"
-export { WAITING_MEMBER, takingTriggerOf } from "./policies/workflow-trigger.policy"
+export { VERB_MEMBER, WAITING_MEMBER, takingTriggerOf } from "./policies/workflow-trigger.policy"
 export {
     UNTIL_EXHAUSTED_ROUTE,
     UNTIL_ROUNDS_MAX,

@@ -22,13 +22,27 @@ const send = async (sandbox: ReturnType<typeof sandboxServiceOf>["sandbox"], id:
 }
 
 describe("TELEGRAM_SANDBOX_CATALOGUE (owner ruling R62)", () => {
-    it("names the provider and holds unique ids TELEGRAM-<n>: the two inbound cases, and no window case (Telegram has no reply window)", () => {
+    it("names the provider and holds unique ids TELEGRAM-<n>: the five inbound cases (text, picture, file, voice, command), none polled, and no window case (Telegram has no reply window)", () => {
         const ids = TELEGRAM_SANDBOX_CATALOGUE.cases.map((one) => one.id)
 
         expect(TELEGRAM_SANDBOX_CATALOGUE.provider).toBe("telegram")
-        expect(ids).toEqual(["TELEGRAM-1", "TELEGRAM-2"])
+        expect(ids).toEqual(["TELEGRAM-1", "TELEGRAM-2", "TELEGRAM-3", "TELEGRAM-4", "TELEGRAM-5", "TELEGRAM-6", "TELEGRAM-7"])
+        expect(TELEGRAM_SANDBOX_CATALOGUE.cases.some((one) => one.inbound?.polled === true)).toBe(false)
         expect(TELEGRAM_SANDBOX_CATALOGUE.cases.every((one) => one.inbound !== undefined)).toBe(true)
         expect(TELEGRAM_SANDBOX_CATALOGUE.cases.some((one) => /window/i.test(one.label))).toBe(false)
+    })
+
+    it("TELEGRAM-3..5 make the Bot API's own updates: a PDF document, a voice, and a /start command with its bot_command entity", async () => {
+        const { sandbox } = sandboxServiceOf(ACCOUNT)
+        const [doc] = await send(sandbox, "TELEGRAM-3", { chatId: 700100200, fileName: "bao-gia.pdf" })
+        const [voice] = await send(sandbox, "TELEGRAM-4", { chatId: 700100200 })
+        const [command] = await send(sandbox, "TELEGRAM-5", { chatId: 700100200, command: "/start" })
+        const messageOf = (body: Record<string, unknown> | undefined) => body?.message as Record<string, unknown>
+        expect(messageOf(doc).document).toMatchObject({ file_name: "bao-gia.pdf", mime_type: "application/pdf" })
+        expect(messageOf(doc).text).toBeUndefined()
+        expect(messageOf(voice).voice).toMatchObject({ mime_type: "audio/ogg" })
+        expect(messageOf(voice).text).toBeUndefined()
+        expect(messageOf(command)).toMatchObject({ text: "/start", entities: [{ offset: 0, length: 6, type: "bot_command" }] })
     })
 
     it("has unique ids across the catalogue and the send and staff cases, each the provider's key and number", () => {

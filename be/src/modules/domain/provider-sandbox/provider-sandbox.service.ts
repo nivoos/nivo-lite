@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common"
+import type { EntityManager } from "typeorm"
 import type {
     ProviderSandboxSwitch,
     SandboxAccount,
@@ -28,6 +29,9 @@ const thrownWordOf = (cause: unknown): string => {
     }
     return "unknown"
 }
+
+/** One call's step as its transaction ends: the answer, or how to throw the answer's own error again once the step committed. */
+type SandboxStep<Answer> = { readonly answered: true; readonly answer: Answer } | { readonly answered: false; readonly again: () => Promise<never> }
 
 @Injectable()
 /**
@@ -78,17 +82,13 @@ export class ProviderSandboxService {
     /** Answers one call of `operation` on a sandbox account by the plan's key; a live account, or the sandbox off, is refused. */
     async call<Answer>(account: SandboxAccount, operation: string, request: unknown, plan: SandboxCallPlan<Answer>): Promise<Answer> {
         this.assertOpen(account)
-        const key = plan.key ?? ""
-        const state = await this.stateOf(account, operation)
-        let answer: Answer
-        try {
-            answer = await plan.answer(state)
-        } catch (cause) {
-            await this.log(account, operation, key, request, { outcome: "threw", error: thrownWordOf(cause) })
-            throw cause
-        }
-        await this.log(account, operation, key, request, { outcome: "answered", value: answer })
-        return answer
+        if (plan.lock === "outside") return await this.settled(await this.answered(account, operation, request, plan))
+        // The account's lock holds the read of the running number (`state.seq`), the answer and the log as ONE step: parallel calls of an
+        // account answer one after the other, each with its own number, so no two draw the same running id. Every read and write of
+        // the step goes through the lock's OWN transaction (`manager`): a connection holding the lock never waits for another of the
+        // pool (D3-W1-6). A thrown answer is logged in that transaction too and thrown only after it committed, so its log and the
+        // state it changed before throwing stay, as they did when they were written apart.
+        return await this.settled(await this.store.serialized(account, (manager) => this.answered(account, operation, request, plan, manager)))
     }
 
     /**
@@ -136,22 +136,56 @@ export class ProviderSandboxService {
         await this.store.reset(account)
     }
 
-    private async stateOf(account: SandboxAccount, operation: string): Promise<SandboxState> {
-        const seq = await this.store.countCalls(account, operation)
+    /** One call's step: its state, its answer, its log, all on `manager` when it is given; a throw comes back as an outcome. */
+    private async answered<Answer>(
+        account: SandboxAccount,
+        operation: string,
+        request: unknown,
+        plan: SandboxCallPlan<Answer>,
+        manager?: EntityManager,
+    ): Promise<SandboxStep<Answer>> {
+        const key = plan.key ?? ""
+        const state = await this.stateOf(account, operation, manager)
+        let answer: Answer
+        try {
+            answer = await plan.answer(state)
+        } catch (cause) {
+            await this.log(account, operation, key, request, { outcome: "threw", error: thrownWordOf(cause) }, manager)
+            // Thrown again only after the step's transaction committed (its log and the state it changed stay).
+            return { answered: false, again: () => Promise.reject(cause) }
+        }
+        await this.log(account, operation, key, request, { outcome: "answered", value: answer }, manager)
+        return { answered: true, answer }
+    }
+
+    /** The answer of a settled step, or the answer's own error again, as its live twin throws it. */
+    private async settled<Answer>(step: SandboxStep<Answer>): Promise<Answer> {
+        return step.answered ? step.answer : await step.again()
+    }
+
+    private async stateOf(account: SandboxAccount, operation: string, manager?: EntityManager): Promise<SandboxState> {
+        const seq = await this.store.countCalls(account, operation, manager)
         return {
             seq,
-            nextCase: await this.pickedOf(account, operation),
-            read: async (name, key) => (await this.store.stateOf(account, name, key))?.value ?? null,
-            write: (name, key, value) => this.store.keepState(account, name, key, value),
+            nextCase: await this.pickedOf(account, operation, manager),
+            read: async (name, key) => (await this.store.stateOf(account, name, key, manager))?.value ?? null,
+            write: (name, key, value) => this.store.keepState(account, name, key, value, manager),
         }
     }
 
-    private async pickedOf(account: SandboxAccount, operation: string): Promise<string | null> {
-        const kept = (await this.store.stateOf(account, NEXT_CASE_STATE, operation))?.value
+    private async pickedOf(account: SandboxAccount, operation: string, manager?: EntityManager): Promise<string | null> {
+        const kept = (await this.store.stateOf(account, NEXT_CASE_STATE, operation, manager))?.value
         return typeof kept === "string" && kept !== "" ? kept : null
     }
 
-    private log(account: SandboxAccount, operation: string, key: string, request: unknown, result: SandboxCallOutcome): Promise<void> {
-        return this.store.logCall(account, { operation, key, request, result })
+    private log(
+        account: SandboxAccount,
+        operation: string,
+        key: string,
+        request: unknown,
+        result: SandboxCallOutcome,
+        manager?: EntityManager,
+    ): Promise<void> {
+        return this.store.logCall(account, { operation, key, request, result }, manager)
     }
 }

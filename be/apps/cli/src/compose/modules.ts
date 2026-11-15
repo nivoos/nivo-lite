@@ -14,6 +14,9 @@ import { ACCOUNT_DATA_CATALOG } from "@modules/domain/account-data-catalog"
 import { DataRecordsModule } from "@modules/domain/data-records"
 import { EmailMessagesModule } from "@modules/domain/email-messages"
 import { ProviderSandboxModule } from "@modules/domain/provider-sandbox"
+import { ProviderTriggersModule, triggerDeclarations } from "@modules/domain/provider-triggers"
+import { BANK_TRANSACTION_TRIGGERS } from "@modules/domain/bank-feed-inbox"
+import { IMAP_MAIL_TRIGGER } from "@modules/domain/data-hub"
 import { EntityPlannerModule } from "@modules/domain/entity-planner"
 import { EventsModule } from "@modules/domain/events"
 import { JobOpsModule } from "@modules/domain/job-ops"
@@ -45,12 +48,13 @@ import { ClockModule } from "@modules/platform/clock"
 import { IdsModule } from "@modules/platform/ids"
 import { DatabaseModule } from "@modules/platform/database"
 import { SeedStandardGitModule } from "@modules/domain/seed-standard-git"
+import { DataStoresModule } from "@modules/domain/data-stores"
 import { DataSeedModule } from "@modules/integrations/seed"
 import { PRIMARY_ENTITIES } from "@modules/platform/database/entities"
 import { appPgTypes } from "@modules/integrations/data-sources"
 import { EventBusModule } from "@modules/platform/event-bus"
 import { QueueModule, type QueueOptions } from "@modules/platform/queue"
-import { LoggingModule, printConsoleLine } from "@modules/platform/logging"
+import { LoggingModule, printConsoleLine, readConsoleLines, setConsoleExitCode } from "@modules/platform/logging"
 import type { CliAppOptions } from "../cli.options"
 import { entityEngineStoreModules } from "./entity-engine"
 
@@ -75,7 +79,14 @@ const CLI_QUEUE: QueueOptions = {
 const GRAPH_NODES: NodeInstall = INSTALLED.nodeInstall()
 
 /** Registers the CLI capabilities in their boot order, with queue producers only. */
-export const cliModules = (options: CliAppOptions): Array<DynamicModule | Type> => [
+export const cliModules = (options: CliAppOptions): Array<DynamicModule | Type> => {
+    // The declarations with an owner switch, registered as their modules register them in the api (the cli composes none of those modules):
+    // the seed reads the switches of a sandbox account through them (`ProviderTriggerStatesService`). Nothing is delivered here.
+    triggerDeclarations.register(...BANK_TRANSACTION_TRIGGERS, IMAP_MAIL_TRIGGER)
+    return cliModuleList(options)
+}
+
+const cliModuleList = (options: CliAppOptions): Array<DynamicModule | Type> => [
     ClockModule.register({ isGlobal: true }),
     IdsModule.register({ isGlobal: true }),
     // Info lines go to stderr: a command's stdout is its report alone (`jobs watchdog` prints `<n> <n>`, the deploy verify matches it).
@@ -124,6 +135,8 @@ export const cliModules = (options: CliAppOptions): Array<DynamicModule | Type> 
     // The seed standard seam (the harness data standard's git layer): without it `seed-standard apply` stops with WORKSPACE_SEED_DRIVER_MISSING.
     DataSeedModule.register({ isGlobal: true, ...options.seed }),
     SeedStandardGitModule.register({ isGlobal: true }),
+    // The stores of the data standard, served to the harness's data sync by `cli data-store <id>`.
+    DataStoresModule.register({ isGlobal: true, console: { lines: readConsoleLines, print: printConsoleLine, exit: setConsoleExitCode } }),
     ...entityEngineStoreModules(options),
     AgentGraphsModule.register({ isGlobal: true, storeOnly: true }),
     WorkspaceCleanupModule.register({ isGlobal: true, accounts: IDENTITY_ACCOUNTS, print: printConsoleLine }),
@@ -140,6 +153,8 @@ export const cliModules = (options: CliAppOptions): Array<DynamicModule | Type> 
     // The workspace mail resolves an SMTP account through its registry, whose sandbox twin answers through the sandbox frame: the CLI
     // composes the frame with the dev switch OFF (no sandbox call is ever answered here; a live account never reaches it).
     ProviderSandboxModule.register({ isGlobal: true, sandbox: { enabled: false } }),
+    // The seed turns a sandbox account's triggers on through the one switch door (a sandbox account is a test account); no event is delivered here.
+    ProviderTriggersModule.register({ isGlobal: true, switchesOnly: true }),
     EmailMessagesModule.register({ isGlobal: true }),
     AgentConnectionsModule.register({ isGlobal: true, ports: { agents: AgentDirectoryService } }),
     ConnectionGrantsModule.register({ isGlobal: true }),

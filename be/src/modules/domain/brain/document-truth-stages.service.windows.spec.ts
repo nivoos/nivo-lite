@@ -18,7 +18,7 @@ import { FactEmbeddingsService } from "./fact-embeddings.service"
 import { ModelJsonService } from "./model-json.service"
 import { DocumentNatureService } from "./document-nature.service"
 import { TRIAGE_VERSION } from "./passage-triage.policy"
-import { objectLike, STAGES_STATE, filedAs, scriptStageDoubles, stagePassageOf, stageReply, stageSource, stringLike } from "@tests/fixtures/builders/brain-document.builder"
+import { existingSourcesProvider, objectLike, STAGES_STATE, filedAs, scriptStageDoubles, stagePassageOf, stageReply, stageSource, stringLike } from "@tests/fixtures/builders/brain-document.builder"
 
 const WS = DOC_WS
 const SOURCE = DOC_SOURCE
@@ -48,6 +48,7 @@ const build = async () => {
             { provide: BrainFactsService, useValue: facts },
             { provide: BrainExtractionsService, useValue: extractions },
             { provide: KnowledgeChunksService, useValue: chunks },
+            existingSourcesProvider(),
             { provide: UsageMeterService, useValue: usage },
             { provide: FactEmbeddingsService, useValue: vectors },
             { provide: DocumentNatureService, useValue: nature },

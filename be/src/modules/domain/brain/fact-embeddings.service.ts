@@ -17,7 +17,7 @@ import {
 import { UsageMeterService } from "@modules/domain/knowledge"
 import { VectorSyncService } from "@modules/domain/vector-sync"
 import { EMBEDDING_DIMENSIONS, hasStoredSize } from "@modules/domain/knowledge-chunks"
-import { InjectAi, type AiService } from "@modules/integrations/ai"
+import { InjectAi, leftNoRequest, type AiService } from "@modules/integrations/ai"
 import { InjectLogger, withWorkStep, type Logger } from "@modules/platform/logging"
 import { concurrencyGateOf, eachInOrder } from "@modules/platform/primitives"
 import { BrainLogEvent } from "./brain.log-events"
@@ -391,26 +391,29 @@ export class FactEmbeddingsService implements OnModuleInit, FactsChangedHook {
             })
             if (!tried.ok && tried.failure === "unconfigured") return { kind: "unknown" }
             const verdict = tried.ok ? sameTruthOf(this.json.jsonOf(tried.answer.text, workspaceId), candidates.length) : null
-            await this.usage.record(
-                tried.ok
-                    ? {
-                          ...booked,
-                          model: tried.answer.model,
-                          usage: tried.answer.usage,
-                          completionChars: tried.answer.text.length,
-                          tryNumber,
-                          // Which upstream served it, why it stopped and how long it took (D-R-11: judge rows carried none).
-                          served: tried.answer.served,
-                      }
-                    : {
-                          ...booked,
-                          model: tried.spent?.model ?? this.ai.chatModel(),
-                          usage: tried.spent?.usage ?? null,
-                          failure: tried.failure,
-                          tryNumber,
-                          served: tried.spent?.served,
-                      },
-            )
+            // Every try is booked once, except one that left no request (it spent nothing anywhere).
+            if (!leftNoRequest(tried)) {
+                await this.usage.record(
+                    tried.ok
+                        ? {
+                              ...booked,
+                              model: tried.answer.model,
+                              usage: tried.answer.usage,
+                              completionChars: tried.answer.text.length,
+                              tryNumber,
+                              // Which upstream served it, why it stopped and how long it took (D-R-11: judge rows carried none).
+                              served: tried.answer.served,
+                          }
+                        : {
+                              ...booked,
+                              model: tried.spent?.model ?? this.ai.chatModel(),
+                              usage: tried.spent?.usage ?? null,
+                              failure: tried.failure,
+                              tryNumber,
+                              served: tried.spent?.served,
+                          },
+                )
+            }
             if (verdict !== null && verdict.kind !== "unknown") return verdict
             // A verdict cut at its cap (the finish reason says so; it is never parsed) is asked again with more room.
             const cut = !tried.ok && tried.failure === "length"

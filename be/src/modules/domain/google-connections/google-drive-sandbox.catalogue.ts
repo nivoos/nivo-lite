@@ -26,6 +26,9 @@ export const GOOGLE_DRIVE_CASE = {
     typeUnsupported: "GOOGLE_DRIVE-13",
     readNoAccess: "GOOGLE_DRIVE-14",
     readUnavailable: "GOOGLE_DRIVE-15",
+    listNoAnswer: "GOOGLE_DRIVE-16",
+    readNoAnswer: "GOOGLE_DRIVE-17",
+    listRefreshRefused: "GOOGLE_DRIVE-18",
 } as const
 
 /** The name of the sandbox account's folder. */
@@ -101,31 +104,36 @@ export const googleDriveSandboxReadOf = (fileId: string): DriveFileRead | null =
 
 /** The outbound cases of the Drive account: the account's NEXT CASE of each operation picks one, the first of the operation answers while nothing is picked. */
 export const GOOGLE_DRIVE_SANDBOX_CASES: ReadonlyArray<SandboxCase> = [
-    { id: GOOGLE_DRIVE_CASE.granted, label: "The access is given: the workspace's Drive grant is connected", operation: GOOGLE_DRIVE_GRANT_OPERATION, default: true },
-    { id: GOOGLE_DRIVE_CASE.notGranted, label: "The access was never given: the grant is none", operation: GOOGLE_DRIVE_GRANT_OPERATION },
-    { id: GOOGLE_DRIVE_CASE.grantLost, label: "The access was revoked on the Google side: the grant is lost", operation: GOOGLE_DRIVE_GRANT_OPERATION },
+    { id: GOOGLE_DRIVE_CASE.granted, label: "The access is given: the workspace's Drive grant is connected", operation: GOOGLE_DRIVE_GRANT_OPERATION, outcome: "ok", default: true },
+    { id: GOOGLE_DRIVE_CASE.notGranted, label: "The access was never given: the grant is none", operation: GOOGLE_DRIVE_GRANT_OPERATION, outcome: "ok" },
+    { id: GOOGLE_DRIVE_CASE.grantLost, label: "The access was revoked on the Google side: the grant is lost", operation: GOOGLE_DRIVE_GRANT_OPERATION, outcome: "refused" },
     {
         id: GOOGLE_DRIVE_CASE.listed,
         label: "A folder with files: the listing names three files (a price list document, a returns policy PDF, a stock sheet)",
-        operation: GOOGLE_DRIVE_LIST_OPERATION,
+        operation: GOOGLE_DRIVE_LIST_OPERATION, outcome: "ok",
         default: true,
     },
-    { id: GOOGLE_DRIVE_CASE.emptyFolder, label: "An empty folder: the listing holds no file", operation: GOOGLE_DRIVE_LIST_OPERATION },
-    { id: GOOGLE_DRIVE_CASE.truncated, label: "A big folder: the listing stops at the file limit and says it was cut", operation: GOOGLE_DRIVE_LIST_OPERATION },
-    { id: GOOGLE_DRIVE_CASE.listTokenRejected, label: "Drive refuses the token (401): the listing is refused, the token needs a refresh", operation: GOOGLE_DRIVE_LIST_OPERATION },
-    { id: GOOGLE_DRIVE_CASE.listNoAccess, label: "The connected account cannot open the folder (403 / 404): the listing is refused", operation: GOOGLE_DRIVE_LIST_OPERATION },
-    { id: GOOGLE_DRIVE_CASE.listUnavailable, label: "Drive fails with a server error (5xx): the listing is unavailable and worth another try", operation: GOOGLE_DRIVE_LIST_OPERATION },
-    { id: GOOGLE_DRIVE_CASE.listGrantLost, label: "The access was revoked on the Google side: the listing is refused as the live grant refuses it (grant lost)", operation: GOOGLE_DRIVE_LIST_OPERATION },
+    { id: GOOGLE_DRIVE_CASE.emptyFolder, label: "An empty folder: the listing holds no file", operation: GOOGLE_DRIVE_LIST_OPERATION, outcome: "ok" },
+    { id: GOOGLE_DRIVE_CASE.truncated, label: "A big folder: the listing stops at the file limit and says it was cut", operation: GOOGLE_DRIVE_LIST_OPERATION, outcome: "ok" },
+    { id: GOOGLE_DRIVE_CASE.listTokenRejected, label: "Drive refuses the token (401): the listing is refused, the token needs a refresh", operation: GOOGLE_DRIVE_LIST_OPERATION, outcome: "refused" },
+    { id: GOOGLE_DRIVE_CASE.listNoAccess, label: "The connected account cannot open the folder (403 / 404): the listing is refused", operation: GOOGLE_DRIVE_LIST_OPERATION, outcome: "refused" },
+    { id: GOOGLE_DRIVE_CASE.listUnavailable, label: "Drive fails with a server error (5xx): the listing is unavailable and worth another try", operation: GOOGLE_DRIVE_LIST_OPERATION, outcome: "transient" },
+    { id: GOOGLE_DRIVE_CASE.listGrantLost, label: "The access was revoked on the Google side: the listing is refused as the live grant refuses it (grant lost)", operation: GOOGLE_DRIVE_LIST_OPERATION, outcome: "refused" },
     {
         id: GOOGLE_DRIVE_CASE.read,
         label: "A file is read: its name and text come back (a file the sandbox Drive does not hold is refused as one the account cannot open)",
-        operation: GOOGLE_DRIVE_READ_OPERATION,
+        operation: GOOGLE_DRIVE_READ_OPERATION, outcome: "ok",
         default: true,
     },
-    { id: GOOGLE_DRIVE_CASE.tooLarge, label: "The file is larger than the integration reads: refused before any download", operation: GOOGLE_DRIVE_READ_OPERATION },
-    { id: GOOGLE_DRIVE_CASE.typeUnsupported, label: "The file is of a type that cannot be read (a picture, an archive): refused", operation: GOOGLE_DRIVE_READ_OPERATION },
-    { id: GOOGLE_DRIVE_CASE.readNoAccess, label: "The connected account cannot open the file (403 / 404): refused", operation: GOOGLE_DRIVE_READ_OPERATION },
-    { id: GOOGLE_DRIVE_CASE.readUnavailable, label: "Drive fails with a server error (5xx): the read is unavailable and worth another try", operation: GOOGLE_DRIVE_READ_OPERATION },
+    { id: GOOGLE_DRIVE_CASE.tooLarge, label: "The file is larger than the integration reads: refused before any download", operation: GOOGLE_DRIVE_READ_OPERATION, outcome: "refused" },
+    { id: GOOGLE_DRIVE_CASE.typeUnsupported, label: "The file is of a type that cannot be read (a picture, an archive): refused", operation: GOOGLE_DRIVE_READ_OPERATION, outcome: "refused" },
+    { id: GOOGLE_DRIVE_CASE.readNoAccess, label: "The connected account cannot open the file (403 / 404): refused", operation: GOOGLE_DRIVE_READ_OPERATION, outcome: "refused" },
+    { id: GOOGLE_DRIVE_CASE.readUnavailable, label: "Drive fails with a server error (5xx): the read is unavailable and worth another try", operation: GOOGLE_DRIVE_READ_OPERATION, outcome: "transient" },
+    // The documents client's http wrapper (`documents-http.client.ts`) turns a network cut or a timeout into `DOCUMENTS_UNAVAILABLE` with status 0.
+    { id: GOOGLE_DRIVE_CASE.listNoAnswer, label: "Drive never answers the listing (a network cut or a timeout): unavailable, status 0, worth another try", operation: GOOGLE_DRIVE_LIST_OPERATION, outcome: "timeout" },
+    { id: GOOGLE_DRIVE_CASE.readNoAnswer, label: "Drive never answers the file read (a network cut or a timeout): unavailable, status 0, worth another try", operation: GOOGLE_DRIVE_READ_OPERATION, outcome: "timeout" },
+    // `drive-api.client.ts` `refreshAccessToken`: Google's token endpoint answers `invalid_grant` for a refresh token it no longer honours.
+    { id: GOOGLE_DRIVE_CASE.listRefreshRefused, label: "Google refuses the token refresh (invalid_grant): the grant can no longer be refreshed, the listing is refused", operation: GOOGLE_DRIVE_LIST_OPERATION, outcome: "refused" },
 ]
 
 /** The Google Drive account's hardcoded catalogue, registered at boot. */

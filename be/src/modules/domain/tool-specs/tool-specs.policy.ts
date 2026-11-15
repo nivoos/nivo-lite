@@ -3,8 +3,11 @@ import {
     DOMAIN_TOOL_BUSINESS_REFUSALS,
     INVOICE_TOOL_BUSINESS_REFUSALS,
     MEDIA_TOOL_BUSINESS_REFUSALS,
+    PAYMENT_REQUEST_REFUSALS,
     PAYMENT_TOOL_BUSINESS_REFUSALS,
 } from "@modules/domain/provider-registry"
+import { CRM_TEMPLATES, readDocument, takesReplayKey } from "@modules/domain/openapi-tools"
+import { sourceToolSpecOf } from "./source-tool-spec.policy"
 import type {
     ConfirmRead,
     CoreToolId,
@@ -102,6 +105,12 @@ export const SETTLE_RULE_REFUSALS = [
     "claim_closed",
 ] as const
 
+/**
+ * The money providers that serve the payment request (`nivo.tool.payment.request.*`, owner ruling R111): every provider that registers a
+ * `PaymentRequestPort` (the gate `payment-request-port.spec.ts` keeps this list and the registrations equal). `casso` reads credits only.
+ */
+const PAYMENT_REQUESTERS: ReadonlyArray<string> = ["sepay", "payos"]
+
 /** The registrars that serve the generic domain purposes (`nivo.tool.domain.*`): providers are equal, the node's order picks. */
 const REGISTRARS: ReadonlyArray<string> = ["inet", "tino"]
 
@@ -168,6 +177,7 @@ interface SpecParts<F extends ToolRefusals> {
     readonly approvalContent?: ReadonlyArray<string>
     readonly repeatable?: boolean
     readonly confirmBy?: ToolConfirmBy
+    readonly finalRefusals?: ReadonlyArray<F["codes"][number]>
     readonly refusals: F
 }
 
@@ -184,6 +194,7 @@ const specOf = <M extends boolean, F extends ToolRefusals>(mutates: M, parts: Sp
     refusals: parts.refusals,
     repeatable: parts.repeatable ?? !mutates,
     ...(parts.confirmBy === undefined ? {} : { confirmBy: parts.confirmBy }),
+    ...(parts.finalRefusals === undefined ? {} : { finalRefusals: parts.finalRefusals }),
     ...(parts.approvalContent === undefined ? {} : { approvalContent: parts.approvalContent }),
 })
 
@@ -209,6 +220,9 @@ export const TOOL_SPECS = {
         account: "owner",
         approvalContent: ["subject", "text", "images"],
         repeatable: true,
+        // FINAL for the person: they withdrew consent, or NIVO holds no address of them at all: nobody can make this send happen.
+        // Every other refusal (a closed window, a plan, the channel's "no") is a stop a person can resolve.
+        finalRefusals: ["customer_opted_out", "no_recipient", "no_channel_identity"],
         refusals: closed(...SEND_REFUSALS, ...REPEAT_SEND_REFUSALS, ...PIN_REFUSALS),
     }),
     [TOOL.leadCareGet]: nativeRead(null, "other_lead"),
@@ -246,32 +260,37 @@ export const TOOL_SPECS = {
         refusals: open(),
     }),
     [TOOL.paymentClaimList]: nativeRead("payments"),
-    // The generic bank-transfer instruction (QR and account details) of the workspace's receiving account, on ONE bound account of a bank
-    // provider that registers a payment-instruction port. A READ by what its adapters do (SePay composes the address from the connection's
-    // own details and calls nothing). Its closed-by-reading business refusals are the leaf list of the provider registry.
-    [TOOL.paymentTransferCreate]: readSpec({
-        owners: ["sepay"],
+    // THE PAYMENT REQUEST (owner ruling R111): ONE purpose, served by every money provider through one port; WHICH provider issues it is the
+    // account the pick order chose (ONE bound account). Declared by the strongest provider: `create` WRITES (payOS creates a link at the
+    // provider; SePay composes a transfer instruction and creates nothing, which a write declaration covers: a declaration must hold for every
+    // provider serving the tool, and the spec is one per tool). `create` is REPEATABLE: an attempt whose answer was lost was never shown to any
+    // payer (the pay address and QR are only in the answer), so making the recorded intent again (A-2: same args, same key) at worst leaves one
+    // unseen, unpayable request at the provider, which its validity ends; the request the order keeps is the one whose answer came back, and the
+    // paid event is matched by THAT request's reference. A deterministic provider order code (one per act key) was weighed and refused: payOS's
+    // read answers no pay address, so a replay that met "order already exists" could not give the payer anything (PAYOS-19 would become a dead
+    // end instead of a second, good request). `cancel` is CONFIRMED by `get` (PAYOS-20: the cancel answer lost, the link WAS cancelled) and
+    // declares `no_request_state` FINAL (a provider that keeps no request has nothing to cancel). `get` reads.
+    [TOOL.paymentRequestCreate]: writeSpec({
+        owners: PAYMENT_REQUESTERS,
         account: "any",
-        refusals: open(...PAYMENT_TOOL_BUSINESS_REFUSALS),
+        repeatable: true,
+        refusals: open(...PAYMENT_REQUEST_REFUSALS),
     }),
-    // The payment LINK purpose (its own, never merged into the transfer instruction): a hosted link CREATED at the provider under the provider's
-    // own order code, so create and cancel WRITE (the node's declared mode applies) and get reads. Served by payOS, on ONE bound account.
-    // Business refusals are the leaf list of the provider registry; an infrastructure refusal freezes the step; a signed POST that timed out
-    // proves `unknown` and stops for a person (never sent again by itself).
-    [TOOL.paymentLinkCreate]: writeSpec({
-        owners: ["payos"],
+    [TOOL.paymentRequestGet]: readSpec({
+        owners: PAYMENT_REQUESTERS,
         account: "any",
-        refusals: open(...PAYMENT_TOOL_BUSINESS_REFUSALS),
+        refusals: open(...PAYMENT_REQUEST_REFUSALS),
     }),
-    [TOOL.paymentLinkGet]: readSpec({
-        owners: ["payos"],
+    [TOOL.paymentRequestCancel]: writeSpec({
+        owners: PAYMENT_REQUESTERS,
         account: "any",
-        refusals: open(...PAYMENT_TOOL_BUSINESS_REFUSALS),
-    }),
-    [TOOL.paymentLinkCancel]: writeSpec({
-        owners: ["payos"],
-        account: "any",
-        refusals: open(...PAYMENT_TOOL_BUSINESS_REFUSALS),
+        finalRefusals: ["no_request_state"],
+        confirmBy: {
+            tool: TOOL.paymentRequestGet,
+            args: { requestRef: { from: "args", member: "requestRef" } },
+            happened: { member: "status", equals: "cancelled" },
+        },
+        refusals: open(...PAYMENT_REQUEST_REFUSALS),
     }),
     // The generic timers: the engine's own (no account); a timer wakes the agent's own graph after the run ended. Arming an armed ref
     // replaces its instant; bounds are the schema's, so a refusal is an invalid argument (no business refusal).
@@ -382,6 +401,8 @@ export const TOOL_SPECS = {
         owners: REGISTRARS,
         account: "any",
         dataKind: "domains",
+        // FINAL: the name already exists at the registry (HTTP 409): nobody can register it through this tool.
+        finalRefusals: ["already_exists"],
         refusals: open(...DOMAIN_TOOL_BUSINESS_REFUSALS),
     }),
     // Renews at the provider (owner ruling R57) and answers `renewed` / `pending`; NOT repeatable (it moves money at the provider). An
@@ -638,11 +659,41 @@ export const toolSpecOf = (tool: string): OptionalToolSpec => SPEC_BY_ID.get(too
 /** True when a core tool writes (`mutates`), false for a read, null for an id the registry does not hold. */
 export const mutatesBySpec = (tool: string): boolean | null => toolSpecOf(tool)?.mutates ?? null
 
+/** The specs of the operations of the CRM documents the installed plugins pin, by tool id; read once, at the first ask (not at load). */
+let sourceSpecs: ReadonlyMap<string, ToolSpec> | undefined
+
 /**
- * Whether a core tool declares it may be sent again on an unknown outcome (`repeatable`), null for an id the registry does not hold (the
- * caller then treats it as not repeatable: never guessed).
+ * The spec of an operation of a document an installed plugin pins (`sourceToolSpecOf`, from the document: its method, its effect mark,
+ * whether it takes the replay key), or null for any other id. Only `repeatableBySpec` reads it: the other facts of a source's tools keep
+ * their own readers (owners: `ownersOfTool`; mutates: the plugin's definition).
  */
-export const repeatableBySpec = (tool: string): boolean | null => toolSpecOf(tool)?.repeatable ?? null
+const sourceSpecOf = (tool: string): OptionalToolSpec => {
+    sourceSpecs ??= new Map(
+        CRM_TEMPLATES.flatMap((template) => {
+            const source = crmProviderKeyOf(template.id)
+            const reading = readDocument(JSON.stringify(template.openapi), source)
+            if (!reading.ok) return []
+            return [...reading.document.operations.values()].map((operation): [string, ToolSpec] => [
+                operation.toolId,
+                sourceToolSpecOf({ source, dataKind: null, method: operation.method, effect: operation.effect, replayKeyed: takesReplayKey(operation) }),
+            ])
+        }),
+    )
+    return sourceSpecs.get(tool) ?? null
+}
+
+/**
+ * Whether a tool declares it may be sent again on an unknown outcome (`repeatable`): a core tool by its spec, an operation of an installed
+ * plugin's pinned document by what the document declares (a read; a write that takes the replay key); null for any other id (the caller
+ * then treats it as not repeatable: never guessed).
+ */
+export const repeatableBySpec = (tool: string): boolean | null => (toolSpecOf(tool) ?? sourceSpecOf(tool))?.repeatable ?? null
+
+/**
+ * True when a core tool DECLARES `refusal` FINAL for the subject (`finalRefusals`): a business answer, never a stop. False for every other
+ * refusal and for an id no spec holds (never guessed: an undeclared refusal of a write outside is a stop).
+ */
+export const finalRefusalBySpec = (tool: string, refusal: string): boolean => toolSpecOf(tool)?.finalRefusals?.includes(refusal) === true
 
 /** How a core tool declares its confirmation on an unknown outcome (`confirmBy`), or null when it declares none (or is no core tool). */
 export const confirmByOf = (tool: string): ToolConfirmBy | null => toolSpecOf(tool)?.confirmBy ?? null

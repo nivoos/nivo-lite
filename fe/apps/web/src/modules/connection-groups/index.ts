@@ -1,12 +1,12 @@
 import type { ConnectorCategory, Provider } from "@/modules/types"
 
 /** The groups of the library, in the order they head it: a filter and a heading, never a page or a level of the trail. */
-export const CONNECTION_GROUPS: readonly ["chat", "money", "google", "data", "sales", "accounting"] = [
+export const CONNECTION_GROUPS: readonly ["chat", "money", "google", "data", "commerce", "accounting"] = [
     "chat",
     "money",
     "google",
     "data",
-    "sales",
+    "commerce",
     "accounting",
 ]
 
@@ -20,7 +20,7 @@ const GOOGLE_IDS: ReadonlySet<string> = new Set(["google", "google_drive", "goog
 const GROUP_OF_CATEGORY: Readonly<Record<ConnectorCategory, ConnectionGroup>> = {
     chat: "chat",
     payments: "money",
-    commerce: "sales",
+    commerce: "commerce",
     accounting: "accounting",
     data: "data",
     email: "data",

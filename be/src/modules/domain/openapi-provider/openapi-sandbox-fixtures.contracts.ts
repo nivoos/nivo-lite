@@ -1,3 +1,4 @@
+import type { PinnedDocument } from "@modules/domain/openapi-tools"
 import type {
     ProviderSandboxKeeps,
     ProviderSandboxOperation,
@@ -24,8 +25,13 @@ export type OpenApiSandboxReadsBack = ProviderSandboxReadsBack
  */
 export type OpenApiSandboxOperationFixture = ProviderSandboxOperation
 
-/** The fixtures of one connector (`crm.<id>`), by the pinned document's operation id. */
+/**
+ * What the sandbox of one connector (`crm.<id>`) answers from: the document the package pins (read once; null when it cannot be read:
+ * then no operation can be answered) and the package's declarations by the document's operation id (the starting records, what an act
+ * sets, its own refusal and failure answers).
+ */
 export interface OpenApiSandboxFixtures {
     readonly connector: string
+    readonly document: PinnedDocument | null
     readonly operations: Readonly<Record<string, OpenApiSandboxOperationFixture>>
 }

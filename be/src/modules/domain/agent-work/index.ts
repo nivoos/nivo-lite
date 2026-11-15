@@ -39,7 +39,7 @@ export {
     type StreamCoalescing,
     type UnrunStreamWake,
 } from "./agent-wake-coalesce.policy"
-export { tagContextOf, tagPayloadOf } from "./agent-tag.policy"
+export { callOf, callerRunIdOf, tagContextOf, tagPayloadOf, type WorkflowCallFacts } from "./agent-tag.policy"
 export { AgentWorkHandlersService } from "./agent-work-handlers.service"
 export { AgentWorkReadService } from "./agent-work-read.service"
 export { AgentWorkSettingsService } from "./agent-work-settings.service"

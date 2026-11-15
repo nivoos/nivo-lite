@@ -12,6 +12,7 @@ export {
     asGroup,
     CONNECTION_GROUPS,
     audienceLineOf,
+    audienceNamesOf,
     catalogTagOf,
     connectionCountsOf,
     FOLDED_CONNECTORS,
@@ -20,3 +21,4 @@ export {
     unitOfEntry,
 } from "./connection-catalog.shared"
 export { useLibraryLife } from "./useLibraryLife"
+export { useAudienceOf } from "./useAudienceOf"

@@ -20,6 +20,8 @@ export class ProviderTriggersModule extends ConfigurableModuleClass {
         const agentNames = options.ports?.agentNames
         const ports: ReadonlyArray<Provider> =
             agentNames === undefined ? [] : [{ provide: PROVIDER_TRIGGER_AGENT_NAMES, useExisting: agentNames }]
+        // The re-offer door moves the wake rows of the agent work: an app without agent work (the cli) composes the switches only.
+        const reoffer: ReadonlyArray<Provider> = options.switchesOnly === true ? [] : [DeliveredWakesService]
         return {
             ...base,
             providers: [
@@ -27,7 +29,7 @@ export class ProviderTriggersModule extends ConfigurableModuleClass {
                 ...ports,
                 ProviderTriggerStoreService,
                 ProviderTriggersService,
-                DeliveredWakesService,
+                ...reoffer,
                 ProviderTriggerStatesService,
                 // The account trigger switches readiness reads (`TriggerSwitchReader`): the store's `listOf` has its shape.
                 { provide: TRIGGER_SWITCH_READER, useExisting: ProviderTriggerStoreService },
@@ -36,7 +38,7 @@ export class ProviderTriggersModule extends ConfigurableModuleClass {
             ],
             exports: [
                 ProviderTriggersService,
-                DeliveredWakesService,
+                ...reoffer,
                 ProviderTriggerStatesService,
                 TRIGGER_SWITCH_READER,
                 PROVIDER_TRIGGER_DECIDER_READER,

@@ -15,7 +15,8 @@ const mutation1: Document = gql`
     mutation SendSandboxCase($input: SendSandboxCaseInput!) {
         sendSandboxCase(input: $input) {
             caseId
-            webhookDropped
+            mode
+            lateBySeconds
             inputs {
                 name
                 value

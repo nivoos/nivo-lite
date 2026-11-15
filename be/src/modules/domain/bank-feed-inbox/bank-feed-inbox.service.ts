@@ -49,6 +49,18 @@ export class BankFeedReceiptService {
         return { value: row.value, owner: row.owner, row }
     }
 
+    /**
+     * The pending movement as it stands, WITHOUT a lock: what the delivery job PREPAREs its delivery from before its transaction (concept
+     * outbox-job rule 12); its commit takes the movement again with `lock`.
+     */
+    async seen(manager: EntityManager, door: BankFeedProvider, deliveryId: string): Promise<BankMovementLookup> {
+        const scoped = scopedDeliveryIdOf(deliveryId)
+        if (scoped === null) return undefined
+        const row = await this.intake.pendingOf(manager, transactionTypeOf(door), scoped.connectionId, scoped.externalId)
+        if (row === null) return undefined
+        return { value: row.value, owner: row.owner, row }
+    }
+
     /** Completes the locked movement in the caller's transaction. */
     complete(manager: EntityManager, movement: PendingBankMovement): Promise<void> {
         return this.intake.complete(manager, movement.row)

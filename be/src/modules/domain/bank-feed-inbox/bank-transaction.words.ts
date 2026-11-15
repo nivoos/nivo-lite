@@ -30,6 +30,10 @@ export const BANK_TRANSACTION_WORDS: TriggerOwnerWords = {
         at: { vi: "Thời điểm ngân hàng ghi nhận.", en: "When the bank booked it." },
         account: { vi: "Số tài khoản ngân hàng của giao dịch.", en: "The bank account the movement belongs to." },
         bankRef: { vi: "Mã tham chiếu của chính ngân hàng.", en: "The bank's own reference of the movement." },
+        payKey: {
+            vi: "Khóa nhận diện khoản thanh toán: mã yêu cầu thanh toán của nhà cung cấp (payOS) hoặc nội dung chuyển khoản (SePay, Casso).",
+            en: "What the payment is identified by: the provider's payment-request reference (payOS) or the transfer content (SePay, Casso).",
+        },
     },
 }
 

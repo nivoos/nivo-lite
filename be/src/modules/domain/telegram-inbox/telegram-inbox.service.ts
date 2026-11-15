@@ -12,12 +12,12 @@ import {
     AccountDataIntakeService,
     scopedDeliveryIdOf,
     type AdmittedRow,
+    type PendingPhases,
     type PendingRow,
 } from "@modules/domain/account-data"
-import { CustomerFilesService } from "@modules/domain/chat-files"
 import { ConnectionsService } from "@modules/domain/connections"
 import { InboundEventsService } from "@modules/domain/inbound-events"
-import { ProviderTriggersService, type CanonicalEvent } from "@modules/domain/provider-triggers"
+import { ProviderTriggersService, type CanonicalEvent, type PreparedDelivery } from "@modules/domain/provider-triggers"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import type { ClaimedJob } from "@modules/platform/jobs"
@@ -43,6 +43,18 @@ const messageReadOf = (row: TelegramUpdateRow, event: CanonicalEvent<TelegramMes
     }
 }
 
+/** A message PREPARE made ready (no transaction was open): what is kept beside the update, and its delivery when the bot is live. */
+interface PreparedTelegramMessage {
+    readonly read: TelegramMessageRead
+    readonly delivery: {
+        readonly workspaceId: string
+        readonly connectionId: string
+        readonly visitor: string
+        readonly event: CanonicalEvent<TelegramMessageData>
+        readonly prepared: PreparedDelivery
+    } | null
+}
+
 @Injectable()
 /**
  * THE TELEGRAM BOT'S ENTRY (the adapter stage of the one event pipeline, concept triggers rule 13). Writes each Telegram update the chat
@@ -62,7 +74,6 @@ export class TelegramInboxService {
         @InjectClock() private readonly clock: Clock,
         @InjectLogger() private readonly logger: Logger,
         private readonly connections: ConnectionsService,
-        private readonly customerFiles: CustomerFilesService,
         private readonly inboundEvents: InboundEventsService,
         private readonly triggers: ProviderTriggersService,
     ) {}
@@ -105,62 +116,81 @@ export class TelegramInboxService {
     }
 
     /**
-     * Processes a committed update atomically: delivers its message (translate, verify, keep the pictures, deliver), keeps the message and
-     * the person beside it and completes the update; a throw leaves the update pending for the job runner (retry on its ladder, then one dead
-     * letter), and a retry delivers the same event id; the files kept the first time come from the effects ledger (`job` keys them).
+     * Processes a committed update in two phases (concept outbox-job rule 12). PREPARE, with no transaction open: the stored update read as
+     * it stands, its message translated and verified, the address of each picture asked of Telegram, the pictures kept and the person met
+     * and matched (`prepareMessage`). COMMIT, one short transaction: the update locked again (null: another delivery completed it
+     * meanwhile, nothing more is written), the message delivered, the message and the person kept beside it, the update completed. A throw
+     * leaves the update pending for the job runner (retry on its ladder, then one dead letter), and a retry delivers the same event id; the
+     * files kept the first time come from the effects ledger (`job` keys them).
      */
-    processRecordedDelivery(message: TelegramDeliveryRecorded, job: ClaimedJob): Promise<void> {
-        return this.entityManager.transaction(async (manager) => {
-            const scoped = scopedDeliveryIdOf(message.deliveryId)
-            if (scoped === null) return
-            const pending = await this.intake.lockPending(manager, telegramUpdate.name, scoped.connectionId, scoped.externalId)
-            if (pending === null) return
-            const read = await this.deliverMessage(manager, pending, job)
-            if (read !== null) {
-                await this.intake.write(manager, scoped.connectionId, telegramMessageRowsOf(pending.value.raw, read, this.clock.now()))
-            }
-            await this.intake.complete(manager, pending)
-        })
+    async processRecordedDelivery(message: TelegramDeliveryRecorded, job: ClaimedJob): Promise<void> {
+        const scoped = scopedDeliveryIdOf(message.deliveryId)
+        if (scoped === null) return
+        const row = { type: telegramUpdate.name, connectionId: scoped.connectionId, key: scoped.externalId }
+        await this.intake.consumePending(this.entityManager, row, this.phasesOf(job))
+    }
+
+    /** The two phases of one update: PREPARE its message, then COMMIT it and keep the message beside the update. */
+    private phasesOf(job: ClaimedJob): PendingPhases<PreparedTelegramMessage | null> {
+        return {
+            prepare: (seen) => this.prepareMessage(seen, job),
+            commit: async (manager, pending, prepared) => {
+                if (prepared === null) return
+                const read = await this.commitMessage(manager, prepared)
+                await this.intake.write(manager, pending.owner.connectionId, telegramMessageRowsOf(pending.value.raw, read, this.clock.now()))
+            },
+        }
     }
 
     /**
-     * The message of a stored update, handed to the ONE delivery function; null (nothing kept beside it) for an update the chat does not
-     * answer. A message no registered graph takes stays kept raw and is kept for the owner, as a message with no front door was.
+     * PREPARE of the message of a stored update, with no transaction open; null (nothing kept beside it) for an update the chat does not
+     * answer. A connection that is not live delivers nothing but keeps the message beside the update. Otherwise Telegram is asked for the
+     * address of each picture with the bot (`getFile`, an outside call) and the ONE delivery function prepares the event (the pictures kept,
+     * the person met, the agents matched).
      */
-    private async deliverMessage(manager: EntityManager, pending: PendingRow, job: ClaimedJob): Promise<TelegramMessageRead | null> {
+    private async prepareMessage(pending: PendingRow, job: ClaimedJob): Promise<PreparedTelegramMessage | null> {
         const connectionId = pending.owner.connectionId
         const row = TELEGRAM_MESSAGE_WEBHOOK.raw.safeParse(pending.value)
         const event = row.success ? TELEGRAM_MESSAGE_WEBHOOK.translate(row.data, { connectionId }) : null
         if (!row.success || event === null) return null
-        const connection = await this.connections.intakeOf(connectionId, "telegram", manager)
-        if (connection.kind !== "ok") return messageReadOf(row.data, event)
+        const read = messageReadOf(row.data, event)
+        const connection = await this.connections.intakeOf(connectionId, "telegram", this.entityManager)
+        if (connection.kind !== "ok") return { read, delivery: null }
         const workspaceId = connection.value.workspaceId
         const visitor = event.subject?.name ?? GUEST
-        // As a Zalo OA: the first event turns a seeded (pending) bot connected and is kept for the wizard.
+        const addresses = await this.files.addressesOf(connectionId, event.data.attachments)
+        const delivery = await this.triggers.prepare({
+            workspaceId,
+            declaration: TELEGRAM_MESSAGE_WEBHOOK,
+            connectionId,
+            agentId: null,
+            events: [
+                {
+                    event,
+                    raw: { type: pending.type, id: pending.id },
+                    attachments: { keptUnder: job.jobId, key: event.data.messageKey, files: addresses },
+                    ...(event.data.at === null ? {} : { occurredAt: event.data.at }),
+                },
+            ],
+        })
+        return { read, delivery: { workspaceId, connectionId, visitor, event, prepared: delivery } }
+    }
+
+    /**
+     * COMMIT of a prepared message, in the job's transaction: the first event turning a seeded (pending) bot connected (as a Zalo OA), the
+     * ONE delivery function's commit. A message no registered graph takes stays kept raw and is kept for the owner, as a message with no
+     * front door was. Answers what is kept beside the update.
+     */
+    private async commitMessage(manager: EntityManager, message: PreparedTelegramMessage): Promise<TelegramMessageRead> {
+        const { delivery } = message
+        if (delivery === null) return message.read
+        const { workspaceId, connectionId, visitor, event } = delivery
         await this.connections.markReceived(
             connectionId,
             { amount: 0, content: visitor, at: this.clock.now().toISOString(), text: event.data.text.slice(0, 160) },
             manager,
         )
-        const addresses = await this.files.addressesOf(connectionId, event.data.attachments)
-        const kept = await this.customerFiles.keep(job, workspaceId, event.data.messageKey, addresses)
-        const delivered = await this.triggers.deliver(
-            {
-                workspaceId,
-                declaration: TELEGRAM_MESSAGE_WEBHOOK,
-                connectionId,
-                agentId: null,
-                events: [
-                    {
-                        event,
-                        raw: { type: pending.type, id: pending.id },
-                        ...(kept.length === 0 ? {} : { files: kept }),
-                        ...(event.data.at === null ? {} : { occurredAt: event.data.at }),
-                    },
-                ],
-            },
-            manager,
-        )
+        const delivered = await this.triggers.deliver(delivery.prepared, manager)
         if (delivered.status === "delivered" && delivered.untaken > 0) {
             await this.inboundEvents.keepUnrouted(manager, {
                 workspaceId,
@@ -170,6 +200,6 @@ export class TelegramInboxService {
                 eventId: event.data.messageKey,
             })
         }
-        return messageReadOf(row.data, event)
+        return message.read
     }
 }

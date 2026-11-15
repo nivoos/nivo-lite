@@ -11,11 +11,13 @@ import { ConnectionPollLogEvent } from "./connection-poll.log-events"
 import { cursorOf } from "./connection-poll.policy"
 import { ConnectionPollError, ConnectionPollErrorCode } from "./errors/connection-poll.error"
 import { PollLimiterService } from "./poll-limiter.service"
+import { POLL_RATE_DEFERRED_REASON } from "./messages/connection-poll.messages"
 import { PollOwnerNoticeService } from "./poll-owner-notice.service"
 import {
     authReasonOf,
     interleavedByWorkspace,
     jittered,
+    planAfterDeferral,
     planAfterFailure,
     planAfterRead,
     probeOf,
@@ -216,12 +218,17 @@ export class PollSchedulerService {
         }
         if (outcome.cause instanceof ConnectionPollError && outcome.cause.code === ConnectionPollErrorCode.Deferred) {
             tally.deferred += 1
-            const waitMs: unknown = outcome.cause.params.waitMs
+            const waitParam: unknown = outcome.cause.params.waitMs
+            const waitMs = typeof waitParam === "number" ? waitParam : BUSY_PROVIDER_RECHECK_MS
+            const plan = planAfterDeferral(row, waitMs, now, this.cadenceOf(receiver), unit)
+            await this.schedule.settle(row.connectionId, plan)
             this.logger.info(ConnectionPollLogEvent.Deferred, {
                 connectionId: row.connectionId,
                 provider: row.provider,
+                waitMs,
+                cycles: plan.failures,
             })
-            await this.defer(row.connectionId, typeof waitMs === "number" ? waitMs : BUSY_PROVIDER_RECHECK_MS)
+            if (plan.raiseOwnerNotice) await this.tellOwnerDeferred(record, plan.failures, now)
             return
         }
         const failure = receiver.classify(outcome.cause)
@@ -229,6 +236,20 @@ export class PollSchedulerService {
         const plan = planAfterFailure(row, failure, now, this.cadenceOf(receiver), unit)
         await this.schedule.settle(row.connectionId, plan)
         await this.report(record, failure, plan, now)
+    }
+
+    /**
+     * A poll that could not run cycle after cycle (the rate limit never left a call): ONE owner item through the poll's own door for "this
+     * connection cannot be read" (`unavailable`, keyed by the connection and the instant the threshold was reached, so the cycles past it write
+     * nothing and a later outage is a new item). The poll goes on at its cadence: the owner is told, nothing is stopped.
+     */
+    private async tellOwnerDeferred(record: ConnectionRecord, cycles: number, now: number): Promise<void> {
+        try {
+            await this.notice.unavailable(record, POLL_RATE_DEFERRED_REASON, now)
+            this.logger.warn(ConnectionPollLogEvent.DeferredOwnerTold, { connectionId: record.id, provider: record.provider, cycles })
+        } catch (cause) {
+            this.logger.error(ConnectionPollLogEvent.DeferredOwnerNotTold, cause, { connectionId: record.id, provider: record.provider })
+        }
     }
 
     /**

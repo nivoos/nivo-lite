@@ -5,7 +5,6 @@ import { setupProgressOf } from "@/modules/setup-view"
 import { slotOfReads } from "@/hooks/slot"
 import { useModuleCatalog } from "@/hooks/moduleCatalog"
 import { useSetupRequirements } from "@/hooks/setupRequirements"
-import { MODULE_KEYS, isModuleKey } from "@/modules/catalog"
 import type { ContextVersion } from "@/modules/installations"
 import type { DataSlot, SetupSideView } from "@/modules/types"
 import { useLocale, useTranslations } from "next-intl"
@@ -42,17 +41,17 @@ type UseSetupSideResult = {
 
 /**
  * The side column of the Setup tab: the gate checklist (what the agent understood), as one view with the commands of the
- * checklist (the versions come from the graph read). The module is the type of the url; it reads as the first one if it is unknown.
+ * checklist (the versions come from the graph read). The module is the type of the url; one the catalogue does not serve has no gates.
  */
 export const useSetupSide = (module: string, installationId: string): UseSetupSideResult => {
     const t = useTranslations("moduleSetup")
     const locale = useLocale() === "en" ? "en" : "vi"
-    const moduleKey = isModuleKey(module) ? module : MODULE_KEYS[0]
     const catalog = useModuleCatalog()
+    const copy = catalog.modules[module]
     const state = useSetupState(installationId)
     const { slot, reload } = state
     const versionsSlot = useSetupVersions(installationId)
-    const unmet = useSetupRequirements(moduleKey)
+    const unmet = useSetupRequirements(module)
     const reads = [state.read, catalog.read, versionsSlot.read]
     const isLoading = reads.some((read) => read.data === undefined && read.isLoading)
     const session = ("items" in slot ? slot.items : undefined)?.session ?? LOADING_SESSION
@@ -63,11 +62,11 @@ export const useSetupSide = (module: string, installationId: string): UseSetupSi
         ("items" in slot ? slot.items : undefined)?.instance.activeVersionId ??
         null
     const progress = setupProgressOf(
-        moduleKey,
+        copy,
         session,
         versions.find((version) => version.id === activeVersionId) ?? null,
     )
-    const catalogGates = catalog.modules[moduleKey]?.gates ?? []
+    const catalogGates = copy?.gates ?? []
     const gateRows =
         isLoading && catalogGates.length === 0
             ? PLACEHOLDER_GATES

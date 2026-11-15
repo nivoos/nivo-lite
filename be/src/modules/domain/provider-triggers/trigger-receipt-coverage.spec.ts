@@ -19,7 +19,7 @@ import type { TriggerDeclaration, TriggerVia } from "./trigger-declaration.contr
  *  - a provider trigger with no `dataType` (and a source of NIVO's own with one), a `dataType` the account-data catalog does not
  *    declare, a `wakes` type with no admission registered;
  *  - `words.members` keys that are no member of `data`, a `data` member whose type its schema does not state;
- *  - a `factKey` on a declaration with `line`, or one that reads anything beside the declared members of the parsed data;
+ *  - a `factKey` on a declaration that feeds a stream (`feeds`), or one that reads anything beside the declared members of the parsed data;
  *  - STATIC: a file outside `account-data/` that imports `AccountDataEntity` or writes `account_data` in raw SQL; a file of
  *    `packages/<name>/src` that declares a trigger receiver or imports a poll / webhook / intake piece of the back end.
  */
@@ -38,6 +38,8 @@ const REGISTERING: ReadonlyArray<string> = [
     "modules/domain/bank-feed-inbox/bank-feed-inbox.module.ts",
     "modules/domain/data-hub/data-hub.module.ts",
     "modules/domain/inbox-leads/website-intake.module.ts",
+    // The DERIVED record write declarations (one per type that declares `events`, concept agent-data rule 2): registered on a type's first delivery.
+    "modules/domain/record-events/record-event-delivery.service.ts",
     "modules/domain/meta-inbox/meta-inbox.module.ts",
     "modules/domain/telegram-inbox/telegram-inbox.module.ts",
     "modules/domain/video-compose/video-compose.module.ts",
@@ -320,9 +322,9 @@ describe("trigger receipt gate (R95 / R96): every trigger declares every way it 
         expect(problems).toEqual([])
     })
 
-    it("has no factKey on a declaration with `line`, and a factKey that reads declared members only", () => {
+    it("has no factKey on a declaration that feeds a stream, and a factKey that reads declared members only", () => {
         const problems = DECLARATIONS.flatMap((declaration) => [
-            ...(declaration.factKey !== undefined && declaration.line !== undefined ? [`${keyOf(declaration)}: factKey on a declaration with line`] : []),
+            ...(declaration.factKey !== undefined && declaration.feeds !== undefined ? [`${keyOf(declaration)}: factKey on a declaration that feeds a stream`] : []),
             ...(factKeyReadsDeclaredOnly(declaration) ? [] : [`${keyOf(declaration)}: factKey reads a member data does not declare`]),
         ])
         expect(problems).toEqual([])

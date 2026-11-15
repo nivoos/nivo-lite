@@ -60,6 +60,25 @@ describe("WorkspaceSettingsService > update", () => {
         expect(saved).toMatchObject({ name: "Spa Hoa Mai", timeZone: "Asia/Tokyo" })
     })
 
+    it("saves the IANA canonical name and a link as given, though the runtime's zone list names only one of them", async () => {
+        for (const zone of ["Asia/Ho_Chi_Minh", "Asia/Saigon"]) {
+            const em = mockEntityManager({
+                update: [WorkspaceEntity, { affected: 1 }],
+                findOne: [WorkspaceEntity, workspaceRow({ timeZone: zone })],
+            })
+            const service = await build(em)
+            await expect(service.update("ws-1", { timeZone: ` ${zone} ` })).resolves.toMatchObject({ timeZone: zone })
+            expect(em.update).toHaveBeenCalledWith(WorkspaceEntity, { id: "ws-1", deletedAt: IsNull() }, { timeZone: zone })
+        }
+    })
+
+    it("refuses an empty time zone before any write", async () => {
+        const em = mockEntityManager()
+        const service = await build(em)
+        await expect(service.update("ws-1", { timeZone: "" })).rejects.toMatchObject({ code: WorkspacesErrorCode.TimeZoneInvalid })
+        expect(em.update).not.toHaveBeenCalled()
+    })
+
     it("sets the logo address and removes it with null", async () => {
         const em = mockEntityManager({
             update: [WorkspaceEntity, { affected: 1 }],

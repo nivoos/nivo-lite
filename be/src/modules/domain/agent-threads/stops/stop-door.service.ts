@@ -8,7 +8,7 @@ import { ThreadResumeRequestsService } from "../thread-resume-requests.service"
 import type { ThreadWakeRefusal } from "../thread-runs.service"
 import { RunStopRecordsService } from "./run-stop-records.service"
 import { RunStopsService } from "./run-stops.service"
-import type { OptionalRunStop, RunStop, StopDecision } from "./run-stop.contracts"
+import { retryNeedsTakeOver, type OptionalRunStop, type RunStop, type StopDecision } from "./run-stop.contracts"
 import { approvalItemWaitingOf } from "./stop-approval.policy"
 import { stopDecisionOf } from "./stop-gate.policy"
 
@@ -63,6 +63,7 @@ export type StopDoorOutcome =
     | "not_found"
     | "invalid"
     | "approval_pending"
+    | "take_over_first"
 
 /** The door that takes the owner's verdict on a permission request: the mutation `decideAgentRunStep`, verdict `approve` or `reject`. */
 export const APPROVAL_DOOR = "decideAgentRunStep"
@@ -210,6 +211,10 @@ export class StopDoorService implements OnModuleInit {
                 refusal: { stopId: stop.id, workItemId: waitingItem, door: APPROVAL_DOOR, verdicts: ["approve", "reject"] },
             }
         }
+        // E-FIX12 rule A-4: a Retry would make an act of unknown outcome again blind (its tool declares neither `repeatable` nor
+        // `confirmBy`): refused until a person took the stop over; nothing is written.
+        if (action === "retry" && stop.decision?.kind !== "take_over" && retryNeedsTakeOver(stop.detail.facts))
+            return answer("take_over_first")
         const at = ask.at ?? this.clock.now().toISOString()
         const decision = stopDecisionOfAsk(action, actor.memberId, at, ask.text ?? null)
         if (decision === null) return answer("invalid")

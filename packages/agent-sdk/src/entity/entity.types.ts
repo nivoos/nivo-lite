@@ -1,6 +1,7 @@
 import type { ZodType } from "zod"
 import type { Namespaced } from "../schema/schema.types"
 import type { FilterExpr } from "../query/query.types"
+import type { TriggerCombine } from "../graph/trigger-event"
 import type { FileRef } from "./file-ref"
 
 /*
@@ -134,6 +135,27 @@ export interface StatesDef {
     readonly transitions: Readonly<Record<string, ReadonlyArray<string>>>
 }
 
+/**
+ * WHAT A WRITE OF A RECORD TYPE IS AS AN EVENT (concept agent-data rules 2, 3, 7): every write of a type that declares `events` (insert,
+ * update, upsert, an ensure that creates, the soft delete) is ONE event of `nivo.trigger.record.written`, delivered through the one
+ * pipeline. The type states its subject (never assumed to be a person), how pending events of one subject combine, and the closed values
+ * the event carries for a `where` to compare. Ids only otherwise: the node reads the record.
+ */
+export interface RecordEventsDef {
+    /**
+     * What the event is about: `id` (the record itself), or a declared field (a `contact` field: keyed by the person; any other: keyed by
+     * its value). A field of kind uuid, text, enum, int, bigint or contact.
+     */
+    readonly subject: string
+    /**
+     * Required, no default: overwritten state `latest` (the run re-reads the current record), facts `each`, a type declared `append` may
+     * `stream` (one marker; the node reads the stream with `consume: true`).
+     */
+    readonly combine: TriggerCombine
+    /** Declared `enum` fields whose value the event carries in its `data`, copied from the stored row (a `where` may compare them). */
+    readonly members?: ReadonlyArray<string>
+}
+
 /** A fold index part: public.knowledge_fold of a text field. */
 export interface FoldPart {
     /** The text field. */
@@ -255,6 +277,14 @@ export interface EntityConfig<F extends FieldMap> {
     readonly view?: true
     /** The declared states of one enum field and their transitions. */
     readonly states?: StatesDef
+    /**
+     * Rows are FACTS (concept agent-data rule 5): never changed after insert (the engine refuses update and upsert; the soft delete of an
+     * erase stays), ordered by the engine's sequence, split by `events.subject`: a STREAM a consumer reads after its own position. Needs
+     * `events`; declares no `states`.
+     */
+    readonly append?: true
+    /** Every write of the type is an event (concept agent-data rule 2); absent: a write emits nothing. */
+    readonly events?: RecordEventsDef
 }
 
 /** A frozen entity declaration. */
@@ -323,6 +353,11 @@ export type EntityProblemCode =
     | "ENTITY_FILE_MANY_INVALID"
     | "ENTITY_CONTACT_INVALID"
     | "ENTITY_STATES_INVALID"
+    | "ENTITY_EVENTS_SUBJECT_INVALID"
+    | "ENTITY_EVENTS_COMBINE_INVALID"
+    | "ENTITY_EVENTS_MEMBER_INVALID"
+    | "ENTITY_EVENTS_STREAM_NOT_APPEND"
+    | "ENTITY_APPEND_INVALID"
     | "RECORD_REF_OTHER_AGENT"
 
 /** One problem of a declaration. */

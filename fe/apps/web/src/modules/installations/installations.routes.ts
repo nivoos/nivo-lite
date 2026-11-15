@@ -1,4 +1,3 @@
-import type { ModuleKey } from "@/modules/catalog"
 import { AGENTS_ROUTE } from "@/modules/routes"
 
 /** A tab of one agent instance. */
@@ -11,7 +10,7 @@ export type AgentTab = "workbench" | "work" | "graph" | "workflows" | "chat" | "
  * that owns `?focus=`, or to the list.
  */
 export const agentHref = (
-    module: ModuleKey,
+    module: string,
     installationId: string | null | undefined,
     tab?: AgentTab,
     query?: string,
@@ -22,7 +21,7 @@ export const agentHref = (
 }
 
 /** The list of the instances of a type (/agents/<type>?list=1): shown even when there is only one, so adding a new one is always reachable. */
-export const agentListHref = (module: ModuleKey): string => `${AGENTS_ROUTE}/${module}?list=1`
+export const agentListHref = (module: string): string => `${AGENTS_ROUTE}/${module}?list=1`
 
 /** Options of a workbench deep link. */
 interface WorkbenchHrefOptions {
@@ -32,7 +31,7 @@ interface WorkbenchHrefOptions {
 }
 
 /** A workbench deep link, optionally on a tab, focused on one record, or on one installed instance (`?tab=` and `?focus=`). */
-export const workbenchPath = (module: ModuleKey, opts: WorkbenchHrefOptions = {}): string => {
+export const workbenchPath = (module: string, opts: WorkbenchHrefOptions = {}): string => {
     const query = new URLSearchParams()
     if (opts.tab) query.set("tab", opts.tab)
     if (opts.focus) query.set("focus", opts.focus)
@@ -49,11 +48,11 @@ export const IDENTITY_PARAM = "identity"
 export const IDENTITY_QUERY: string = `${IDENTITY_PARAM}=1`
 
 /** The route of the "Chung" section of Setup (name, owner, pause, remove) of an instance: /agents/<type>/<id>/setup/general. */
-export const setupGeneralHref = (module: ModuleKey, installationId: string): string =>
+export const setupGeneralHref = (module: string, installationId: string): string =>
     `${agentHref(module, installationId, "setup")}/general`
 
 /** The route of the workflows of an instance, or of one workflow by its key: /agents/<type>/<id>/workflows[/<workflowKey>]. */
-export const workflowsHref = (module: ModuleKey, installationId: string, workflowKey?: string): string => {
+export const workflowsHref = (module: string, installationId: string, workflowKey?: string): string => {
     const base = agentHref(module, installationId, "workflows")
     return workflowKey === undefined ? base : `${base}/${encodeURIComponent(workflowKey)}`
 }

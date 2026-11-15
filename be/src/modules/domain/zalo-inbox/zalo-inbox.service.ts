@@ -13,12 +13,10 @@ import {
     type PendingRow,
 } from "@modules/domain/account-data"
 import { ZaloCredentialsService } from "@modules/domain/channels"
-import { CustomerFilesService } from "@modules/domain/chat-files"
 import { ConnectionsService } from "@modules/domain/connections"
 import { InboundEventsService } from "@modules/domain/inbound-events"
-import { ProviderTriggersService } from "@modules/domain/provider-triggers"
+import { ProviderTriggersService, type CanonicalEvent, type PreparedDelivery } from "@modules/domain/provider-triggers"
 import { ZALO_MESSAGE_TRIGGER, ZaloStaleJudgeService, zaloAppIdOf, type ZaloMessageData } from "@modules/domain/zalo-provider"
-import type { CanonicalEvent } from "@modules/domain/provider-triggers"
 import { zaloEventNameOf } from "@modules/integrations/zalo"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
@@ -34,6 +32,17 @@ import { polledMessageOf } from "./zalo-polled-message.policy"
 
 /** The row just written as new, or undefined when nothing was written (a redelivery, a connection nobody holds). */
 type OptionalNewRow = AdmittedRow | undefined
+
+/** A customer message PREPARE made ready (no transaction was open): what its commit writes in the job's transaction. */
+interface PreparedZaloMessage {
+    readonly workspaceId: string
+    readonly connectionId: string
+    /** The name the person is kept under for the owner. */
+    readonly visitor: string
+    readonly event: CanonicalEvent<ZaloMessageData>
+    /** The ONE delivery function's prepared delivery of it. */
+    readonly delivery: PreparedDelivery
+}
 
 /** The language of the guest label a person with no name is kept under for the owner: the shop's owners read it in Vietnamese. */
 const LOCALE = "vi"
@@ -64,7 +73,6 @@ export class ZaloInboxService implements OnModuleInit {
         @InjectLogger() private readonly logger: Logger,
         private readonly connections: ConnectionsService,
         private readonly credentials: ZaloCredentialsService,
-        private readonly files: CustomerFilesService,
         private readonly triggers: ProviderTriggersService,
         @InjectMessageCatalog() private readonly catalog: MessageCatalog,
         private readonly admissions: AccountDataAdmissionsService,
@@ -119,21 +127,27 @@ export class ZaloInboxService implements OnModuleInit {
     }
 
     /**
-     * Processes a committed event atomically: delivers its customer message (verify, translate, keep the pictures, deliver), keeps the
-     * message and the person and completes the event. A throw leaves the event pending and goes back to the job runner, which retries it
-     * on its ladder and then dead-letters it with one item; a retry delivers the same event id (one wake) and the files kept the first time
-     * come from the effects ledger (`job` keys them).
+     * Processes a committed event in two phases (concept outbox-job rule 12). PREPARE, with no transaction open: the stored row read as it
+     * stands, its customer message verified and translated, its pictures kept and its person met and matched (`prepareMessage`). COMMIT, one
+     * short transaction: the row locked again (null: another delivery completed it meanwhile, nothing more is written), the message
+     * delivered, the message and the person kept, the event completed. A throw leaves the event pending and goes back to the job runner,
+     * which retries it on its ladder and then dead-letters it with one item; a retry delivers the same event id (one wake) and the files
+     * kept the first time come from the effects ledger (`job` keys them).
      */
-    processRecordedDelivery(message: ZaloDeliveryRecorded, job: ClaimedJob): Promise<void> {
-        return this.entityManager.transaction(async (manager) => {
-            const scoped = scopedDeliveryIdOf(message.deliveryId)
-            if (scoped === null) return
-            const pending = await this.intake.lockPending(manager, zaloEvent.name, scoped.connectionId, scoped.externalId)
-            if (pending === null) return
-            await this.deliverMessage(manager, pending, job)
-            await this.keepDerived(manager, scoped.connectionId, pending.value.raw, "")
-            await this.intake.complete(manager, pending)
-        })
+    async processRecordedDelivery(message: ZaloDeliveryRecorded, job: ClaimedJob): Promise<void> {
+        const scoped = scopedDeliveryIdOf(message.deliveryId)
+        if (scoped === null) return
+        await this.intake.consumePending(
+            this.entityManager,
+            { type: zaloEvent.name, connectionId: scoped.connectionId, key: scoped.externalId },
+            {
+                prepare: (seen) => this.prepareMessage(seen, job),
+                commit: async (manager, pending, prepared) => {
+                    if (prepared !== null) await this.commitMessage(manager, prepared)
+                    await this.keepDerived(manager, scoped.connectionId, pending.value.raw, "")
+                },
+            },
+        )
     }
 
     /** Writes the event row of a delivery; the row when it is new, undefined for a redelivery or a connection nobody holds. */
@@ -183,12 +197,11 @@ export class ZaloInboxService implements OnModuleInit {
     }
 
     /**
-     * The customer message of a stored event, handed to the ONE delivery function: the provider's pure translate of the row (an event the
-     * chat does not answer is logged and closed), the connection proven live and of the OA's own app, the first event turning a pending
-     * connection connected, the pictures kept in the shop's store under the line's key. A message no registered graph takes stays kept raw
-     * and is kept for the owner, as a message with no front door was.
+     * PREPARE of the customer message of a stored event, with no transaction open: the provider's pure translate of the row (an event the
+     * chat does not answer is logged and closed: null), the connection proven live and of the OA's own app (null otherwise), then the ONE
+     * delivery function's own PREPARE (the pictures kept in the shop's store under the line's key, the person met, the agents matched).
      */
-    private async deliverMessage(manager: EntityManager, pending: PendingRow, job: ClaimedJob): Promise<void> {
+    private async prepareMessage(pending: PendingRow, job: ClaimedJob): Promise<PreparedZaloMessage | null> {
         const connectionId = pending.owner.connectionId
         const row = ZALO_MESSAGE_TRIGGER.raw.safeParse(pending.value)
         const event = row.success ? ZALO_MESSAGE_TRIGGER.translate(row.data, { connectionId }) : null
@@ -198,35 +211,42 @@ export class ZaloInboxService implements OnModuleInit {
                 eventName: zaloEventNameOf(zaloBodyOf(pending.value.raw)) ?? "unreadable",
                 reason: "not_answered",
             })
-            return
+            return null
         }
-        const connection = await this.connections.intakeOf(connectionId, "zalo_oa", manager)
-        if (connection.kind !== "ok" || (await this.isOtherApp(connectionId, zaloAppIdOf(row.data.raw)))) return
+        const connection = await this.connections.intakeOf(connectionId, "zalo_oa", this.entityManager)
+        if (connection.kind !== "ok" || (await this.isOtherApp(connectionId, zaloAppIdOf(row.data.raw)))) return null
         const workspaceId = connection.value.workspaceId
         const visitor = event.subject?.name ?? this.catalog.get("conversations.zaloGuest", {}, LOCALE)
+        const delivery = await this.triggers.prepare({
+            workspaceId,
+            declaration: ZALO_MESSAGE_TRIGGER,
+            connectionId,
+            agentId: null,
+            events: [
+                {
+                    event,
+                    raw: { type: pending.type, id: pending.id },
+                    attachments: { keptUnder: job.jobId, key: event.data.messageKey, files: event.data.attachments },
+                    ...(event.data.at === null ? {} : { occurredAt: event.data.at }),
+                },
+            ],
+        })
+        return { workspaceId, connectionId, visitor, event, delivery }
+    }
+
+    /**
+     * COMMIT of a prepared customer message, in the job's transaction: the first event turning a pending connection connected, the ONE
+     * delivery function's commit. A message no registered graph takes stays kept raw and is kept for the owner, as a message with no front
+     * door was.
+     */
+    private async commitMessage(manager: EntityManager, message: PreparedZaloMessage): Promise<void> {
+        const { workspaceId, connectionId, visitor, event } = message
         await this.connections.markReceived(
             connectionId,
             { amount: 0, content: visitor, at: this.clock.now().toISOString(), text: event.data.text.slice(0, 160) },
             manager,
         )
-        const files = await this.files.keep(job, workspaceId, event.data.messageKey, event.data.attachments)
-        const delivered = await this.triggers.deliver(
-            {
-                workspaceId,
-                declaration: ZALO_MESSAGE_TRIGGER,
-                connectionId,
-                agentId: null,
-                events: [
-                    {
-                        event,
-                        raw: { type: pending.type, id: pending.id },
-                        ...(files.length === 0 ? {} : { files }),
-                        ...(event.data.at === null ? {} : { occurredAt: event.data.at }),
-                    },
-                ],
-            },
-            manager,
-        )
+        const delivered = await this.triggers.deliver(message.delivery, manager)
         if (delivered.status === "delivered" && delivered.untaken > 0) await this.keepUntaken(manager, workspaceId, connectionId, visitor, event)
     }
 

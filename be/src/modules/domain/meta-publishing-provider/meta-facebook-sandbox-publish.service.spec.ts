@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs"
+import { MetaPublishingError, MetaPublishingErrorCode } from "@modules/integrations/meta-publishing"
 import { proofOf, providerRefusalDetail, providerRefusalReason } from "@modules/domain/provider-registry"
 import { ProviderSandboxError, ProviderSandboxErrorCode } from "@modules/domain/provider-sandbox"
 import { connectionRecord } from "@tests/fixtures/builders/connection-records.builder"
 import { sandboxAccount, sandboxServiceOf, sandboxServiceOff } from "@tests/fixtures/builders/provider-sandbox.builder"
 import { MetaFacebookSandboxPublishService } from "./meta-facebook-sandbox-publish.service"
-import { FACEBOOK_SANDBOX_CATALOGUE, FACEBOOK_SANDBOX_POSTS } from "./meta-facebook-sandbox.catalogue"
+import { FACEBOOK_CASE, FACEBOOK_PUBLISH_OPERATION, FACEBOOK_SANDBOX_CASES, FACEBOOK_SANDBOX_CATALOGUE } from "./meta-facebook-sandbox.catalogue"
+import { metaPublishingFailureOf } from "./meta-publishing-failure.policy"
 
 const build = () => {
     const account = sandboxAccount({ provider: "meta" })
@@ -16,8 +18,12 @@ const build = () => {
 const failure = (work: Promise<unknown>): Promise<unknown> => Promise.resolve(work.then(() => undefined, (cause: unknown) => cause))
 const text = (message: string | null, link: string | null = null) => ({ message, link, media: null })
 
+/** What the live adapter throws for a client failure of that code (the live mapping of `meta-facebook-publish.service.ts`). */
+const liveFailure = (code: MetaPublishingErrorCode, params: Record<string, string | number> = {}): unknown =>
+    metaPublishingFailureOf(new MetaPublishingError({ code, params }))
+
 describe("MetaFacebookSandboxPublishService", () => {
-    it("accepts a text post, a link post, a photo and a video the way the live Page edges answer", async () => {
+    it("FACEBOOK-1 (default): accepts a text post, a link post, a photo and a video the way the live Page edges answer", async () => {
         const { facebook, connection } = build()
 
         await expect(facebook.publish(connection, text("Ra mắt sản phẩm mới"))).resolves.toEqual({ kind: "text", postId: "100000000000001_000001", mediaId: null })
@@ -30,23 +36,78 @@ describe("MetaFacebookSandboxPublishService", () => {
         ).resolves.toEqual({ kind: "video", postId: null, mediaId: "sbx-video-000004" })
     })
 
-    it.each([
-        ["Mua ngay giá sốc, số lượng có hạn", "rejected", "policy: spam content"],
-        ["Video quay toàn bộ buổi lễ", "rejected", "video file too large"],
-        ["Bài đăng khi token hết hạn", "auth_refused", "Error validating access token: session expired"],
-    ] as const)("refuses the named message %s as the live twin refuses it (%s, not_sent)", async (message, reason, detail) => {
-        const { facebook, connection, sandbox, account } = build()
+    it("picks nothing from the request's own words: the old magic messages are ordinary posts now", async () => {
+        const { facebook, connection } = build()
 
-        const error = await failure(facebook.publish(connection, text(message)))
-
-        expect(providerRefusalReason(error)).toBe(reason)
-        expect(providerRefusalDetail(error)).toBe(detail)
-        expect(proofOf(error)).toBe("not_sent")
-        expect((await sandbox.calls(account, "publish"))[0]?.result).toMatchObject({ outcome: "threw" })
+        for (const message of ["Mua ngay giá sốc, số lượng có hạn", "Video quay toàn bộ buổi lễ", "Bài đăng khi token hết hạn"]) {
+            await expect(facebook.publish(connection, text(message))).resolves.toMatchObject({ kind: "text" })
+        }
     })
 
-    it("refuses an empty post rejected before anything is sent, as the live twin does", async () => {
-        const { facebook, connection } = build()
+    it.each([
+        [FACEBOOK_CASE.policy, "rejected", "policy: spam content"],
+        [FACEBOOK_CASE.tooLarge, "rejected", "video file too large"],
+        [FACEBOOK_CASE.authRefused, "auth_refused", "Error validating access token: session expired"],
+    ] as const)("%s (sticky) refuses as the live twin refuses it (%s, not_sent), creates nothing and stays until the default is picked again", async (picked, reason, detail) => {
+        const { facebook, connection, sandbox, account } = build()
+        await sandbox.setNextCase(account, FACEBOOK_PUBLISH_OPERATION, picked)
+
+        for (const attempt of [1, 2]) {
+            const error = await failure(facebook.publish(connection, text(`Post ${String(attempt)}`)))
+            expect(providerRefusalReason(error)).toBe(reason)
+            expect(providerRefusalDetail(error)).toBe(detail)
+            expect(proofOf(error)).toBe("not_sent")
+        }
+        expect((await sandbox.calls(account, FACEBOOK_PUBLISH_OPERATION)).map((one) => one.result.outcome)).toEqual(["threw", "threw"])
+        await sandbox.setNextCase(account, FACEBOOK_PUBLISH_OPERATION, FACEBOOK_CASE.accepted)
+        await expect(facebook.publish(connection, text("Again"))).resolves.toMatchObject({ kind: "text" })
+    })
+
+    it("FACEBOOK-7 (rate limit): throws the SAME failure the live adapter throws for Graph's code 4 (a rate-limited MetaPublishingError, proof not_sent)", async () => {
+        const { facebook, connection, sandbox, account } = build()
+        await sandbox.setNextCase(account, FACEBOOK_PUBLISH_OPERATION, FACEBOOK_CASE.rateLimited)
+
+        const error = await failure(facebook.publish(connection, text("Hi")))
+        const live = liveFailure(MetaPublishingErrorCode.RateLimited, { status: 429, code: 4, detail: "" })
+
+        expect(error).toBeInstanceOf(MetaPublishingError)
+        expect(error).toMatchObject({ code: MetaPublishingErrorCode.RateLimited })
+        expect(proofOf(error)).toBe("not_sent")
+        expect(proofOf(error)).toBe(proofOf(live))
+        expect((await sandbox.kept(account, "post", "100000000000001_000001"))).toBeNull()
+    })
+
+    it("FACEBOOK-8 (outage, a 5xx) and FACEBOOK-9 (no answer): the live failures with proof unknown, nothing posted", async () => {
+        const { facebook, connection, sandbox, account } = build()
+
+        await sandbox.setNextCase(account, FACEBOOK_PUBLISH_OPERATION, FACEBOOK_CASE.serverError)
+        const outage = await failure(facebook.publish(connection, text("Hi")))
+        await sandbox.setNextCase(account, FACEBOOK_PUBLISH_OPERATION, FACEBOOK_CASE.timeout)
+        const silent = await failure(facebook.publish(connection, text("Hi")))
+
+        expect(outage).toMatchObject({ code: MetaPublishingErrorCode.Failed })
+        expect(silent).toMatchObject({ code: MetaPublishingErrorCode.Unreachable })
+        expect([proofOf(outage), proofOf(silent)]).toEqual(["unknown", "unknown"])
+        expect([proofOf(outage), proofOf(silent)]).toEqual([proofOf(liveFailure(MetaPublishingErrorCode.Failed)), proofOf(liveFailure(MetaPublishingErrorCode.Unreachable))])
+        expect(await sandbox.kept(account, "post", "100000000000001_000001")).toBeNull()
+    })
+
+    it("FACEBOOK-10: no answer as FACEBOOK-9, but the post WAS made: it is in the account's kept posts and a second publish posts again", async () => {
+        const { facebook, connection, sandbox, account } = build()
+        await sandbox.setNextCase(account, FACEBOOK_PUBLISH_OPERATION, FACEBOOK_CASE.appliedNoAnswer)
+
+        const error = await failure(facebook.publish(connection, text("Hi")))
+
+        expect(error).toMatchObject({ code: MetaPublishingErrorCode.Unreachable })
+        expect(proofOf(error)).toBe("unknown")
+        expect(await sandbox.kept(account, "post", "100000000000001_000001")).toMatchObject({ kind: "text", message: "Hi" })
+        await sandbox.setNextCase(account, FACEBOOK_PUBLISH_OPERATION, FACEBOOK_CASE.accepted)
+        await expect(facebook.publish(connection, text("Hi"))).resolves.toMatchObject({ postId: "100000000000001_000002" })
+    })
+
+    it("refuses an empty post rejected before anything is sent, as the live twin does, whatever case is picked", async () => {
+        const { facebook, connection, sandbox, account } = build()
+        await sandbox.setNextCase(account, FACEBOOK_PUBLISH_OPERATION, FACEBOOK_CASE.timeout)
 
         const error = await failure(facebook.publish(connection, { message: null, link: null, media: null }))
 
@@ -55,7 +116,7 @@ describe("MetaFacebookSandboxPublishService", () => {
         expect(proofOf(error)).toBe("not_sent")
     })
 
-    it("logs exactly one call per request with its key and request, and does it again on a second call (no idempotency)", async () => {
+    it("logs exactly one call per request under facebook.publish with its key and request, and does it again on a second call (no idempotency)", async () => {
         const { facebook, connection, sandbox, account } = build()
         const request = text("Hello")
 
@@ -63,9 +124,10 @@ describe("MetaFacebookSandboxPublishService", () => {
         const second = await facebook.publish(connection, request)
 
         expect(first).not.toEqual(second)
-        const calls = await sandbox.calls(account, "publish")
+        const calls = await sandbox.calls(account, FACEBOOK_PUBLISH_OPERATION)
         expect(calls).toHaveLength(2)
         expect(calls[0]).toMatchObject({ key: "Hello", request, result: { outcome: "answered", value: first } })
+        expect(await sandbox.calls(account, "publish")).toEqual([])
     })
 
     it("is deterministic: two fresh accounts answer the same", async () => {
@@ -87,13 +149,14 @@ describe("MetaFacebookSandboxPublishService", () => {
         expect((refused as ProviderSandboxError).code).toBe(ProviderSandboxErrorCode.Off)
     })
 
-    it("has a catalogue of unique FACEBOOK-<n> ids, each named case wired to the behaviour, and no inbound case (a post is synchronous)", () => {
+    it("has a catalogue of unique FACEBOOK-<n> ids for facebook.publish alone, one default tagged ok, every case tagged, and no inbound case (a post is synchronous)", () => {
         const ids = FACEBOOK_SANDBOX_CATALOGUE.cases.map((one) => one.id)
         expect(new Set(ids).size).toBe(ids.length)
         expect(ids.every((id) => /^FACEBOOK-\d+$/.test(id))).toBe(true)
         expect(FACEBOOK_SANDBOX_CATALOGUE.provider).toBe("meta")
-        expect(Object.values(FACEBOOK_SANDBOX_POSTS).every((post) => ids.includes(post.caseId))).toBe(true)
-        expect(FACEBOOK_SANDBOX_CATALOGUE.cases.every((one) => one.inbound === undefined && one.operation === "publish")).toBe(true)
+        expect(Object.values(FACEBOOK_CASE).toSorted()).toEqual([...ids].toSorted())
+        expect(FACEBOOK_SANDBOX_CASES.every((one) => one.inbound === undefined && one.operation === FACEBOOK_PUBLISH_OPERATION && one.outcome !== undefined)).toBe(true)
+        expect(FACEBOOK_SANDBOX_CASES.filter((one) => one.default === true).map((one) => [one.id, one.outcome])).toEqual([["FACEBOOK-1", "ok"]])
     })
 
     it("reaches no host: one constructor parameter and no integration or network word in its source", () => {

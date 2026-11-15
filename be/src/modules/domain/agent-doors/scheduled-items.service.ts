@@ -61,7 +61,7 @@ const outcomeOfFiring = (firing: DeadlineFiring): RunNowOutcome => {
 
 /**
  * The wake a task writes when it falls due, as the workflows judge it: a timer's `timer.due` event as the delivery writes it (its verb,
- * its data from the timer's own pure translate: `ClockTickDeliveryService.deliverTimer`), else the internal wake of a plain task.
+ * its data from the timer's own pure translate: `ClockTickDeliveryService.prepareTimer`), else the internal wake of a plain task.
  */
 const taskWakeOf = (task: AgentTaskRecord): FlowWake => {
     const timer = timerTaskOf(task.dedupeKey, task.title, task.data)
@@ -83,7 +83,7 @@ const taskWakeOf = (task: AgentTaskRecord): FlowWake => {
     return { source: "trigger", context, actorMemberId: null }
 }
 
-/** The wake a clock slot writes: its `clock.tick` event as the delivery writes it (`ClockTickDeliveryService.deliverSlot`). */
+/** The wake a clock slot writes: its `clock.tick` event as the delivery writes it (`ClockTickDeliveryService.prepareSlot`). */
 const slotWakeOf = (trigger: AgentTriggerRecord, slot: Date): FlowWake => {
     const event = CLOCK_TICK_TRIGGER.translate({ triggerId: trigger.id, slot: String(slot.getTime()) }, { connectionId: null })
     const context =

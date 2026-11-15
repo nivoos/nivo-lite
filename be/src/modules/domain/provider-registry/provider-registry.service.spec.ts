@@ -1,18 +1,15 @@
 import { ProviderRegistryError, ProviderRegistryErrorCode } from "./errors/provider-registry.error"
-import {
-    BankTransactionsRegistryService,
-    PaymentInstructionRegistryService,
-    PollReceiverRegistryService,
-} from "./provider-registries.service"
+import { BankTransactionsRegistryService, PollReceiverRegistryService } from "./provider-registries.service"
+import { PaymentRequestRegistryService } from "./payment-request-registry.service"
 
-const port = (provider: string) => ({ provider, qrUrl: () => provider, transfer: () => Promise.reject(new ProviderRegistryError({ code: ProviderRegistryErrorCode.CallNotSent })) })
+const port = (provider: string) => ({ provider, create: () => Promise.reject(new ProviderRegistryError({ code: ProviderRegistryErrorCode.CallNotSent })) })
 
 const live = (provider: string) => ({ provider, sandbox: false })
 const sandboxed = (provider: string) => ({ provider, sandbox: true })
 
 describe("ProviderRegistryService", () => {
     it("resolves a live account to its provider's live port, lists the providers in order and knows who is missing", () => {
-        const registry = new PaymentInstructionRegistryService()
+        const registry = new PaymentRequestRegistryService()
         const first = port("sepay")
         const second = port("casso")
 
@@ -28,7 +25,7 @@ describe("ProviderRegistryService", () => {
     })
 
     it("lets a second registration under a key replace the first", () => {
-        const registry = new PaymentInstructionRegistryService()
+        const registry = new PaymentRequestRegistryService()
         const replacement = port("sepay")
 
         registry.register({ live: port("sepay"), sandbox: port("sepay") })
@@ -40,7 +37,7 @@ describe("ProviderRegistryService", () => {
     })
 
     it("resolves a SANDBOX account to the sandbox port only, and a LIVE account never to it", () => {
-        const registry = new PaymentInstructionRegistryService()
+        const registry = new PaymentRequestRegistryService()
         const real = port("sepay")
         const twin = port("sepay")
 
@@ -52,7 +49,7 @@ describe("ProviderRegistryService", () => {
     })
 
     it("refuses a sandbox account whose provider registered no sandbox implementation, never falling back to live", () => {
-        const registry = new PaymentInstructionRegistryService()
+        const registry = new PaymentRequestRegistryService()
         registry.register(port("sepay"))
 
         const refusal = (): unknown => registry.portFor(sandboxed("sepay"))
@@ -63,7 +60,7 @@ describe("ProviderRegistryService", () => {
     })
 
     it("refuses a pair whose sandbox names another provider", () => {
-        const registry = new PaymentInstructionRegistryService()
+        const registry = new PaymentRequestRegistryService()
         expect(() => registry.register({ live: port("sepay"), sandbox: port("casso") })).toThrow(
             expect.objectContaining({ code: ProviderRegistryErrorCode.SandboxMismatch }),
         )

@@ -6,6 +6,7 @@ import {
     GraphNodesErrorCode,
     INTENT_KIND,
     OUTCOME_UNKNOWN_KIND,
+    callOfLedgerKey,
     ledgerKeyOf,
     isOutcomeUnknownCode,
     runLeadOf,
@@ -24,7 +25,6 @@ import {
 } from "@modules/domain/graph-nodes"
 import type { CallLogLine } from "@modules/domain/tool-call-log"
 import type { ToolJson } from "@modules/domain/tool-receipts"
-import { proofOf } from "@modules/domain/provider-registry"
 import {
     confirmArgsOf,
     confirmByOf,
@@ -47,9 +47,9 @@ import { ToolsError, ToolsErrorCode } from "./errors/tools.error"
 import { ToolsLogEvent } from "./tools.log-events"
 import { RECEIPT_REPLAY } from "./tool-registry.service"
 import { isProviderBound, mutatesOf } from "./provider-abilities.policy"
-import type { AgentAccountsService, BoundAccount } from "./agent-accounts.service"
+import type { AgentAccountsService, BoundAccount, WorldRefusal } from "./agent-accounts.service"
 import { seenAtStep } from "./node-rule.policy"
-import { receiptAt } from "./step-receipts.policy"
+import { receiptAt, type StepReceipt } from "./step-receipts.policy"
 
 /**
  * The person who approved exactly this effect call on this account (the approval's fingerprint is the call's own), or null: what the
@@ -83,11 +83,13 @@ export interface ToolRunnerParts {
     /**
      * The accounts a call may act on, in order, whether its step's node lists a provider serving it (`listsProviders`: absent, every
      * call that takes an account needs one), and the choice the owner still has to make when the agent holds several accounts of a
-     * listed provider and nothing picks one (`pickNeeded`: absent, a call that binds none is the never-sent refusal as before); absent
-     * where no provider rights are bound (no call is then handed an account).
+     * listed provider and nothing picks one (`pickNeeded`: absent, a call that binds none is the never-sent refusal as before), and why
+     * the run's world binds none (`worldRefusalOf`, rule 19: the typed other-world / undecided refusal); absent where no provider rights
+     * are bound (no call is then handed an account).
      */
     readonly accounts?:
-        | (Pick<AgentAccountsService, "boundAccountsOf"> & Partial<Pick<AgentAccountsService, "listsProviders" | "pickNeeded">>)
+        | (Pick<AgentAccountsService, "boundAccountsOf"> &
+              Partial<Pick<AgentAccountsService, "listsProviders" | "pickNeeded" | "worldRefusalOf">>)
         | undefined
     /** Which lead a conversation belongs to, for the run's pin; null when nothing can say. */
     readonly leads: ConversationLeadsGate | null
@@ -155,36 +157,32 @@ export const takesOneAccount = (id: string): boolean => {
     return held === null ? !isProviderBound(id) : takesOneAccountBySpec(held)
 }
 
-/** The failure codes a door gives for a call that never reached the provider's account: it was not connected, or it was refused there. */
-const NEVER_SENT: ReadonlySet<string> = new Set([
+/**
+ * The typed refusals a door gives for an account that cannot take a call AT ALL: it is not connected (no connection, no credential, no
+ * port), or its connection is refused (its credential refused). Nothing was attempted on that account: no outside object was made, read or
+ * changed through it.
+ */
+const ACCOUNT_UNUSABLE: ReadonlySet<string> = new Set([
     GraphNodesErrorCode.ToolNotConnected,
     GraphNodesErrorCode.ToolConnectionRefused,
 ])
 
-/** What a failure proves, from the typed facts the adapter or the door attached where it failed: never from a message. */
-const failureProofOf = (cause: unknown): "not_sent" | "unknown" | null => {
-    const typed = proofOf(cause)
-    if (typed !== null) return typed
-    if (!(cause instanceof GraphNodesError)) return null
-    if (NEVER_SENT.has(cause.code)) return "not_sent"
-    const { proof } = cause.params
-    return proof === "not_sent" || proof === "unknown" ? proof : null
-}
-
-/** True for an ask for a person's approval or a rights refusal: an answer about the call, never a failure to go around. */
-const isDecision = (cause: unknown): boolean =>
-    cause instanceof GraphNodesError &&
-    (cause.code === GraphNodesErrorCode.ToolApprovalRequired || cause.code === GraphNodesErrorCode.ToolNotGranted)
-
 /**
- * Whether a failed call may go on to the next bound account, by a generic transport fact (nivo-frame `rights`): a read on any failure; a
- * write only on a failure proved `not_sent` (an `unknown` outcome stops and is reported). An ask or a rights refusal is never gone around.
- * No business class decides it.
+ * ONE ACCOUNT PER ATTEMPT (coordinator ruling FIX-OUT, 2026-11-15): the account of a call is chosen ONCE, by the pick order (the run's
+ * world, the node's setting, the agent's defaults); the next bound account is handed the call only when this one could not take it at all
+ * (`ACCOUNT_UNUSABLE`), i.e. a candidate skipped BEFORE any attempt. Once an attempt was made on an account, the call stays with it,
+ * whatever came back: a transient failure (a rate limit, no answer in time), a not-sent proof, an unknown outcome, a failed read. That
+ * failure is the step's, with its class (the ladder under the same key, then the stop the rules define), never a reason to make the same
+ * intent through another account: another account would make a second outside object for one intent (two payment requests for one order),
+ * or address an object that account never made (a read or a cancel by a reference another account issued). No business class decides it.
  */
-const movesOn = (mutates: boolean, cause: unknown): boolean => {
-    if (isDecision(cause)) return false
-    if (!mutates) return true
-    return failureProofOf(cause) === "not_sent"
+const movesOn = (cause: unknown): boolean => cause instanceof GraphNodesError && ACCOUNT_UNUSABLE.has(cause.code)
+
+/** True for the answer of a read that refused with the business reason `not_found` (the template road's refusal fact). */
+const isNotFoundAnswer = (answer: NodeToolAnswer): boolean => {
+    if (answer.road !== "tool") return false
+    const { value } = answer
+    return typeof value === "object" && value !== null && "kind" in value && value.kind === "refused" && "id" in value && value.id === "not_found"
 }
 
 /** The kind of the subject a confirmation read proved (QB-P3 rule I-3): the write happened, the read's answer is its facts. */
@@ -240,7 +238,7 @@ const rightRefusalOf = (cause: unknown): string | null => {
  *
  * Accounts: a call that acts on one connected account is handed the node's bound accounts in order (the node's rows, by position;
  * else the agent's attachments), the first first; it is judged on that account alone, its approval covers that account alone, and on
- * a failure it goes on to the next by whether the failure proves nothing was sent (`movesOn`). A customer send stays on the account its data's owner (the
+ * a failure it goes on to the next only when this account could not take the call at all (`movesOn`: nothing attempted on it). A customer send stays on the account its data's owner (the
  * conversation) names; a read covers every bound account at once.
  *
  * The effect road: the right of the run's agent on the account (the door's `effectRight`: the node's mode, an ask BEFORE anything
@@ -255,10 +253,38 @@ const attemptPlaceOf = (call: NodeEffectRun): { readonly runId: string; readonly
     return split <= 0 ? null : { runId: call.attempt.step.slice(0, split), stepKey: call.attempt.step.slice(split + 1) }
 }
 
+/**
+ * True when a PERSON's Retry decided the step this effect call belongs to runs again: a lost act of unknown outcome under its key is then
+ * made again (the person is the settle that only a person may give). An effect that declares `confirmBy` keeps its own road: the read.
+ */
+const personDecides = (call: NodeEffectRun): boolean => call.turn.personRetry === true && confirmByOf(call.effect) === null
+
 /** The place the ledger keeps a call under: the attempt's run and step, when it names them. */
 const placeRecordOf = (call: NodeEffectRun): { readonly place?: { readonly runId: string; readonly stepKey: string } } => {
     const place = attemptPlaceOf(call)
     return place === null ? {} : { place }
+}
+
+/** The prefix of a ledger key kept under a call's business key (`ledgerKeyOf`). */
+const DEDUPE_KEY_PREFIX = "dedupe:"
+
+/** What the step's earlier write at a call's position makes of the call: its receipt answers, or that write is made again as it was. */
+type KeptAtPosition = { readonly receipt: SubjectRef } | { readonly again: NodeEffectRun }
+
+/**
+ * E-FIX12 rule A-2 (INTENT BEFORE ACT, AN INTENT PER STEP POSITION): an act of a run step whose outcome is unknown is made again AS IT WAS
+ * RECORDED: its arguments and its key, never the arguments the step asks with now (a model asked again writes other words; a new key
+ * would be a second act, a second row, a second message). Null when the ledger kept no arguments or no call key for it (a key too long,
+ * kept as its digest): the call then acts as asked, as before.
+ */
+const keptIntentOf = (call: NodeEffectRun, kept: StepReceipt): KeptAtPosition | null => {
+    if (kept.args === null || kept.key === undefined) return null
+    if (kept.key.startsWith(DEDUPE_KEY_PREFIX)) {
+        const dedupeKey = kept.key.slice(DEDUPE_KEY_PREFIX.length)
+        return { again: { ...call, payload: kept.args, call: { key: call.call.key, dedupeKey } } }
+    }
+    const again = callOfLedgerKey(kept.key)
+    return again === null ? null : { again: { ...call, payload: kept.args, call: again } }
 }
 
 export class ToolRunnerService {
@@ -277,6 +303,14 @@ export class ToolRunnerService {
                     params: { tool: idOf(call), provider: needed.provider, connectionIds: needed.connectionIds.join(",") },
                 })
             }
+            // ONE WORLD PER RUN (lane concept provider-sandbox rule 19): the run's world binds no account serving the call, though the
+            // other world would (or nothing fixes the world and they are of both): the typed refusal, never a call in the other world.
+            const world = await this.worldRefusalOf(call)
+            if (world !== null) {
+                throw world.kind === "other_world"
+                    ? new ToolsError({ code: ToolsErrorCode.AccountOtherWorld, params: { tool: idOf(call), provider: world.provider, world: world.world } })
+                    : new ToolsError({ code: ToolsErrorCode.RunWorldUndecided, params: { tool: idOf(call), provider: world.provider } })
+            }
             // A step whose node binds no account serving the tool (no provider of it attached): the typed never-sent refusal, which
             // freezes the step and is reported (readiness hides such a graph beforehand).
             throw new GraphNodesError({ code: GraphNodesErrorCode.ToolNotConnected, params: { tool: idOf(call) } })
@@ -287,9 +321,14 @@ export class ToolRunnerService {
             if (bound === undefined) return this.once(call, undefined)
             const account: NodeToolAccount = { ...bound, attempt: index + 1, chosenBy: index === 0 ? "order" : "fallback" }
             try {
-                return await this.once(call, account)
+                const answer = await this.once(call, account)
+                // A READ of a thing by its id that this account answers `not_found` may be held by the next bound account (a credit of the
+                // payOS feed asked of the SePay account first): the next is asked, and the last refusal stands when none holds it. A write
+                // never goes round on an answer.
+                if (!mutates && index + 1 < accounts.length && isNotFoundAnswer(answer)) return tried(index + 1)
+                return answer
             } catch (cause) {
-                if (index + 1 >= accounts.length || !movesOn(mutates, cause)) throw cause
+                if (index + 1 >= accounts.length || !movesOn(cause)) throw cause
                 this.parts.logger.warn(ToolsLogEvent.NodeToolFailed, {
                     workspaceId: call.turn.workspaceId,
                     agentId: call.turn.agentId,
@@ -328,6 +367,15 @@ export class ToolRunnerService {
         return accounts.pickNeeded(workspaceId, agentId, idOf(call), seenAtStep("node", step), { runId: turnId })
     }
 
+    /** Why the run's world binds no account for a call of a workflow step (rule 19), or null. */
+    private async worldRefusalOf(call: NodeToolRun): Promise<WorldRefusal | null> {
+        const { accounts } = this.parts
+        const step = call.workflowStep
+        if (accounts?.worldRefusalOf === undefined || step === undefined) return null
+        const { workspaceId, agentId, turnId } = call.turn
+        return accounts.worldRefusalOf(workspaceId, agentId, idOf(call), seenAtStep("node", step), { runId: turnId })
+    }
+
     /** The accounts a call may act on, in order; none for a call that is handed no account. */
     private accountsOf(call: NodeToolRun): Promise<ReadonlyArray<BoundAccount>> {
         const { accounts } = this.parts
@@ -335,9 +383,11 @@ export class ToolRunnerService {
         if (accounts === undefined || !takesOneAccount(id)) return Promise.resolve([])
         const step: NodeStepRef | undefined = call.workflowStep
         const { workspaceId, agentId } = call.turn
+        // The run is named outside a step too: ONE WORLD PER RUN narrows every call of the run, at a step or not (rule 19).
+        const run = { runId: call.turn.turnId }
         return Promise.resolve(step === undefined
-            ? accounts.boundAccountsOf(workspaceId, agentId, id)
-            : accounts.boundAccountsOf(workspaceId, agentId, id, seenAtStep("node", step), { runId: call.turn.turnId }))
+            ? accounts.boundAccountsOf(workspaceId, agentId, id, undefined, run)
+            : accounts.boundAccountsOf(workspaceId, agentId, id, seenAtStep("node", step), run))
     }
 
     /** One try of the call, on the account handed, or on the adapter's own pick when none is. */
@@ -483,12 +533,15 @@ export class ToolRunnerService {
             return refusalOf(pinned)
         }
         // A step that runs again (a retry, a re-drive, a resume after an approval) answers its earlier write at the same position
-        // from that write's receipt, whatever its words now: the call is not made again (nivo-frame `rights` 11d).
-        const receipt = await this.receiptOf(call)
-        if (receipt !== null) {
+        // from that write's receipt, whatever its words now: the call is not made again (nivo-frame `rights` 11d). An earlier write at
+        // that position still OPEN (its outcome unknown) of a repeatable tool is made again AS IT WAS (E-FIX12 rule A-2).
+        const kept = await this.receiptOf(call)
+        if (kept !== null && "receipt" in kept) {
+            const receipt = kept.receipt
             await this.audited(call, account, started, { outcome: "ok", code: RECEIPT_REPLAY, summary: summaryOf(answerOf(receipt)) })
             return receipt
         }
+        const acted = kept === null ? call : kept.again
         const executor = this.parts.registry.executorOf(call.effect)
         const acting = this.actingTurn(call, account)
         // A confirmable write makes its before read first (kept once), so an unknown outcome of the act can be confirmed later.
@@ -498,15 +551,15 @@ export class ToolRunnerService {
             const subject = await this.parts.ledger.once(
                 call.turn.workspaceId,
                 call.effect,
-                call.call,
+                acted.call,
                 () => {
                     // Inside the ledger's act: a call the step already made under this key is replayed as it was.
                     executed = true
-                    return executor.execute(acting, call.payload, call.call)
+                    return executor.execute(acting, acted.payload, acted.call)
                 },
                 // The ledger keeps what the effect was asked, and the step it was asked for (the same place `receiptOf` reads), so a
                 // step that runs again reads what it already did (its receipts), whatever shape the run's id has.
-                { args: call.payload, ...placeRecordOf(call) },
+                { args: acted.payload, ...placeRecordOf(call), ...(personDecides(call) ? { decided: true as const } : {}) },
             )
             await this.audited(call, account, started, {
                 outcome: isRefused(subject) ? "refused" : "ok",
@@ -604,9 +657,10 @@ export class ToolRunnerService {
 
     /**
      * The receipt of the step's earlier write at this call's position (`receiptAt`), or null when the call acts (or the ledger answers
-     * it under its own key). A receipt whose outcome nobody knows answers that, as the ledger does: no machine makes the call again.
+     * it under its own key). A receipt whose outcome nobody knows answers that, as the ledger does: no machine makes the call again;
+     * of a `repeatable` tool it is that earlier write to make AGAIN, as it was (`again`, E-FIX12 rule A-2).
      */
-    private async receiptOf(call: NodeEffectRun): Promise<SubjectRef | null> {
+    private async receiptOf(call: NodeEffectRun): Promise<KeptAtPosition | null> {
         const position = this.positionOf(call)
         const { ledger } = this.parts
         const place = attemptPlaceOf(call)
@@ -632,14 +686,16 @@ export class ToolRunnerService {
         if (intent || (kept.subject.kind === OUTCOME_UNKNOWN_KIND && isOutcomeUnknownCode(kept.subject.id))) {
             // Rule Q-3: a tool that declares itself `repeatable` makes the call again (the ledger then answers it under its key). An
             // intent with no result (QB-P3 rule I-1: the process died after the act left) is an outcome nobody knows, the same way.
-            if (repeatableBySpec(call.effect) === true) return null
+            // E-FIX12 rule A-2: the call made again is the RECORDED intent (its arguments, its key), never the words asked now.
+            // A step a PERSON ran again (Retry) is the settle of a lost act no declaration settles: the same call, as recorded.
+            if (repeatableBySpec(call.effect) === true || personDecides(call)) return keptIntentOf(call, kept)
             const code = isOutcomeUnknownCode(kept.subject.id) ? kept.subject.id : EffectOutcomeUnknownCode.Tool
             throw new EffectOutcomeUnknownError({
                 code,
                 params: intent ? { effect: call.effect, open: INTENT_KIND } : { effect: call.effect },
             })
         }
-        return kept.subject
+        return { receipt: kept.subject }
     }
 
     /** Files one audit line of an effect call; a line that cannot be written is logged and never undoes what the call did. */

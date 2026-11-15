@@ -1,3 +1,5 @@
+import { providerCallCause } from "@modules/domain/provider-registry"
+import { classifyFailure, type FailureClass } from "@modules/platform/queue"
 import { ToolsError, ToolsErrorCode } from "./errors/tools.error"
 import type {
     CapabilityRole,
@@ -131,6 +133,21 @@ export const nativeRefusalReasonOf = (cause: unknown): string | null => {
     return typeof reason === "string" && reason !== "" ? reason : null
 }
 
-/** The code a failed run is audited with. */
-export const failureCodeOf = (cause: unknown): string =>
-    cause instanceof ToolsError ? cause.code : "internal"
+/**
+ * The code a failed run is audited with (and the detail of its `unavailable` / `unknown_outcome` answer): the tools error's own code; else
+ * `transient` when the engine's one classifier says the other side could not answer now (a rate limit, no answer in time); else
+ * `internal`. A transient failure is never named `internal`: that name says a fault of NIVO's own.
+ */
+export const failureCodeOf = (cause: unknown, failureClass?: FailureClass): string => {
+    if (cause instanceof ToolsError) return cause.code
+    return failureClass === "transient" ? "transient" : "internal"
+}
+
+/**
+ * What a failed call says about the moment, by the engine's one classifier (`classifyFailure`: a typed code or status class, never a word
+ * of a message). `transient`: the other side could not answer now (a network failure, a deadline, a 5xx / 408 / 429, a rate limit, or an
+ * adapter's bare `providerCallFailure`, which says only that and carries no refusal). Any other class says the REQUEST or the setting is
+ * wrong (invalid arguments, a provider refusal, a missing record, a missing connection): trying the same call again cannot succeed.
+ */
+export const failureClassOf = (cause: unknown): FailureClass =>
+    cause !== undefined && providerCallCause(cause) === undefined ? "transient" : classifyFailure(cause)

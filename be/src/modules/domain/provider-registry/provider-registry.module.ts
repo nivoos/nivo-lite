@@ -6,12 +6,11 @@ import {
     DomainRegistrarRegistryService,
     FeedWebhookRegistryService,
     LedgerRegistryService,
-    PaymentInstructionRegistryService,
     PollReceiverRegistryService,
 } from "./provider-registries.service"
 import { PURPOSE_REGISTRIES } from "./media-registries.service"
 import { CalendarRegistryService } from "./calendar-registry.service"
-import { PaymentLinkRegistryService } from "./payment-link-registry.service"
+import { PaymentRequestRegistryService } from "./payment-request-registry.service"
 import { FacebookPublishRegistryService } from "./facebook-publish-registry.service"
 import { InstagramPublishRegistryService } from "./instagram-publish-registry.service"
 import { TemplateMessageRegistryService } from "./template-message-registry.service"
@@ -25,14 +24,13 @@ export class ProviderRegistryModule extends ConfigurableModuleClass {
     static register(options: typeof OPTIONS_TYPE): DynamicModule {
         const base = super.register(options)
         const registries = [
-            PaymentInstructionRegistryService,
             BankTransactionsRegistryService,
             FeedWebhookRegistryService,
             LedgerRegistryService,
             PollReceiverRegistryService,
             ...PURPOSE_REGISTRIES,
             CalendarRegistryService,
-            PaymentLinkRegistryService,
+            PaymentRequestRegistryService,
             FacebookPublishRegistryService,
             InstagramPublishRegistryService,
             YoutubePublishRegistryService,

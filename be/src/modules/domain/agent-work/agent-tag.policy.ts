@@ -34,3 +34,31 @@ export const tagContextOf = (request: AgentTagRequest, payload?: string): AgentW
     ...("fromAgentId" in request ? { authorAgentId: request.fromAgentId } : {}),
     ...("source" in request ? { tagSource: request.source.slice(0, TAG_LABEL_MAX) } : {}),
 })
+
+/** What a wake says of the workflow call that made it (`core.call-workflow`): the calling run and the params it passed. */
+export interface WorkflowCallFacts {
+    /** The calling run. */
+    readonly callerRunId: string
+    /** The params the caller mapped, as plain data. */
+    readonly params: Readonly<Record<string, unknown>>
+}
+
+const isPlainRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+    typeof value === "object" && value !== null && !Array.isArray(value)
+
+/** The call a tag's plain data names (`caller.runId` and `params`, as `core.call-workflow` writes them), or null for a wake no call made. */
+export const callOf = (payload: unknown): WorkflowCallFacts | null => {
+    if (!isPlainRecord(payload) || !isPlainRecord(payload.caller)) return null
+    const runId = payload.caller.runId
+    if (typeof runId !== "string" || runId === "") return null
+    return { callerRunId: runId, params: isPlainRecord(payload.params) ? payload.params : {} }
+}
+
+/**
+ * THE ONE READER of the run that called a run, from the plain data of the run's wake (its stored context), or null for a run no call
+ * made: the waits ask a child before its parent, and a called run acts in its caller's world (lane concept provider-sandbox rule 19).
+ */
+export const callerRunIdOf = (context: { readonly tagContext?: unknown }): string | null => {
+    const text = context.tagContext
+    return typeof text === "string" ? (callOf(tagPayloadOf({ tagContext: text }))?.callerRunId ?? null) : null
+}

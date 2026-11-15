@@ -1,4 +1,5 @@
 import type { ModuleServer, ModuleTemplate } from "@nivo-lite/agent-sdk/module"
+import { knowledgeIdeasOf } from "../../../shared/modules/knowledge-ideas/knowledge-ideas"
 import { CHATBOT_COPY as copy } from "./copy"
 
 /** The chatbot module: its copy, agent and setup gates. */
@@ -19,6 +20,7 @@ export const CHATBOT_TEMPLATE: ModuleTemplate = {
     includedWithWorkspace: false,
     available: true,
     knowledgeFolder: "chatbot",
+    knowledgeIdeas: knowledgeIdeasOf(["about", "offerings", "faq", "hours_location", "policies", "who_handles", "payment_methods", "brand_voice"]),
     workbench: "chatbot",
     settingsExtras: "chatbot_reply",
     requires: {

@@ -30,10 +30,10 @@ describe("the website form's trigger", () => {
         expect([trigger.provider, trigger.verb, trigger.via, trigger.key]).toEqual([PROVIDER.nivo, TRIGGER.websiteMessageReceived, ["internal"], { by: "subject" }])
     })
 
-    it("declares a line, so it declares no fact key (two identical lines of a person are two lines), and names the job that recovers a stored submission instead of a poll", async () => {
+    it("feeds the lines of a route, so it declares no fact key (two identical lines of a person are two lines), and names the job that recovers a stored submission instead of a poll", async () => {
         const trigger = await buildSubject()
 
-        expect(trigger.line).toBeDefined()
+        expect(trigger.feeds?.stream).toBe("lines")
         expect(trigger.factKey).toBeUndefined()
         expect(trigger.withoutPoll?.reason.en).toContain("website-form.deliver")
         expect(trigger.withoutPoll?.source).toBe("nivo:website-form.deliver")
@@ -80,7 +80,7 @@ describe("WEBSITE_FORM_TRIGGER: the visitor's line (owner ruling R26)", () => {
 
     it("gives the request as the person's line on the site route, keyed by the stored input, said when it was received", () => {
         expect(websiteLineOf(data)).toEqual({ key: "in-1", text: "Cho em báo giá gói thiết kế", at: null })
-        expect(realTrigger.line).toBe(websiteLineOf)
+        expect(realTrigger.feeds).toEqual({ stream: "lines", line: websiteLineOf })
     })
 
     it("gives no line for a submission with no request", () => {

@@ -14,11 +14,15 @@ interface KnowledgeDocHeadProps {
     readonly detailsLabel: string | null
     readonly isLoading: boolean
     readonly isRemoveOpen: boolean
+    readonly isAreaOpen: boolean
     readonly onBack: () => void
     readonly onReindex: () => void
     readonly onMenu: (id: string) => void
     readonly onRemoveOpenChange: (isOpen: boolean) => void
     readonly onRemove: () => Promise<void>
+    /** Opens or closes the question asked before the document moves to the other area. */
+    readonly onAreaOpenChange: (isOpen: boolean) => void
+    readonly onArea: () => Promise<void>
 }
 
 /** What the "..." menu of the head draws and calls. */
@@ -40,6 +44,46 @@ const HeadMenu = (props: HeadMenuProps) =>
                 onAction: () => props.onMenu(item.id),
             }))}
             trigger={<IconButton intent="neutral" source={nivoIconSource("more", "leading")} label={props.moreLabel} />}
+        />
+    )
+
+/** What the area button draws and calls. */
+interface AreaButtonProps {
+    readonly head: DocHeadView
+    readonly onOpen: () => void
+}
+
+/** The button that opens the question of moving the document to the other area; none where the area cannot be changed. */
+const AreaButton = (props: AreaButtonProps) =>
+    props.head.area === null ? null : (
+        <div className={WIDE_ONLY_CLASS_NAME}>
+            <Button intent="neutral" size="sm" isPending={props.head.area.isPending} onPress={props.onOpen}>
+                {props.head.area.label}
+            </Button>
+        </div>
+    )
+
+/** What the question before an area change draws and calls. */
+interface AreaDialogProps {
+    readonly head: DocHeadView
+    readonly isOpen: boolean
+    readonly onOpenChange: (isOpen: boolean) => void
+    readonly onConfirm: () => Promise<void>
+}
+
+/** The question asked before the document moves to the other area; moving to public says plainly that customers may be told its content. */
+const AreaDialog = (props: AreaDialogProps) =>
+    props.head.area === null ? null : (
+        <AlertDialog
+            isOpen={props.isOpen}
+            onOpenChange={props.onOpenChange}
+            tone="informative"
+            title={props.head.area.confirm.title}
+            description={props.head.area.confirm.description}
+            confirmLabel={props.head.area.confirm.confirmLabel}
+            cancelLabel={props.head.area.confirm.cancelLabel}
+            isConfirmPending={props.head.area.isPending}
+            onConfirm={props.onConfirm}
         />
     )
 
@@ -94,9 +138,16 @@ export const KnowledgeDocHead = (props: KnowledgeDocHeadProps) => {
                                 </Button>
                             </div>
                         )}
+                        <AreaButton head={head} onOpen={() => props.onAreaOpenChange(true)} />
                         <HeadMenu head={head} moreLabel={props.moreLabel} onMenu={props.onMenu} />
                     </>
                 }
+            />
+            <AreaDialog
+                head={head}
+                isOpen={props.isAreaOpen}
+                onOpenChange={props.onAreaOpenChange}
+                onConfirm={props.onArea}
             />
             {head.remove === null ? null : (
                 <AlertDialog

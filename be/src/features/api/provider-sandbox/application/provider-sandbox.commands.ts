@@ -10,6 +10,7 @@ import type {
     SandboxWaitExpiryView,
     SendSandboxCaseRequest,
     SetSandboxNextCaseRequest,
+    SetSandboxNextOutcomeRequest,
 } from "./provider-sandbox.contracts"
 
 /** Opens a sandbox account of a provider: no credential, no secret. */
@@ -43,6 +44,13 @@ export class SendSandboxCaseCommand extends Command<SandboxSendResult> {
 /** Picks the account's next case of one outbound operation. */
 export class SetSandboxNextCaseCommand extends Command<SandboxNextCase> {
     constructor(readonly params: ExecuteParams<SetSandboxNextCaseRequest>) {
+        super()
+    }
+}
+
+/** Picks the account's next answer of one outbound operation by the generic outcome (ok, refused, final, transient, timeout). */
+export class SetSandboxNextOutcomeCommand extends Command<SandboxNextCase> {
+    constructor(readonly params: ExecuteParams<SetSandboxNextOutcomeRequest>) {
         super()
     }
 }

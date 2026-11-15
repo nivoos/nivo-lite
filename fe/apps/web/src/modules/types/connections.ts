@@ -70,9 +70,6 @@ export type ConnectorCategory =
 /** official: built and proven; early: built from public docs; soon: planned, not connectable yet. */
 export type ConnectorStatus = "official" | "early" | "soon"
 
-/** Which agents a connector is for ("any": every agent may read it, given access). */
-export type ConnectorAudience = "chatbot" | "sales" | "any"
-
 /** Glyph of a connector without its own logo. */
 export type ConnectorGlyph = "wallet" | "community" | "cart" | "servers" | "email" | "apps" | "trigger" | "code"
 

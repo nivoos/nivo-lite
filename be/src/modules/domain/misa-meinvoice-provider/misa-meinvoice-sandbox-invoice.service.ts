@@ -42,6 +42,14 @@ const issueOnState = async (state: SandboxState, draftId: string): Promise<Issue
     return invoice
 }
 
+/** Accepts one invoice the provider has not numbered yet: kept by draft id and by its own id, NO number consumed (`invoiceNo` null, no issue date). */
+const acceptOnState = async (state: SandboxState, draftId: string): Promise<IssuedInvoice> => {
+    const invoice: IssuedInvoice = { id: `sbx-inv-pending-${String(state.seq + 1).padStart(6, "0")}`, state: "pending", invoiceNo: null, issuedOn: null }
+    await state.write(INVOICE, draftId, invoice)
+    await state.write(INVOICE, `invoice:${invoice.id}`, invoice)
+    return invoice
+}
+
 @Injectable()
 /**
  * MISA meInvoice's SANDBOX implementation of the e-invoice issue port (R56 / R62): used when the provider account is a sandbox
@@ -51,7 +59,7 @@ const issueOnState = async (state: SandboxState, draftId: string): Promise<Issue
  * The account's sticky NEXT CASE picks the outcome, never the request's draft id: MISA-1 (default) issues an invoice with the account's
  * next number (`C26TSB/` and eight digits, from state) and the catalogue's fixed issue date (`issuedOn` 2026-11-14); MISA-2 is refused `rejected` (an invalid buyer tax code, `not_sent`); MISA-3
  * gives no answer (the unknown-outcome call failure, proof `unknown`, nothing issued); MISA-4 is a server failure (`not_sent`); MISA-5
- * is refused `auth_refused` (`not_sent`); MISA-6 issues and numbers the invoice, then loses the answer (`unknown`, the invoice exists).
+ * is refused `auth_refused` (`not_sent`); MISA-6 issues and numbers the invoice, then loses the answer (`unknown`, the invoice exists); MISA-7 accepts the invoice without numbering it (state `pending`, `invoiceNo` null, no number consumed).
  * Numbers are GAPLESS per account: only an invoice that exists (MISA-1, MISA-6) takes the next number; a rejected, refused, failed or
  * no-answer issue consumes none. The invoice is kept by draft id and by `invoice:<id>` for a later read-back (the port has none today).
  *
@@ -82,6 +90,8 @@ export class MisaMeinvoiceSandboxInvoiceService implements InvoiceIssuePort {
                     case MISA_SANDBOX_CASE.timeoutApplied:
                         await issueOnState(state, request.draftId)
                         throw providerCallFailure("unknown")
+                    case MISA_SANDBOX_CASE.notNumbered:
+                        return await acceptOnState(state, request.draftId)
                     default:
                         return await issueOnState(state, request.draftId)
                 }

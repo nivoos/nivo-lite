@@ -53,6 +53,9 @@ export const supplierInvoicesGraph: TemplateGraph = defineTemplateGraph({
             en: "When the Mailbox agent hands on supplier-invoice mails: checks each against the received e-invoices and the payables, notes the matched ones, tells the team which need a person",
         },
         version: 8,
+        // Active at the seed (owner 2026-11-15: both packages tested on NIVO Sandbox accounts; NWC-LEAD found the graph complete: every
+        // step's node, tool and hand-off target exists). The original JSON template had no `seedActive` (drafts).
+        seedActive: true,
         publishedAt: "2026-11-14T22:00:00.000Z",
         notes: {
             vi: "R68: ghi chú hoá đơn bị từ chối duyệt thì hệ thống tự báo đội kèm số hoá đơn, vòng đối chiếu vẫn tiếp tục; quy trình chỉ còn các bước nghiệp vụ",

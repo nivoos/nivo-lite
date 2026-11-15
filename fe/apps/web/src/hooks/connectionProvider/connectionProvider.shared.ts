@@ -1,4 +1,5 @@
-import { CATALOG, catalogKey, type CatalogEntry } from "@/hooks/connection-catalog"
+import type { ModuleCopy } from "@/modules/catalog"
+import { CATALOG, audienceNamesOf, catalogKey, type CatalogEntry } from "@/hooks/connection-catalog"
 import { isProvider, providerKey } from "@/hooks/connection-providers"
 import { connectionFactsOf } from "@/hooks/connection-rows"
 import { liveConnections, sortRows, wizardQuery } from "@/hooks/connections"
@@ -72,6 +73,7 @@ export const agentUsesOf = (
     grants: ReadonlyArray<ConnectionAgentGrantWire>,
     connectionId: string,
     t: GrantTranslate,
+    glyphOf: (module: string) => string,
 ): ReadonlyArray<ConnectionAgentUse> =>
     grants
         .filter((grant) => grant.connectionId === connectionId)
@@ -79,6 +81,7 @@ export const agentUsesOf = (
             id: `${grant.agentId}:${grant.purpose}`,
             name: grant.agentName,
             module: grant.module,
+            glyph: glyphOf(grant.module),
             purpose: t(PURPOSE_KEYS[grant.purpose] ?? "purposeTool"),
         }))
 
@@ -145,12 +148,15 @@ export const figuresOf = (
 }
 
 /** The "About the provider" lines from the library's own words: the blurb, what it brings, what to have ready, who it is for. */
-export const aboutOf = (provider: Provider, t: ProviderTranslate): ReadonlyArray<ConnectionProviderAbout> => {
+export const aboutOf = (
+    provider: Provider,
+    t: ProviderTranslate,
+    modules: ReadonlyArray<ModuleCopy>,
+    locale: "vi" | "en",
+): ReadonlyArray<ConnectionProviderAbout> => {
     const entry = entryOfProvider(provider)
     if (entry === undefined) return []
-    const names = entry.audience.includes("any")
-        ? t("aud_any")
-        : entry.audience.map((audience) => t(`aud_${audience}`)).join(", ")
+    const names = audienceNamesOf(entry, modules, locale).join(", ") || t("aud_any")
     return [
         { id: "blurb", term: t(providerKey(provider, "title")), description: t(catalogKey(entry, "blurb")) },
         { id: "brings", term: t("detailBrings"), description: t(catalogKey(entry, "brings")) },

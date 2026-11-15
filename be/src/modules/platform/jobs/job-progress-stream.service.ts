@@ -59,6 +59,7 @@ export class JobProgressStreamService {
                 progressLabel: true,
                 progressAt: true,
                 progressRetryAt: true,
+                error: true,
                 updatedAt: true,
             },
             where:

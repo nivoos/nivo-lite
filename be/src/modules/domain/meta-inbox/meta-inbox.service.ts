@@ -139,51 +139,57 @@ export class MetaInboxService {
         const queued = payloadOfJob(META_INBOUND_JOB, job)
         if (!isMetaEvent(queued.event)) throw new MetaInboxError({ code: MetaInboxErrorCode.DeliveryInvalid })
         const work: MetaInboundJob = { connectionId: queued.connectionId, workspaceId: queued.workspaceId, event: queued.event }
-        const outcome = await this.deliver(work)
+        const outcome = await this.deliver(work, job.jobId)
         this.logger?.info(MetaInboxLogEvent.Outcome, { connectionId: work.connectionId, eventKey: work.event.event_key, outcome })
     }
 
     /**
      * THE META ENTRY's delivery (the adapter stage of the one event pipeline, concept triggers rule 13): one queued event, as its stored
      * `meta.event` row holds it, through the provider's pure `translate` of its platform's message trigger, handed to the ONE delivery
-     * function in one transaction. Only a direct message with words is a message: postbacks, comments, mentions and lead ads translate to
+     * function (prepared with no transaction open, committed in one short transaction). A direct message with any content (words, or a
+     * content part: a picture, a voice note, a file, a location) is a message: its parts go to the pipeline as the files the event names
+     * at its source (`attachments`, kept under `keptUnder`, the delivery job's id, before any transaction), so a picture with no caption
+     * is a line with its file (D3-W2-9); postbacks, comments, mentions and lead ads translate to
      * nothing and are left alone here (`not_a_message`). A message no registered graph takes stays kept raw and is kept for the owner. An
      * account removed between the receipt and this delivery delivers nothing and is logged (`account_removed`, R36: a removed account's
      * triggers stop; its kept raw row stays).
      */
-    async deliver(job: MetaInboundJob): Promise<MetaDeliveryOutcome> {
+    async deliver(job: MetaInboundJob, keptUnder: string): Promise<MetaDeliveryOutcome> {
         const row: MetaEventRow = { eventKey: job.event.event_key, raw: job.event }
         const declaration = metaMessageTriggerOf(row)
         const event = declaration.translate(row, { connectionId: job.connectionId })
         if (event === null) return "not_a_message"
-        return this.entityManager.transaction(async (manager): Promise<MetaDeliveryOutcome> => {
-            const connection = await this.connections.intakeOf(job.connectionId, META_PROVIDER, manager)
-            if (connection.kind !== "ok") {
-                this.logger?.warn(MetaInboxLogEvent.AccountRemoved, {
-                    connectionId: job.connectionId,
-                    eventKey: row.eventKey,
-                    refusal: connection.kind,
-                })
-                return "account_removed"
-            }
-            const workspaceId = connection.value.workspaceId
-            const stored = await this.reads.get(job.connectionId, metaEvent.name, row.eventKey, manager)
-            const delivered = await this.triggers.deliver(
+        // PREPARE, with no transaction open (concept outbox-job rule 12): the account proven, the stored row found, the event prepared.
+        const connection = await this.connections.intakeOf(job.connectionId, META_PROVIDER, this.entityManager)
+        if (connection.kind !== "ok") {
+            this.logger?.warn(MetaInboxLogEvent.AccountRemoved, {
+                connectionId: job.connectionId,
+                eventKey: row.eventKey,
+                refusal: connection.kind,
+            })
+            return "account_removed"
+        }
+        const workspaceId = connection.value.workspaceId
+        const stored = await this.reads.get(job.connectionId, metaEvent.name, row.eventKey, this.entityManager)
+        const prepared = await this.triggers.prepare({
+            workspaceId,
+            declaration,
+            connectionId: job.connectionId,
+            agentId: null,
+            events: [
                 {
-                    workspaceId,
-                    declaration,
-                    connectionId: job.connectionId,
-                    agentId: null,
-                    events: [
-                        {
-                            event,
-                            ...(stored === null ? {} : { raw: { type: metaEvent.name, id: stored.id } }),
-                            ...(event.data.at === null ? {} : { occurredAt: event.data.at }),
-                        },
-                    ],
+                    event,
+                    ...(stored === null ? {} : { raw: { type: metaEvent.name, id: stored.id } }),
+                    ...(event.data.attachments.length === 0
+                        ? {}
+                        : { attachments: { keptUnder, key: event.data.messageKey, files: event.data.attachments } }),
+                    ...(event.data.at === null ? {} : { occurredAt: event.data.at }),
                 },
-                manager,
-            )
+            ],
+        })
+        // COMMIT, one short transaction on one connection.
+        return this.entityManager.transaction(async (manager): Promise<MetaDeliveryOutcome> => {
+            const delivered = await this.triggers.deliver(prepared, manager)
             if (delivered.status === "off") {
                 this.logger?.warn(MetaInboxLogEvent.SwitchedOff, { connectionId: job.connectionId, eventKey: row.eventKey })
                 return "switched_off"

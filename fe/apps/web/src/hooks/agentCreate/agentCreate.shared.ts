@@ -1,5 +1,4 @@
 import type { PictureChoiceKey } from "@/modules/agentAvatar"
-import type { ModuleKey } from "@/modules/catalog"
 
 /** The address key that opens the create dialog: a role key ("sales") or {@link CREATE_ANY_ROLE}. */
 export const CREATE_AGENT_PARAM = "create"
@@ -19,6 +18,6 @@ export type StartChoice = { readonly kind: "copy"; readonly installationId: stri
 export const startValueOf = (choice: StartChoice): string =>
     choice.kind === "copy" ? `copy:${choice.installationId}` : "default"
 
-/** The role key from the address, or null when the address asks for any role or for none. */
-export const roleOfParam = (value: string | null, isRole: (value: string) => value is ModuleKey): ModuleKey | null =>
+/** The role key from the address when the catalogue of the workspace serves it, or null when the address asks for any role or for none. */
+export const roleOfParam = (value: string | null, isRole: (value: string) => boolean): string | null =>
     value === null || value === CREATE_ANY_ROLE || !isRole(value) ? null : value

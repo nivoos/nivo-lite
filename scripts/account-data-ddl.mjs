@@ -233,6 +233,23 @@ const altersOf = (text) => {
     return out
 }
 
+/**
+ * A partition block with an altering part folded in, in the order the declaration renders it (`partitionLines`): the part's new CHECKs go
+ * after the block's last CHECK (before its first index), its new indexes after the block's last index. A block with no index takes the
+ * part at its end, as before.
+ */
+const alteredBlockOf = (block, lines) => {
+    const blockLines = block.split("\n")
+    const partLines = lines.split("\n")
+    const firstIndex = (all) => {
+        const at = all.findIndex((line) => line.startsWith("-- create_index "))
+        return at < 0 ? all.length : at
+    }
+    const cut = firstIndex(blockLines)
+    const partCut = firstIndex(partLines)
+    return [...blockLines.slice(0, cut), ...partLines.slice(0, partCut), ...blockLines.slice(cut), ...partLines.slice(partCut)].join("\n")
+}
+
 /** The partition blocks of a committed DDL text, by partition name (a block = its `-- create_partition` line up to the next one). */
 const blocksOf = (text) => {
     const out = new Map()
@@ -260,7 +277,7 @@ const afterReset = (plan) => {
         for (const { name, lines } of altersOf(fs.readFileSync(`db/migrations/${f}`, "utf8"))) {
             const held = committed.get(name)
             if (held === undefined || held.block === null) committed.set(name, { block: null, where: `db/migrations/${f} alters a partition no migration creates` })
-            else committed.set(name, { block: `${held.block}\n${lines}`, where: `${held.where} + db/migrations/${f}` })
+            else committed.set(name, { block: alteredBlockOf(held.block, lines), where: `${held.where} + db/migrations/${f}` })
         }
     const missing = []
     const problems = []

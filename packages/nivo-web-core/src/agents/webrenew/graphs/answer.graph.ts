@@ -103,13 +103,13 @@ export const answerGraph: TemplateGraph = defineTemplateGraph({
             vi: "Lễ tân Hỗ trợ chuyển câu trả lời của khách: đồng ý thì báo giá và yêu cầu trả tiền trước, báo đã chuyển thì nhắn khách, báo đội (Kế toán nghe tiền từ ngân hàng), từ chối thì ghi nhận, hỏi thêm thì trả lời",
             en: "The support front desk passes the customer's answer on: agrees, quote and ask to pay first; says they paid, tell the customer and the team (Accounting hears of the money from the bank); declines, record it; asks, answer",
         },
-        version: 17,
+        version: 18,
         // The old JSON template had `seedActive: true`: the seed makes an ACTIVE workflow from it.
         seedActive: true,
         publishedAt: "2026-11-14T22:00:00.000Z",
         notes: {
-            vi: "R68: bước bị từ chối duyệt thì hệ thống tự báo đội kèm mã dịch vụ hoặc mã khách; quy trình chỉ còn các bước nghiệp vụ. Bước báo giá lại là một bước duy nhất, một lần gửi (thư là một kênh của lần gửi đó)",
-            en: "R68: a declined step is told to the team by the engine with the service's or the customer's code; the workflow keeps only its business steps. The quote send is one step with one send again (mail is a channel of the one send)",
+            vi: "Bản 18: bước chờ lưu mỗi khóa với danh sách sự kiện của nó (một ý nghĩa, một đường đi); cách chạy không đổi. R68: bước bị từ chối duyệt thì hệ thống tự báo đội kèm mã dịch vụ hoặc mã khách; quy trình chỉ còn các bước nghiệp vụ. Bước báo giá lại là một bước duy nhất, một lần gửi (thư là một kênh của lần gửi đó)",
+            en: "Version 18: the wait keeps each key with its list of events (one meaning, one route); the run is unchanged. R68: a declined step is told to the team by the engine with the service's or the customer's code; the workflow keeps only its business steps. The quote send is one step with one send again (mail is a channel of the one send)",
         },
     },
     nodes: {

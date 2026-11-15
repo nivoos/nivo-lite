@@ -42,6 +42,7 @@ export const bankTransactionValueOf = (credit: IncomingCredit, source: BankMovem
         ...(credit.account === undefined ? {} : { account: credit.account }),
         ...(credit.payer === undefined ? {} : { payer: credit.payer }),
         ...(credit.bankRef === undefined ? {} : { bankRef: credit.bankRef }),
+        ...(credit.requestRef === undefined ? {} : { requestRef: credit.requestRef }),
         ...(at === undefined ? {} : { at }),
         source,
     }

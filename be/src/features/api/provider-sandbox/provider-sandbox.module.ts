@@ -17,6 +17,7 @@ import { SandboxWaitingRunsHandler } from "./application/sandbox-waiting-runs.ha
 import { SandboxAttachmentsService } from "./application/sandbox-attachments.service"
 import { SendSandboxCaseHandler } from "./application/send-sandbox-case.handler"
 import { SetSandboxNextCaseHandler } from "./application/set-sandbox-next-case.handler"
+import { SetSandboxNextOutcomeHandler } from "./application/set-sandbox-next-outcome.handler"
 import { ConfigurableModuleClass } from "./provider-sandbox.module-definition"
 
 @Module({
@@ -37,6 +38,7 @@ import { ConfigurableModuleClass } from "./provider-sandbox.module-definition"
         DetachSandboxAccountHandler,
         SendSandboxCaseHandler,
         SetSandboxNextCaseHandler,
+        SetSandboxNextOutcomeHandler,
         ResetSandboxAccountHandler,
         ExpireSandboxWaitHandler,
     ],

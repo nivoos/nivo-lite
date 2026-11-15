@@ -24,3 +24,9 @@ export const driveTooLarge = (): Error => new DocumentsError({ code: DocumentsEr
 /** The file is of a type the integration cannot read: the SAME `DocumentsError` (with the type) the Drive client throws. */
 export const driveTypeUnsupported = (): Error =>
     new DocumentsError({ code: DocumentsErrorCode.TypeUnsupported, params: { type: "application/zip" } })
+
+/** No answer (a network cut or a timeout): the SAME `DocumentsError` `Unavailable` with status 0 the documents client's http wrapper throws (`documents-http.client.ts`). */
+export const driveNoAnswer = (): Error => new DocumentsError({ code: DocumentsErrorCode.Unavailable, params: { status: 0 } })
+
+/** Google's token endpoint answered `invalid_grant` to the refresh: the SAME `DocumentsError` `GoogleGrantRevoked` the Drive client throws (`drive-api.client.ts`). */
+export const driveRefreshRefused = (): Error => new DocumentsError({ code: DocumentsErrorCode.GoogleGrantRevoked })

@@ -11,7 +11,7 @@ import {
     LINE_NOT_TOLD,
     reasonWordsOf,
     STUCK_FACT,
-    withLineFactsOf,
+    withLiveFactsOf,
     wordedStopFactsOf,
 } from "./engine-facts.policy"
 import { TEAM_CHAT_MESSAGES } from "./messages/team-chat.messages"
@@ -40,13 +40,13 @@ const SUBJECT = Symbol("engine-facts.policy")
 /** The policy as Nest provides it. */
 const buildSubject = async () => {
     const moduleRef = await Test.createTestingModule({
-        providers: [{ provide: SUBJECT, useValue: { channelFactOf, codeFactsOf, reasonWordsOf, withLineFactsOf, wordedStopFactsOf } }],
+        providers: [{ provide: SUBJECT, useValue: { channelFactOf, codeFactsOf, reasonWordsOf, withLiveFactsOf, wordedStopFactsOf } }],
     }).compile()
     return moduleRef.get<{
         readonly channelFactOf: typeof channelFactOf
         readonly codeFactsOf: typeof codeFactsOf
         readonly reasonWordsOf: typeof reasonWordsOf
-        readonly withLineFactsOf: typeof withLineFactsOf
+        readonly withLiveFactsOf: typeof withLiveFactsOf
         readonly wordedStopFactsOf: typeof wordedStopFactsOf
     }>(SUBJECT)
 }
@@ -192,7 +192,7 @@ const notToldFacts = (reason: string): ReadonlyArray<MessageFact> => [
 /** The English words of a catalogue key; empty for a missing key, so an expectation on it can never pass by accident. */
 const en = (key: string): string => TEAM_CHAT_MESSAGES.en[key] ?? ""
 
-describe("withLineFactsOf: what a stop says NOW about its holding line, on the stored card", () => {
+describe("withLiveFactsOf: what a stop says NOW about its holding line, on the stored card", () => {
     const STORED: ReadonlyArray<MessageFact> = [
         { name: en("teamChat.fact.workflow"), value: CONTEXT.workflowTitle, technical: false },
         { name: en("teamChat.fact.stepKey"), value: "match", technical: true },
@@ -200,7 +200,7 @@ describe("withLineFactsOf: what a stop says NOW about its holding line, on the s
 
     it("words not-told and a known reason, and keeps the raw reason code as a technical fact; worded facts first", async () => {
         const policy = await subject
-        const facts = policy.withLineFactsOf(STORED, notToldFacts("ability_off"), words)
+        const facts = policy.withLiveFactsOf(STORED, notToldFacts("ability_off"), words)
 
         expect(facts).toEqual([
             STORED[0],
@@ -214,7 +214,7 @@ describe("withLineFactsOf: what a stop says NOW about its holding line, on the s
 
     it("an unknown reason code: only the worded not-told and the technical code, no empty or raw reason in words", async () => {
         const policy = await subject
-        const facts = policy.withLineFactsOf([], notToldFacts("channel_no_access"), words)
+        const facts = policy.withLiveFactsOf([], notToldFacts("channel_no_access"), words)
 
         expect(facts).toEqual([
             { name: en("teamChat.fact.customerLine"), value: en("teamChat.customerLine.notTold"), technical: false },
@@ -224,8 +224,8 @@ describe("withLineFactsOf: what a stop says NOW about its holding line, on the s
 
     it("replaces the line facts the card showed before instead of repeating them", async () => {
         const policy = await subject
-        const once = policy.withLineFactsOf(STORED, notToldFacts("ability_off"), words)
-        const twice = policy.withLineFactsOf(once, notToldFacts("not_attached"), words)
+        const once = policy.withLiveFactsOf(STORED, notToldFacts("ability_off"), words)
+        const twice = policy.withLiveFactsOf(once, notToldFacts("not_attached"), words)
 
         expect(twice).toHaveLength(once.length)
         expect(twice.filter((fact) => fact.name === en("teamChat.fact.customerLine"))).toHaveLength(1)
@@ -234,13 +234,13 @@ describe("withLineFactsOf: what a stop says NOW about its holding line, on the s
         ])
         expect(shownOf(twice)).toContain(en("teamChat.lineReason.not_attached"))
         expect(shownOf(twice)).not.toContain(en("teamChat.lineReason.ability_off"))
-        expect(policy.withLineFactsOf(once, notToldFacts("ability_off"), words)).toEqual(once)
+        expect(policy.withLiveFactsOf(once, notToldFacts("ability_off"), words)).toEqual(once)
     })
 
     it("no line fact given (or only facts of another name): the very same stored array", async () => {
         const policy = await subject
-        expect(policy.withLineFactsOf(STORED, [], words)).toBe(STORED)
-        expect(policy.withLineFactsOf(STORED, [{ name: "amount", value: "1" }], words)).toBe(STORED)
+        expect(policy.withLiveFactsOf(STORED, [], words)).toBe(STORED)
+        expect(policy.withLiveFactsOf(STORED, [{ name: "amount", value: "1" }], words)).toBe(STORED)
     })
 
     it("never holds more than 40 facts, and the new line facts are always among them", async () => {
@@ -251,7 +251,7 @@ describe("withLineFactsOf: what a stop says NOW about its holding line, on the s
             technical: true,
         }))
 
-        const facts = policy.withLineFactsOf(full, notToldFacts("ability_off"), words)
+        const facts = policy.withLiveFactsOf(full, notToldFacts("ability_off"), words)
 
         expect(facts).toHaveLength(40)
         const lineLabels = [en("teamChat.fact.customerLine"), en("teamChat.fact.customerLineReason"), en("teamChat.fact.customerLineCode")]

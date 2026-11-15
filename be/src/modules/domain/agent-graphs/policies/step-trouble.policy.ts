@@ -33,21 +33,50 @@ export const AI_CONFUSED = "ai_confused"
 export const AI_CORE_FAILED = "ai_core_failed"
 export const AI_CORE_OUTPUT_INVALID = "ai_core_output_invalid"
 
+/** The code of a step whose own data (an answer it read, its input, its output) does not fit the schema the node declared. */
+export const STEP_DATA_INVALID = "step_data_invalid"
+
+/** The most issues of an unfitting data named in the trouble. */
+const ISSUES_NAMED_MAX = 8
+
+/** The issues (`path: message`) of a schema parse a node threw (a zod error, whichever copy of zod raised it), or null for any other throw. */
+const schemaIssuesOf = (cause: unknown): ReadonlyArray<string> | null => {
+    if (!(cause instanceof Error) || cause.name !== "ZodError") return null
+    const issues: unknown = Reflect.get(cause, "issues")
+    if (!Array.isArray(issues)) return null
+    return issues.slice(0, ISSUES_NAMED_MAX).map((issue: unknown) => {
+        const path: unknown = typeof issue === "object" && issue !== null ? Reflect.get(issue, "path") : undefined
+        const message: unknown = typeof issue === "object" && issue !== null ? Reflect.get(issue, "message") : undefined
+        const where = Array.isArray(path) && path.length > 0 ? path.map(String).join(".") : "(root)"
+        return `${where}: ${typeof message === "string" ? message : "does not fit"}`
+    })
+}
+
 const codeOf = (cause: unknown): string => {
     if (isDomainError(cause)) return cause.code
+    if (schemaIssuesOf(cause) !== null) return STEP_DATA_INVALID
     const code: unknown = typeof cause === "object" && cause !== null ? Reflect.get(cause, "code") : undefined
     return typeof code === "string" && /^[A-Za-z0-9_.:-]{1,80}$/.test(code) ? code : HANDLER_THREW
 }
 
-/** The trouble of a node that threw: an executor's or the host's refusal under its own code, anything else as `handler_threw`. */
+/**
+ * The trouble of a node that threw: an executor's or the host's refusal under its own code, a data that did not fit the schema as the
+ * typed `step_data_invalid` (the issues in its data, never a raw parse error), anything else as `handler_threw`.
+ */
 export const troubleOfThrow = (cause: unknown): StepTrouble => {
     const code = codeOf(cause)
-    const text = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause)
+    const issues = schemaIssuesOf(cause)
+    const text =
+        issues !== null
+            ? `the data the step worked on does not fit its declared schema: ${issues.join("; ")}`
+            : cause instanceof Error
+              ? `${cause.name}: ${cause.message}`
+              : String(cause)
     return {
         kind: code === HANDLER_THREW ? "threw" : "refused",
         code,
         text,
-        data: isDomainError(cause) ? { ...cause.params } : {},
+        data: isDomainError(cause) ? { ...cause.params } : issues === null ? {} : { issues },
         thrownClass: classifyFailure(cause),
     }
 }

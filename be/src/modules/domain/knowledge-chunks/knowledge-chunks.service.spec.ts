@@ -306,6 +306,36 @@ describe("KnowledgeChunksService keep", () => {
     })
 })
 
+/** What the driver raises when a passage is written for a document that is not there (typeorm copies the driver's fields). */
+const sourceGoneFailure = (): Error =>
+    Object.assign(new Error("insert or update on table knowledge_chunks violates foreign key constraint"), {
+        driverError: { code: "23503", constraint: "knowledge_chunks_source_id_fkey" },
+    })
+
+describe("KnowledgeChunksService origin deleted meanwhile", () => {
+    it("keep answers null, runs no settle and propagates nothing when the passage's foreign key to the deleted document refused the write", async () => {
+        const tx = fakeTransaction(mockEntityManager({ delete: [KnowledgeChunkEntity, { affected: 0 }] }))
+        tx.em.insert.mockRejectedValue(sourceGoneFailure())
+        const service = await build(tx.em)
+        const within = jest.fn()
+
+        await expect(service.keep({ ...write(drafts(2, false)), drafts: drafts(2, false).map((draft, order) => ({ ...draft, order })) }, within)).resolves.toBeNull()
+
+        expect(within).not.toHaveBeenCalled()
+    })
+
+    it("replace answers false when the document is gone, and still throws any other failure", async () => {
+        const tx = fakeTransaction(mockEntityManager({ delete: [KnowledgeChunkEntity, { affected: 0 }] }))
+        tx.em.insert.mockRejectedValueOnce(sourceGoneFailure())
+        const service = await build(tx.em)
+
+        await expect(service.replace(write(drafts(2, false)))).resolves.toBe(false)
+
+        tx.em.insert.mockRejectedValueOnce(Object.assign(new Error("boom"), { driverError: { code: "57P01" } }))
+        await expect(service.replace(write(drafts(2, false)))).rejects.toThrow("boom")
+    })
+})
+
 describe("KnowledgeChunksService arrange", () => {
     it("only removes the passages past the end when nothing moves", async () => {
         const tx = fakeTransaction(mockEntityManager({ delete: [KnowledgeChunkEntity, { affected: 2 }] }))

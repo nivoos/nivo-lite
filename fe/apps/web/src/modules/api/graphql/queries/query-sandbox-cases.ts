@@ -19,6 +19,9 @@ const query1: Document = gql`
             direction
             operation
             isDefault
+            outcome
+            polled
+            delivery
             trigger
             inputs {
                 name

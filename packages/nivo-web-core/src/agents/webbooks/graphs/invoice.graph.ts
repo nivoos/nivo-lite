@@ -34,11 +34,11 @@ const input = z.object({
 })
 
 /**
- * `webbooks.invoice` version 12 (Invoice after a renewal), the Accounting agent's primary workflow, reached by the provider
+ * `webbooks.invoice` version 14 (Invoice after a renewal), the Accounting agent's primary workflow, reached by the provider
  * renewal's hand-off. `draft` checks the buyer and opens the CRM's draft; `issue` issues it on the MISA meInvoice account on the
  * owner's yes (the ONE `ask` invoice step: a tax document issued in the company's name, a legal signature); `issued` (exact: `outcome`
  * `issued` AND a number present) records the invoice on its draft in the CRM (`record`), then sends it to `mail` (a side step: the
- * customer mail); a rejected issue, or one issued without a number yet, goes straight to `team`. The team is told on every path; the
+ * customer mail); an issue without a number yet goes straight to `team` (a refusal of the e-invoice service is no outcome: it stops the `issue` step for a person, E-FIX12 A-1). The team is told on every path; the
  * run ends `invoiced` only when the CRM recorded the invoice (`recorded`), else `not-invoiced` after the team line (a person acts). A
  * person who declines the draft or the owner who declines the issue (the legal act) made a decision: it is the step's unsuccessful
  * ending (R68): the ENGINE tells the team (the step, `declined`, the service code) and the run ends `declined`; nothing after it runs. `team` declined (`team-declined`, an exact boolean) -> outcome `declined` (the declined write is itself a team
@@ -46,6 +46,7 @@ const input = z.object({
  * R56) and answers an outcome; the issued invoice is recorded in the CRM; `invoiced` needs that record. Change from version 10 (R68):
  * the hand-drawn `draft-declined`/`draft-notice` and `issue-declined`/`issue-notice` pairs are the steps' `unsuccessful` option.
  * Change from version 11 (E-R57): `record` writes MISA's own `issuedOn` from the issue's answer (the node's own day only when MISA gave none).
+ * Change from version 13 (E-FIX12): the issue's outcome `rejected` and its `refusal` member are gone; a refusal stops the step for a person.
  */
 export const invoiceGraph: TemplateGraph = defineTemplateGraph({
     key: "webbooks.invoice",
@@ -60,11 +61,11 @@ export const invoiceGraph: TemplateGraph = defineTemplateGraph({
             vi: "Sau khi gia h\u1ea1n t\u1ea1i nh\u00e0 cung c\u1ea5p: so\u1ea1n ho\u00e1 \u0111\u01a1n t\u1eeb CRM, xu\u1ea5t ho\u00e1 \u0111\u01a1n khi ch\u1ee7 duy\u1ec7t, so\u1ea1n th\u01b0 g\u1eedi kh\u00e1ch v\u00e0 b\u00e1o \u0111\u1ed9i",
             en: "After the provider renewal: drafts the invoice in the CRM, issues it when the owner approves, drafts the customer mail and tells the team",
         },
-        version: 13,
-        publishedAt: "2026-11-14T22:00:00.000Z",
+        version: 14,
+        publishedAt: "2026-11-15T12:00:00.000Z",
         notes: {
-            vi: "R68: bản nháp hoặc lần xuất hoá đơn bị từ chối duyệt thì hệ thống tự báo đội kèm mã dịch vụ và kết thúc bị từ chối; quy trình chỉ còn các bước nghiệp vụ. Thư gửi khách đi qua lần gửi chung của hệ thống, kênh thư (không còn công cụ gửi thư riêng)",
-            en: "R68: a draft or an issue a person declined is told to the team by the engine with the service code and the run ends declined; the workflow keeps only its business steps. The customer mail goes through the one customer send of the system on the mail channel (no separate mail tool)",
+            vi: "R68: bản nháp hoặc lần xuất hoá đơn bị từ chối duyệt thì hệ thống tự báo đội kèm mã dịch vụ và kết thúc bị từ chối; quy trình chỉ còn các bước nghiệp vụ. Thư gửi khách đi qua lần gửi chung của hệ thống, kênh thư (không còn công cụ gửi thư riêng). E-FIX12: e-invoice từ chối lần xuất hoá đơn (sai mã số thuế, không tìm thấy bản nháp) giờ dừng bước cho người xử lý thay vì thành một kết quả",
+            en: "R68: a draft or an issue a person declined is told to the team by the engine with the service code and the run ends declined; the workflow keeps only its business steps. The customer mail goes through the one customer send of the system on the mail channel (no separate mail tool). E-FIX12: an e-invoice refusal of the issue (wrong tax id, draft not found) now stops the run for a person instead of becoming an outcome",
         },
     },
     nodes: {
@@ -116,7 +117,7 @@ export const invoiceGraph: TemplateGraph = defineTemplateGraph({
             },
             next: "team",
         }),
-        // `mail` did not run on the rejected or numberless path (and is skipped without a sending mailbox): its refs default to null.
+        // `mail` did not run on the numberless path (and is skipped without a sending mailbox): its refs default to null.
         team: node(webbooksInvoiceTeamNode, {
             input: {
                 renewalId: ref("trigger.data.renewalId"),
@@ -124,7 +125,6 @@ export const invoiceGraph: TemplateGraph = defineTemplateGraph({
                 serviceCode: ref("trigger.data.serviceCode"),
                 invoiceNo: ref("steps.issue.output.invoiceNo", { default: null }),
                 outcome: ref("steps.issue.output.outcome", { default: null }),
-                refusal: ref("steps.issue.output.refusal", { default: null }),
                 messageRef: ref("steps.mail.output.messageRef", { default: null }),
                 mailRefusal: ref("steps.mail.output.refusal", { default: null }),
                 locale: LOCALE,
@@ -138,7 +138,7 @@ export const invoiceGraph: TemplateGraph = defineTemplateGraph({
             yes: "declined",
             no: "recorded",
         }),
-        // `record` did not run on the rejected or numberless path: its ref defaults to null and the run ends `not-invoiced`.
+        // `record` did not run on the numberless path: its ref defaults to null and the run ends `not-invoiced`.
         recorded: ifNode({
             label: { vi: "CRM đã ghi hoá đơn?", en: "Recorded in the CRM?" },
             when: equals(ref("steps.record.output.recorded", { default: null }), true),
@@ -152,7 +152,6 @@ export const invoiceGraph: TemplateGraph = defineTemplateGraph({
             output: {
                 renewalId: ref("trigger.data.renewalId"),
                 outcome: ref("steps.issue.output.outcome", { default: null }),
-                refusal: ref("steps.issue.output.refusal", { default: null }),
             },
         }),
         declined: outcome({ name: "declined", label: { vi: "Bị từ chối", en: "Declined" }, output: { renewalId: ref("trigger.data.renewalId") } }),

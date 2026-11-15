@@ -6,7 +6,7 @@ import {
     entriesFrom,
     storeContract,
 } from "@tests/fixtures/builders/data-stores.builder"
-import { FILES_SET, STORAGE_CANNOT } from "./data-stores.policy"
+import { DataRefusalCode, FILES_SET, STORAGE_CANNOT } from "./data-stores.policy"
 import { DataStoresErrorCode } from "./errors/data-stores.error"
 import { WorkspaceStorageStore } from "./workspace-storage.adapter"
 
@@ -113,13 +113,75 @@ describe("WorkspaceStorageStore: the changes an import makes", () => {
         expect(report.sets.find((item) => item.set === "other")?.refused).toHaveLength(1)
     })
 
-    it("needs a workspace and a known one", async () => {
+    it("refuses a workspace nobody holds; a call that names none is the whole deployment", async () => {
         const unbound = new WorkspaceStorageStore(DIRECTORY, new MemoryWorkspaceObjects(), [])
-        await expect(collectEntries(unbound.export({}))).rejects.toMatchObject({
-            code: DataStoresErrorCode.ScopeRequired,
-        })
+        expect(await collectEntries(unbound.export({}))).toEqual([])
         await expect(collectEntries(unbound.export({ scope: { workspace: "nobody" } }))).rejects.toMatchObject({
             code: DataStoresErrorCode.ScopeUnknown,
         })
+    })
+})
+
+const WS_A = "0a000000-0000-4000-8000-00000000000a"
+const WS_B = "0b000000-0000-4000-8000-00000000000b"
+const ALL = new MemoryWorkspaceDirectory({
+    "ws-a": { id: WS_A, ownerId: "owner-a" },
+    "ws-b": { id: WS_B, ownerId: "owner-b" },
+})
+const FILES = {
+    [WS_B]: { "x/two": { bytes: bytes(2), mime: "text/plain" } },
+    [WS_A]: { "x/one": { bytes: bytes(1), mime: "image/png" }, "a/zero": { bytes: bytes(0), mime: "text/plain" } },
+}
+const deploymentOf = (objects: MemoryWorkspaceObjects): WorkspaceStorageStore =>
+    new WorkspaceStorageStore(ALL, objects, STORAGE_CANNOT)
+
+describe("WorkspaceStorageStore: a call that names no workspace is every workspace", () => {
+    it("exports every live workspace's objects with the key prefixed by the workspace id, in key byte order", async () => {
+        const entries = await collectEntries(deploymentOf(new MemoryWorkspaceObjects(FILES)).export({}))
+        expect(entries.map((entry) => entry.key)).toEqual([`${WS_A}/a/zero`, `${WS_A}/x/one`, `${WS_B}/x/two`])
+    })
+
+    it("no workspace, or workspaces whose bucket holds nothing, exports an empty set: a valid export", async () => {
+        const none = new WorkspaceStorageStore(new MemoryWorkspaceDirectory({}), new MemoryWorkspaceObjects(FILES), [])
+        expect(await collectEntries(none.export({}))).toEqual([])
+        expect(await collectEntries(deploymentOf(new MemoryWorkspaceObjects()).export({}))).toEqual([])
+    })
+
+    it("round trip: an import without a scope writes each object into the workspace its prefix names, with its bytes and type", async () => {
+        const copy = await collectEntries(deploymentOf(new MemoryWorkspaceObjects(FILES)).export({}))
+        const target = new MemoryWorkspaceObjects()
+
+        const report = await deploymentOf(target).import(entriesFrom(copy), { dryRun: false, mode: "merge" })
+
+        expect(report.outcome).toBe("applied")
+        expect(target.calls).toEqual([
+            `read ${WS_A}/a/zero`,
+            `write ${WS_A}/a/zero`,
+            `read ${WS_A}/x/one`,
+            `write ${WS_A}/x/one`,
+            `read ${WS_B}/x/two`,
+            `write ${WS_B}/x/two`,
+        ])
+        expect(await target.read(WS_B, "x/two")).toEqual({ bytes: bytes(2), mime: "text/plain" })
+        expect(await deploymentOf(target).identityOf(FILES_SET, `${WS_A}/x/one`)).toBe(`${WS_A}/x/one`)
+        expect(await deploymentOf(target).identityOf(FILES_SET, `${WS_B}/x/one`)).toBeNull()
+    })
+
+    it("a key whose prefix names no live workspace is a refused key with its code, not a throw; nothing is written for it", async () => {
+        const target = new MemoryWorkspaceObjects()
+        const stranger = "0c000000-0000-4000-8000-00000000000c"
+        const report = await deploymentOf(target).import(
+            entriesFrom([
+                blobEntry(FILES_SET, `${stranger}/x`, bytes(1), "text/plain"),
+                blobEntry(FILES_SET, "plain", bytes(1), "text/plain"),
+            ]),
+            { dryRun: false, mode: "merge" },
+        )
+        expect(report.outcome).toBe("partial")
+        expect(report.sets[0]?.refused).toEqual([
+            { key: `${stranger}/x`, code: DataRefusalCode.WorkspaceUnknown },
+            { key: "plain", code: DataRefusalCode.WorkspaceUnknown },
+        ])
+        expect(target.calls).toEqual([])
     })
 })

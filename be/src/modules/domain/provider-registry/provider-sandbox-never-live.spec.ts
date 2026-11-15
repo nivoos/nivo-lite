@@ -1,6 +1,19 @@
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
+import { FakeClock, mock } from "@starci/jest-preset"
+import type { AgentDirectoryService } from "@modules/domain/agents"
+import type { AgentRunsService } from "@modules/domain/agent-runs"
+import type { ConnectionBindingsReadService, ConnectionRecord, ConnectionsService } from "@modules/domain/connections"
+import type { NodeToolCall } from "@modules/domain/graph-nodes"
+import { PaymentRequestNativeService } from "@modules/domain/payment-tools/payment-request-native.service"
+import type { ToolCallLogService } from "@modules/domain/tool-call-log"
+import type { AccountAttachmentsService, ProviderAttachmentView } from "@modules/domain/tool-grants"
+import { AgentAccountsService, ToolRunnerService, ToolsErrorCode } from "@modules/domain/tools"
+import type { NodeRequestsGate, OptionalNodeRequest } from "@modules/domain/tools/node-mode.policy"
+import type { Logger } from "@modules/platform/logging"
 import { ProviderRegistryErrorCode } from "./errors/provider-registry.error"
+import { PaymentRequestRegistryService } from "./payment-request-registry.service"
+import type { PaymentRequestPort } from "./payment-request-ports.contracts"
 import { ProviderRegistryService } from "./provider-registry.service"
 
 /*
@@ -109,5 +122,156 @@ describe("provider sandbox is never answered by a live implementation, for every
         )
 
         expect(overrides).toEqual([])
+    })
+})
+
+/*
+ * THE ACCOUNT HALF OF "NEVER LIVE" (SAFE-PICK, RESTART-R9 incident 2026-11-15). The guard above proves a SANDBOX ACCOUNT never reaches a
+ * live port; it said nothing of WHICH account a run's call is handed. On dev a sale run started (through a workflow call) by a SANDBOX
+ * Zalo line was handed the shop's LIVE payOS account by its node settings ([live, sandbox]) and made a real payment link: every port
+ * answered right for the account it was given. Lane concept provider-sandbox rule 19 (ONE WORLD PER RUN) is the account half; the ONE reproduction below drives the incident from
+ * the runner down to the payment request registry: the live port records ZERO calls.
+ */
+
+const WS_ID = "ws-safe"
+const AGENT = "agent-sales"
+const STEP_REF = { nodeKey: "request-pay", versionId: "v-7", workflowId: "wf-consult" }
+const CALLED_RUN = { runId: "run-sale" }
+
+/** One stored run: its trigger's account and the run that called it (the wake's plain data, as `core.call-workflow` writes it). */
+interface StoredRun {
+    readonly trigger?: string
+    readonly caller?: string
+    readonly used?: ReadonlyArray<string>
+}
+
+/** The pick over a shop: its attachments, which accounts are SANDBOX ones, the step's node request and the runs of the chain. */
+const pickOf = (
+    rows: ReadonlyArray<ProviderAttachmentView>,
+    sandbox: ReadonlyArray<string>,
+    request: OptionalNodeRequest,
+    runs: Readonly<Record<string, StoredRun>>,
+): AgentAccountsService => {
+    const attachments = mock<AccountAttachmentsService>()
+    attachments.listOfAgent.mockResolvedValue([...rows])
+    const connections = mock<ConnectionBindingsReadService>()
+    connections.factsOf.mockImplementation((ids) =>
+        Promise.resolve(
+            ids.map((id) => ({ id, provider: "", name: id, status: "connected", createdAt: new Date(0), sandbox: sandbox.includes(id), botUsername: null, accountMasked: null })),
+        ),
+    )
+    connections.recordOf.mockResolvedValue(null)
+    const gate = mock<NodeRequestsGate>()
+    gate.requestOf.mockResolvedValue(request)
+    const reader = mock<AgentRunsService>()
+    reader.runOf.mockImplementation((_workspaceId, runId) => {
+        const run = runs[runId]
+        if (run === undefined) return Promise.resolve(null)
+        const context = {
+            ...(run.trigger === undefined ? {} : { connectionId: run.trigger }),
+            ...(run.caller === undefined ? {} : { tagContext: JSON.stringify({ caller: { runId: run.caller } }) }),
+        }
+        return Promise.resolve({ id: runId, workspaceId: WS_ID, agentId: AGENT, wakeId: `wake-${runId}`, trigger: "t", versionId: null, status: "running", context, errorCode: null, spoken: false })
+    })
+    const log = mock<ToolCallLogService>()
+    log.connectionsUsedByRun.mockImplementation((_workspaceId, runId) => Promise.resolve(runs[runId]?.used ?? []))
+    return new AgentAccountsService(attachments, mock<AgentDirectoryService>(), connections, gate, undefined, log, reader, mock<Logger>())
+}
+
+const attached = (connectionId: string, provider: string, isDefault = false): ProviderAttachmentView => ({
+    agentId: AGENT,
+    connectionId,
+    provider,
+    isDefault,
+})
+
+describe("never live, the incident (RESTART-R9): the pay step of a sale CALLED from a sandbox line, settings [live, sandbox]", () => {
+    /** A payment request port double that counts its calls. */
+    const portOf = (provider: string, world: "live" | "sandbox") => {
+        const calls: Array<string> = []
+        const port: PaymentRequestPort = {
+            provider,
+            create: (connection, ask) => {
+                calls.push(connection.id)
+                return Promise.resolve({ amountVnd: ask.amountVnd, reference: ask.reference, status: "open", payKey: `${world}-1`, payUrl: `https://${world}.invalid/pay` })
+            },
+        }
+        return { port, calls }
+    }
+    const recordOf = (id: string, provider: string, sandbox: boolean): ConnectionRecord =>
+        Object.assign(mock<ConnectionRecord>(), { id, workspaceId: WS_ID, provider, name: id, status: "connected", sandbox })
+
+    /** The runner of the app over the REAL pick and the REAL payment family; the payOS registry holds a live and a sandbox double. */
+    const runnerOver = (pick: AgentAccountsService) => {
+        const live = portOf("payos", "live")
+        const sandbox = portOf("payos", "sandbox")
+        const registry = new PaymentRequestRegistryService()
+        registry.register({ live: live.port, sandbox: sandbox.port })
+        const connections = mock<ConnectionsService>()
+        connections.find.mockImplementation((_workspaceId, id) =>
+            Promise.resolve(id === "pay-live" ? recordOf(id, "payos", false) : id === "pay-sbx" ? recordOf(id, "payos", true) : null),
+        )
+        const family = new PaymentRequestNativeService(connections, registry)
+        const runner = new ToolRunnerService({
+            door: {
+                call: (call: NodeToolCall) =>
+                    family.invoke(WS_ID, "payment.request.create", call.args, {
+                        agentId: AGENT,
+                        conversationId: null,
+                        connectionId: call.account?.connectionId,
+                        provider: call.account?.provider,
+                    }),
+                effectRight: () => Promise.resolve(null),
+            },
+            registry: { executorOf: () => undefined },
+            ledger: { once: (_ws, _effect, _call, act) => act() },
+            accounts: pick,
+            leads: null,
+            clock: new FakeClock(new Date("2026-11-14T23:51:48.000Z")),
+            logger: mock<Logger>(),
+        })
+        const run = () =>
+            runner.run({
+                road: "tool",
+                token: "tok",
+                tool: "nivo.tool.payment.request.create",
+                args: { amountVnd: 350000, reference: "DH-20261115-0040" },
+                key: "run-sale:request-pay:1",
+                approval: null,
+                turn: { turnId: CALLED_RUN.runId, workspaceId: WS_ID, agentId: AGENT, subject: null, conversationId: "conv-1", locale: "vi" },
+                workflowStep: STEP_REF,
+            })
+        return { run, live, sandbox }
+    }
+    /** The pay step as the shop's standard stores it on dev: payOS live then sandbox, then SePay (no account chosen). */
+    const PAY_NODE: OptionalNodeRequest = {
+        mode: "auto",
+        accounts: [
+            { kind: "payment", provider: "payos", connectionId: "pay-live" },
+            { kind: "payment", provider: "payos", connectionId: "pay-sbx" },
+            { kind: "payment", provider: "sepay", connectionId: null },
+        ],
+    }
+    /** Dev's chain: the front desk's run woken on the SANDBOX Zalo line calls the sale; the sale's own context names no account. */
+    const CHAIN = { "run-sale": { caller: "run-desk" }, "run-desk": { trigger: "zalo-sbx" } }
+
+    it("the request goes through the SANDBOX payOS; the LIVE port records ZERO calls", async () => {
+        const rows = [attached("pay-live", "payos"), attached("pay-sbx", "payos"), attached("zalo-sbx", "zalo_oa"), attached("sepay-sbx", "sepay", true)]
+        const { run, live, sandbox } = runnerOver(pickOf(rows, ["pay-sbx", "zalo-sbx", "sepay-sbx"], PAY_NODE, CHAIN))
+
+        const answer = await run()
+
+        expect(answer).toMatchObject({ road: "tool", via: { provider: "payos", connectionId: "pay-sbx" } })
+        expect(live.calls).toEqual([])
+        expect(sandbox.calls).toEqual(["pay-sbx"])
+    })
+
+    it("with only the LIVE payOS attached (no SePay): refused TOOLS_ACCOUNT_OTHER_WORLD; the LIVE port records ZERO calls", async () => {
+        const rows = [attached("pay-live", "payos"), attached("zalo-sbx", "zalo_oa")]
+        const { run, live, sandbox } = runnerOver(pickOf(rows, ["zalo-sbx"], PAY_NODE, CHAIN))
+
+        await expect(run()).rejects.toMatchObject({ code: ToolsErrorCode.AccountOtherWorld, params: { provider: "payos", world: "sandbox" } })
+        expect(live.calls).toEqual([])
+        expect(sandbox.calls).toEqual([])
     })
 })

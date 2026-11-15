@@ -35,7 +35,7 @@ export { memoryDriver } from "@modules/integrations/seed"
 export const NIVO_SET: DataSetDeclaration = {
     id: "nivo-lite",
     purpose: "seed-backup",
-    stores: ["database", "storage"],
+    stores: ["database-all", "storage-all"],
     drivers: ["git-copy", "s3-copy"],
     everyMinutes: 1440,
 }
@@ -63,7 +63,7 @@ export interface NivoStores {
 /** The two stores of NIVO's data set, with a little content each (records in the database, a blob in the storage). */
 export const nivoStores = (): NivoStores => ({
     database: memoryStore({
-        id: "database",
+        id: "database-all",
         format: "nivo-lite-seed-backup@1",
         sets: {
             contacts: { "ana@example.test": { name: "Ana" }, "ben@example.test": { name: "Ben" } },
@@ -71,7 +71,7 @@ export const nivoStores = (): NivoStores => ({
         },
     }),
     storage: memoryStore({
-        id: "storage",
+        id: "storage-all",
         kind: "storage",
         sets: { files: { "logo.png": new Uint8Array([1, 2, 3, 4]) } },
     }),

@@ -1,0 +1,7 @@
+{"findings":[],"hash":"055a242731726d8dd5f07781a7a15b0e33e7737f3e9dbd51591b2197546460a3","path":"fe/packages/nivo-i18n/package.json","step":"prettier"}
+{"findings":[],"hash":"a54e8f100b8da4f18b0f79f6aa197c008b585cd5bf7cf9e9ed52e63b4496360e","path":"fe/packages/nivo-i18n/src/index.ts","step":"prettier"}
+{"findings":[],"hash":"ffe9d76a4383820a9d12bec06398ccd2da4f0e42a2e9b5a2133d9611048c8e3b","path":"fe/packages/nivo-i18n/src/layout.tsx","step":"prettier"}
+{"findings":[],"hash":"936425d67540c682719897a4e78e98e26a144aab1b72c016f7868485b4185b0b","path":"fe/packages/nivo-i18n/src/navigation.ts","step":"prettier"}
+{"findings":[],"hash":"82cd8396f1372500aab8f1fa1c681625099fea7dc616337fb44ac8a3a84a338e","path":"fe/packages/nivo-i18n/src/routing.ts","step":"prettier"}
+{"findings":[],"hash":"2931539bb0f1e29080054fe0a2717352e15285662241480a7358a3ef40b7174e","path":"fe/packages/nivo-i18n/tsconfig.build.json","step":"prettier"}
+{"findings":[],"hash":"73109e2a7ccde906d948dca16e015cf3bd6f6c99b3aff7fcd5ab2fd12fde5069","path":"fe/packages/nivo-i18n/tsconfig.json","step":"prettier"}

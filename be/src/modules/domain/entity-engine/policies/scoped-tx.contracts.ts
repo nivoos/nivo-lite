@@ -13,6 +13,11 @@ export interface AgentScope {
     readonly id: string
     /** `own`: only this agent's records are reached; `all`: every record of the workspace. */
     readonly sees: "own" | "all"
+    /**
+     * The run whose step writes through the scope, when a step does (a record tool called by a graph step): what a write event names as
+     * its writer, so the event is never offered back to that run (concept agent-data rule 4). Absent for a person's action or a job.
+     */
+    readonly writerRunId?: string | undefined
 }
 
 /**

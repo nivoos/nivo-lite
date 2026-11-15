@@ -215,18 +215,19 @@ describe("the next event for the same subject while its run waits at a stop (fra
         expect(heldWakesOf(db).map((wake) => wake.reason)).toEqual([`waiting:${runId}`])
     })
 
-    // RULE Q-1 (QB-HOLD-SPECS): FAILS TODAY, a suspected source bug: a Retry carries no words, so `turn.founderAnswers` stays empty, the queue visit
-    // stays 0 (`agent-graph-run-queue.service.ts`, `visit = founderAnswers.length`) and the wake held behind the run is never taken by the re-run:
-    // it is released pending when the run ends and starts a SECOND run (the line never reaches this run).
-    it("after Th\u1eed l\u1ea1i the second event is part of THAT thread: still one run, and its line reaches the resumed run", async () => {
+    // E-FIX12 rule A-7 (coordinator ruling on T-A2c, replaces "the next event joins THAT thread's re-run"): a Retry runs the stopped step
+    // again and that step never swallows the events held behind the run; they are offered to the run's next wait, and a run with no
+    // wait ahead releases them when it ends: the held line starts the NEXT run (a node that reads the queue would have to DECLARE it: the
+    // SDK declaration is not built, see R4-NOTES `## E-FIX12`).
+    it("after Thu lai the stopped step does not take the held line: the run ends, and the line, released, waits for the next run", async () => {
         const { db, process, runId } = await inboxStopped()
         await customerWrites(process, "Them dong nay nua")
 
         await founderDecides(process, runId, button(db, "retry"))
 
         expect((await threadOf(process, runId)).status).toBe("ended")
-        expect([...db.runs.keys()]).toEqual([runId])
-        expect(noteActsOf(db).map((act) => act.payload.text)).toContain("zalo:m-2")  // the inbox node writes each event's message key (the words are the engine's own line, R26)
+        expect(noteActsOf(db).map((act) => act.payload.text)).not.toContain("zalo:m-2")
+        expect(heldWakesOf(db)).toEqual([])
     })
 
     it("the workspace of every act is the run's, before and after the rebuild", async () => {

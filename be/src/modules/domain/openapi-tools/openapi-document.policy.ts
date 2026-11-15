@@ -177,6 +177,15 @@ const schemaOf = (raw: unknown, reading: Reading): SchemaNode => {
     return resolved.node
 }
 
+/** The header an operation takes its replay key in, lower case: the provider fills it with its own key, never a caller. */
+export const REPLAY_KEY_HEADER = "idempotency-key"
+
+/**
+ * The schema of a header the provider fills itself with its own value (the replay key: `nivo:` and 64 hex digits): read, but its features
+ * are not noted as unsupported, since no caller's value is ever judged against it (the system judges the provider's key itself).
+ */
+const ownHeaderSchemaOf = (raw: unknown, reading: Reading): SchemaNode => resolvedSchemaOf(raw, recordOf(reading.components.schemas)).node
+
 const parameterOf = (raw: unknown, reading: Reading): ReadonlyArray<PinnedParameter> => {
     const parameter = derefOf(raw, "parameters", reading)
     const { name } = parameter
@@ -186,7 +195,8 @@ const parameterOf = (raw: unknown, reading: Reading): ReadonlyArray<PinnedParame
         reading.note(where === "cookie" ? "cookie parameter" : "parameter location")
         return []
     }
-    const schema = schemaOf(parameter.schema, reading)
+    const own = where === "header" && name.toLowerCase() === REPLAY_KEY_HEADER
+    const schema = own ? ownHeaderSchemaOf(parameter.schema, reading) : schemaOf(parameter.schema, reading)
     const types = typesOf(schema)
     if (parameter.content !== undefined || types === null || types.some((type) => !PRIMITIVES.has(type))) {
         reading.note("array or object parameter")

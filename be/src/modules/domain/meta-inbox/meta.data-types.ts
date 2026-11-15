@@ -53,6 +53,7 @@ export const metaMessage: AccountDataTypeDef = defineAccountDataType({
         userId: { type: "text", required: true, maxLength: 64 },
         direction: { type: "text", required: true, maxLength: 3 },
         text: { type: "text", required: true, maxLength: 8192 },
+        attachments: { type: "json", required: false },
         at: { type: "timestamp", required: true },
     },
     occurredAt: "at",

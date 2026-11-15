@@ -11,7 +11,7 @@ import { TelegramInboxService } from "./telegram-inbox.service"
 import { telegramUpdate } from "./telegram.data-types"
 import { TELEGRAM_TRIGGERS } from "./telegram-message.trigger"
 import { TELEGRAM_SANDBOX_CATALOGUE } from "./telegram-sandbox.catalogue"
-import { TELEGRAM_SEND_SANDBOX_CASES, TELEGRAM_STAFF_SANDBOX_CASES } from "./telegram-sandbox-send.catalogue"
+import { TELEGRAM_SEND_SANDBOX_CATALOGUE } from "./telegram-sandbox-send.catalogue"
 import { TelegramSandboxSendService } from "./telegram-sandbox-send.service"
 
 @Module({})
@@ -53,7 +53,7 @@ export class TelegramInboxModule extends ConfigurableModuleClass implements OnMo
     onModuleInit(): void {
         this.sends.register({ live: this.sendLive, sandbox: this.sendSandbox })
         this.catalogues.register(TELEGRAM_SANDBOX_CATALOGUE)
-        this.catalogues.register({ provider: TELEGRAM_SANDBOX_CATALOGUE.provider, cases: [...TELEGRAM_SEND_SANDBOX_CASES, ...TELEGRAM_STAFF_SANDBOX_CASES] })
+        this.catalogues.register(TELEGRAM_SEND_SANDBOX_CATALOGUE)
         this.admissions.register(telegramUpdate.name, (tx, row) => this.inbox.admitUpdate(tx, row))
         triggerDeclarations.register(...TELEGRAM_TRIGGERS)
     }

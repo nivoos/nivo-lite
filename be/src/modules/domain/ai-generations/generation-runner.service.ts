@@ -220,6 +220,7 @@ export class GenerationRunnerService {
                 timings: { model_ms: modelMs },
                 reason: NO_ANSWER,
                 timedOut,
+                ...(tried.sent === false ? { sent: false as const } : {}),
             }
         }
         const answer = tried.answer
@@ -294,8 +295,8 @@ export class GenerationRunnerService {
             }
         })
         // A try that gave no usable answer is never billed (concept.tokens-and-credits): one that returned tokens (cut at its cap, or
-        // empty) is booked with what it spent, one the model was asked and did not answer is booked estimated from the prompt. Each
-        // try exactly once.
+        // empty) is booked with what it spent, one the model was asked and did not answer is booked estimated from the prompt, one that
+        // left no request (`sent: false`) is not booked. Each try exactly once.
         if (attempt.usage !== null) {
             await this.usage.record({
                 workspaceId: generation.workspaceId,
@@ -307,7 +308,7 @@ export class GenerationRunnerService {
                 reported: true,
                 ...this.meteringOf(generation),
             })
-        } else if (attempt.reason !== NOT_CONFIGURED && attempt.reason !== NO_CREDITS) {
+        } else if (attempt.reason !== NOT_CONFIGURED && attempt.reason !== NO_CREDITS && attempt.sent !== false) {
             await this.usage.record({
                 workspaceId: generation.workspaceId,
                 kind: generation.usageKind,

@@ -92,14 +92,15 @@ export class AgentDirectoryService {
         return agentIds.flatMap((id) => byId.get(id) ?? []).slice(0, limit)
     }
 
-    /** The active agents among the given ids with the moment each was created, oldest first, at most `limit`. */
+    /** The active agents among the given ids with the moment each was created, oldest first, at most `limit`; on `manager` when given. */
     async activeCreatedAmong(
         workspaceId: string,
         agentIds: ReadonlyArray<string>,
         limit: number,
+        manager: EntityManager = this.entityManager,
     ): Promise<Array<AgentCreation>> {
         if (agentIds.length === 0) return []
-        const agents = await this.entityManager.find(AgentEntity, {
+        const agents = await manager.find(AgentEntity, {
             select: { id: true, module: true, name: true, createdAt: true },
             where: { workspaceId, status: "active", id: In([...new Set(agentIds)]) },
             order: { createdAt: "ASC", id: "ASC" },

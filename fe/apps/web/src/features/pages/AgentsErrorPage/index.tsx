@@ -2,7 +2,6 @@ import { useTranslations } from "next-intl"
 import { useParams } from "next/navigation"
 import { useModuleName } from "@/hooks/installations"
 import { useWorkspaceId } from "@/hooks/workspaces"
-import { isModuleKey } from "@/modules/catalog"
 import { agentHref } from "@/modules/installations"
 import { AGENTS_ROUTE, APP_ROUTES, workspaceHref } from "@/modules/routes"
 import { AgentsErrorPageBase } from "./component"
@@ -22,8 +21,7 @@ export const AgentsErrorPage = (props: AgentsErrorPageProps) => {
     const ts = useTranslations("shell")
     const { module } = useParams<{ module?: string }>()
     const workspaceId = useWorkspaceId()
-    const known = isModuleKey(module) ? module : null
-    const moduleName = useModuleName(known)
+    const moduleName = useModuleName(module ?? null)
     const typeName = moduleName || t("catalogTitle")
     const home = { id: "home", label: ts("crumbHome"), href: workspaceHref(workspaceId, APP_ROUTES.workspaceHome) }
     const agents = { id: "modules", label: t("catalogTitle"), href: workspaceHref(workspaceId, AGENTS_ROUTE) }
@@ -39,7 +37,7 @@ export const AgentsErrorPage = (props: AgentsErrorPageProps) => {
         chat: t("tab_chat"),
         graph: t("tab_graph"),
     }
-    const tab = { id: "module", label: typeName, href: workspaceHref(workspaceId, agentHref(known ?? "chatbot", null)) }
+    const tab = { id: "module", label: typeName, href: workspaceHref(workspaceId, module === undefined ? AGENTS_ROUTE : agentHref(module, null)) }
     const crumbs = {
         catalog: [home, { id: "modules", label: t("catalogTitle") }],
         frame: [home, agents],

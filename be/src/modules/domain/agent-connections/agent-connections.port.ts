@@ -14,11 +14,15 @@ export interface BindingAgent {
 
 /** The agents the bindings read: the port the agents capability implements for the agent-connections capability. */
 export interface BindingAgentsDirectory {
-    /** The active agents among the given ids with the moment each was created, oldest first, at most `limit`. */
+    /**
+     * The active agents among the given ids with the moment each was created, oldest first, at most `limit`; on `manager` when given
+     * (a caller holding row locks reads on its own transaction, never on another connection of the pool).
+     */
     activeCreatedAmong(
         workspaceId: string,
         agentIds: ReadonlyArray<string>,
         limit: number,
+        manager?: EntityManager,
     ): Promise<ReadonlyArray<BindingAgent>>
     /** Whether the workspace holds the agent; the row is read with a shared lock so it stays until the transaction ends. */
     holds(workspaceId: string, agentId: string, manager: EntityManager): Promise<boolean>

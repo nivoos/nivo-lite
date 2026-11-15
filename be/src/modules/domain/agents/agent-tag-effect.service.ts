@@ -1,11 +1,9 @@
 import { Injectable, Optional, type OnModuleInit } from "@nestjs/common"
-import { agentTagEffect, type EffectCall, type EffectPayload, type SubjectRef } from "@nivo-lite/agent-sdk/node"
+import { agentTagEffect, type AgentTagPayload, type EffectCall, type EffectPayload, type SubjectRef } from "@nivo-lite/agent-sdk/node"
 import { LATEST_VERSION, WORKFLOW_CALL_MEMBER, WORKFLOW_PARAMS_MEMBER } from "@nivo-lite/agent-sdk/graph"
-import type { EntityManager } from "typeorm"
 import { WORKFLOW_CALL_TRIGGER } from "@modules/domain/agent-schedules/workflow-call.trigger"
 import type { TagWorkflowCall } from "./agents.contracts"
 import { ProviderTriggersService } from "@modules/domain/provider-triggers"
-import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import {
     GraphNodeRegistryService,
     ledgerKeyOf,
@@ -49,6 +47,32 @@ const callOfTag = (context: unknown): TagWorkflowCall | null => {
     }
 }
 
+/** The subject member of the person a call is about (the workflow call's key, `by: "contact"`), as a call passes it in `subject.kind`. */
+const PERSON_SUBJECT = "contactId"
+
+/** The person a called run is about: the contact and the route its wake carries (the callee's subject, the call trigger's key). */
+interface CalleePerson {
+    readonly contactId: string | null
+    readonly routeId: string | null
+}
+
+/**
+ * The person of a called run (concept triggers rule 13: a called run takes the subject its caller PASSES, else, by default, the
+ * caller's own): the contact the call names (`subject` of kind `contactId`) else the caller's; the route the call names
+ * (`conversationId`) else the caller's, but never the caller's route for a person the caller is not about (a run started by a bank credit
+ * or a clock knows no route; a call about another person carries none of the caller's).
+ */
+const calleePersonOf = (
+    turn: NodeTurn,
+    tag: Pick<AgentTagPayload, "subject" | "conversationId">,
+): CalleePerson => {
+    const named = tag.subject?.kind === PERSON_SUBJECT ? tag.subject.id : null
+    const caller = turn.contactId ?? null
+    const contactId = named ?? caller
+    const sameAsCaller = named === null || named === caller
+    return { contactId, routeId: tag.conversationId ?? (sameAsCaller ? turn.conversationId : null) }
+}
+
 @Injectable()
 /**
  * The executor of `nivo.tool.agent.tag`: a run's WORKFLOW CALL (`core.call-workflow`, which always pins its target) delivered to the target
@@ -64,7 +88,6 @@ export class AgentTagEffectService implements NodeEffectExecutor, OnModuleInit {
     constructor(
         private readonly reach: WorkflowCallReachService,
         @Optional() private readonly registry?: GraphNodeRegistryService,
-        @Optional() @InjectPrimaryEntityManager() private readonly entityManager?: EntityManager,
         @Optional() private readonly triggers?: ProviderTriggersService,
     ) {}
 
@@ -85,7 +108,7 @@ export class AgentTagEffectService implements NodeEffectExecutor, OnModuleInit {
         // A workflow call (`core.call-workflow`) is an event of the one pipeline: `workflow.called`, pinned, with its provenance.
         const called = callOfTag(tag.context)
         if (called === null) throw refusalOf(AgentsErrorCode.TagRefused, "EFFECT_PAYLOAD_INVALID")
-        return this.called(turn, toAgentId, eventKey, called, tag.conversationId ?? turn.conversationId)
+        return this.called(turn, toAgentId, eventKey, called, calleePersonOf(turn, tag))
     }
 
     /**
@@ -99,33 +122,28 @@ export class AgentTagEffectService implements NodeEffectExecutor, OnModuleInit {
         toAgentId: string,
         eventKey: string,
         call: TagWorkflowCall,
-        routeId: string | null | undefined,
+        person: CalleePerson,
     ): Promise<SubjectRef> {
-        const { entityManager, triggers } = this
-        if (entityManager === undefined || triggers === undefined)
+        const { triggers } = this
+        if (triggers === undefined)
             throw refusalOf(AgentsErrorCode.TagRefused, "EFFECT_PAYLOAD_INVALID")
         const event = WORKFLOW_CALL_TRIGGER.translate({ key: eventKey, params: call.params }, { connectionId: null })
         if (event === null) throw refusalOf(AgentsErrorCode.TagRefused, "EFFECT_PAYLOAD_INVALID")
-        const result = await entityManager.transaction((tx) =>
-            triggers.deliver(
+        const result = await triggers.deliverAlone({
+            workspaceId: turn.workspaceId,
+            declaration: WORKFLOW_CALL_TRIGGER,
+            connectionId: null,
+            agentId: toAgentId,
+            events: [
                 {
-                    workspaceId: turn.workspaceId,
-                    declaration: WORKFLOW_CALL_TRIGGER,
-                    connectionId: null,
-                    agentId: toAgentId,
-                    events: [
-                        {
-                            event,
-                            pin: call.pin,
-                            caller: { agentId: turn.agentId, runId: call.runId },
-                            contactId: turn.contactId ?? null,
-                            routeId: routeId ?? null,
-                        },
-                    ],
+                    event,
+                    pin: call.pin,
+                    caller: { agentId: turn.agentId, runId: call.runId },
+                    contactId: person.contactId,
+                    routeId: person.routeId,
                 },
-                tx,
-            ),
-        )
+            ],
+        })
         if (result.status !== "delivered") throw refusalOf(AgentsErrorCode.TagRefused, "EFFECT_PAYLOAD_INVALID")
         const [woken] = result.woken
         if (woken !== undefined) return { kind: WAKE, id: woken.wakeId }

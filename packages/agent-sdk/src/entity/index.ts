@@ -26,6 +26,7 @@ export type {
     RelationDef,
     RowOf,
     StatesDef,
+    RecordEventsDef,
     SystemField,
     SystemRow,
     UniqueConstraint,

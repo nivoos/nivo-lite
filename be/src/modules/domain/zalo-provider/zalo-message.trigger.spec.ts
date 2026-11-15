@@ -187,7 +187,7 @@ describe("ZALO_MESSAGE_TRIGGER: the person's line (owner ruling R26)", () => {
             text: "Shop con hoa khong?",
             at: "2026-11-14T02:00:00.000Z",
         })
-        expect(realTrigger.line).toBe(zaloLineOf)
+        expect(realTrigger.feeds).toEqual({ stream: "lines", line: zaloLineOf })
     })
 
     it("is one event with two ways in: no webhook-only reason, no switch, no fact key, the zalo_oa.event type, words for every member of its data", async () => {

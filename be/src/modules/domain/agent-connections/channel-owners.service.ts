@@ -117,6 +117,7 @@ export class ChannelOwnersService {
             first.workspaceId,
             [...new Set(links.map((link) => link.agentId))],
             HOLDERS_MAX,
+            manager,
         )
         const byId = new Map(agents.map((agent) => [agent.id, agent]))
         return links.flatMap((link): ReadonlyArray<ChannelHolder> => {

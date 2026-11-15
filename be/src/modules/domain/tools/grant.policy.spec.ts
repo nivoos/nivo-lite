@@ -97,7 +97,7 @@ describe("grant.policy grantVerdictOf > a workflow step's default tools", () => 
             kind: "allow",
         })
         // An unlisted tool that acts outside is still refused.
-        expect(subject.grantVerdictOf(null, EFFECT_SPEC, STEP_CALLER, "nivo.tool.payment.link.create", RUN, "step")).toEqual({
+        expect(subject.grantVerdictOf(null, EFFECT_SPEC, STEP_CALLER, "nivo.tool.payment.request.create", RUN, "step")).toEqual({
             kind: "refuse",
         })
     })

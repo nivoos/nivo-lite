@@ -105,6 +105,10 @@ export class ModuleInstallService {
         const existing = request.newInstance
             ? null
             : await this.installations.firstOfModule(request.workspaceId, module.key)
+        // Adding is what `available` governs: an installation the workspace already has is only answered.
+        if (existing === null && !module.available && request.platform !== true) {
+            throw new ModulesError({ code: ModulesErrorCode.NotAvailable, params: { key: module.key } })
+        }
         const made =
             existing === null
                 ? await this.create(principalId, member, module, request, wanted)

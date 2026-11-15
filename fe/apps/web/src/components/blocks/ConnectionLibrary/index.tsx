@@ -15,7 +15,7 @@ import {
     providersOfEntry,
     unitOfEntry,
     audienceLineOf,
-    catalogTagOf,
+    useAudienceOf, CONNECTION_GROUPS, catalogTagOf,
     connectionCountsOf,
     useLibraryLife,
     type CatalogEntry,
@@ -56,6 +56,7 @@ interface LibraryInput {
     readonly role: string | undefined
     /** The tile status of a connector from the workspace's connections of it. */
     readonly lifeOf: ReturnType<typeof useLibraryLife>
+    readonly audienceOf: ReturnType<typeof useAudienceOf>
 }
 
 /** The line beside a tile's name: a planned connector says so; another one what it holds many of, with its early-access tag. */
@@ -65,7 +66,6 @@ const bylineOf = (isSoon: boolean, many: string, tag: string | undefined): strin
 }
 
 /** The groups of the library, in the order they head it. */
-const GROUP_ORDER: ReadonlyArray<string> = ["chat", "money", "google", "data", "sales", "accounting"]
 
 const IDLE_WANT: LibraryCard["want"] = { isPending: false, isDone: false }
 
@@ -83,7 +83,7 @@ const cardOf = (known: KnownEntry, input: LibraryInput): LibraryCard => {
         id: entry.id,
         name,
         blurb,
-        audienceLine: audienceLineOf(entry, input.t),
+        audienceLine: audienceLineOf(input.audienceOf(entry), input.t),
         glyph: entry.glyph,
         ...(logo === undefined ? {} : { logo }),
         ...(entry.provider === undefined ? {} : { guide: entry.provider }),
@@ -124,7 +124,7 @@ const libraryOf = (input: LibraryInput) => {
     const perGroup = (id: string) => searched.filter((item) => groupOfEntry(item.entry) === id).length
     const categories: ReadonlyArray<LibraryCategory> = [
         { id: "all", label: t("group_all"), count: searched.length },
-        ...GROUP_ORDER.filter((id) => perGroup(id) > 0).map((id) => ({
+        ...CONNECTION_GROUPS.filter((id) => perGroup(id) > 0).map((id) => ({
             id,
             label: t(`group_${id}`),
             count: perGroup(id),
@@ -155,6 +155,7 @@ export const ConnectionLibrary = () => {
     const [wants, setWants] = useState<Readonly<Record<string, LibraryCard["want"]>>>({})
     const want = useWantConnector()
     const lifeOf = useLibraryLife()
+    const audienceOf = useAudienceOf()
     const askFor = (id: string) => {
         setWants((current) => ({ ...current, [id]: { isPending: true, isDone: false } }))
         void want(id).then((result) =>
@@ -168,8 +169,8 @@ export const ConnectionLibrary = () => {
         )
     }
     const { categories, cards } = useMemo(
-        () => libraryOf({ workspaceId, t, items, text, group, wants, role, lifeOf }),
-        [workspaceId, t, items, text, group, wants, role, lifeOf],
+        () => libraryOf({ workspaceId, t, items, text, group, wants, role, lifeOf, audienceOf }),
+        [workspaceId, t, items, text, group, wants, role, lifeOf, audienceOf],
     )
     return (
         <ConnectionLibraryBase

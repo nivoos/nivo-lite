@@ -33,6 +33,8 @@ export interface CreateAgentInstanceRequest {
      * the module's proposal as it is; an empty list attaches nothing.
      */
     readonly providerRights?: ReadonlyArray<AgentProviderRight> | null | undefined
+    /** True for the channel front door (a platform door, which installs what its package declares as a front door even when the module is not `available`); no transport input sets it. */
+    readonly platform?: boolean | undefined
 }
 
 /** One connected account a new agent is attached to. */

@@ -1,6 +1,9 @@
 import { Injectable, Optional } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
 import { InjectClock, type Clock } from "@modules/platform/clock"
+import { lockStreamSubject } from "@modules/platform/database"
+import { InjectQueueOutbox, type QueueOutbox } from "@modules/platform/queue"
+import { DELIVER_RECORD_EVENT_JOB, RECORD_EVENTS_QUEUE, RecordEventsJob, type RecordEventOp, type RecordEventPayload } from "@modules/queues/record-events"
 import { InjectIds, type Ids } from "@modules/platform/ids"
 import { eachInOrder } from "@modules/platform/primitives"
 import { formatSequence, sequencePeriodOf, type EntityDefinition } from "@nivo-lite/agent-sdk/entity"
@@ -40,6 +43,7 @@ import { insertStateRefusal, movesState, updateStateRefusal } from "./policies/s
 import { updateRecord } from "./policies/update-record.policy"
 import type { RecordContactsPort } from "./record-contacts.port"
 import { upsertRecord } from "./policies/upsert-record.policy"
+import { isAppendOnly, streamSubjectOf, writtenOf } from "./record-stream.policy"
 import { sequenceDateOf } from "./sequence-date.policy"
 
 const STALE: EngineResult = { ok: false, reason: "stale" }
@@ -58,6 +62,8 @@ export type ContactErasure =
           readonly cleared: number
           /** The object keys of the files the removed records held: removed from the store by the caller once committed. */
           readonly files: ReadonlyArray<string>
+          /** The records the erase soft-deleted (cascades included): what was a subject of its own ends with the person (agent-data). */
+          readonly hidden: ReadonlyArray<ContactRecord>
       }
     /** A `restrict` ref still links to a record the erase would remove: nothing was written. */
     | { readonly kind: "blocked"; readonly relation: string }
@@ -111,6 +117,8 @@ export class EntityMutationService {
         @InjectClock() private readonly clock: Clock,
         @InjectIds() private readonly ids: Ids,
         @Optional() @InjectRecordContacts() private readonly contacts?: RecordContactsPort,
+        // The write events of the types that declare `events` (concept agent-data rule 2), written in the write's own transaction.
+        @Optional() @InjectQueueOutbox() private readonly outbox?: QueueOutbox,
     ) {}
 
     /**
@@ -126,6 +134,16 @@ export class EntityMutationService {
                 params: { problem: first.code, at: first.at },
             })
         requireAgentScope(tx, mutation.entity)
+        // An append-only type holds facts (concept agent-data rule 10): refused by the engine, before any statement, for every door.
+        if ((mutation.op === "update" || mutation.op === "upsert") && isAppendOnly(this.engine.definition(mutation.entity)))
+            throw new EntityEngineError({ code: EntityEngineErrorCode.AppendOnly, params: { entity: mutation.entity } })
+        const result = await this.written(tx, mutation)
+        await this.emitted(tx, mutation, by, result)
+        return result
+    }
+
+    /** Runs the write of one validated mutation tree. */
+    private async written(tx: ScopedTx, mutation: Mutation): Promise<EngineResult> {
         switch (mutation.op) {
             case "insert":
                 return await this.proven(tx, mutation.entity, mutation.values, (values) =>
@@ -150,6 +168,44 @@ export class EntityMutationService {
             case "unlink":
                 return await this.write(tx, mutation.entity, (inner) => this.relink(inner, mutation, unlinkRecords))
         }
+    }
+
+    /**
+     * THE WRITE EVENT (concept agent-data rule 2): a write of a type that declares `events` (an insert, an update, an upsert, an ensure that
+     * created, a soft delete; never a link) writes ONE queue outbox row in the caller's transaction, so the event exists exactly when the
+     * write commits. It carries ids, the op, the writer, the declared subject's value and enum members, read from the row written. A type
+     * that declares no events writes nothing; one that does with no outbox bound refuses the write rather than lose its event.
+     */
+    private async emitted(tx: ScopedTx, mutation: Mutation, by: MutationBy, result: EngineResult): Promise<void> {
+        if (!result.ok || mutation.op === "link" || mutation.op === "unlink") return
+        if (mutation.op === "ensure" && result.created !== true) return
+        const definition = this.engine.definition(mutation.entity)
+        const op: RecordEventOp = mutation.op === "delete" ? "deleted" : (mutation.op === "insert" || result.created === true) ? "created" : "changed"
+        // A soft delete bumps the version of the row it read: the deleted record's version is one more.
+        const version = op === "deleted" ? (BigInt(result.row.version) + 1n).toString() : result.version
+        const written = writtenOf(definition, result.row)
+        const agentId = tx.agent?.id
+        if (written === null || agentId === undefined) return
+        if (this.outbox === undefined)
+            throw new EntityEngineError({ code: EntityEngineErrorCode.PortUnprovided, params: { port: RECORD_EVENTS_QUEUE } })
+        const writerRunId = tx.agent?.writerRunId ?? null
+        const payload: RecordEventPayload = {
+            workspaceId: tx.workspaceId,
+            agentId,
+            type: mutation.entity,
+            recordId: result.row.id,
+            version,
+            op,
+            writer: writerRunId !== null ? "run" : by,
+            writerRunId,
+            subject: written.subject,
+            contactId: written.contactId,
+            fields: written.fields,
+        }
+        await this.outbox.write(tx.manager, RECORD_EVENTS_QUEUE, payload, {
+            job: RecordEventsJob.Deliver,
+            dedupeKey: DELIVER_RECORD_EVENT_JOB.onceKey(payload),
+        })
     }
 
     /**
@@ -182,7 +238,8 @@ export class EntityMutationService {
             // The records a `clear` field ties to the person are kept untouched, the reference with them (never patched to null).
             const cleared = clear.filter((record) => !gone.has(`${record.entity}:${record.id}`))
             // A soft delete keeps the row and so its files: nothing is handed back to remove (owner order: only soft delete).
-            return { kind: "erased", erased: removed.removed.length, cleared: cleared.length, files: [] }
+            const hidden = removed.removed.map((record) => ({ type: record.entity, id: record.id }))
+            return { kind: "erased", erased: removed.removed.length, cleared: cleared.length, files: [], hidden }
         })
     }
 
@@ -231,7 +288,13 @@ export class EntityMutationService {
         const entity: EntityDefinition = this.engine.definition(entityName)
         const asked = contactIdsOf(entity, values)
         if (asked.length === 0) return await write(values)
-        const current = this.contacts === undefined ? new Map<string, string>() : await this.contacts.currentOf(tx.workspaceId, asked)
+        const { contacts } = this
+        // Read on the write's OWN connection, outside the scope (the scope role has no grant on contacts), never on a second connection of
+        // the pool: from the second write of an action on, this transaction holds the earlier writes' locks (concept outbox-job rule 12).
+        const current =
+            contacts === undefined
+                ? new Map<string, string>()
+                : await this.engine.outsideScope(tx, (manager) => contacts.currentOf(tx.workspaceId, asked, manager))
         const fitted = withCurrentContacts(entity, values, current)
         if (!fitted.ok) return invalidAt(fitted.field)
         return await write({ ...values, ...fitted.contacts })
@@ -240,6 +303,7 @@ export class EntityMutationService {
     private async insert(inner: ScopedTx, mutation: Insert): Promise<EngineResult> {
         const refused = insertStateRefusal(this.engine.definition(mutation.entity), mutation.values)
         if (refused !== null) return invalidAt(refused)
+        await this.lockedStream(inner, mutation.entity, mutation.values)
         // A link to a deleted (or absent) target is refused before the record is written.
         for (const [relation, toId] of Object.entries(mutation.links ?? {})) {
             if (!(await linkTargetIsLive(inner, this.engine.catalog, { entity: mutation.entity, relation, toId }))) return MISSING
@@ -289,6 +353,7 @@ export class EntityMutationService {
     private async ensure(inner: ScopedTx, mutation: Ensure): Promise<EngineResult> {
         const refused = insertStateRefusal(this.engine.definition(mutation.entity), mutation.values)
         if (refused !== null) return invalidAt(refused)
+        await this.lockedStream(inner, mutation.entity, mutation.values)
         return createdOf(
             await ensureRecord(inner, this.engine.catalog, {
                 entity: mutation.entity,
@@ -321,6 +386,15 @@ export class EntityMutationService {
             toId: mutation.to,
         })
         return okOf(row)
+    }
+
+    /**
+     * The stream lock of an append to an append-only type (concept agent-data rule 12): taken in the write's transaction before the row is
+     * numbered, held until it ends, so the facts of one subject commit in the order of their numbers. Nothing for any other type.
+     */
+    private async lockedStream(inner: ScopedTx, entity: string, values: WriteValues): Promise<void> {
+        const stream = streamSubjectOf(this.engine.definition(entity), values)
+        if (stream !== null) await lockStreamSubject(inner.manager, inner.workspaceId, stream.stream, stream.subject)
     }
 
     private stamp(): InsertStamp {

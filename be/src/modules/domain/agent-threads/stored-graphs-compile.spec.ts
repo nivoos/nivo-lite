@@ -15,7 +15,7 @@ import type { TemplatePin } from "./template-compiler.policy"
 // versions is in the T output of the requests file (25 of 25 compiled on 2026-11-11).
 
 /** Where the seed keeps the graph files it publishes as each agent's own flow, from this folder. */
-const SEEDS_DIR = join(__dirname, "../../../../../.starcistacks/dev/seeds/data/graphs")
+const SEEDS_DIR = join(__dirname, "../../../tests/fixtures/graphs")
 
 /** What the engine compiles against at run time: the control nodes, the engine's own steps of a @2 graph and every template node. */
 // Built exactly as `ThreadGraphsService.routed` builds it (the `defineNode` nodes and `templateStepIds()`), so it cannot drift from the

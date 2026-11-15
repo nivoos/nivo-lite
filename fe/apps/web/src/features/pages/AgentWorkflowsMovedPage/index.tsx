@@ -1,8 +1,6 @@
 import type { ReactElement } from "react"
 import type { Metadata } from "next"
 import { getLocale, getTranslations } from "next-intl/server"
-import { notFound } from "next/navigation"
-import { isModuleKey } from "@/modules/catalog"
 import { navigation } from "@/modules/i18n"
 import { workflowsHref } from "@/modules/installations"
 import { workspaceHref } from "@/modules/routes"
@@ -23,7 +21,6 @@ export const agentWorkflowsMovedMetadata = async (): Promise<Metadata> => {
 
 /** Moved: the workflows are their own tab of the agent, so the old Setup address forwards there. */
 export const AgentWorkflowsMovedPage = async (props: AgentWorkflowsMovedPageProps): Promise<ReactElement> => {
-    if (!isModuleKey(props.module)) notFound()
     return navigation.redirect({
         href: workspaceHref(props.workspaceId, workflowsHref(props.module, props.installationId, props.workflow)),
         locale: (await getLocale()) === "en" ? "en" : "vi",

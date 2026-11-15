@@ -21,7 +21,7 @@ export interface EffectRightLine {
     readonly workspaceId: string
     /** The agent of the run. */
     readonly agentId: string
-    /** The effect (its id is its tool id: `nivo.tool.customer.message.send`, `nivo.tool.payment.transfer.create`). */
+    /** The effect (its id is its tool id: `nivo.tool.customer.message.send`, `nivo.tool.payment.request.create`). */
     readonly effect: string
     /** The verdict the rights gave. */
     readonly verdict: RightVerdict

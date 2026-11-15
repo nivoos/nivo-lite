@@ -1,10 +1,13 @@
 import { readFileSync } from "node:fs"
+import { mock } from "@starci/jest-preset"
 import { ChannelsErrorCode, type CustomerSendRequest } from "@modules/domain/channels"
 import { ProviderSandboxErrorCode } from "@modules/domain/provider-sandbox"
 import { connectionRecord } from "@tests/fixtures/builders/connection-records.builder"
 import { sandboxAccount, sandboxServiceOf, sandboxServiceOff } from "@tests/fixtures/builders/provider-sandbox.builder"
 import { META_REPLY_WINDOW_MS, META_SANDBOX_CATALOGUE } from "./meta-sandbox.catalogue"
-import { META_SEND_SANDBOX_CASES } from "./meta-sandbox-send.catalogue"
+import { META_SANDBOX_DELIVERED_STATE, META_SEND_CASE, META_SEND_SANDBOX_CASES } from "./meta-sandbox-send.catalogue"
+import { MetaChannelSender } from "./meta-channel-sender.service"
+import { MetaCustomerSendService } from "./meta-customer-send.service"
 import { MetaSandboxSendService } from "./meta-sandbox-send.service"
 
 const ACCOUNT = sandboxAccount({ id: "conn-m", workspaceId: "ws-1", provider: "meta" })
@@ -81,6 +84,65 @@ describe("MetaSandboxSendService", () => {
         await expect(service.send(CONNECTION, TARGET, PERSON, requestOf())).resolves.toEqual(NO)
     })
 
+    it("META-SEND-5 (sticky): throws the live port's not-sent answer for Meta's temporarily unavailable (Graph code 2), reason meta_unavailable", async () => {
+        const { sandbox, service } = setup()
+        await sandbox.setNextCase(ACCOUNT, "send", META_SEND_CASE.unavailable)
+
+        const notSent = { code: ChannelsErrorCode.SendUnavailable, params: { reason: "meta_unavailable" } }
+        await expect(service.send(CONNECTION, TARGET, PERSON, requestOf())).rejects.toMatchObject(notSent)
+        await expect(service.send(CONNECTION, TARGET, PERSON, requestOf())).rejects.toMatchObject(notSent)
+    })
+
+    it("META-SEND-6 and 7: a refused Page token (190) and a person Meta cannot reach (551) are the live sender's no; nothing reached the person", async () => {
+        const { sandbox, service } = setup()
+
+        for (const picked of [META_SEND_CASE.tokenRefused, META_SEND_CASE.recipientUnavailable]) {
+            await sandbox.setNextCase(ACCOUNT, "send", picked)
+            await expect(service.send(CONNECTION, TARGET, PERSON, requestOf())).resolves.toEqual(NO)
+            await expect(service.send(CONNECTION, TARGET, PERSON, requestOf())).resolves.toEqual(NO)
+        }
+        await expect(sandbox.kept(ACCOUNT, META_SANDBOX_DELIVERED_STATE, PERSON)).resolves.toBeNull()
+    })
+
+    it("META-SEND-8 (a long text, the first part delivered, then Meta's rate limit): the unknown-outcome receipt, NOT the not-sent error, because a part went out", async () => {
+        const { sandbox, service } = setup()
+        await sandbox.setNextCase(ACCOUNT, "send", META_SEND_CASE.partial)
+
+        await expect(service.send(CONNECTION, TARGET, PERSON, requestOf({ text: "a very long text" }))).resolves.toEqual(NO)
+        await expect(sandbox.kept(ACCOUNT, META_SANDBOX_DELIVERED_STATE, PERSON)).resolves.toBe(1)
+    })
+
+    it("META-SEND-9 (no answer, but delivered): the unknown-outcome receipt and the person HAS the line; the engine's repeat then delivers a second time", async () => {
+        const { sandbox, service } = setup()
+        await sandbox.setNextCase(ACCOUNT, "send", META_SEND_CASE.appliedNoAnswer)
+        await expect(service.send(CONNECTION, TARGET, PERSON, requestOf())).resolves.toEqual(NO)
+        await expect(sandbox.kept(ACCOUNT, META_SANDBOX_DELIVERED_STATE, PERSON)).resolves.toBe(1)
+
+        await sandbox.setNextCase(ACCOUNT, "send", META_SEND_CASE.delivered)
+        await expect(service.send(CONNECTION, TARGET, PERSON, requestOf())).resolves.toEqual(DELIVERED)
+        await expect(sandbox.kept(ACCOUNT, META_SANDBOX_DELIVERED_STATE, PERSON)).resolves.toBe(2)
+    })
+
+    it.each([
+        [META_SEND_CASE.windowClosed, { ok: false, reason: "window_expired" }],
+        [META_SEND_CASE.timeout, null],
+        [META_SEND_CASE.tokenRefused, { ok: false, reason: "token" }],
+        [META_SEND_CASE.recipientUnavailable, { ok: false, reason: "recipient_unavailable" }],
+        [META_SEND_CASE.rateLimited, { ok: false, reason: "rate_limited" }],
+        [META_SEND_CASE.unavailable, { ok: false, reason: "unavailable" }],
+        [META_SEND_CASE.partial, { ok: false, reason: "rate_limited", detail: "sent 1 of 2 parts", partsSent: 1 }],
+    ] as const)("%s answers what the LIVE twin answers for the Page sender's matching answer (same receipt, or the same not-sent error)", async (picked, senderAnswer) => {
+        const { sandbox, service } = setup()
+        await sandbox.setNextCase(ACCOUNT, "send", picked)
+        const sender = mock<MetaChannelSender>()
+        sender.deliver.mockResolvedValue(senderAnswer)
+        const live = new MetaCustomerSendService(sender)
+
+        const outcome = (work: Promise<unknown>) => work.then((value) => ({ value }), (cause: { code: string; params: unknown }) => ({ code: cause.code, params: cause.params }))
+
+        expect(await outcome(service.send(CONNECTION, TARGET, PERSON, requestOf()))).toEqual(await outcome(live.send(CONNECTION, TARGET, PERSON, requestOf())))
+    })
+
     it("answers a person with no id as the live sender does: its no", async () => {
         const { service } = setup()
 
@@ -114,10 +176,11 @@ describe("MetaSandboxSendService", () => {
         await expect(off.send(CONNECTION, TARGET, PERSON, requestOf())).rejects.toMatchObject({ code: ProviderSandboxErrorCode.Off })
     })
 
-    it("has unique META-SEND-<n> ids, exactly one default case, all for the send operation", () => {
-        expect(META_SEND_SANDBOX_CASES.map((one) => one.id)).toEqual(["META-SEND-1", "META-SEND-2", "META-SEND-3", "META-SEND-4"])
-        expect(META_SEND_SANDBOX_CASES.filter((one) => one.default === true).map((one) => one.id)).toEqual(["META-SEND-1"])
+    it("has unique META-SEND-<n> ids, exactly one default case tagged ok, all for the send operation, every case tagged with its outcome", () => {
+        expect(META_SEND_SANDBOX_CASES.map((one) => one.id)).toEqual(Array.from({ length: 9 }, (_, index) => `META-SEND-${String(index + 1)}`))
+        expect(META_SEND_SANDBOX_CASES.filter((one) => one.default === true).map((one) => [one.id, one.outcome])).toEqual([["META-SEND-1", "ok"]])
         expect(META_SEND_SANDBOX_CASES.every((one) => one.operation === "send")).toBe(true)
+        expect(META_SEND_SANDBOX_CASES.map((one) => one.outcome)).toEqual(["ok", "refused", "timeout", "transient", "transient", "refused", "refused", "timeout", "timeout"])
     })
 
     it("R62 end to end in the sandbox: after META-1 the send is delivered; after META-3 (a line 25 h old) it is refused outside the window", async () => {

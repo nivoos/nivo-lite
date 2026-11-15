@@ -41,7 +41,7 @@ export interface PollScheduleRow {
     readonly provider: string
     /** The interval the connection was last planned with, in milliseconds. */
     readonly intervalMs: number
-    /** Consecutive failed polls. */
+    /** Consecutive polls that did not read: failed, or deferred by the provider's rate limit. */
     readonly failures: number
     /** The breaker of the connection. */
     readonly breakerState: BreakerState

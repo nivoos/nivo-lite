@@ -48,7 +48,7 @@ export const REASON_LEARNED_VI =
 export const REASON_CONTRADICTION_PART_VI = "hai câu trả lời khác nhau: 'Ghi nhận' (10/11) và 'Hoàn tiền' (11/11)"
 
 /** A text carrying a tool id of the engine. */
-export const TEXT_TOOL_ID_VI = "lệnh tạo QR nivo.tool.payment.transfer.create"
+export const TEXT_TOOL_ID_VI = "lệnh tạo yêu cầu thanh toán nivo.tool.payment.request.create"
 
 /** A text carrying a snake_case key of the engine. */
 export const TEXT_SNAKE_KEY_VI = "giữ theo order_has_money"

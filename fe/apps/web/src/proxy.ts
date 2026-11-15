@@ -22,6 +22,7 @@ const PUBLIC_PATHS = [
     "/api/v1",
     "/api/content",
     "/form",
+    "/pay/done",
     "/l",
     "/health",
     // A prototype build answers the fixture workspace from fixtures, with no back end to sign in to (the url with or without its locale).

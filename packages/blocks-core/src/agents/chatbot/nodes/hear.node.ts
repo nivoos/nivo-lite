@@ -178,6 +178,8 @@ export const chatbotHearNode: TemplateNode<
     tools: [TOOL.conversationMessageList],
     mode: "auto",
     accounts: [],
+    // The consuming read of the subject's stream (E-FIX12 rule A-7): the lines held behind a stopped run (`ctx.run.queue`) are this step's to take.
+    readsHeldEvents: true,
     params,
     input,
     output,

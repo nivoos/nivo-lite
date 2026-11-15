@@ -1,5 +1,7 @@
 import type { DriverAdapter, OpenContext } from "@starci/seed"
 import type { createGitDriver, openReviewTree, pinRepository } from "@starci/seed/git"
+import type { postgresStore } from "@starci/seed/postgres"
+import type { OwnerConnection } from "@modules/platform/database"
 
 /** Where a repository is fetched from and which commit it is read at. */
 export interface SeedPinRequest {
@@ -77,4 +79,16 @@ export interface SeedGitLibrary {
     readonly openReviewTree: typeof openReviewTree
     /** Builds the git driver over a local working copy. */
     readonly createGitDriver: typeof createGitDriver
+}
+
+/** The function of the postgres layer of `@starci/seed` the integration calls (injected, so a spec runs no database). */
+export interface SeedPostgresLibrary {
+    /** Builds a store over a whole PostgreSQL database. */
+    readonly postgresStore: typeof postgresStore
+}
+
+/** Builds the dedicated owner-role connection of the whole-database store. */
+export interface SeedDatabaseConnector {
+    /** The connection for a connection URL; nothing is opened until `initialize`. */
+    connect(url: string): OwnerConnection
 }

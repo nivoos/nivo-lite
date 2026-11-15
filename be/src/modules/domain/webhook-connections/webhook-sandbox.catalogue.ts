@@ -5,6 +5,7 @@ import type {
     SandboxInboundContext,
     SandboxInput,
     SandboxInputField,
+    SandboxOutcome,
     SandboxWebhookEvent,
 } from "@modules/domain/provider-sandbox"
 
@@ -28,7 +29,14 @@ export const WEBHOOK_CASE = {
     serverError: "WEBHOOK-10",
     noAnswer: "WEBHOOK-11",
     unreachable: "WEBHOOK-12",
+    eventNamed: "WEBHOOK-13",
+    signatureRefused: "WEBHOOK-14",
+    endpointGone: "WEBHOOK-15",
+    noAnswerButReceived: "WEBHOOK-16",
 } as const
+
+/** The sandbox state name that keeps the deliveries the sandbox receiver took (key: the delivery id): WEBHOOK-16 receives, then never answers. */
+export const WEBHOOK_SANDBOX_RECEIVED_STATE = "received"
 
 /** The webhook route of an endpoint on NIVO for one account (the signed door of the generic webhook). */
 const endpointRoute = (connectionId: string): string => `api/inbound/${connectionId}`
@@ -60,10 +68,11 @@ const caseOf = (
 })
 
 /** One outgoing case: what the receiver answers to the signed delivery. */
-const deliver = (id: string, label: string, isDefault: boolean): SandboxCase => ({
+const deliver = (id: string, label: string, outcome: SandboxOutcome, isDefault: boolean): SandboxCase => ({
     id,
     label,
     operation: WEBHOOK_DELIVER_OPERATION,
+    outcome,
     ...(isDefault ? { default: true as const } : {}),
 })
 
@@ -112,11 +121,19 @@ export const WEBHOOK_SANDBOX_CATALOGUE: SandboxCatalogue = {
             label: "A type that is no event identity (it holds a space): the door refuses it before anything is kept",
             inbound: caseOf(({ reference }, id) => [{ body: { type: "not an event", id, data: { reference } } }]),
         },
-        deliver(WEBHOOK_CASE.delivered, "The receiver accepts the signed delivery (HTTP 200)", true),
-        deliver(WEBHOOK_CASE.refused, "The receiver refuses it for good (HTTP 400): recorded on the connection, never retried", false),
-        deliver(WEBHOOK_CASE.rateLimited, "The receiver asks to slow down (HTTP 429): the queue retries", false),
-        deliver(WEBHOOK_CASE.serverError, "The receiver fails with a server error (HTTP 503): the queue retries", false),
-        deliver(WEBHOOK_CASE.noAnswer, "The receiver does not answer in time (timeout): the outcome is unknown, the queue retries", false),
-        deliver(WEBHOOK_CASE.unreachable, "The receiver cannot be reached: nothing arrived, the queue retries", false),
+        deliver(WEBHOOK_CASE.delivered, "The receiver accepts the signed delivery (HTTP 200)", "ok", true),
+        deliver(WEBHOOK_CASE.refused, "The receiver refuses it for good (HTTP 400): recorded on the connection, never retried", "refused", false),
+        deliver(WEBHOOK_CASE.rateLimited, "The receiver asks to slow down (HTTP 429): the queue retries", "transient", false),
+        deliver(WEBHOOK_CASE.serverError, "The receiver fails with a server error (HTTP 503): the queue retries", "transient", false),
+        deliver(WEBHOOK_CASE.noAnswer, "The receiver does not answer in time (timeout): the outcome is unknown, the queue retries", "timeout", false),
+        deliver(WEBHOOK_CASE.unreachable, "The receiver cannot be reached: nothing arrived, the queue retries", "transient", false),
+        {
+            id: WEBHOOK_CASE.eventNamed,
+            label: "The event named `event`, not `type`: the sender names the event under the body's `event` member (the door reads `type`, then `event`)",
+            inbound: caseOf(({ type, reference }, id) => [{ body: { event: type, id, data: { reference } } }]),
+        },
+        deliver(WEBHOOK_CASE.signatureRefused, "The receiver refuses the signature (HTTP 401): recorded on the connection, never retried; only the owner can fix the receiver or the key", "refused", false),
+        deliver(WEBHOOK_CASE.endpointGone, "The receiver's endpoint is gone (HTTP 410): recorded on the connection, never retried; the owner must name a new address", "refused", false),
+        deliver(WEBHOOK_CASE.noAnswerButReceived, "The receiver took the delivery but never answered in time: it IS received (kept in the account's state), the delivery says timeout; the queue retries with the same delivery id", "timeout", false),
     ] satisfies ReadonlyArray<SandboxCase>,
 }

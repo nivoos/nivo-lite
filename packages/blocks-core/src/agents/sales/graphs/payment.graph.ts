@@ -39,6 +39,8 @@ const input = z.object({
     data: z
         .object({
             transactionId: z.string().min(1).max(MAX_ID).optional(),
+            // What the credit's provider identifies the payment by (R111): its request's reference, or the transfer content.
+            payKey: z.string().max(MAX_BODY).optional(),
             conversationId: z.string().min(1).max(MAX_ID).optional(),
             text: z.string().max(MAX_BODY).optional(),
             contactId: z.string().min(1).max(MAX_ID).nullish(),
@@ -53,11 +55,11 @@ const CATALOGUE: TemplateCatalogue = {
         vi: "Khi ng\u00e2n h\u00e0ng b\u00e1o c\u00f3 ti\u1ec1n v\u00e0o: n\u1ed9i dung ch\u1ee9a m\u00e3 \u0111\u01a1n v\u00e0 \u0111\u00fang t\u1ed5ng ti\u1ec1n th\u00ec ghi \u0111\u01a1n \u0111\u00e3 tr\u1ea3 v\u00e0 c\u1ea3m \u01a1n kh\u00e1ch; l\u1ec7ch ti\u1ec1n th\u00ec h\u1ecfi kh\u00e1ch; kh\u00f4ng kh\u1edbp th\u00ec b\u00e1o \u0111\u1ed9i",
         en: "When the bank reports money in: content holding the order code and the exact total records the order paid and thanks the customer; another amount asks the customer; no match tells the team",
     },
-    version: 12,
-    publishedAt: "2026-11-14T20:00:00.000Z",
+    version: 13,
+    publishedAt: "2026-11-15T04:00:00.000Z",
     notes: {
-        vi: "Khi khách báo đã chuyển: trả lời mọi tin khách nhắn từ lần shop trả lời gần nhất (kể cả ảnh), và báo đội đúng những tin đó; khoản tiền của khách đã bị xoá không trả cho đơn của họ mà báo đội",
-        en: "When a customer says they paid: answers every line they wrote since the shop last spoke (pictures included) and tells the team those lines; a credit for an erased customer's order is not recorded paid: the team is told",
+        vi: "Bản 13: khoản tiền về được đối chiếu với đơn theo khóa thanh toán của nhà cung cấp (mã yêu cầu thanh toán khi đơn giữ một yêu cầu, nếu không thì mã đơn trong nội dung chuyển khoản), không bao giờ theo chữ khác. Bản 12: khi khách báo đã chuyển: trả lời mọi tin khách nhắn từ lần shop trả lời gần nhất (kể cả ảnh), và báo đội đúng những tin đó; khoản tiền của khách đã bị xoá không trả cho đơn của họ mà báo đội",
+        en: "Version 13: a credit is matched with an order by the provider's payment key (the payment request's reference when the order keeps one, else the order's code in the transfer content), never by other words. Version 12: when a customer says they paid: answers every line they wrote since the shop last spoke (pictures included) and tells the team those lines; a credit for an erased customer's order is not recorded paid: the team is told",
     },
     // Seeded ACTIVE: a seed or re-seed adds it to the agent active, so the bank's credit reaches it.
     seedActive: true,
@@ -120,8 +122,9 @@ export const salesPaymentGraph: TemplateGraph = defineTemplateGraph({
                 collect: "pay",
                 nodes: {
                     named: ifNode({
-                        label: { vi: "Nội dung có mã đơn?", en: "Content names the order?" },
-                        when: contains(CREDIT.content, item("orderNo")),
+                        label: { vi: "Khoản tiền là của đơn?", en: "The credit pays the order?" },
+                        // R111: the credit's own payment key holds the order's (its request's reference, or its code for a bank transfer).
+                        when: contains(ref("trigger.data.payKey", { default: "" }), item("payKey")),
                         yes: "exact",
                         no: endItem,
                     }),

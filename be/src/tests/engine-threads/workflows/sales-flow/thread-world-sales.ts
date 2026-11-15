@@ -4,7 +4,13 @@ import { mock } from "@starci/jest-preset"
 import type { Provider } from "@nestjs/common"
 import { ConnectionsService } from "@modules/domain/connections"
 import { PAYMENT_TOOL, PaymentNativeService } from "@modules/domain/payment-tools/payment-native.service"
-import { PaymentInstructionRegistryService } from "@modules/domain/provider-registry"
+import { PaymentRequestNativeService } from "@modules/domain/payment-tools/payment-request-native.service"
+import { PayosPaymentRequestAdapter } from "@modules/domain/payos-provider/payos-payment-request.adapter"
+import { PayosSandboxPaymentLinkService } from "@modules/domain/payos-provider/payos-sandbox-payment-link.service"
+import { SepayPaymentRequestAdapter } from "@modules/domain/sepay-provider/sepay-payment-request.adapter"
+import { PaymentRequestRegistryService, type PaymentInstructionPort } from "@modules/domain/provider-registry"
+import type { ProviderSandboxService } from "@modules/domain/provider-sandbox"
+import { sandboxAccount, sandboxServiceOf } from "@tests/fixtures/builders/provider-sandbox.builder"
 import { NodeToolDoorService, ToolsError, toolArgumentsSchema } from "@modules/domain/tools"
 import { turnOfToken } from "../../thread-world-outside"
 import { chatRecordCall } from "../../thread-world-chat"
@@ -109,6 +115,14 @@ export interface SalesBooks {
     readonly timers: Map<string, WorldTimer>
     /** Every call of the door's tool road, in order. */
     readonly calls: Array<{ readonly tool: string; readonly args: Readonly<Record<string, unknown>> }>
+    /**
+     * The money account the pick order hands the payment-request calls (R111): the SePay account (a bank-transfer instruction, no request
+     * kept) or the payOS SANDBOX account (a hosted link through payOS's real sandbox link service). The world's door is handed no account,
+     * so the world states the one the runner would hand; the node and the graph are the same either way. Default: SePay.
+     */
+    payWith: "sepay" | "payos"
+    /** payOS's sandbox frame of the world (the links its sandbox account made, and the cases that move them). */
+    readonly payosSandbox: ProviderSandboxService
     /**
      * The calls the OWNER declared `ask` (a node's mode is the owner's one setting): the door raises the typed approval error for such a call
      * until a person's approval of its exact fingerprint rides on it, as the real door's `modeVerdictOf` does (proven in node-tool-door.node-mode.spec).
@@ -252,6 +266,62 @@ const recordCall = (db: MoneyDb, books: SalesBooks, call: NodeToolCall): unknown
     return recordOf(record)
 }
 
+/** SePay's bank-transfer instruction in the world: the account's receiving details and the QR picture composed from them (`qrOf`). */
+const SEPAY_INSTRUCTION: PaymentInstructionPort = {
+    provider: "sepay",
+    qrUrl: () => "",
+    transfer: (_connection, request) => {
+        const qr = qrOf(request.amountVnd, request.content)
+        return Promise.resolve({
+            qrImageUrl: textOf(qr.qrImageUrl),
+            bankCode: "ACB",
+            accountNumber: "123456",
+            accountHolder: "HOA SHOP",
+            content: request.content,
+            amountVnd: request.amountVnd,
+        })
+    },
+}
+
+/** The site origin the payOS return page is built under in the world. */
+const WORLD_SITE = "https://app.nivo.test"
+
+/** The sandbox account record of the world's payOS feed (`payos-1`). */
+export const PAYOS_SANDBOX_ACCOUNT = sandboxAccount({ id: "payos-1", workspaceId: WS, provider: "payos" })
+
+/**
+ * The payment-request family as the app runs it (R111): the REAL `PaymentRequestNativeService` over the registry both providers fill, SePay's
+ * adapter over its instruction and payOS's adapter over its REAL sandbox link service; the account is the one the world's pick hands.
+ */
+const requestCall = async (books: SalesBooks, call: NodeToolCall): Promise<unknown> => {
+    const registry = new PaymentRequestRegistryService()
+    registry.register(new SepayPaymentRequestAdapter(SEPAY_INSTRUCTION))
+    registry.register({
+        live: new PayosPaymentRequestAdapter(new PayosSandboxPaymentLinkService(books.payosSandbox), () => WORLD_SITE),
+        sandbox: new PayosPaymentRequestAdapter(new PayosSandboxPaymentLinkService(books.payosSandbox), () => WORLD_SITE),
+    })
+    const connections = mock<ConnectionsService>({
+        find: (workspaceId: string, id: string) =>
+            Promise.resolve(
+                id === BANK_FEEDS.payos
+                    ? { ...connectionRecordOf(workspaceId, { id, provider: "payos" }), sandbox: true }
+                    : id === BANK_FEEDS.sepay
+                      ? connectionRecordOf(workspaceId, { id, provider: "sepay" })
+                      : null,
+            ),
+    })
+    const tool = new PaymentRequestNativeService(connections, registry)
+    const turn = turnOfToken(call.token)
+    const account = call.account ?? { connectionId: BANK_FEEDS[books.payWith], provider: books.payWith }
+    const name = call.tool.replace(/^nivo\.tool\./u, "")
+    try {
+        return await tool.invoke(WS, name, call.args, { agentId: turn?.agentId ?? SALES, conversationId: null, connectionId: account.connectionId, provider: account.provider })
+    } catch (cause) {
+        if (!(cause instanceof ToolsError) || typeof cause.params.reason !== "string") throw cause
+        return refusal(cause.params.reason)
+    }
+}
+
 /** The world's bank feeds by name. */
 const FEED_NAMES: ReadonlyArray<BankFeed> = ["sepay", "casso", "payos"]
 
@@ -272,7 +342,7 @@ const bankConnectionsOf = (): ConnectionsService =>
  */
 const creditRead = async (db: MoneyDb, call: NodeToolCall): Promise<unknown> => {
     const services = chatServicesOf(db)
-    const tool = new PaymentNativeService(bankConnectionsOf(), new PaymentInstructionRegistryService(), services.raw, services.types)
+    const tool = new PaymentNativeService(bankConnectionsOf(), services.raw, services.types)
     const args = toolArgumentsSchema.safeParse(call.args)
     if (!args.success) return refusal("invalid_arguments")
     const turn = turnOfToken(call.token)
@@ -315,10 +385,9 @@ const salesDoorOf = (db: MoneyDb, books: SalesBooks, door: NodeToolDoorService):
             call.tool === TOOL.recordList
         )
             return Promise.resolve(recordCall(db, books, call))
-        if (call.tool === TOOL.paymentTransferCreate) {
-            const amountVnd = typeof call.args.amountVnd === "number" ? call.args.amountVnd : 0
-            return Promise.resolve(qrOf(amountVnd, textOf(call.args.content)))
-        }
+        // The payment request (R111): the REAL family, on the account the world's pick hands.
+        if (call.tool === TOOL.paymentRequestCreate || call.tool === TOOL.paymentRequestGet || call.tool === TOOL.paymentRequestCancel)
+            return requestCall(books, call)
         // One movement of the feed, read by the REAL tool over the account rows the feed's entry kept (ruling R51 item 2).
         if (call.tool === TOOL.paymentCreditGet) return creditRead(db, call)
         if (call.tool === TOOL.timerArm || call.tool === TOOL.timerCancel) return Promise.resolve(timerCall(db, books, call))
@@ -360,6 +429,8 @@ export const salesWorldOf = async (
         timers: new Map(),
         calls: [],
         asking: () => false,
+        payWith: "sepay",
+        payosSandbox: sandboxServiceOf(PAYOS_SANDBOX_ACCOUNT).sandbox,
     }
     // The shop's other bank feeds, attached to the Sales agent beside SePay: the money in reads whichever the credit came on.
     for (const feed of ["casso", "payos"] as const) {
@@ -427,7 +498,15 @@ export const customerSaysToSale = async (world: { readonly db: MoneyDb; readonly
 /** A credit of the bank feed arrives through the feed's real entry (kept once, translated, `deliver`ed); every wake it makes is run, then the engine's own that follow. */
 export const creditArrives = async (
     world: { readonly db: MoneyDb; readonly process: ThreadProcess },
-    credit: { readonly id: string; readonly amountVnd: number; readonly content: string; readonly direction?: "credit" | "debit"; readonly feed?: BankFeed },
+    credit: {
+        readonly id: string
+        readonly amountVnd: number
+        readonly content: string
+        readonly direction?: "credit" | "debit"
+        readonly feed?: BankFeed
+        /** The payment request the movement pays, when the feed names it (payOS's order code). */
+        readonly requestRef?: string
+    },
 ) => {
     const { db, process } = world
     const feed = credit.feed ?? "sepay"
@@ -439,6 +518,7 @@ export const creditArrives = async (
         amountVnd: credit.amountVnd,
         content: credit.content,
         ...(credit.direction === undefined ? {} : { direction: credit.direction }),
+        ...(credit.requestRef === undefined ? {} : { requestRef: credit.requestRef }),
         at: "2026-11-13T09:00:00.000Z",
     })
     const ended = await runTurns(process, wakes)

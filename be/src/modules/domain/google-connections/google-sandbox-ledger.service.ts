@@ -52,7 +52,7 @@ const appendRow = async (state: SandboxState, key: string): Promise<string> => {
  * The account's sticky NEXT CASE of each operation picks the outcome, never the request: `ready` is true (GOOGLE-LEDGER-1, default) or
  * false (-2); `append` appends the next row and answers its range (-3, default), or is refused as the live twin refuses a sheet Google
  * will not take (the ledger connection refused, -4), or gives no answer (-5, `unknown`, no row kept), or fails before leaving (-6,
- * `not_sent`); `void` appends a void row naming the transaction (-7, default) or is refused (-8). Rows are numbered from 2 (row 1 is the
+ * `not_sent`); `void` appends a void row naming the transaction (-7, default) or is refused (-8), fails before leaving (-9, `not_sent`), or gives no answer (-10, `unknown`); `-11` / `-12` append the row and then give no answer (`unknown`). Rows are numbered from 2 (row 1 is the
  * header the live twin writes first) and a repeat appends another row: like the live ledger, nothing here dedupes (the once-per-key
  * ledger of the tool does). A failure that applies nothing keeps no row. UNVERIFIED: whether live Google applied an unanswered append.
  */
@@ -81,6 +81,10 @@ export class GoogleSandboxLedgerService implements LedgerPort {
                         throw providerCallFailure("unknown")
                     case GOOGLE_LEDGER_CASE.appendFailed:
                         throw providerCallFailure("not_sent")
+                    case GOOGLE_LEDGER_CASE.appendAppliedNoAnswer:
+                        // The append reached Google (the row is there) and the answer was lost: the live ledger throws the cut with proof unknown.
+                        await appendRow(state, entry.transactionId)
+                        throw providerCallFailure("unknown")
                     default:
                         return await appendRow(state, entry.transactionId)
                 }
@@ -94,6 +98,12 @@ export class GoogleSandboxLedgerService implements LedgerPort {
             key: transactionId,
             answer: async (state) => {
                 if (state.nextCase === GOOGLE_LEDGER_CASE.voidRefused) throw refusedLedger()
+                if (state.nextCase === GOOGLE_LEDGER_CASE.voidFailed) throw providerCallFailure("not_sent")
+                if (state.nextCase === GOOGLE_LEDGER_CASE.voidNoAnswer) throw providerCallFailure("unknown")
+                if (state.nextCase === GOOGLE_LEDGER_CASE.voidAppliedNoAnswer) {
+                    await appendRow(state, `${transactionId}:void`)
+                    throw providerCallFailure("unknown")
+                }
                 return await appendRow(state, `${transactionId}:void`)
             },
         })

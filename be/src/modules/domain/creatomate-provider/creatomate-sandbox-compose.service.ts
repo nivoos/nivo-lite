@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common"
 import type { ConnectionRecord } from "@modules/domain/connections"
 import { ProviderSandboxService } from "@modules/domain/provider-sandbox"
-import { providerCallFailure, providerRefusal, withProof } from "@modules/domain/provider-registry"
+import { providerRefusal, withProof } from "@modules/domain/provider-registry"
 import type {
     ComposeSpec,
     OptionalRenderCallback,
@@ -20,9 +20,11 @@ import {
     CREATOMATE_SANDBOX_NO_CREDITS_HINT,
     CREATOMATE_SANDBOX_OUTPUT_URL,
     CREATOMATE_SANDBOX_PROVIDER,
+    CREATOMATE_SANDBOX_READS,
     CREATOMATE_SANDBOX_STARTS,
     creatomateSandboxRenderId,
 } from "./creatomate-sandbox.catalogue"
+import { creatomateAuthRefused, creatomateRateLimited, creatomateServerError, creatomateUnreachable } from "./creatomate-sandbox.failures"
 
 /** The state operation that holds one started render, by its render id: its case and how many status reads it has taken. */
 const RENDER_STATE = "render"
@@ -45,10 +47,11 @@ const keptRenderOf = (value: unknown): KeptRender | null => {
 /**
  * Creatomate's SANDBOX implementation of the compose purpose (owner rulings R56 / R59 / R60): used when the provider account is a sandbox
  * account, it answers from the hardcoded catalogue (`CREATOMATE-<n>`) and the account's state through the generic sandbox frame, and
- * never reaches a host. A start picks its case by the address of the spec's first clip; the render it answers is read back by `statusOf`
- * as a live poll would see it (queued, rendering, then the end, one step per read), or finished by the provider's webhook (the inbound
- * cases). A refusal is the error the live adapter throws for the same case; the spec is mapped by the live pure mapper first, so a spec
- * the RenderScript cannot carry is refused `rejected`, `not_sent`, as the live does.
+ * never reaches a host. A start is answered by the account's NEXT CASE of `start` (default: a render that completes); that case chooses
+ * the render's whole life (completes, fails, never finishes) and the render is read back by `statusOf` as a live poll would see it (queued,
+ * rendering, then the end, one step per read), or finished by the provider's webhook (the inbound cases). A `statusOf` case the account
+ * picked fails the read itself. A failure is the error the live adapter throws for the same case; the spec is mapped by the live pure
+ * mapper first, so a spec the RenderScript cannot carry is refused `rejected`, `not_sent`, as the live does.
  */
 export class CreatomateSandboxComposeService implements VideoComposePort {
     /** The provider key. */
@@ -59,32 +62,40 @@ export class CreatomateSandboxComposeService implements VideoComposePort {
 
     constructor(private readonly sandbox: ProviderSandboxService) {}
 
-    /** Starts one render: refused, accepted (its render id is the next running one) or accepted with an unknown outcome. */
+    /** Starts one render as the account's next case says: refused, rate limited, no answer, accepted (the next running id) or accepted with an unknown outcome. */
     start(connection: ConnectionRecord, spec: ComposeSpec, callback: OptionalRenderCallback): Promise<RenderStarted> {
-        const clipUrl = spec.clips[0]?.fileUrl ?? ""
         return this.sandbox.call(
             connection,
             "start",
             { spec, callback },
             {
-                key: clipUrl,
                 answer: async (state) => {
                     const mapped = creatomateSourceOf(spec)
                     if (!mapped.ok) throw withProof(providerRefusal(this.provider, "rejected", mapped.problems.join("; ")), "not_sent")
-                    const chosen = CREATOMATE_SANDBOX_STARTS.find((one) => one.clipUrl === clipUrl) ?? CREATOMATE_SANDBOX_DEFAULT_START
-                    if (chosen.outcome === "refused") {
-                        throw withProof(providerRefusal(this.provider, "rejected", CREATOMATE_SANDBOX_NO_CREDITS_HINT), "not_sent")
+                    const chosen = CREATOMATE_SANDBOX_STARTS.find((one) => one.caseId === state.nextCase) ?? CREATOMATE_SANDBOX_DEFAULT_START
+                    switch (chosen.outcome) {
+                        case "refused":
+                            throw withProof(providerRefusal(this.provider, "rejected", CREATOMATE_SANDBOX_NO_CREDITS_HINT), "not_sent")
+                        case "auth_refused":
+                            throw creatomateAuthRefused()
+                        case "rate_limited":
+                            throw creatomateRateLimited()
+                        case "timeout":
+                            throw creatomateUnreachable()
+                        case "accepted":
+                        case "unknown":
+                            break
                     }
                     const renderId = creatomateSandboxRenderId(state.seq)
                     await state.write(RENDER_STATE, renderId, { caseId: chosen.caseId, reads: 0 })
-                    if (chosen.outcome === "unknown") throw providerCallFailure("unknown")
+                    if (chosen.outcome === "unknown") throw creatomateServerError()
                     return { renderId }
                 },
             },
         )
     }
 
-    /** The render as one more status read sees it; a render the account never started is the refusal `not_found`. */
+    /** The render as one more status read sees it (or the failure the account's `statusOf` case names); a render the account never started is the refusal `not_found`. */
     statusOf(connection: ConnectionRecord, renderId: string): Promise<RenderState> {
         return this.sandbox.call(
             connection,
@@ -93,6 +104,16 @@ export class CreatomateSandboxComposeService implements VideoComposePort {
             {
                 key: renderId,
                 answer: async (state) => {
+                    switch (state.nextCase) {
+                        case CREATOMATE_SANDBOX_READS.authRefused:
+                            throw creatomateAuthRefused()
+                        case CREATOMATE_SANDBOX_READS.rateLimited:
+                            throw creatomateRateLimited()
+                        case CREATOMATE_SANDBOX_READS.timeout:
+                            throw creatomateUnreachable()
+                        case CREATOMATE_SANDBOX_READS.notFound:
+                            throw withProof(providerRefusal(this.provider, "not_found", CREATOMATE_SANDBOX_NOT_FOUND_HINT), "not_sent")
+                    }
                     const kept = keptRenderOf(await state.read(RENDER_STATE, renderId))
                     const chosen = kept === null ? undefined : CREATOMATE_SANDBOX_STARTS.find((one) => one.caseId === kept.caseId)
                     if (kept === null || chosen === undefined) {

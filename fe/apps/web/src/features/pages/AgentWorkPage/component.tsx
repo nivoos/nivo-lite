@@ -1,12 +1,11 @@
 import { AgentRunsPanes } from "@/components/blocks/AgentRunsPanes"
 import { AgentWorkPanes } from "@/components/blocks/AgentWorkPanes"
 import type { AgentWorkViewKey } from "@/modules/agentWork"
-import type { ModuleKey } from "@/modules/catalog"
 
 /** The type and the instance whose work the tab draws, and the view of the url. */
 export interface AgentWorkPageBaseProps {
     readonly props: {
-        readonly module: ModuleKey | undefined
+        readonly module: string | undefined
         readonly installationId: string | undefined
         readonly view: AgentWorkViewKey
     }

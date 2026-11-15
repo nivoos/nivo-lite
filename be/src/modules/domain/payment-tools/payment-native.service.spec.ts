@@ -1,48 +1,14 @@
 import { Test } from "@nestjs/testing"
 import { mock } from "@starci/jest-preset"
-import { ConnectionsService, type ConnectionRecord, type Provider } from "@modules/domain/connections"
-import { ToolsErrorCode, type NativeCaller } from "@modules/domain/tools"
-import { PaymentInstructionRegistryService, providerCallFailure, providerRefusal } from "@modules/domain/provider-registry"
-import type { PaymentInstructionPort, TransferInstruction } from "@modules/domain/provider-registry"
+import { ConnectionsService, type Provider } from "@modules/domain/connections"
+import type { NativeCaller } from "@modules/domain/tools"
 import { AccountDataReadService, AccountDataTypesService, type AccountDataTypeDef } from "@modules/domain/account-data"
 import { PAYMENT_REFUSAL_CLASS, PAYMENT_TOOL_BUSINESS_REFUSALS, PAYMENT_TOOL_REFUSALS } from "./payment-refusal.policy"
-import { TRANSFER_CONTENT_MAX, TRANSFER_CREATE_SCHEMA } from "./payment-native.schema"
 import { connectionRecord } from "@tests/fixtures/builders/connection-records.builder"
 import { PAYMENT_MANIFEST, PAYMENT_TOOL, PaymentNativeService } from "./payment-native.service"
 
-const ACCOUNT: ConnectionRecord = connectionRecord({ id: "conn-1", provider: "sepay", name: "Bank" })
-const caller = (connectionId?: string): NativeCaller => ({
-    agentId: "agent-1",
-    conversationId: null,
-    ...(connectionId === undefined ? {} : { connectionId, provider: "sepay" }),
-})
-
-// A handwritten instruction in the shape SePay's own documentation example gives (https://developer.sepay.vn/en/tien-ich-khac/tao-qr-code):
-// acc, bank, amount, des fixed in the image address.
-const INSTRUCTION: TransferInstruction = {
-    qrImageUrl: "https://vietqr.app/img?acc=9988776655&bank=Vietcombank&amount=100000&des=DH001",
-    bankCode: "Vietcombank",
-    accountNumber: "9988776655",
-    content: "DH001",
-    amountVnd: 100000,
-}
-
-const build = async (options: { readonly found?: ConnectionRecord | null } = {}) => {
-    const connections = mock<ConnectionsService>()
-    connections.find.mockResolvedValue(options.found === undefined ? ACCOUNT : options.found)
-    const port = mock<PaymentInstructionPort>({ provider: "sepay" })
-    port.transfer.mockResolvedValue(INSTRUCTION)
-    const registry = new PaymentInstructionRegistryService()
-    registry.register(port)
-    const moduleRef = await Test.createTestingModule({
-        providers: [
-            PaymentNativeService,
-            { provide: ConnectionsService, useValue: connections },
-            { provide: PaymentInstructionRegistryService, useValue: registry },
-        ],
-    }).compile()
-    return { service: moduleRef.get(PaymentNativeService), port, connections }
-}
+/** A caller with no account handed. */
+const caller = (): NativeCaller => ({ agentId: "agent-1", conversationId: null })
 
 const paramsOf = (work: Promise<unknown>): Promise<unknown> =>
     Promise.resolve(work.then(
@@ -50,9 +16,9 @@ const paramsOf = (work: Promise<unknown>): Promise<unknown> =>
         (cause: unknown) => (typeof cause === "object" && cause !== null && "params" in cause ? cause.params : undefined) ?? cause,
     ))
 
-describe("the payment-instruction manifest", () => {
-    it("names the generic purposes under nivo.tool, internal only, reads: the transfer instruction and one credit", () => {
-        expect(PAYMENT_MANIFEST.tools.map((tool) => tool.domain)).toEqual(["nivo.tool.payment.transfer.create", "nivo.tool.payment.credit.get"])
+describe("the payment-credit manifest", () => {
+    it("names the bank-move read under nivo.tool, internal only, a read (the payment request is its own family)", () => {
+        expect(PAYMENT_MANIFEST.tools.map((tool) => tool.domain)).toEqual(["nivo.tool.payment.credit.get"])
         for (const tool of PAYMENT_MANIFEST.tools) {
             expect(`${PAYMENT_MANIFEST.namespace ?? ""}.${tool.name}`).toBe(tool.domain)
             expect(tool.internalOnly).toBe(true)
@@ -64,94 +30,8 @@ describe("the payment-instruction manifest", () => {
         expect([...PAYMENT_TOOL_REFUSALS]).toEqual(Object.keys(PAYMENT_REFUSAL_CLASS))
         expect(Object.entries(PAYMENT_REFUSAL_CLASS).filter(([, kind]) => kind === "business").map(([reason]) => reason)).toEqual([
             ...PAYMENT_TOOL_BUSINESS_REFUSALS,
+            "no_request_state",
         ])
-    })
-})
-
-describe("the transfer arguments", () => {
-    it("takes a positive whole amount and a bounded content, nothing else", () => {
-        expect(TRANSFER_CREATE_SCHEMA.safeParse({ amountVnd: 100000, content: "DH001" }).success).toBe(true)
-        expect(TRANSFER_CREATE_SCHEMA.safeParse({ amountVnd: 0, content: "DH001" }).success).toBe(false)
-        expect(TRANSFER_CREATE_SCHEMA.safeParse({ amountVnd: -5, content: "DH001" }).success).toBe(false)
-        expect(TRANSFER_CREATE_SCHEMA.safeParse({ amountVnd: 10.5, content: "DH001" }).success).toBe(false)
-        expect(TRANSFER_CREATE_SCHEMA.safeParse({ amountVnd: 1000, content: "" }).success).toBe(false)
-        expect(TRANSFER_CREATE_SCHEMA.safeParse({ amountVnd: 1000, content: "   " }).success).toBe(false)
-        expect(TRANSFER_CREATE_SCHEMA.safeParse({ amountVnd: 1000, content: "x".repeat(TRANSFER_CONTENT_MAX) }).success).toBe(true)
-        expect(TRANSFER_CREATE_SCHEMA.safeParse({ amountVnd: 1000, content: "x".repeat(TRANSFER_CONTENT_MAX + 1) }).success).toBe(false)
-        expect(TRANSFER_CREATE_SCHEMA.safeParse({ amountVnd: 1000, content: "A", extra: 1 }).success).toBe(false)
-    })
-})
-
-describe("PaymentNativeService", () => {
-    it("asks the port of the handed account and answers the members it gave, no more", async () => {
-        const { service, port, connections } = await build()
-        const answer = await service.invoke("ws-1", PAYMENT_TOOL.transferCreate, { amountVnd: 100000, content: " DH001 " }, caller("conn-1"))
-        expect(connections.find).toHaveBeenCalledWith("ws-1", "conn-1")
-        expect(port.transfer).toHaveBeenCalledWith(ACCOUNT, { amountVnd: 100000, content: "DH001" })
-        expect(answer).toEqual(INSTRUCTION)
-        expect(answer).not.toHaveProperty("accountHolder")
-    })
-
-    it("refuses with not_connected when no account was handed, the account is gone or its provider serves no instruction", async () => {
-        const none = await build()
-        expect(await paramsOf(none.service.invoke("ws-1", PAYMENT_TOOL.transferCreate, { amountVnd: 1, content: "A" }, caller()))).toEqual({
-            reason: "not_connected",
-            refusalClass: "infrastructure",
-        })
-        const gone = await build({ found: null })
-        expect(await paramsOf(gone.service.invoke("ws-1", PAYMENT_TOOL.transferCreate, { amountVnd: 1, content: "A" }, caller("conn-1")))).toEqual({
-            reason: "not_connected",
-            refusalClass: "infrastructure",
-        })
-        const other = await build({ found: { ...ACCOUNT, provider: "casso" } })
-        expect(await paramsOf(other.service.invoke("ws-1", PAYMENT_TOOL.transferCreate, { amountVnd: 1, content: "A" }, caller("conn-1")))).toEqual({
-            reason: "not_connected",
-            refusalClass: "infrastructure",
-        })
-    })
-
-    it("answers a provider's refusal as the tool's own, the class kept", async () => {
-        const { service, port } = await build()
-        port.transfer.mockRejectedValueOnce(providerRefusal("sepay", "no_credential"))
-        expect(await paramsOf(service.invoke("ws-1", PAYMENT_TOOL.transferCreate, { amountVnd: 1, content: "A" }, caller("conn-1")))).toEqual({
-            reason: "not_connected",
-            refusalClass: "infrastructure",
-        })
-        port.transfer.mockRejectedValueOnce(providerRefusal("sepay", "rejected"))
-        expect(await paramsOf(service.invoke("ws-1", PAYMENT_TOOL.transferCreate, { amountVnd: 1, content: "A" }, caller("conn-1")))).toEqual({
-            reason: "rejected",
-            refusalClass: "business",
-        })
-        port.transfer.mockRejectedValueOnce(providerRefusal("sepay", "auth_refused"))
-        expect(await paramsOf(service.invoke("ws-1", PAYMENT_TOOL.transferCreate, { amountVnd: 1, content: "A" }, caller("conn-1")))).toEqual({
-            reason: "connection_refused",
-            refusalClass: "infrastructure",
-        })
-    })
-
-    it("throws any other failure as it is, with what it proves (the runner reads `not_sent` / `unknown`)", async () => {
-        const { service, port } = await build()
-        const failure = providerCallFailure("unknown")
-        port.transfer.mockRejectedValueOnce(failure)
-        await expect(service.invoke("ws-1", PAYMENT_TOOL.transferCreate, { amountVnd: 1, content: "A" }, caller("conn-1"))).rejects.toBe(failure)
-        const sent = providerCallFailure("not_sent")
-        port.transfer.mockRejectedValueOnce(sent)
-        await expect(service.invoke("ws-1", PAYMENT_TOOL.transferCreate, { amountVnd: 1, content: "A" }, caller("conn-1"))).rejects.toBe(sent)
-    })
-
-    it("refuses an argument outside its bounds before it asks any account", async () => {
-        const { service, connections } = await build()
-        const failure = await service
-            .invoke("ws-1", PAYMENT_TOOL.transferCreate, { amountVnd: 0, content: "A" }, caller("conn-1"))
-            .then(() => null, (cause: unknown) => cause)
-        expect(failure).not.toBeNull()
-        expect(connections.find).not.toHaveBeenCalled()
-    })
-
-    it("answers an unknown tool as unknown", async () => {
-        const { service } = await build()
-        await expect(service.invoke("ws-1", "payment.nothing", {}, caller("conn-1"))).rejects.toBeDefined()
-        expect(ToolsErrorCode.NativeRefused).toBeDefined()
     })
 })
 
@@ -226,12 +106,10 @@ const bankBuild = async (own: ReadonlySet<string> = new Set(["conn-sepay", "conn
     })
     const types = mock<AccountDataTypesService>()
     types.all.mockReturnValue([typeOf("sepay"), typeOf("casso"), typeOf("payos"), typeOf("sepay", "bank.event", "sepay.delivery")])
-    const registry = new PaymentInstructionRegistryService()
     const moduleRef = await Test.createTestingModule({
         providers: [
             PaymentNativeService,
             { provide: ConnectionsService, useValue: connections },
-            { provide: PaymentInstructionRegistryService, useValue: registry },
             { provide: AccountDataReadService, useValue: rows },
             { provide: AccountDataTypesService, useValue: types },
         ],
@@ -322,7 +200,6 @@ describe("PaymentNativeService credit.get", () => {
             providers: [
                 PaymentNativeService,
                 { provide: ConnectionsService, useValue: mock<ConnectionsService>() },
-                { provide: PaymentInstructionRegistryService, useValue: new PaymentInstructionRegistryService() },
             ],
         }).compile()
         const service = moduleRef.get(PaymentNativeService)

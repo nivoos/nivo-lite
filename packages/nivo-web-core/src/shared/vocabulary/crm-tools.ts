@@ -28,13 +28,15 @@ const words = (max: number): z.ZodString => z.string().max(max)
 const day = z.string().max(40).nullable()
 const channel = z.enum(["zalo", "email", "phone"])
 
-const customerCode = code("The customer's code in the CRM, as a CRM answer gave it.")
+const customerCode = z.string().min(1).max(80).describe("The customer's code in the CRM, as a CRM answer gave it.")
 const serviceCode = code("The service's code in the CRM, as a CRM answer gave it.")
 const renewalId = code("The renewal request, as a CRM answer gave it.")
 const ticketId = code("The ticket's `id`, as a CRM answer gave it.")
 const cursor = z.string().min(1).max(2048).optional().describe("Only to page: the `nextCursor` an earlier answer gave.")
 const limit = z.number().int().min(1).max(LIST_MAX).optional().describe("The most items in the answer.")
-const note = z.string().max(1000).optional().describe("A short note in the team's language.")
+/** The day a dated list counts from, as the CRM's document names it (`asOf`, a date). */
+const asOf = z.string().max(10).optional().describe("The day to count from (YYYY-MM-DD); today when left out.")
+const note = z.string().min(1).max(1000).optional().describe("A short note in the team's language.")
 
 /** A list answer as the CRM pages it: the items, and the point to page from (null at the end). */
 const listOf = (item: z.ZodObject): z.ZodObject =>
@@ -348,9 +350,9 @@ const stepTools: ReadonlyArray<ToolDefinition> = [
         CRM_NIVOWEB.get_services_expiring,
         z
             .object({
-                asOf: z.string().max(10).optional().describe("The day to count from (YYYY-MM-DD); today when left out."),
+                asOf,
                 withinDays: z.number().int().min(0).max(366).optional().describe("Services that end within this many days, by the truth in force."),
-                includeExpired: z.boolean().optional(),
+                includeExpired: z.enum(["true", "false"]).optional().describe("The CRM's query switch, as the word `true` or `false`: also the services already ended."),
                 limit,
                 cursor,
             })
@@ -415,7 +417,7 @@ const stepTools: ReadonlyArray<ToolDefinition> = [
     ),
     crmTool(
         CRM_NIVOWEB.get_receivables_overdue,
-        z.object({ limit, cursor }).strict(),
+        z.object({ asOf, limit, cursor }).strict(),
         listOf(
             z.looseObject({
                 projectCode: words(80),
@@ -526,7 +528,7 @@ const stepTools: ReadonlyArray<ToolDefinition> = [
             .object({
                 partyCode: code("The supplier, as the payable list answered it."),
                 einvoiceRef: z.string().min(1).max(200).describe("The e-invoice, by the id the e-invoice list answered."),
-                invoiceNo: z.string().min(1).max(60).describe("The invoice number, as the e-invoice gave it."),
+                invoiceNo: z.string().min(1).max(40).describe("The invoice number, as the e-invoice gave it."),
                 issuedOn: z.string().min(1).max(40).describe("The invoice day, as the e-invoice gave it."),
                 note,
             })
@@ -554,7 +556,19 @@ const stepTools: ReadonlyArray<ToolDefinition> = [
         true,
     ),
     crmTool(CRM_NIVOWEB.get_renewals_id, z.object({ id: renewalId }).strict(), renewal, false),
-    crmTool(CRM_NIVOWEB.get_renewals_open, z.object({ customerCode: customerCode.optional(), limit, cursor }).strict(), listOf(renewal), false),
+    crmTool(
+        CRM_NIVOWEB.get_renewals_open,
+        z
+            .object({
+                state: z.enum(["awaiting_payment", "paid", "pending_person"]).optional().describe("Only the requests in this state."),
+                customerCode: customerCode.optional(),
+                limit,
+                cursor,
+            })
+            .strict(),
+        listOf(renewal),
+        false,
+    ),
     crmTool(
         CRM_NIVOWEB.post_renewals_id_payments,
         z

@@ -75,6 +75,7 @@ export type TriggerSourceKind =
     | "schedule"
     | "chats-group"
     | "workflow"
+    | "record"
     | "provider"
 
 /** Every source kind, in the order the editor lists them. */
@@ -89,6 +90,7 @@ export const TRIGGER_SOURCE_KINDS: ReadonlyArray<TriggerSourceKind> = [
     "schedule",
     "chats-group",
     "workflow",
+    "record",
     "provider",
 ]
 
@@ -290,6 +292,24 @@ export const TRIGGER_SOURCES: Readonly<Record<TriggerSourceKind, TriggerSourceIn
         ]),
     },
     workflow: { kind: "workflow", connectionKind: null, supplies: [] },
+    // A write of a record type that declares `events` (concept agent-data rule 2): ids only, the declared enum values under `fields` (an open
+    // flat record: `data.fields.status`), the person when the type's subject is a contact field.
+    record: {
+        kind: "record",
+        connectionKind: null,
+        supplies: scopeWith(
+            [
+                { name: "type", type: "string" },
+                { name: "recordId", type: "string" },
+                { name: "op", type: "string" },
+                { name: "version", type: "string" },
+                { name: "writer", type: "string" },
+                { name: "subject", type: "string" },
+                { name: "fields", type: "object", open: "scalars" },
+            ],
+            ["contactId"],
+        ),
+    },
     // What it supplies is what the provider declares for the trigger it names: the host passes the declarations to the checks.
     provider: { kind: "provider", connectionKind: "provider", supplies: [] },
 }
@@ -807,6 +827,7 @@ export const triggerSourceSchema: z.ZodType<TriggerSource> = z.strictObject({
         "schedule",
         "chats-group",
         "workflow",
+        "record",
         "provider",
     ]),
     connectionId: keyText.min(1).nullable(),

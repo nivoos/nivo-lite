@@ -1,5 +1,5 @@
 import { slotOfSwr } from "@/hooks/slot"
-import { SANDBOX_SCOPE_ALL } from "@/modules/sandbox"
+import { isDeliveryMode, modeInputOf, SANDBOX_LATE_UNIT_IDS, SANDBOX_SCOPE_ALL, type SandboxLateUnit } from "@/modules/sandbox"
 import type { ReadResponse } from "@/hooks/workspaceread"
 import type { DataSlot, SandboxPanesBaseProps } from "@/modules/types"
 import { mutate } from "@/modules/viewer-cache"
@@ -39,6 +39,9 @@ export interface SandboxActionsInput {
     /** Reads again: the dev switch, the accounts, the parked runs, the providers. */
     readonly retry: Pick<SandboxPanesBaseProps["on"], "retryGate" | "retryAccounts" | "retryWaiting" | "retryProviders" | "retryAgents">
 }
+
+/** The unit of a `late` interval a word names; null for a word that names none. */
+const lateUnitOf = (word: string): SandboxLateUnit | null => SANDBOX_LATE_UNIT_IDS.find((unit) => unit === word) ?? null
 
 /** The inputs a send carries: every field that holds a value (typed or prefilled); an empty one is left to the back end. */
 const sendInputsOf = (reads: SandboxAccountReads): ReadonlyArray<{ readonly name: string; readonly value: string }> =>
@@ -92,15 +95,30 @@ const agentActionsOf = (input: SandboxActionsInput) => ({
 /** The commands on the open account: its inputs, its cases, its log, its key. */
 const accountActionsOf = (input: SandboxActionsInput) => ({
     setInput: input.state.setInput,
-    setDropWebhook: input.state.setDropWebhook,
+    setMode: (mode: string) => {
+        if (isDeliveryMode(mode)) input.state.setMode(mode)
+    },
+    setLateAmount: input.state.setLateAmount,
+    setLateUnit: (unit: string) => {
+        if (lateUnitOf(unit) !== null) input.state.setLateUnit(unit)
+    },
     send: (caseId: string) => {
         if (input.selectedId === undefined) return
+        // A mode the case does not allow, or a `late` interval the frame refuses, sends nothing (the row's command is disabled too).
+        const row = input.reads.casesData?.rows.find((one) => one.id === caseId)
+        const unit = lateUnitOf(input.state.lateUnit)
+        if (row === undefined || !row.modes.includes(input.state.mode) || unit === null) return
+        const mode = modeInputOf(input.state.mode, input.state.lateAmount, unit)
+        if (mode === null) return
         void input.caseCommands.send({
             connectionId: input.selectedId,
             caseId,
-            ...(input.state.dropWebhook ? { dropWebhook: true } : {}),
+            ...mode,
             inputs: sendInputsOf(input.reads),
         })
+    },
+    setOutcome: (operation: string, outcome: string) => {
+        if (input.selectedId !== undefined) void input.caseCommands.setOutcome(input.selectedId, operation, outcome)
     },
     choose: (caseId: string) => {
         if (input.selectedId === undefined) return
@@ -145,6 +163,7 @@ interface PendingSources extends Pick<SandboxActionsInput, "accountCommands" | "
 export const pendingOf = (commands: PendingSources): SandboxPanesBaseProps["props"]["pending"] => ({
     sendingId: commands.caseCommands.sendingId,
     choosingId: commands.caseCommands.choosingId,
+    outcomeOperation: commands.caseCommands.outcomeOperation,
     expiringId: commands.waitCommands.expiringId,
     isClearing: commands.accountCommands.isClearing,
     isCopying: commands.accountCommands.isCopying,

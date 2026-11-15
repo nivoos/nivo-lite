@@ -25,6 +25,8 @@ export interface PayosCreditReading extends BankFacts {
     readonly content: string
     /** `payos:<reference>`, or `payos:<orderCode>` when there is no reference. */
     readonly eventId: string
+    /** The order code of the paid link as text: the payment request's own reference (`requestRef`, owner ruling R111), when payOS names it. */
+    readonly requestRef?: string
 }
 
 /** The result of reading a payOS delivery after it was proven. */
@@ -79,6 +81,7 @@ export const readPayosDelivery = (body: PayosBody): PayosReading => {
         amount,
         content: text(data.description).trim(),
         eventId: `payos:${reference}`,
+        ...(text(data.orderCode) === "" ? {} : { requestRef: text(data.orderCode) }),
         ...bankFactsOf(data.reference, data.accountNumber, data.transactionDateTime),
     }
 }

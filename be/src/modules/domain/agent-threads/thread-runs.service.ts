@@ -31,6 +31,7 @@ import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { InjectLogger, withRunScope, type Logger } from "@modules/platform/logging"
 import { isRecord, parseJsonText } from "@modules/platform/primitives"
 import { AgentThreadsLogEvent } from "./agent-threads.log-events"
+import { isRunEnded } from "./run-ended.policy"
 import { AgentThreadsError, AgentThreadsErrorCode } from "./errors/agent-threads.error"
 import { RunStopsService } from "./stops/run-stops.service"
 import { answerIndexOf, endsTheRun, stopAnswerOf } from "./stops/stop-gate.policy"
@@ -118,6 +119,7 @@ export type ThreadWakeRefusal =
     | "thread_absent"
     | "thread_not_stopped"
     | "thread_ended"
+    | "run_ended"
     | "scope_unknown"
     | "already_answered"
 
@@ -310,6 +312,8 @@ export class ThreadRunsService implements FlowThreads, OnModuleInit {
         const ref: ThreadRef = { workspaceId: turn.workspaceId, runId }
         const run = await this.runs.runOf(turn.workspaceId, runId)
         if (run?.agentId !== turn.agentId) return this.skipped(turn, "thread_run_missing")
+        // A wake written before its run ended (a rung, a round, a deadline, a decision) runs nothing once the run has ended.
+        if (isRunEnded(run.status)) return this.skipped(turn, "run_ended")
         if ((await this.engineOf(turn.workspaceId, run.agentId, runId)) !== "langgraph")
             return this.skipped(turn, "thread_run_legacy")
         const resumes = turn.context.eventName === THREAD_RESUME_EVENT
@@ -463,6 +467,9 @@ export class ThreadRunsService implements FlowThreads, OnModuleInit {
     private async admissible(ref: ThreadRef): Promise<AdmissibleRun | ThreadWakeRefused> {
         const run = await this.runs.runOf(ref.workspaceId, ref.runId)
         if (run === null) return { kind: "refused", code: "run_missing" }
+        // An ended run (done, skipped, cancelled, its subject erased, abandoned) takes no wake: a rung, a round, a deadline or a decision
+        // that comes after its end writes nothing and moves nothing (run-ended.policy).
+        if (isRunEnded(run.status)) return { kind: "refused", code: "run_ended" }
         if (this.port === undefined || (await this.engineOf(ref.workspaceId, run.agentId, ref.runId)) !== "langgraph")
             return { kind: "refused", code: "run_not_thread" }
         const seen = await this.port.stateOf(ref)

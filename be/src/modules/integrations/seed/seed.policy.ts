@@ -12,4 +12,5 @@ export const seedOptionsOf = (values: SeedValues): DataSeedOptions => ({
             value === undefined ? [] : [[key, value]],
         ),
     ),
+    backupDatabase: values.backupDatabase === undefined ? undefined : new Secret(values.backupDatabase),
 })

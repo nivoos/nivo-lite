@@ -34,6 +34,6 @@ export class RecordContactErasureService implements ContactRecordsPort {
             const removed = await this.storage.remove(key)
             if (removed.kind !== "ok") this.logger.warn(RecordFilesLogEvent.ObjectKept, { code: removed.code })
         })
-        return { kind: "erased", records: erased.erased, cleared: erased.cleared }
+        return { kind: "erased", records: erased.erased, cleared: erased.cleared, hidden: erased.hidden }
     }
 }

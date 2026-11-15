@@ -1,6 +1,6 @@
 "use client"
 
-import { useAgentRoute, type ModuleKey } from "@/hooks/installations"
+import { useAgentRoute } from "@/hooks/installations"
 import { useState } from "react"
 import { useFormatter, useTranslations } from "next-intl"
 import { useAgentKnowledge, type AgentKnowledgeData } from "@/hooks/agentKnowledge"
@@ -12,7 +12,7 @@ import { knowledgeViewOf } from "./view"
 /** What the route hands the tab: the workspace and the installed agent of the url. */
 interface AgentKnowledgeProps {
     readonly workspaceId?: string | undefined
-    readonly module?: ModuleKey | undefined
+    readonly module?: string | undefined
     readonly installationId?: string | undefined
 }
 

@@ -1,0 +1,13 @@
+{"findings":[{"column":0,"line":0,"message":"be/docs/guides/agent-work-core.md is not formatted by prettier; run `npm run format`","path":"be/docs/guides/agent-work-core.md","rule":"HFS_FORMAT"}],"hash":"34b44e3a3bf751dcc9fcc7a53c67a67de4ebd48546361ccbfec103a95e6f2057","path":"be/docs/guides/agent-work-core.md","step":"prettier"}
+{"findings":[],"hash":"f9f29625b8eed9fec1f146d448f22ad8b14137df7a809966ac1fbe2bf57adc32","path":"be/docs/guides/agent-workbench.md","step":"prettier"}
+{"findings":[],"hash":"4b32257cfe271b2743100b1888d6c005254c412c0e739c514e56c85427d1388c","path":"be/docs/guides/agents-pages.md","step":"prettier"}
+{"findings":[],"hash":"99063001489e9abe84ea62b309e5674b21edd9c6ea924d244912d21501e26617","path":"be/docs/guides/chat-realtime.md","step":"prettier"}
+{"findings":[],"hash":"cffec3df09e854325d8622540759144c4bc95f14eb422dce58f25291200a813d","path":"be/docs/guides/connecting-channels.md","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"be/docs/guides/engine-threads.md is not formatted by prettier; run `npm run format`","path":"be/docs/guides/engine-threads.md","rule":"HFS_FORMAT"}],"hash":"c175f0519381a3c19824b8ba591820a44eb87ba19df44747eac5480ca0ccd50a","path":"be/docs/guides/engine-threads.md","step":"prettier"}
+{"findings":[],"hash":"99b2bb0d87779fcb89f8647c7fe812bd282aa41cc16d525dc86650ad93ca3afb","path":"be/docs/guides/iconography.md","step":"prettier"}
+{"findings":[],"hash":"b08d165d09e95ee25b428f092e0776012e0efffba8b380e06e37e82de1203ac7","path":"be/docs/guides/jobs.md","step":"prettier"}
+{"findings":[],"hash":"3199ae32ff2e4cfdf70f4ca665cff8b0565ffc41583734be05bde85db6fa1139","path":"be/docs/guides/list-pagination.md","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"be/docs/guides/nivo-mcp.md is not formatted by prettier; run `npm run format`","path":"be/docs/guides/nivo-mcp.md","rule":"HFS_FORMAT"}],"hash":"12be2520305f2419e5882fb8ec26418808f72369dd55bdb487960d57e7991df3","path":"be/docs/guides/nivo-mcp.md","step":"prettier"}
+{"findings":[],"hash":"5c7a8a9a8f799c25541b605f7aa5eaf4fa5ac2106ed5d8819748014dd9ba58e6","path":"be/docs/guides/raw-sql.md","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"be/docs/guides/second-brain.md is not formatted by prettier; run `npm run format`","path":"be/docs/guides/second-brain.md","rule":"HFS_FORMAT"}],"hash":"1f01f7d66e9a6eb05534b1cb81329ba092c36d5db1cf1b631371f04f2a969289","path":"be/docs/guides/second-brain.md","step":"prettier"}
+{"findings":[],"hash":"3912e1df00b47492032549fb6cda971d12b658e351f83997b53f78f5610c25e5","path":"be/docs/guides/tools.md","step":"prettier"}

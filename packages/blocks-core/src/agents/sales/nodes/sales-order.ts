@@ -57,6 +57,8 @@ export interface OrderValues {
     readonly amountVnd: number | null
     /** The customer, or null when the order has none. */
     readonly contactId: string | null
+    /** The money provider's reference of the order's payment request, or null when none is kept. */
+    readonly paymentRequestRef: string | null
 }
 
 /** The record a record tool answers, with the order values the sales nodes read. */
@@ -68,6 +70,7 @@ const orderRecordShape = z.object({
             status: z.string().min(1).max(MAX_LINE),
             amountVnd: z.number().int().min(0).nullish(),
             contactId: z.string().min(1).max(MAX_ID).nullish(),
+            paymentRequestRef: z.string().min(1).max(MAX_ID).nullish(),
         }),
     }),
 })
@@ -89,6 +92,7 @@ export const orderOfAnswer = (context: Pick<NodeContext, "fail">, tool: string, 
         status: values.status,
         amountVnd: values.amountVnd ?? null,
         contactId: values.contactId ?? null,
+        paymentRequestRef: values.paymentRequestRef ?? null,
     }
 }
 

@@ -27,6 +27,7 @@ export const TRIGGER_SOURCE_WORDS: Readonly<Record<TriggerSourceKind, ContractTe
     schedule: { vi: "L\u1ecbch", en: "Schedule" },
     "chats-group": { vi: "Nh\u00f3m chat", en: "Group chat" },
     workflow: { vi: "\u0110\u01b0\u1ee3c quy tr\u00ecnh kh\u00e1c g\u1ecdi", en: "Called by another workflow" },
+    record: { vi: "C\u00f3 b\u1ea3n ghi \u0111\u01b0\u1ee3c ghi", en: "A record was written" },
     provider: { vi: "S\u1ef1 ki\u1ec7n t\u1eeb k\u1ebft n\u1ed1i", en: "An event of a connected account" },
 }
 

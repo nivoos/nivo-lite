@@ -1,4 +1,7 @@
 export { allGatesConfirmed, gateEntry, gateHint, gateLabel, gatesOf, snapshotOf } from "./installations.gates"
+export { toInstallations } from "./installations.wire"
+export { catalogRolesOf } from "./installations.roles"
+export type { CatalogRole } from "./installations.roles"
 export { cleanInstanceName, instanceNameKey, instancesOf, nextInstanceName } from "./installations.instances"
 export {
     displayNameOf,
@@ -8,7 +11,6 @@ export {
     agentSubtitleOf,
     isSetupPending,
     foldText,
-    installationLifecycleOf,
 } from "./installations.status"
 export type { AgentLifecycle } from "./installations.status"
 export {
@@ -29,8 +31,6 @@ export type {
     Installation,
     InstallationConnectionNeed,
     InstallationLifecycle,
-    InstallationStatus,
-    OperatingMode,
     SetupFact,
     SetupMessage,
     SetupProgress,

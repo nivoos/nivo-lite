@@ -8,6 +8,7 @@ export type {
     DeliverResult,
     DeliveredEvent,
     DeliveredRaw,
+    EventAttachments,
     TriggerTaker,
     ProviderTriggerCoreDeciders,
     ProviderTriggerReceivers,
@@ -39,6 +40,8 @@ export {
     type TriggerMember,
 } from "./trigger-declarations.policy"
 export { ProviderTriggersService } from "./provider-triggers.service"
+// The types and the raw-row setter only: the brand that makes one stays inside the delivery piece (only `prepare` makes one).
+export { preparedWithRaw, type OptionalPreparedDelivery, type PreparedDelivery } from "./prepared-delivery"
 export { TriggerDeclarationsRegistry, triggerDeclarations } from "./trigger-declarations.registry"
 export {
     KEYLESS_SCOPE,
@@ -57,6 +60,7 @@ export type {
     CanonicalEvent,
     CorrelationKey,
     DeclaredLine,
+    StreamFeed,
     EventSubject,
     OptionalCanonicalEvent,
     TriggerDeclaration,

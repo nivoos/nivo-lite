@@ -14,8 +14,8 @@ const stepOf = (key: string) => bookingBookGraph.spec.nodes.find((step) => step.
 describe("booking.book", () => {
     // Design change v8 (R33): each round after the first starts with the wait (round 1 has no event); ONE book step reads THAT round's
     // message; `off` hands it back in a round that waited and ends `not-booking` in round 1.
-    it("is version 8, called by another workflow, ONE run: a talk loop (the wait from round 2, find-slots, book), then the asked confirmation", () => {
-        expect(bookingBookGraph.spec.catalogue?.version).toBe(8)
+    it("is version 9 (v9: the wait's four channel keys are ONE key `said`), called by another workflow, ONE run: a talk loop (the wait from round 2, find-slots, book), then the asked confirmation", () => {
+        expect(bookingBookGraph.spec.catalogue?.version).toBe(9)
         expect(bookingBookGraph.spec.triggers).toEqual([{ verb: TRIGGER.workflowCalled }])
         expect(bookingBookGraph.spec.nodes.map((step) => step.key)).toEqual([
             "talk",
@@ -41,7 +41,7 @@ describe("booking.book", () => {
             "quiet",
         ])
         expect(stepOf("talk")).toMatchObject({ kind: "loop" })
-        expect(stepOf("hear")).toMatchObject({ loop: "talk", kind: "wait", routes: { zalo: "slots", telegram: "slots", facebook: "slots", instagram: "slots" } })
+        expect(stepOf("hear")).toMatchObject({ loop: "talk", kind: "wait", routes: { said: "slots" } })
         expect(stepOf("give-back-talk")).toMatchObject({ kind: "hand-back", params: { wait: "hear" } })
         expect(JSON.stringify(stepOf("book"))).toContain('"round":"previous"')
     })

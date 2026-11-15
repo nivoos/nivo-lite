@@ -33,9 +33,13 @@ export type DefinitionErrorCode =
     | "RECORD_QUERY_OTHER_AGENT"
     | "SERVICE_MODULE_MISMATCH"
     | "PROVIDER_SANDBOX_INVALID"
+    | "TOOL_REFUSAL_CODE_MALFORMED"
+    | "TOOL_FINAL_REFUSAL_UNKNOWN"
+    | "TOOL_FINAL_REFUSAL_ON_READ"
+    | "TOOL_FINAL_REFUSAL_RESERVED"
 
 /**
- * Thrown at module load by `defineBlock`, `defineRead`, `defineAction`, `defineNode`, `defineEffect`, `definePort`, `defineService`, `defineServiceContract`, `defineModule`, `listRead`, `countsRead`, `defineInstallation`, `definePlugin` and `defineDataKind`, so a bad
+ * Thrown at module load by `defineBlock`, `defineRead`, `defineAction`, `defineNode`, `defineEffect`, `definePort`, `defineService`, `defineServiceContract`, `defineModule`, `listRead`, `countsRead`, `defineInstallation`, `definePlugin`, `defineTool` and `defineDataKind`, so a bad
  * definition fails its own package.
  */
 export class SdkDefinitionError extends DomainError<DefinitionErrorCode> {

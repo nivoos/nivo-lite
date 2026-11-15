@@ -11,7 +11,7 @@ import { ResumeStoppedWorkInput } from "./dto/resume-stopped-work.input"
 export class ResumeStoppedWorkResolver {
     constructor(@InjectCommandBus() private readonly commandBus: CommandBus) {}
 
-    /** Hands a stopped job of the active workspace back ("resume now"); false when it is not a stopped job of this workspace. The owner only. */
+    /** Hands a stopped job of the active workspace back ("resume now"); a typed refusal (not found, already closed, not stopped) otherwise. The owner only. */
     @Mutation(() => Boolean, { name: "resumeStoppedWork" })
     resumeStoppedWork(
         @CurrentPrincipal() principal: Principal,

@@ -11,7 +11,7 @@ runbook carries no docker command and nobody runs docker by hand.
 | --- | --- | --- |
 | db (PostgreSQL 17, pgvector) | container, volume `db-data` | 54332 |
 | redis (BullMQ broker, realtime) | container, volume `redis-data` | 56379 |
-| minio (S3) | container, volume `minio-data` | 59900 |
+| minio (S3) | container, volume `minio-data`; public as `nivo-local-files.starci.org` on the `nivo-dev` tunnel (S3 port only) | 59900 |
 | api (+ the AI gateway on port + 1) | native | 18787 (gateway 18788) |
 | mcp | native | 18790 |
 | web (console) | native | 3100 |
@@ -46,3 +46,11 @@ example `%USERPROFILE%\.swc-native-cache`) in the shell that runs `up`, which ha
 
 The volumes are rebuildable development data: `starci app db migrate` recreates the schema from `db/bootstrap.sql` and `db/migrations`.
 Key names are in `runtime/env/KEYS.md`.
+
+**Files and images (PROJECT-STACKS-15).** MinIO's S3 port has a public host, `https://nivo-local-files.starci.org`, on the `nivo-dev` tunnel, declared
+under `local.tunnel` of the manifest; the api writes through `STORAGE_ENDPOINT` (loopback) and builds every link on `STORAGE_PUBLIC_URL` (that host), so
+an image renders in the browser, on another machine and in a provider that fetches it (Zalo). `stack up --execute` adds the ingress rule to
+`~/.cloudflared/nivo-dev.yml` and the DNS record (`cloudflared tunnel route dns --overwrite-dns`, `cert.pem`), then reads
+`https://nivo-local-files.starci.org/minio/health/live`; `stack verify` fails when that read is not 200. The connector of `nivo-dev` is restarted by
+whoever runs `up` when `up` says the ingress file changed. Stored rows keep a bucket and a key, never this host (the avatar and workspace logo columns are
+the open exception, `.starciwork/concepts/files.md` rule 10).

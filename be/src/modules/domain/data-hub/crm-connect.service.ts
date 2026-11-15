@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common"
 import { crmIdOfProviderKey, crmProviderKeyOf, isCrmId } from "@nivo-lite/agent-sdk/names"
+import type { ProviderTemplate } from "@nivo-lite/agent-sdk/installation"
 import type { ConnectionActor } from "@modules/domain/connections"
 import {
     CRM_TEMPLATES,
@@ -29,6 +30,12 @@ import { OpenApiToolsPinService, type OpenApiToolsPinView } from "./openapi-tool
 
 /** The header a workspace id goes in on every call of a CRM connection. */
 const WORKSPACE_HEADER = "X-Workspace-Id"
+
+/**
+ * The base URL a NIVO Sandbox account of a CRM is pinned with: a reserved host that cannot resolve (lane concept provider-sandbox, the
+ * pay link's fallback host). The sandbox reach never calls a host; the address only says where a live account would be.
+ */
+const SANDBOX_BASE_URL = "https://sandbox.invalid"
 
 /** The longest connection name kept. */
 const NAME_MAX = 80
@@ -196,6 +203,8 @@ export class CrmConnectService {
         if (template !== null && !crmTemplateOpenTo(template.id, await this.enterprise.keyOf(actor.workspaceId))) {
             throw invalid("crm_id_invalid")
         }
+        const existing = await this.existingOf(actor, draft)
+        if (existing?.sandbox === true) return this.pinSandbox(actor, existing, crmId, template)
         const baseUrl = withoutTrailingSlashes(draft.baseUrl.trim())
         await this.requirePublic(baseUrl)
         const swaggerUrl = template === null ? (draft.swaggerUrl ?? "").trim() : `${baseUrl}${template.swaggerPath}`
@@ -203,7 +212,6 @@ export class CrmConnectService {
         await this.requirePublic(swaggerUrl)
         if (template !== null && template.auth.type !== draft.auth.type) throw invalid("auth_type_mismatch")
         const authName = draft.auth.type === "header" ? draft.auth.name.trim() : ""
-        const existing = await this.existingOf(actor, draft)
         const typed = { type: draft.auth.type, name: authName, value: draft.auth.value, user: "", password: "" }
         const stored = existing === null ? null : parseAuth((await this.hub.credentialOf(existing.id)) ?? "")
         const auth = mergeAuth(typed, stored)
@@ -239,6 +247,29 @@ export class CrmConnectService {
             driftFromTemplate,
             compatible: pin.tools.every((tool) => tool.state === "ready"),
         }
+    }
+
+    /**
+     * Pins a NIVO Sandbox account of a CRM (lane concept provider-sandbox): the document is the one the package's template pins (no live
+     * fetch: the sandbox answers every operation of it), the address the reserved sandbox host, no key (a sandbox account holds none, rule
+     * 7), writes off like every new pin. A sandbox account of a CRM no package declares is refused `sandbox_template_required`: there is no
+     * document to answer from. Nothing leaves the process.
+     */
+    private async pinSandbox(actor: ConnectionActor, existing: DataConnection, crmId: string, template: ProviderTemplate | null): Promise<CrmConnectionResult> {
+        if (template === null) throw invalid("sandbox_template_required")
+        const authName = template.auth.type === "header" ? template.auth.name : ""
+        const config = normalizeConfig({ specUrl: `${SANDBOX_BASE_URL}${template.swaggerPath}`, baseUrl: SANDBOX_BASE_URL, authType: template.auth.type, authName })
+        const meta = { config: JSON.stringify(config), summary: crmId }
+        await this.hub.update(actor.workspaceId, existing.id, { name: existing.name, meta: { ...existing.meta, ...meta }, everyMinutes: existing.everyMinutes })
+        const pin = await this.pins.pin(actor, {
+            connectionId: existing.id,
+            connector: crmProviderKeyOf(crmId),
+            swaggerUrl: config.specUrl,
+            workspaceHeader: WORKSPACE_HEADER,
+            documentText: JSON.stringify(template.openapi),
+            live: false,
+        })
+        return { connectionId: existing.id, pin, templated: true, driftFromTemplate: [], compatible: pin.tools.every((tool) => tool.state === "ready") }
     }
 
     /** The connection a save updates, or null when the save makes a new one. */

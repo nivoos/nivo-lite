@@ -3,7 +3,8 @@ import { TOOL } from "@nivo-lite/agent-sdk/names"
 import type { NodeRow, NodeTurn } from "@modules/domain/graph-nodes"
 import { doorRefusalOf } from "@tests/fixtures/builders/served-tools.builder"
 import { chatRecordCall, chatThreadOf, type ChatWorld } from "./thread-world-chat"
-import { newestHeardSeqOf } from "@modules/domain/customer-routes/stream-cursor.policy"
+import { LINES_STREAM, newestHeardSeqOf } from "@modules/domain/customer-routes/stream-cursor.policy"
+import { MemoryStreamCursorStore } from "@tests/fixtures/builders/customer-routes-stores.builder"
 import { WS } from "./thread-world-records"
 
 // The READ TOOLS of the worlds (after the flip of 2026-11-12, the template nodes read through tools, no more through the data ports):
@@ -211,10 +212,12 @@ export const worldReadOf = (
         // The stream cursor (rule QB-P5 C-4), in a world that opts in: the route's cursor, and this step call's CONSUMING read (`consume`)
         // noted as pending until the step ends (the engine's `CustomerMessageNativeService` over `StreamCursorService`, on the world's memory rows).
         if (chat.cursor === null || route === null) return answer({ notice: NOTICE, source: "nivo.conversation", asOf: AS_OF, facts })
-        const consumedSeq = chat.cursor.rows.get(route)?.consumed ?? null
+        // The CALLER AGENT's position on the route (concept agent-data rule 8: the consumer is the agent).
+        const ref = { agentId: turn?.agentId ?? "", stream: LINES_STREAM, subject: route }
+        const consumedSeq = chat.cursor.rows.get(MemoryStreamCursorStore.keyOf(ref))?.consumed ?? null
         const newest = newestHeardSeqOf(facts.flatMap((fact) => (fact.role === "user" && fact.seq !== undefined ? [{ direction: "from_person" as const, seq: fact.seq }] : [])))
         const consuming = typeof args === "object" && args !== null && Reflect.get(args, "consume") === true
-        if (newest !== null && callKey !== null && consuming) void chat.cursor.noteRead(WS, route, callKey, newest)
+        if (newest !== null && callKey !== null && consuming) void chat.cursor.noteRead(WS, ref, callKey, newest)
         return answer({ notice: NOTICE, source: "nivo.conversation", asOf: AS_OF, consumedSeq, facts })
     }
     if (tool === TOOL.conversationMessageList) {

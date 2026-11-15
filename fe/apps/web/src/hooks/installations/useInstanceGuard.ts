@@ -2,7 +2,6 @@
 
 import { useEffect } from "react"
 import { useWorkspaceId } from "@/hooks/workspaces"
-import type { ModuleKey } from "@/modules/catalog"
 import { navigation } from "@/modules/i18n"
 import { agentHref, type Installation } from "@/modules/installations"
 import { workspaceHref } from "@/modules/routes"
@@ -19,7 +18,7 @@ interface InstanceGuard {
  * Checks the instance of an agent url against the installed agents: an unknown instance goes back to the type, an instance of
  * another type goes to its own url. Until then the guard reads as loading.
  */
-export const useInstanceGuard = (module: ModuleKey, installationId: string): InstanceGuard => {
+export const useInstanceGuard = (module: string, installationId: string): InstanceGuard => {
     const router = navigation.useRouter()
     const workspaceId = useWorkspaceId()
     const { installations } = useInstallations()

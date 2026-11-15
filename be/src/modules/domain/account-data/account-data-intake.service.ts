@@ -10,7 +10,9 @@ import type {
     CheckedRow,
     AccountWrite,
     OptionalPendingRow,
+    PendingPhases,
     PendingRow,
+    PendingRowKey,
     WrittenRow,
 } from "./account-data.contracts"
 import { accountExternalIdOf, insertedIdOf, isConnectionId, valueOf } from "./account-data.policy"
@@ -83,12 +85,52 @@ export class AccountDataIntakeService {
     }
 
     /** The pending row of a `wakes` type, locked FOR UPDATE until the transaction ends; null when absent or already completed. */
-    async lockPending(tx: EntityManager, type: string, connectionId: string, key: string): Promise<OptionalPendingRow> {
+    lockPending(tx: EntityManager, type: string, connectionId: string, key: string): Promise<OptionalPendingRow> {
+        return this.pendingRow(tx, type, connectionId, key, true)
+    }
+
+    /**
+     * The pending row of a `wakes` type as it stands, WITHOUT a lock: what a delivery job reads to PREPARE its delivery before any
+     * transaction is open (concept outbox-job rule 12); its commit takes the row again with `lockPending`, which answers null when another
+     * delivery completed it meanwhile. The value of a stored row never changes, so what was prepared from it holds.
+     */
+    pendingOf(manager: EntityManager, type: string, connectionId: string, key: string): Promise<OptionalPendingRow> {
+        return this.pendingRow(manager, type, connectionId, key, false)
+    }
+
+    /**
+     * Consumes one pending row of a `wakes` type in TWO phases (concept outbox-job rule 12): the row read as it stands and `prepare`d with
+     * no transaction open, then ONE short transaction on `manager`'s pool: the row locked again (gone: another consumer completed it
+     * meanwhile, nothing more is written), `commit`, the row completed. A throw leaves the row pending for the consumer's job runner.
+     */
+    async consumePending<Prepared>(
+        manager: EntityManager,
+        row: PendingRowKey,
+        phases: PendingPhases<Prepared>,
+    ): Promise<void> {
+        const seen = await this.pendingOf(manager, row.type, row.connectionId, row.key)
+        if (seen === null) return
+        const prepared = await phases.prepare(seen)
+        await manager.transaction(async (tx) => {
+            const pending = await this.lockPending(tx, row.type, row.connectionId, row.key)
+            if (pending === null) return
+            await phases.commit(tx, pending, prepared)
+            await this.complete(tx, pending)
+        })
+    }
+
+    private async pendingRow(
+        manager: EntityManager,
+        type: string,
+        connectionId: string,
+        key: string,
+        locked: boolean,
+    ): Promise<OptionalPendingRow> {
         const def = this.types.declared(type)
         if (def.wakes !== true) throw this.types.wiring(AccountDataErrorCode.WriteMode, type, def.provider ?? "")
-        const row = await tx.findOne(AccountDataEntity, {
+        const row = await manager.findOne(AccountDataEntity, {
             where: { type, connectionId, key: accountExternalIdOf(key), processedAt: IsNull() },
-            lock: { mode: "pessimistic_write" },
+            ...(locked ? { lock: { mode: "pessimistic_write" as const } } : {}),
         })
         if (row === null) return null
         return {

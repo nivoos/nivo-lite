@@ -800,7 +800,10 @@ export class DocumentCriticService {
         })
     }
 
-    /** Writes what the critique found against the stored points of the document, in one transaction. */
+    /**
+     * Writes what the critique found against the stored points of the document, in one transaction. The document is held in that
+     * transaction (JOB-FRAME RULE origin in force): when it was deleted while the critique ran, nothing is written.
+     */
     private async persist(
         input: CritiqueInput,
         found: ReadonlyArray<CriticPoint>,
@@ -824,6 +827,7 @@ export class DocumentCriticService {
             now,
         )
         await this.entityManager.transaction(async (tx) => {
+            if (!(await this.sources.holds(tx, input.workspaceId, input.sourceId))) return
             if (outcome.inserts.length > 0) {
                 await tx.insert(DossierFindingEntity, newPointRows(input.workspaceId, input.sourceId, outcome.inserts, now))
             }

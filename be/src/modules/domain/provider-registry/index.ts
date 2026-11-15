@@ -7,10 +7,9 @@ export {
     DomainRegistrarRegistryService,
     FeedWebhookRegistryService,
     LedgerRegistryService,
-    PaymentInstructionRegistryService,
     PollReceiverRegistryService,
 } from "./provider-registries.service"
-export { PAYMENT_TOOL_BUSINESS_REFUSALS, PAYMENT_TOOL_REFUSALS } from "./provider-ports.contracts"
+export { PAYMENT_REQUEST_REFUSALS, PAYMENT_TOOL_BUSINESS_REFUSALS, PAYMENT_TOOL_REFUSALS } from "./provider-ports.contracts"
 export type {
     BankTransaction,
     BankTransactionsPort,
@@ -100,7 +99,7 @@ export type {
     ServiceRenewalRequest,
 } from "./domain-ports.contracts"
 export { CalendarRegistryService } from "./calendar-registry.service"
-export { PaymentLinkRegistryService } from "./payment-link-registry.service"
+export { PaymentRequestRegistryService } from "./payment-request-registry.service"
 export { FacebookPublishRegistryService } from "./facebook-publish-registry.service"
 export { InstagramPublishRegistryService } from "./instagram-publish-registry.service"
 export { YoutubePublishRegistryService } from "./youtube-publish-registry.service"
@@ -108,6 +107,7 @@ export { TiktokPublishRegistryService } from "./tiktok-publish-registry.service"
 export { TemplateMessageRegistryService } from "./template-message-registry.service"
 export * from "./calendar-ports.contracts"
 export * from "./payment-link-ports.contracts"
+export * from "./payment-request-ports.contracts"
 export * from "./facebook-publish-ports.contracts"
 export * from "./instagram-publish-ports.contracts"
 export * from "./youtube-publish-ports.contracts"

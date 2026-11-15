@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common"
 import { NEXT_CASE_STATE, ProviderSandboxService, type SandboxState } from "@modules/domain/provider-sandbox"
+import type { BindToolsInput } from "@langchain/core/language_models/chat_models"
 import type { AIMessage } from "@langchain/core/messages"
 import {
     MODEL_PROVIDER,
@@ -77,7 +78,7 @@ export class ModelSandboxRunnerService implements ModelProviderPort {
             turnModel: (request) =>
                 Promise.resolve(
                     new ModelSandboxChat({
-                        decide: () => this.decideTurn(account, purpose, request),
+                        decide: (tools) => this.decideTurn(account, purpose, request, tools),
                         endpoint: () => endpoint.turnModel(request),
                     }),
                 ),
@@ -91,7 +92,7 @@ export class ModelSandboxRunnerService implements ModelProviderPort {
             key: purpose,
             answer: async (state) => {
                 const id = await caseOf(state)
-                const reply = chatReplyOf(id)
+                const reply = chatReplyOf(id, request)
                 return reply === null ? { case: id, passed: true } : { case: id, reply }
             },
         })
@@ -99,13 +100,13 @@ export class ModelSandboxRunnerService implements ModelProviderPort {
     }
 
     /** One try of an agent turn, decided when the try's client is invoked: the sandbox's message, the pass, or the live failure thrown. */
-    private async decideTurn(account: ModelAccount, purpose: string, request: AiTurnRequest): Promise<SandboxTurnDecision> {
+    private async decideTurn(account: ModelAccount, purpose: string, request: AiTurnRequest, tools: ReadonlyArray<BindToolsInput>): Promise<SandboxTurnDecision> {
         const made: { message: AIMessage | null } = { message: null }
         await this.sandbox.call<TurnLogged>(account, purpose, turnLogOf(request), {
             key: purpose,
             answer: async (state) => {
                 const id = await caseOf(state)
-                made.message = turnMessageOfCase(id, state.seq)
+                made.message = turnMessageOfCase(id, state.seq, tools)
                 return { case: id, passed: made.message === null }
             },
         })

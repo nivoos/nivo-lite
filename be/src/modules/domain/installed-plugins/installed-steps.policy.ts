@@ -38,6 +38,12 @@ export interface InstalledStep {
     readonly blocking: boolean | undefined
     /** The lead facts its output proves, by fact then the dotted output path; empty when it proves none. */
     readonly facts: Readonly<Partial<Record<LeadFact, string>>>
+    /**
+     * True when the declaration says its step READS the events of the run's subject held behind the run (`readsHeldEvents`, E-FIX12 rule
+     * A-7): only such a step may take them into its queue snapshot. The ONE reader of that declaration, for both data sources (customer
+     * lines and records: the declaration names none); false for a `defineNode` node, which declares none.
+     */
+    readonly readsHeldEvents: boolean
 }
 
 /** A step id's installed step, or null for an id no installed declaration is. */
@@ -75,6 +81,7 @@ const ofTemplate = (node: AnyTemplateNode, isEffect: (id: string) => boolean): I
         model: node.model ?? null,
         blocking: node.blocking,
         facts: node.facts ?? NO_FACTS,
+        readsHeldEvents: node.readsHeldEvents === true,
     }
 }
 
@@ -101,6 +108,7 @@ const ofLegacy = (node: NodeDefinition): InstalledStep => {
         model: null,
         blocking: node.blocking,
         facts: node.facts ?? NO_FACTS,
+        readsHeldEvents: false,
     }
 }
 

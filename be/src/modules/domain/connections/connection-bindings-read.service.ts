@@ -32,6 +32,7 @@ const bindingFactsOf = (row: ConnectionEntity): ConnectionBindingFacts => ({
     name: row.name,
     status: row.status,
     createdAt: row.createdAt,
+    sandbox: row.sandbox === true,
     botUsername: reportedText(row.publicMeta, "bot_username"),
     accountMasked: reportedText(row.publicMeta, "account_masked"),
 })
@@ -58,7 +59,7 @@ export class ConnectionBindingsReadService {
     async factsOf(connectionIds: ReadonlyArray<string>, limit: number): Promise<Array<ConnectionBindingFacts>> {
         if (connectionIds.length === 0) return []
         const rows = await this.entityManager.find(ConnectionEntity, {
-            select: { id: true, provider: true, name: true, status: true, createdAt: true, publicMeta: true },
+            select: { id: true, provider: true, name: true, status: true, createdAt: true, sandbox: true, publicMeta: true },
             where: { id: In([...new Set(connectionIds)]) },
             take: limit,
         })

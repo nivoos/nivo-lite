@@ -1,8 +1,6 @@
 import type { Metadata } from "next"
 import { getTranslations } from "next-intl/server"
-import { notFound } from "next/navigation"
 import { agentWorkViewOf, type AgentWorkViewKey } from "@/modules/agentWork"
-import { isModuleKey } from "@/modules/catalog"
 import { AgentWorkAddressBody } from "./AddressBody"
 import { AgentWorkPageBase } from "./component"
 
@@ -22,7 +20,6 @@ export const agentWorkMetadata = async (): Promise<Metadata> => {
 
 /** The work tab of one instance: the panes read the instance in the browser; the page knows only the type. */
 export const AgentWorkPage = (props: AgentWorkPageProps) => {
-    if (!isModuleKey(props.module)) notFound()
     const view: AgentWorkViewKey = agentWorkViewOf((name) => props.query[name])
     return (
         <AgentWorkPageBase

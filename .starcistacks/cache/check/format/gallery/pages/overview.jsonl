@@ -1,0 +1,7 @@
+{"findings":[],"hash":"c3e6290a971420cb0b7698f6544f23a42830723cbd18a7637ed670b27d8f179f","path":"gallery/pages/overview/overview-dang-tai/1440.png","step":"prettier"}
+{"findings":[],"hash":"241a64cac7903f54fc6de5557af8def42ef60da864b60a86b540c01e531e178f","path":"gallery/pages/overview/overview-dang-tai/390.png","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"gallery/pages/overview/overview-dang-tai/explain.md is not formatted by prettier; run `npm run format`","path":"gallery/pages/overview/overview-dang-tai/explain.md","rule":"HFS_FORMAT"}],"hash":"f0ab6ece210b52d19b809c7ec0ce18ce9209a2df33d263fdf50d13ac2620f742","path":"gallery/pages/overview/overview-dang-tai/explain.md","step":"prettier"}
+{"findings":[],"hash":"c7cf4084aaba161c4db7b31f313dd4486129cbefb6462fa02d3891c0d23b9fc4","path":"gallery/pages/overview/overview/1440.png","step":"prettier"}
+{"findings":[],"hash":"d3a330dcec6798d9361b7ab643711ead425e1cf1f6ba46552414d38306c51ede","path":"gallery/pages/overview/overview/1920.png","step":"prettier"}
+{"findings":[],"hash":"b46ede7683de9ca6c09f749a0f50efbc50742f21c02cc8270342457af828852a","path":"gallery/pages/overview/overview/390.png","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"gallery/pages/overview/overview/explain.md is not formatted by prettier; run `npm run format`","path":"gallery/pages/overview/overview/explain.md","rule":"HFS_FORMAT"}],"hash":"7ea332f22b14af911eb562fa599d88d32a00f6a1d57e5c98eb0de62da2c8277c","path":"gallery/pages/overview/overview/explain.md","step":"prettier"}

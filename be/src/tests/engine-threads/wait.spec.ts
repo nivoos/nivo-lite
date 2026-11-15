@@ -56,9 +56,10 @@ describe("wait on a thread", () => {
         expect(view?.stop?.question).toMatchObject({
             kind: "wait",
             parkKey: "hold",
+            // ONE key (one meaning: the person's line) listing two channel verbs: the park keeps one entry per verb under that key.
             on: [
-                { key: "named", match: [{ member: "data.text", op: "contains", value: "A12" }] },
-                { key: "replied" },
+                { key: "replied", verb: "nivo.trigger.zalo.message.received" },
+                { key: "replied", verb: "nivo.trigger.telegram.message.received" },
             ],
             subject: { conversationId: CONV },
         })
@@ -69,7 +70,9 @@ describe("wait on a thread", () => {
         expect(linesOf(db)).toEqual(["da ghi"])
     })
 
-    it("event A (a line naming the word) resumes the SAME run along route A, with the event as the step's output", async () => {
+    // Test changed by S7-WAIT (class "test wrong" under the later ruling, templates rule 12): the fixture once listed the Zalo verb under two
+    // keys (`named` by a `contains` match, `replied` for any other line); a verb now has one meaning per wait, so both lines take `replied`.
+    it("a line of the run's conversation resumes the SAME run along the key whose verb list holds its verb, the event as the step's output", async () => {
         const { db, process, runId } = await parked()
 
         const woken = await lineCame(process, db, "chuyen khoan don A12 roi")
@@ -77,12 +80,11 @@ describe("wait on a thread", () => {
         expect(woken.ending).toMatchObject({ status: "done", reason: "wait_took" })
         const thread = await threadOf(process, runId)
         expect(thread.status).toBe("ended")
-        expect(thread.steps.hold).toMatchObject({ output: { trigger: "named", event: { routeId: CONV, data: { text: "chuyen khoan don A12 roi" } } } })
+        expect(thread.steps.hold).toMatchObject({ output: { trigger: "replied", event: { routeId: CONV, data: { text: "chuyen khoan don A12 roi" } } } })
         expect(linesOf(db)).toEqual(["da ghi", "chuyen khoan don A12 roi"])
-        expect(thread.steps.replied).toBeUndefined()
     })
 
-    it("event B (any other line of the conversation) resumes along route B", async () => {
+    it("any other line of the conversation takes the same key (one meaning, one route)", async () => {
         const { db, process, runId } = await parked()
 
         await lineCame(process, db, "cam on shop")

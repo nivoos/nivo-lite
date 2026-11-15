@@ -9,10 +9,6 @@ import { AgentGeneralFormBase, type AgentGeneralFormBaseProps } from "./componen
 type AgentGeneralFormProps = {
     readonly installationId?: string | undefined
     readonly module?: string | undefined
-    /** The type has the reply limits (the chatbot). */
-    readonly hasReplyLimits?: boolean | undefined
-    /** The type never talks to customers: the after-hours note says so. */
-    readonly isInternal?: boolean | undefined
 }
 
 type Translate = ReturnType<typeof useTranslations<"agentGeneral">>
@@ -39,8 +35,8 @@ const wordsOf = (t: Translate): HoursWords => ({
 /** The connected general form: one draft for the name, the working hours and the reply limits, and one save for all of it. */
 export const AgentGeneralForm = (props: AgentGeneralFormProps) => {
     const route = useAgentRoute(props)
-    const hasReplyLimits = props.hasReplyLimits ?? route.hasReplyLimits
-    const isInternal = props.isInternal ?? !route.answersCustomers
+    const hasReplyLimits = route.hasReplyLimits
+    const isInternal = !route.answersCustomers
     const t = useTranslations("agentGeneral")
     const tm = useTranslations("modulesCore")
     const { slot } = useAgentInstallation(route.installationId, route.module)

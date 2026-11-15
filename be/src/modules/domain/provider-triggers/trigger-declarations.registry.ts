@@ -13,11 +13,11 @@ export const combineOf = (declaration: Pick<TriggerDeclaration, "combine">): Tri
     declaration.combine ?? DEFAULT_TRIGGER_COMBINE
 
 /**
- * True unless the declaration combines as a `stream` while it feeds no stream of the engine. Today the one engine stream is the lines of a
- * route, fed by a declaration that reads a line from its event (`line`).
+ * True unless the declaration combines as a `stream` while it feeds no stream of the engine (concept agent-data rule 6): the lines of a
+ * route, or the records of an append-only type (`feeds`).
  */
-export const streamFed = (declaration: Pick<TriggerDeclaration, "combine" | "line">): boolean =>
-    combineOf(declaration) !== "stream" || typeof declaration.line === "function"
+export const streamFed = (declaration: Pick<TriggerDeclaration, "combine" | "feeds">): boolean =>
+    combineOf(declaration) !== "stream" || declaration.feeds !== undefined
 
 /**
  * THE REGISTRY OF TRIGGER DECLARATIONS (stage 1 of the one event pipeline, lane concept triggers rule 13). Every source registers the

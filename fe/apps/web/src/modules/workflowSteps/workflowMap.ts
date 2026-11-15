@@ -47,22 +47,26 @@ interface MapFlow {
 const recordOf = (value: unknown): Readonly<Record<string, unknown>> | null =>
     typeof value === "object" && value !== null && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : null
 
-/** One thing a wait listens for: the key its route is named by and its verb. */
+/** One key a wait listens for: the meaning its route is named by and the verbs that bring it (concept templates rule 12). */
 interface WaitOn {
     readonly key: string
-    readonly verb: string
+    readonly verbs: ReadonlyArray<string>
 }
 
-/** What a wait listens for, from its params. */
+/** What a wait listens for, from its params: each key with its verbs. */
 const waitOnsOf = (node: GraphNodeView): ReadonlyArray<WaitOn> => {
     const written = node.params?.on
     return (Array.isArray(written) ? written : []).flatMap((one: unknown): ReadonlyArray<WaitOn> => {
         const record = recordOf(one)
-        return record !== null && typeof record.key === "string" && typeof record.verb === "string"
-            ? [{ key: record.key, verb: record.verb }]
-            : []
+        const verbs: unknown = record?.verbs
+        if (record === null || typeof record.key !== "string" || !Array.isArray(verbs)) return []
+        return [{ key: record.key, verbs: verbs.filter((verb: unknown): verb is string => typeof verb === "string") }]
     })
 }
+
+/** Whether every verb of the keys is a customer's message (on any channel). */
+const allMessages = (ons: ReadonlyArray<WaitOn>): boolean =>
+    ons.length > 0 && ons.every((one) => one.verbs.length > 0 && one.verbs.every((verb) => MESSAGE_VERB.test(verb)))
 
 /** The words of how long a wait waits at most, or an empty text when the params name no time. */
 const limitOf = (value: unknown, words: MapWords): string => {
@@ -84,14 +88,17 @@ const shortList = (names: ReadonlyArray<string>): string =>
     names.length <= NAMES_MAX ? names.join(", ") : `${names.slice(0, NAMES_MAX).join(", ")} +${names.length - NAMES_MAX}`
 
 /**
- * The words of one road of a wait: the package view's own (its output's label), else the owner's words of the verb the road listens for;
- * the road's key when neither knows it.
+ * The words of one road of a wait: the package view's own (its output's label), else the owner's words of the verbs the road's key lists
+ * ("customer messages" for a key of several message verbs, else the verbs' own words); the road's key when none is known.
  */
 const routeWordsOf = (route: string, wait: GraphNodeView, words: MapWords): string => {
     const own = wait.outputs?.find((output) => output.id === route)?.label
     if (own !== undefined && own !== route) return own
-    const verb = waitOnsOf(wait).find((one) => one.key === route)?.verb
-    return (verb === undefined ? undefined : words.verbs[verb]) ?? route
+    const on = waitOnsOf(wait).find((one) => one.key === route)
+    if (on === undefined) return route
+    if (on.verbs.length > 1 && allMessages([on])) return words.customerMessages
+    const named = on.verbs.flatMap((verb) => words.verbs[verb] ?? [])
+    return named.length === 0 ? route : shortList(distinct(named))
 }
 
 /** The port words of the routes of a wait that lead to the same step: the events' names, or "timed out". */
@@ -99,7 +106,7 @@ const waitPortWords = (routes: ReadonlyArray<string>, wait: GraphNodeView, words
     const ons = waitOnsOf(wait)
     const events = routes.flatMap((route): ReadonlyArray<WaitOn> => ons.filter((one) => one.key === route))
     const hasTimeout = routes.includes(TIMEOUT_ROUTE)
-    const isMessages = events.length > NAMES_MAX && !hasTimeout && events.every((one) => MESSAGE_VERB.test(one.verb))
+    const isMessages = events.length > NAMES_MAX && !hasTimeout && allMessages(events)
     return isMessages ? words.customerMessages : shortList(distinct(routes.map((route) => routeWordsOf(route, wait, words))))
 }
 

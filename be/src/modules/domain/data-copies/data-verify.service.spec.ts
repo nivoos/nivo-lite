@@ -114,7 +114,7 @@ describe("DataVerifyService: what is wrong is one failure naming codes and ids",
 
         const failure = await t.service.run(jobOf(TICK)).catch((cause: unknown) => cause)
 
-        expect(failure).toMatchObject({ params: { reason: text("copies differ in database/contacts") } })
+        expect(failure).toMatchObject({ params: { reason: text("copies differ in database-all/contacts") } })
     })
 
     it("fails the restore check when the scratch export does not equal what the copy's manifest promises", async () => {

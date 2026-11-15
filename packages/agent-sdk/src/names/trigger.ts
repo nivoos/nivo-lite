@@ -44,6 +44,12 @@ export const TRIGGER = {
     chatMessageReceived: "nivo.trigger.chat.message.received",
     /** Another workflow called this one. */
     workflowCalled: "nivo.trigger.workflow.called",
+    /**
+     * A record of a type that declares `events` was written (created, changed or soft-deleted; concept agent-data rule 2): supplies, in
+     * `data`, the `type`, the `recordId`, the `op`, the `version`, the `writer` kind, the `subject` the type declares and the declared enum
+     * `fields`. Ids only: the node reads the record. A graph registers `where: [{ param: "data.type", op: "equals", value }]`.
+     */
+    recordWritten: "nivo.trigger.record.written",
 } as const
 
 /** Compiles only when every value is a declared name: a constant whose id is not a key of the names interface is a compile error. */

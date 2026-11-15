@@ -35,6 +35,7 @@ import {
     IF_STEP,
     LOOP_STEP_V2,
     OUTCOME_STEP_V2,
+    WAIT_KEY_VERBS_MAX,
     WAIT_STEP,
 } from "./graph-spec-v2"
 import {
@@ -257,10 +258,10 @@ const outcomeStep = z.strictObject({
     label: specTextSchema.optional(),
 })
 
-/** One trigger of a wait as stored. */
+/** One key of a wait as stored: its meaning's verbs (an empty list is judged by `templateGraphProblems`, `WAIT_VERBS_EMPTY`). */
 const waitOn: z.ZodType<GraphV2WaitOn> = z.strictObject({
     key: keyText.min(1),
-    verb: triggerVerb,
+    verbs: z.array(triggerVerb).max(WAIT_KEY_VERBS_MAX),
     where: z.array(triggerConditionSchema).max(20).optional(),
     match: z
         .array(

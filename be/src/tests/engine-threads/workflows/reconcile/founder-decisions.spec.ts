@@ -37,8 +37,8 @@ const turnPolicyOf = (db: MoneyDb): Provider => {
     }
 }
 
-describe("a customer's held line joins the run the founder answers (D-MX-1)", () => {
-    it("LIVE S1: the held line joins the stopped run, whose re-run reads the founder's answer, and its stop is not asked again", async () => {
+describe("a customer's held line and the run the founder answers (D-MX-1, E-FIX12 rule A-7)", () => {
+    it("LIVE S1: the re-run reads the founder's answer and the conversation; the held line is released at the run's end, never swallowed; the stop is not asked again", async () => {
         const db = moneyDbOf()
         const process = await moneyProcessOf(db, [...holdProvidersOf(db), AgentGraphRunQueueService, turnPolicyOf(db)])
         // The template front desk (version 7): the understand and answer steps are agents (`agent.run`), the answer step sends the reply
@@ -65,14 +65,14 @@ describe("a customer's held line joins the run the founder answers (D-MX-1)", ()
         expect(again.ending).toMatchObject({ status: "held", reason: `waiting:${runId}` })
         expect(heldWakesOf(db).map((wake) => wake.reason)).toEqual([`waiting:${runId}`])
 
-        // The founder answers; the resumed step answers the question right. The held line JOINED this run (`layers` (1): the next event of
-        // the subject resumes THAT thread, never a new run): the re-run step reads it with the founder's answer.
+        // The founder answers; the resumed step answers the question right, reading the conversation (the held line included) with the
+        // founder's answer. E-FIX12 rule A-7: the re-run step does NOT swallow the held wake; the run has no wait ahead, so when it ends the
+        // wake is released (pending: the next run of the subject takes it, after the cursor of what was consumed).
         db.model.script(ANSWER, { done: { reply: VAT_ANSWER } })
         const resumed = await founderDecides(process, runId, answer(db, FOUNDER))
         expect(resumed.map((one) => [one.error, one.runId])).toEqual([[null, runId]])
-        // The re-run step took the held line into its queue (`queued:<run>`): nothing stays held.
         expect(heldWakesOf(db)).toEqual([])
-        expect(db.chat.wakes.map((wake) => [wake.state, wake.reason])).toContainEqual(["queued", `queued:${runId}`])
+        expect(db.chat.wakes.filter((wake) => wake.reason?.startsWith("queued:") === true)).toEqual([])
 
         // The held line wrote no wake of its own (only the founder's resume is a wake): no fresh run reads it.
         expect(db.wakes.map((wake) => wake.context.eventName)).toEqual(["engine.thread.resume"])

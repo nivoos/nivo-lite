@@ -96,6 +96,10 @@ import recorded from "./node-accounts-table.json"
  * replaced by `hear` (`webmail.hear`, auto, none: the person's unread lines of the route, a native read of the conversation); `webmail.triage#sort`
  * (`webmail.sort`) no longer reads a mail from the mailbox (the line is the person's mail), so it lists no provider ([imap] -> none). The mailbox is the
  * agent's `smtp` account (the trigger source), no step acts on it; every other row keeps graph/step/node/mode/providers.
+ * Ledger (PAY-REQ, 2026-11-15, owner ruling R111, +2 rows from the source installation, read by diff; no other row moves): `sales.consult` v32
+ * `request-qr` -> `request-pay` (`sales.request-pay`, auto, [payos, sepay]: the ONE payment request), + `request-now` (`sales.request-read`,
+ * auto, [payos, sepay]) and + `cancel-request` (`sales.request-cancel`, auto, [payos, sepay]); `websales.close#pay` lists `sepay` after the CRM
+ * (the first instalment's payment request), mode unchanged.
  */
 
 /** A node step of a template graph. */

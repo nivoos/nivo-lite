@@ -1,0 +1,12 @@
+{"findings":[],"hash":"66c16db67fe2e34c14be4db8764adfb09db7c289c9ef677728df5878199cb3b0","path":".starcistacks/production/infra/swarm/api-public.conf","step":"prettier"}
+{"findings":[],"hash":"6cd33ab8cadd44b90b46f35d79e0179b2bf6a865b51868c32af86e1b35eabfcd","path":".starcistacks/production/infra/swarm/api.env.example","step":"prettier"}
+{"findings":[],"hash":"004e66862c63fc8f8b800335f479d23cac85c719376c02fd43208fda7824416d","path":".starcistacks/production/infra/swarm/edge/routes.yml","step":"prettier"}
+{"findings":[],"hash":"70ec5a54456751cd2be67770d4b2436a9533106b3c0bcbd50d2613251fb8cc8b","path":".starcistacks/production/infra/swarm/postgres/backup.sh","step":"prettier"}
+{"findings":[],"hash":"de5b8bb4786912eae39c8a328b398d56126c4c8204a88ace5174a2919266336f","path":".starcistacks/production/infra/swarm/recovery/db-backup-receipt-v0.2.1.md","step":"prettier"}
+{"findings":[],"hash":"791040e108fb0f23c75e0d3bea7864c53d3cd39221f94fbb50e1ce198cc53392","path":".starcistacks/production/infra/swarm/recovery/db-backup-receipt-v0.3.1.md","step":"prettier"}
+{"findings":[],"hash":"2a7205413c6468d376f83737bfaf095cac636b505748adb3a04f7ea5e34a6109","path":".starcistacks/production/infra/swarm/recovery/db-runbook.md","step":"prettier"}
+{"findings":[],"hash":"fde8b9fb866bea8bd9d6b4d1f691c7c55d66ec35ecb7439e018214339654ecc9","path":".starcistacks/production/infra/swarm/recovery/restore-proof.md","step":"prettier"}
+{"findings":[],"hash":"ce974181706abd3ae9e54bc58cba2f883de5bd51bf9d194d19f2370caabb82f0","path":".starcistacks/production/infra/swarm/release/current.yaml","step":"prettier"}
+{"findings":[],"hash":"d8a5ba0f7751ca3732c726c5cd9007a34533054787ad5f90f4e39e9756dd237f","path":".starcistacks/production/infra/swarm/release/images.lock.yaml","step":"prettier"}
+{"findings":[],"hash":"ae6f053d5ef6c9a057072c5fdf93e5f1d14060974f31cd5ac8523d5c72394efa","path":".starcistacks/production/infra/swarm/release/previous.yaml","step":"prettier"}
+{"findings":[],"hash":"eaa3b784d49fb421b5cbbef0cad3d9ce45298671b339db256d3a4b687cf86b0c","path":".starcistacks/production/infra/swarm/stack.yaml","step":"prettier"}

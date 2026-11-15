@@ -1,5 +1,6 @@
 "use client"
 
+import { useModuleLabels } from "@/hooks/moduleCatalog"
 import { useSearchParams } from "next/navigation"
 import { useTranslations } from "next-intl"
 import { useAskKnowledge } from "@/hooks/knowledge"
@@ -31,12 +32,13 @@ export const useBrainAsk = (input: BrainAskInput): BrainAskView => {
     const brain = useTranslations("secondBrain")
     const tp = useTranslations("pane")
     const labels = useSlotLabels()
+    const modules = useModuleLabels()
     const header = useBrainPageHeader("agents", input.heading)
     const { lenses, slot, reload } = useAgentLenses()
     const agents = lenses === undefined ? NO_AGENTS : lenses.filter((lens) => lens.kind === "agent")
     const preselected = useSearchParams().get("agent") ?? undefined
     const ask = useAskKnowledge(agents, undefined, preselected)
-    const agentsSlot = mapSlot(slot, () => agents.map((lens) => askAgentOptionOf(t, lens)))
+    const agentsSlot = mapSlot(slot, () => agents.map((lens) => askAgentOptionOf(modules.labelOf, lens)))
     const sees = mapSlot(slot, (all) => askSeesOf(all, ask.agent, brain))
     const audienceOptions = [
         { value: "customer", label: t("askAudiencePublic") },

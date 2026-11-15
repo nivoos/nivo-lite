@@ -1,10 +1,9 @@
 import { AgentSetupPanes } from "@/components/blocks/AgentSetupPanes"
-import type { ModuleKey } from "@/modules/catalog"
 
 /** The Setup tab of an agent: the type and the instance of the url. */
 export interface AgentSetupPageBaseProps {
     readonly props: {
-        readonly module: ModuleKey | undefined
+        readonly module: string | undefined
         readonly installationId: string | undefined
     }
 }

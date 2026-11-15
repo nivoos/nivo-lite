@@ -75,6 +75,7 @@ const build = async (source: SourceRecord | null = sourceOf()) => {
     embeddings.model.mockReturnValue("m1")
     embeddings.embed.mockResolvedValue([[0.5, 1]])
     chunks.embeddedOf.mockResolvedValue([])
+    chunks.replace.mockResolvedValue(true)
     // Each stored passage answers the id it was stored under (the point id of its vector).
     chunks.keep.mockImplementation(async (write, within) => {
         await within?.({} as never)
@@ -285,6 +286,26 @@ const registerEmbeddingAndReuseCases = () => {
         await service.index(run, JOB)
 
         expect(embeddings.embed).toHaveBeenCalled()
+    })
+
+    it("K-9a: a document deleted while its passages were written ends the job `origin_gone`: the write found no source, nothing finishes, no vector is handed over", async () => {
+        const { service, sources, chunks, vectorSync } = await build()
+        chunks.keep.mockResolvedValue(null)
+
+        await expect(service.index(run, JOB)).resolves.toBe("origin_gone")
+
+        expect(sources.finishIndexing).not.toHaveBeenCalled()
+        expect(vectorSync.accept).not.toHaveBeenCalled()
+    })
+
+    it("the keyword-only write of a document that was deleted meanwhile ends `origin_gone` too", async () => {
+        const { service, sources, chunks, embeddings } = await build()
+        embeddings.configured.mockReturnValue(false)
+        chunks.replace.mockResolvedValue(false)
+
+        await expect(service.index(run, JOB)).resolves.toBe("origin_gone")
+
+        expect(sources.finishIndexing).not.toHaveBeenCalled()
     })
 
     it("stores keyword-only passages without looking when embeddings are not configured", async () => {

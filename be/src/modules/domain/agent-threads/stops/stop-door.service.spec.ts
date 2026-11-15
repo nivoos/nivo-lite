@@ -104,7 +104,7 @@ describe("StopDoorService: a retry on a stop that waits for the owner's verdict 
         kind: "approval",
         question: null,
         conversationId: "conv-1",
-        detail: { suggestions: [], facts: [{ name: "workItemId", value: "item-1" }, { name: "tool", value: "nivo.tool.payment.transfer.create" }] },
+        detail: { suggestions: [], facts: [{ name: "workItemId", value: "item-1" }, { name: "tool", value: "nivo.tool.payment.request.create" }] },
     })
     const withVerdict = (verdict: string): RunStop => ({
         ...waiting,
@@ -411,5 +411,27 @@ describe("targetStopOf / stopDecisionOfAsk", () => {
         expect(stopDecisionOfAsk("answer", "m-1", NOW, "agreed")).toEqual({ kind: "answer", text: "agreed", by: "m-1", at: NOW })
         expect(stopDecisionOfAsk("skip", "m-1", NOW, "ignored")).toEqual({ kind: "skip", by: "m-1", at: NOW })
         expect(stopDecisionOfAsk("answer", "m-1", NOW, null)).toBeNull()
+    })
+})
+
+// E-FIX12 rule A-4: a stop whose act's outcome is unknown and whose tool declares neither `repeatable` nor `confirmBy` (stop fact
+// `retry: after_take_over`) takes no Retry until a person took it over: a Retry would make the act again blind.
+describe("StopDoorService: Retry of an act of unknown outcome with no declared way to make or check it again", () => {
+    const blind = stopOf({ detail: { suggestions: [], facts: [{ name: "retry", value: "after_take_over" }] } })
+
+    it("refuses the Retry before a take-over (`take_over_first`): nothing resumed", async () => {
+        const { door, threads } = await build({ stops: [blind] })
+        await expect(door.decide("user-1", { ...ASK, action: "retry" })).resolves.toEqual({ outcome: "take_over_first", stepKey: "match" })
+        expect(threads.resume).not.toHaveBeenCalled()
+    })
+
+    it("takes the Retry once a person took the stop over, and every other decision as before", async () => {
+        const takenOver = { ...blind, decision: { kind: "take_over" as const, text: null, by: "member-1", at: NOW } }
+        await expect((await build({ stops: [takenOver] })).door.decide("user-1", { ...ASK, action: "retry" })).resolves.toMatchObject({
+            outcome: "admitted",
+        })
+        await expect((await build({ stops: [blind] })).door.decide("user-1", { ...ASK, action: "skip" })).resolves.toMatchObject({
+            outcome: "admitted",
+        })
     })
 })

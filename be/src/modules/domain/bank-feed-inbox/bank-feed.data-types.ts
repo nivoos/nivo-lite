@@ -55,11 +55,11 @@ const deliveryOf = (provider: string): AccountDataTypeDef =>
  * keeps it once; the new row is admitted (its job marks the account fed and hands the movement to its trigger) and stays pending until that
  * job completes it.
  */
-const transactionOf = (provider: string): AccountDataTypeDef =>
+const transactionOf = (provider: string, request?: RequestRefMember): AccountDataTypeDef =>
     defineAccountDataType({
         name: `${provider}.transaction`,
         provider,
-        version: 1,
+        version: request === undefined ? 1 : request.version,
         write: "append",
         fields: {
             transactionId: { type: "text", required: true, maxLength: ID_MAX },
@@ -71,6 +71,7 @@ const transactionOf = (provider: string): AccountDataTypeDef =>
             bankRef: { type: "text", required: false, maxLength: ID_MAX },
             at: { type: "timestamp", required: false },
             source: { type: "text", required: true, maxLength: 8 },
+            ...(request === undefined ? {} : { requestRef: { type: "text", required: false, maxLength: REQUEST_REF_MAX } }),
         },
         key: ["transactionId"],
         occurredAt: "at",
@@ -83,6 +84,17 @@ const transactionOf = (provider: string): AccountDataTypeDef =>
         secretFields: BANK_FEED_SECRET_FIELDS,
         purpose: "bank.transaction",
     })
+
+/** The longest payment-request reference a movement keeps (payOS's order code as text is far shorter). */
+const REQUEST_REF_MAX = 100
+
+/**
+ * The member a feed whose provider names the payment request a movement pays keeps (`requestRef`, owner ruling R111), and the type version
+ * it came in with (account-data rule 4: a schema change bumps the version; old rows keep theirs).
+ */
+interface RequestRefMember {
+    readonly version: number
+}
 
 /** A delivery of a workspace's SePay feed. */
 export const sepayDelivery: AccountDataTypeDef = deliveryOf("sepay")
@@ -100,7 +112,7 @@ export const cassoTransaction: AccountDataTypeDef = transactionOf("casso")
 export const payosDelivery: AccountDataTypeDef = deliveryOf("payos")
 
 /** A payment payOS reported. */
-export const payosTransaction: AccountDataTypeDef = transactionOf("payos")
+export const payosTransaction: AccountDataTypeDef = transactionOf("payos", { version: 2 })
 
 /** Every account data type of a bank-feed connection, for the catalog. */
 export const BANK_FEED_DATA_TYPES: ReadonlyArray<AccountDataTypeDef> = [

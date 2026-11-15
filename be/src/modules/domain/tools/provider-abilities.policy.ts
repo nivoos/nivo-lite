@@ -125,10 +125,10 @@ const REGISTRAR_ABILITIES: ReadonlyArray<ProviderAbility> = [
  * here needs the agent's attachment to an account of a provider serving it (`judgeAttachment`, the kill switch), then its node's mode; a
  * tool listed nowhere here needs no account (the node's mode alone). The engine's tool specs (`TOOL_SPECS`) are the source of which providers OWN a core tool:
  * a spec proves this catalogue holds every core tool on exactly its owners (the pseudo-provider `nivo` is never here: a tool listed here
- * is judged only by attachments). `casso`, a second bank feed, holds NIVO's inbox of received credits only: it holds NO payment request
- * (no `qr.create`) until its QR format is verified against Casso's documentation, so it is never a default receiving account and a
- * workspace with a SePay and a Casso account resolves the payment request to the SePay one; `smtp` serves the customer channel `email` of the one customer send (rule SO-1: no mail tool of its own). `payos` is a provider a
- * workspace connects that no tool reaches yet. `openapi` is an API
+ * is judged only by attachments). `casso`, a second bank feed, holds NIVO's inbox of received credits only: it serves NO payment request
+ * (`nivo.tool.payment.request.*`, owner ruling R111: served by `sepay` and `payos` through one port), so a workspace with a SePay and a
+ * Casso account resolves the payment request to the SePay one; `smtp` serves the customer channel `email` of the one customer send (rule
+ * SO-1: no mail tool of its own). `openapi` is an API
  * connection that pinned an OpenAPI document: its tools are the ones the installed plugins declare on its connectors
  * (`nivo.tool.<source key>.<method>.<path>`, or the platform purpose an operation serves), ONE ability per operation, so it has no ability
  * until a plugin declares a tool. `nivo.tool.connection.status.get` is ONE tool for every provider, answered in one part per provider
@@ -165,8 +165,11 @@ export const PROVIDER_CATALOGUE: ReadonlyArray<ProviderSpec> = [
                 scope: "read",
                 tools: [TOOL.bankTransactionList, TOOL.paymentCreditList, TOOL.paymentCreditGet, TOOL.paymentDebitList, TOOL.connectionStatusGet],
             },
-            // The QR and account details of a bank transfer, composed from the connection's public fields: a read (it creates and moves nothing).
-            { id: "transfer.instruction", scope: "read", tools: [TOOL.paymentTransferCreate] },
+            // The payment request (owner ruling R111): SePay answers it with a bank-transfer instruction composed from the connection's public
+            // fields (it creates and moves nothing); it keeps no request, so its read and cancel answer `no_request_state`.
+            { id: "request.create", scope: "write", tools: [TOOL.paymentRequestCreate] },
+            { id: "request.read", scope: "read", tools: [TOOL.paymentRequestGet] },
+            { id: "request.cancel", scope: "write", tools: [TOOL.paymentRequestCancel] },
         ],
     },
     {
@@ -181,11 +184,11 @@ export const PROVIDER_CATALOGUE: ReadonlyArray<ProviderSpec> = [
         kind: "payment",
         abilities: [
             { id: "transactions.read", scope: "read", tools: [TOOL.paymentCreditGet] },
-            // The hosted payment LINK under payOS's own order code (an operation label for display, a mode never changes with it): created and
-            // cancelled at payOS, read back by its id or order code.
-            { id: "link.create", scope: "write", tools: [TOOL.paymentLinkCreate] },
-            { id: "link.read", scope: "read", tools: [TOOL.paymentLinkGet] },
-            { id: "link.cancel", scope: "write", tools: [TOOL.paymentLinkCancel] },
+            // The payment request (owner ruling R111): a hosted payment link under payOS's own order code, created and cancelled at payOS and read
+            // back by that code (an operation label for display, a mode never changes with it).
+            { id: "request.create", scope: "write", tools: [TOOL.paymentRequestCreate] },
+            { id: "request.read", scope: "read", tools: [TOOL.paymentRequestGet] },
+            { id: "request.cancel", scope: "write", tools: [TOOL.paymentRequestCancel] },
         ],
     },
     {
@@ -453,14 +456,30 @@ export interface NamedAccount {
     readonly provider: string
     /** The connected account. */
     readonly connectionId: string
+    /** True for a SANDBOX account (lane concept provider-sandbox); absent or false: a live one. */
+    readonly sandbox?: boolean | undefined
 }
+
+/** The world a run acts in (lane concept provider-sandbox rule 19): only sandbox accounts, or only live ones. */
+export type AccountWorld = "sandbox" | "live"
+
+/** The world of one account: its creation-time sandbox flag. */
+export const worldOfAccount = (account: { readonly sandbox?: boolean | undefined }): AccountWorld => (account.sandbox === true ? "sandbox" : "live")
 
 /** What a run tells about the accounts of its agent: where its trigger came in, and which accounts its earlier calls used. */
 export interface RunAccountFacts {
-    /** The connected account the run's triggering event came in on, or null/absent when the event names none. */
+    /**
+     * The run's OWN account: the one its triggering event came in on, else the account of the person's route the run serves (a called or
+     * scheduled run's subject); null/absent when it has neither.
+     */
     readonly triggerConnectionId?: string | null | undefined
     /** The connected accounts the run's earlier calls used, the most recent first (the tool call log of the run). */
     readonly usedConnectionIds?: ReadonlyArray<string> | undefined
+    /**
+     * The world the run acts in (rule 19, ONE WORLD PER RUN): the world of the first account it touched (its trigger's account, else an
+     * account its calls used). Absent: the run touched no account yet, and the order picks among every attached account.
+     */
+    readonly world?: AccountWorld | undefined
 }
 
 /** Why one account was picked among the agent's accounts of one provider: it is the only one, or the first rule of the order that names one. */
@@ -532,7 +551,9 @@ const picksOf = <A extends NamedAccount>(
     [...new Set(providers)].map((provider) => ({
         provider,
         pick: pickAccountOf(
-            attached.filter((account) => account.provider === provider),
+            // ONE WORLD PER RUN (rule 19): a run of a world sees only that world's accounts; a provider with none of them binds nothing
+            // (the kill switch's refusal), never an account of the other world.
+            attached.filter((account) => account.provider === provider && (run?.world === undefined || worldOfAccount(account) === run.world)),
             defaultOf(provider),
             run,
             chosenOf(provider),

@@ -286,6 +286,8 @@ describe("eraseForContacts: deleting a contact erases every record of an erase f
             erased: 1,
             cleared: 1,
             files: [],
+            // The record it hid rides back to the contacts, which end a run whose subject it was (concept agent-data).
+            hidden: [{ type: ORDER.name, id: ORDER_ID }],
         })
         expect(orders?.callsOf("where")).toEqual([
             ["r.entity = :entity AND r.workspaceId = :ws", { entity: ORDER.name, ws: WS }],

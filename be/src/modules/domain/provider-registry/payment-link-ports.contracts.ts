@@ -1,12 +1,10 @@
 import type { ConnectionRecord } from "@modules/domain/connections"
 
 /**
- * THE PAYMENT-LINK PURPOSE: a hosted payment LINK under the provider's own order code (payOS today, others later). The tools
- * `nivo.tool.payment.link.*` are their own purpose, never merged into `nivo.tool.payment.transfer.create`: a transfer instruction is a QR
- * and account details composed for a bank transfer (a read, nothing created anywhere), a payment link is something the provider CREATES
- * (its own order code, a checkout page, a status that moves), so the two are not substitutable. The words are neutral; a failure is thrown
- * with what it proves (`withProof`: `not_sent` when the request never left, `unknown` when it may have); a refusal the provider answered
- * (`providerRefusal` (a `ProviderRegistryError`)) proves no effect. Its refusals are those of the payment tools (`PAYMENT_TOOL_REFUSALS`).
+ * payOS's OWN port: a hosted payment LINK under the provider's own order code (a checkout page, a status that moves). No tool calls it:
+ * the provider's payment-request adapter wraps it (`nivo.tool.payment.request.*`, owner ruling R111), and its sandbox twin implements the
+ * same port. The words are neutral; a failure is thrown with what it proves (`withProof`: `not_sent` when the request never left,
+ * `unknown` when it may have); a refusal the provider answered (`providerRefusal` (a `ProviderRegistryError`)) proves no effect.
  */
 
 /** What a payment link is asked for. */

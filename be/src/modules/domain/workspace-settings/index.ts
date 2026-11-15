@@ -3,6 +3,7 @@ export { WorkspaceSettingsAccessService } from "./workspace-settings-access.serv
 export { WorkspaceSettingsService } from "./workspace-settings.service"
 export { WorkspaceThemeAccessService } from "./workspace-theme-access.service"
 export { WorkspaceTimeZoneService } from "./workspace-time-zone.service"
+export { isKnownTimeZone } from "./workspace-time-zone.policy"
 export type {
     WorkspaceLogoUpload,
     WorkspaceSettings,

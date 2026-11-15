@@ -21,6 +21,11 @@ export enum BrainErrorCode {
      * read: the same one (`joined`) or one that argues with it (`raced`). Nothing was written; the settle that threw it catches it.
      */
     SettleLostRace = "BRAIN_SETTLE_LOST_RACE",
+    /**
+     * The guard of an automatic write found, in the transaction of the write, that the document the truth is read from was deleted
+     * meanwhile. Nothing was written; the settle that threw it catches it and the job ends `origin_gone`.
+     */
+    SettleOriginGone = "BRAIN_SETTLE_ORIGIN_GONE",
 }
 
 /** How each brain code travels. */
@@ -33,6 +38,7 @@ export const BRAIN_ERROR_KINDS: Record<BrainErrorCode, ErrorKind> = {
     [BrainErrorCode.BulkNeedsInternal]: "conflict",
     [BrainErrorCode.WindowInvalid]: "invalid",
     [BrainErrorCode.SettleLostRace]: "conflict",
+    [BrainErrorCode.SettleOriginGone]: "conflict",
 }
 
 /** The one error class of the brain capability. */

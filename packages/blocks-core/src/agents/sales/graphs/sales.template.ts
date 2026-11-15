@@ -1,4 +1,5 @@
 import type { ModuleServer, ModuleTemplate } from "@nivo-lite/agent-sdk/module"
+import { knowledgeIdeasOf } from "../../../shared/modules/knowledge-ideas/knowledge-ideas"
 import { ACCOUNTING_COPY as ledgerCopy } from "../ledger/graphs/copy"
 import { loyaltyCopy } from "../loyalty/graphs/copy"
 import { SALES_COPY as copy } from "./copy"
@@ -21,6 +22,7 @@ export const SALES_TEMPLATE: ModuleTemplate = {
     includedWithWorkspace: true,
     available: false,
     knowledgeFolder: "sales",
+    knowledgeIdeas: knowledgeIdeasOf(["about", "offerings", "policies", "who_handles", "qualification", "approval_process", "payment_methods", "invoicing_tax", "loyalty_points", "loyalty_rewards", "loyalty_tiers", "loyalty_expiry", "brand_voice"]),
     workbench: "sales",
     settingsExtras: null,
     requires: {

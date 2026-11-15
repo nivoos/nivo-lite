@@ -27,7 +27,7 @@ import {
     type DataSpools,
 } from "./data-copies.decorators"
 import { DataCopiesLogEvent } from "./data-copies.log-events"
-import { dataRefusalFailure, membersOf } from "./data-copies.policy"
+import { dataRefusalFailure, membersOf, refusalLogOf } from "./data-copies.policy"
 import {
     missingCopyOf,
     restoreCheckOf,
@@ -57,18 +57,28 @@ export class DataVerifyService {
     /** Verifies every backup data set and answers a receipt each; throws ONE typed failure naming the sets with findings (class `input`: retrying a finding proves nothing), a transient one for a driver that could not be reached. */
     async run(job: ClaimedJob): Promise<ReadonlyArray<DataVerifyReceipt>> {
         payloadOfJob(VERIFY_DATA_JOB, job)
+        const receipts: Array<DataVerifyReceipt> = []
+        await eachInOrder(
+            this.sets.filter((candidate) => candidate.purpose === "seed-backup"),
+            async (set) => {
+                receipts.push(await this.verified(job, set))
+            },
+        )
+        if (receipts.some((receipt) => !receipt.healthy)) throw dataCopyFailure("input", verifyProblemsOf(receipts))
+        return receipts
+    }
+
+    /** Verifies one set; a refusal of the data package is logged ONCE (job, set, code, retry class, facts) and becomes the job's typed failure. */
+    private async verified(job: ClaimedJob, set: DataSetDeclaration): Promise<DataVerifyReceipt> {
         try {
-            const receipts: Array<DataVerifyReceipt> = []
-            await eachInOrder(
-                this.sets.filter((candidate) => candidate.purpose === "seed-backup"),
-                async (set) => {
-                    receipts.push(await this.verifySet(set))
-                },
-            )
-            if (receipts.some((receipt) => !receipt.healthy)) throw dataCopyFailure("input", verifyProblemsOf(receipts))
-            return receipts
+            return await this.verifySet(set)
         } catch (cause) {
             if (!(cause instanceof DataRefusal)) throw cause
+            this.logger.error(DataCopiesLogEvent.VerifyRefused, cause, {
+                jobId: job.jobId,
+                setId: set.id,
+                ...refusalLogOf(cause),
+            })
             throw dataRefusalFailure(cause)
         }
     }

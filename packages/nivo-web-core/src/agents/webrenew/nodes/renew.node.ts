@@ -10,12 +10,12 @@ import { RENEWAL_ID, refused, registrarAnswered } from "./webrenew.examples"
 
 /**
  * Where a renewal stands after the registrar step: `renewed` (the registrar's end date moved, `newExpiresOn` given), `pending` (the
- * registrar took the order, the end date did not move yet: a person checks it later), `refused` (the registrar refused, nothing renewed:
- * the customer has paid, a person tops up or renews by hand), `not_renewable` (no registrar tool renews this service: a person renews it).
+ * registrar took the order, the end date did not move yet: a person checks it later), `not_renewable` (no registrar tool renews this
+ * service: a person renews it). A registrar's refusal is no outcome: it stops the step for a person (E-FIX12).
  */
-export type RenewOutcome = "renewed" | "pending" | "refused" | "not_renewable"
+export type RenewOutcome = "renewed" | "pending" | "not_renewable"
 
-const OUTCOMES: readonly [RenewOutcome, ...Array<RenewOutcome>] = ["renewed", "pending", "refused", "not_renewable"]
+const OUTCOMES: readonly [RenewOutcome, ...Array<RenewOutcome>] = ["renewed", "pending", "not_renewable"]
 
 /** What the step did, when a person did not decline it: the renewal and the registrar's answer. */
 export type RenewOutput = {
@@ -27,7 +27,7 @@ export type RenewOutput = {
     readonly termMonths: number
     /** Where the renewal stands. */
     readonly outcome: RenewOutcome
-    /** Why it was not renewed: the registrar's refusal, or the check's reason; null when renewed or pending. */
+    /** Why it was not renewed: the check's reason; null when renewed or pending. */
     readonly reason: string | null
     /** The registrar's order reference; null when no order was taken. */
     readonly reference: string | null
@@ -109,8 +109,9 @@ const UNTOUCHED = { renewalId: RENEWAL_ID, serviceCode: "EXAMPLE-TM", termMonths
  * the service (`reason` given) it makes NO call and returns `not_renewable` with the reason. Else it renews the domain for the years paid
  * (`nivo.tool.domain.renewal.create` `{ name, years }`) on the registrar account (iNET, else Tino), mode `ask`: the money leaves NIVO Web's
  * balance at the registrar, so a person approves the call. The registrar's answer is the output: `renewed` with the new end date, or
- * `pending` (order taken, end date unchanged: checked later); a business refusal is `refused` with its code (nothing renewed, a person
- * acts). An answer with no known outcome stops the run. A person who declines the call made a decision: `declined` true, nothing
+ * `pending` (order taken, end date unchanged: checked later). A registrar's refusal (balance short, domain locked, rejected, not found)
+ * is `context.fail` `cannot` `renewal_refused:<code>`: the tool declares no final refusal, so the engine stops the step for a person
+ * (Retry / Take over / Skip, E-FIX12 A-1) and the node never turns it into an outcome. An answer with no known outcome stops the run. A person who declines the call made a decision: `declined` true, nothing
  * renewed (the graph tells the team and ends `declined`).
  */
 export const webrenewRenewNode: TemplateNode<typeof renewCheckOutputSchema, typeof output, typeof params> = defineTemplateNode({
@@ -135,7 +136,8 @@ export const webrenewRenewNode: TemplateNode<typeof renewCheckOutputSchema, type
             return context.fail({ kind: "cannot", why: "renewal_check_incomplete" }, { serviceCode: given.serviceCode })
         const renewed = await context.tools.call(TOOL.domainRenewalCreate, { name: given.domain, years: given.years })
         if (isDeclined(renewed)) return { ...untouched, ...nothing, declined: true, outcome: null, reason: null }
-        if (!renewed.ok) return { ...untouched, ...nothing, declined: false, outcome: "refused", reason: renewed.refusal }
+        // A registrar's refusal is a failed act: the engine stops the step for a person (E-FIX12 A-1); never an outcome of the business.
+        if (!renewed.ok) return context.fail({ kind: "cannot", why: `renewal_refused:${renewed.refusal}` }, renewed.facts)
         const outcome = takenOf(renewed.value["outcome"])
         const expiresOn = textOf(renewed.value, "expiresOn")
         if (outcome === null || (outcome === "renewed" && expiresOn === null))
@@ -185,20 +187,11 @@ export const webrenewRenewNode: TemplateNode<typeof renewCheckOutputSchema, type
             },
         },
         {
-            name: "the registrar refuses (the balance is short): refused with its code, nothing renewed",
+            name: "the registrar refuses (the balance is short): the step cannot go on, the engine stops it for a person",
             params: {},
             input: CHECKED,
             tools: [{ id: TOOL.domainRenewalCreate, args: CALL, answer: refused("insufficient_balance") }],
-            output: {
-                ...UNTOUCHED,
-                declined: false,
-                outcome: "refused",
-                reason: "insufficient_balance",
-                reference: null,
-                provider: null,
-                newExpiresOn: null,
-                expiresBefore: null,
-            },
+            failure: { kind: "cannot", why: "renewal_refused:insufficient_balance" },
         },
         {
             name: "a service no registrar tool renews: no call, not renewable with the check's reason",

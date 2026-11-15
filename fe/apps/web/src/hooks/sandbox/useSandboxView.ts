@@ -75,6 +75,7 @@ export const useSandboxView = (): SandboxPanesBaseProps => {
             attach: agentView.attach,
             detachAsk: agentView.detachAsk,
             cases: held(reads.cases),
+            outcomes: held(reads.outcomes),
             calls: held(reads.calls),
             webhookKey: { isRevealed: state.isKeyRevealed, value: held(reads.key) },
             waiting: isChecking

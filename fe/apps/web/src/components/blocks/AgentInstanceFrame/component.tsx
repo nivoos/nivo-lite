@@ -175,7 +175,7 @@ export const AgentInstanceFrameBase = (props: AgentInstanceFrameBaseProps) => {
     const view = copy.view
     const header: PageHeaderContent = {
         breadcrumbs: { label: copy.crumbLabel, items: copy.crumbs },
-        mark: <AgentKindMark module={view.module} isLoading={copy.isLoading} />,
+        mark: <AgentKindMark module={view.module} glyph={view.glyph} isLoading={copy.isLoading} />,
         title: view.name,
         status: <HeaderStatus copy={copy} />,
         meta: view.subtitle,

@@ -9,6 +9,7 @@ import { ConnectionEntity } from "@modules/domain/connections/persistence/entiti
 import type { ConnectionStatusFacts } from "@modules/domain/connections"
 import { AccountAttachmentsService, toolGrantsEntities } from "@modules/domain/tool-grants"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
+import { LOGGER, type Logger } from "@modules/platform/logging"
 import { NODE_REQUESTS_GATE } from "./node-requests.decorators"
 import type { NodeRequestsGate, OptionalNodeRequest } from "./node-mode.policy"
 import { AgentAccountsService } from "./agent-accounts.service"
@@ -58,6 +59,10 @@ interface RunReaders {
     readonly runs?: AgentRunsService
     /** The call log. */
     readonly callLog?: ToolCallLogService
+    /** The connections that are SANDBOX accounts (lane concept provider-sandbox); every other one is live. */
+    readonly sandbox?: ReadonlyArray<string>
+    /** The logger, when a spec reads what the service reported. */
+    readonly logger?: Logger
 }
 
 /**
@@ -100,6 +105,11 @@ const build = async (
         ),
     )
     connections.recordOf.mockResolvedValue(null)
+    connections.factsOf.mockImplementation((ids) =>
+        Promise.resolve(
+            ids.map((id) => ({ id, provider: "", name: id, status: "connected", createdAt: new Date(0), sandbox: (run.sandbox ?? []).includes(id), botUsername: null, accountMasked: null })),
+        ),
+    )
     const gate = mock<NodeRequestsGate>()
     gate.requestOf.mockResolvedValue(request)
     const moduleRef = await Test.createTestingModule({
@@ -112,6 +122,7 @@ const build = async (
             { provide: NODE_REQUESTS_GATE, useValue: gate },
             ...(run.runs === undefined ? [] : [{ provide: AgentRunsService, useValue: run.runs }]),
             ...(run.callLog === undefined ? [] : [{ provide: ToolCallLogService, useValue: run.callLog }]),
+            ...(run.logger === undefined ? [] : [{ provide: LOGGER, useValue: run.logger }]),
         ],
     }).compile()
     return { service: moduleRef.get(AgentAccountsService), entityManager, gate }
@@ -119,7 +130,7 @@ const build = async (
 
 const TARGET = { workspaceId: WS, agentId: SALES, moduleKey: "sales" }
 const SEND = "nivo.tool.customer.message.send"
-const QR_TOOL = "nivo.tool.payment.transfer.create"
+const QR_TOOL = "nivo.tool.payment.request.create"
 const BANK_TOOL = "nivo.tool.bank.transaction.list"
 const STEP = { nodeKey: "reply", versionId: "v-3", workflowId: "wf-1" }
 
@@ -263,7 +274,7 @@ describe("AgentAccountsService board and templates", () => {
         const board = await service.board(WS)
 
         const sepay = board.providers.find((entry) => entry.provider === "sepay")
-        expect(sepay?.abilities.map((ability) => ability.id)).toEqual(["transactions.read", "transfer.instruction"])
+        expect(sepay?.abilities.map((ability) => ability.id)).toEqual(["transactions.read", "request.create", "request.read", "request.cancel"])
         expect(sepay?.accounts).toEqual([
             { connectionId: "mb", provider: "sepay", label: "mb account", connected: true },
             { connectionId: "vcb", provider: "sepay", label: "vcb account", connected: true },
@@ -413,14 +424,17 @@ describe("AgentAccountsService: which of two accounts of one provider a step's c
         await expect(service.pickNeeded(WS, SALES, BANK_TOOL)).resolves.toBeNull()
     })
 
-    it("keeps the single-account path as it was: the one account binds, and the run's records are never read", async () => {
+    it("the single account binds when it is of the run's world; the run's world IS read (rule 19: a single-world agent is no exception)", async () => {
         const one = readers("mb", ["mb"])
         const { service } = await build(TWO_EACH, [rowOf(SALES, "vcb", "sepay")], bankNodeOf("auto"), one)
 
         await expect(service.boundAccountsOf(WS, SALES, BANK_TOOL, FROM_NODE, RUN)).resolves.toEqual([{ provider: "sepay", connectionId: "vcb" }])
         await expect(service.pickNeeded(WS, SALES, BANK_TOOL, FROM_NODE, RUN)).resolves.toBeNull()
+        expect(one.runs.runOf).toHaveBeenCalled()
+        // Without a run named (a caller that knows none), nothing of a run is read.
+        one.runs.runOf.mockClear()
+        await expect(service.boundAccountsOf(WS, SALES, BANK_TOOL, FROM_NODE)).resolves.toEqual([{ provider: "sepay", connectionId: "vcb" }])
         expect(one.runs.runOf).not.toHaveBeenCalled()
-        expect(one.callLog.connectionsUsedByRun).not.toHaveBeenCalled()
     })
 
     it("makes an attachment the default through the store and refuses an account the agent is not attached to", async () => {
@@ -437,5 +451,214 @@ describe("AgentAccountsService: which of two accounts of one provider a step's c
             ok: false,
             reason: "not_attached",
         })
+    })
+})
+
+describe("AgentAccountsService: ONE WORLD PER RUN (lane concept provider-sandbox rule 19): a run never mixes sandbox and live accounts", () => {
+    const RUN = { runId: "run-1" }
+    // The flower shop holds BOTH worlds: a sandbox Zalo OA (oa-2) the customer wrote on, a live SePay account (mb), a sandbox one (vcb).
+    const readers = (trigger: string | undefined, used: ReadonlyArray<string>, sandbox: ReadonlyArray<string>) => {
+        const runs = mock<AgentRunsService>()
+        runs.runOf.mockResolvedValue({
+            id: "run-1",
+            workspaceId: WS,
+            agentId: SALES,
+            wakeId: "wake-1",
+            trigger: "start",
+            versionId: null,
+            status: "running",
+            context: trigger === undefined ? {} : { connectionId: trigger },
+            errorCode: null,
+            spoken: false,
+        })
+        const callLog = mock<ToolCallLogService>()
+        callLog.connectionsUsedByRun.mockResolvedValue(used)
+        return { runs, callLog, sandbox }
+    }
+    const live = Object.assign(rowOf(SALES, "mb", "sepay"), { isDefault: true })
+    const sandboxBank = rowOf(SALES, "vcb", "sepay")
+    const sandboxOa = rowOf(SALES, "oa-2", "zalo_oa")
+
+    it("a run woken on a SANDBOX account binds the sandbox bank account, though the LIVE one is the agent's default", async () => {
+        const { service } = await build(TWO_EACH, [live, sandboxBank, sandboxOa], bankNodeOf("auto"), readers("oa-2", [], ["oa-2", "vcb"]))
+        await expect(service.boundAccountsOf(WS, SALES, BANK_TOOL, FROM_NODE, RUN)).resolves.toEqual([{ provider: "sepay", connectionId: "vcb" }])
+    })
+
+    it("a sandbox run whose provider has only a LIVE account attached binds nothing (the kill switch refuses), never the live account", async () => {
+        const { service } = await build(TWO_EACH, [live, sandboxOa], bankNodeOf("auto"), readers("oa-2", [], ["oa-2"]))
+        await expect(service.boundAccountsOf(WS, SALES, BANK_TOOL, FROM_NODE, RUN)).resolves.toEqual([])
+        await expect(service.pickNeeded(WS, SALES, BANK_TOOL, FROM_NODE, RUN)).resolves.toBeNull()
+    })
+
+    it("a LIVE run (woken on the live OA) never binds a sandbox account, whatever the node settings or the default say", async () => {
+        const liveOa = rowOf(SALES, "oa-1", "zalo_oa")
+        const sandboxDefault = Object.assign(rowOf(SALES, "vcb", "sepay"), { isDefault: true })
+        const { service } = await build(TWO_EACH, [rowOf(SALES, "mb", "sepay"), sandboxDefault, liveOa], bankNodeOf("auto"), readers("oa-1", [], ["vcb"]))
+        await expect(service.boundAccountsOf(WS, SALES, BANK_TOOL, FROM_NODE, RUN)).resolves.toEqual([{ provider: "sepay", connectionId: "mb" }])
+    })
+
+    it("second kind: a run of no event account (a clock round) is fixed by the account its calls already used", async () => {
+        const { service } = await build(TWO_EACH, [live, sandboxBank, sandboxOa], zaloNodeOf("auto"), readers(undefined, ["vcb"], ["oa-2", "vcb"]))
+        // The OA of the live world is not attached; the run's world (sandbox, from its earlier bank call) binds the sandbox OA.
+        await expect(service.boundAccountsOf(WS, SALES, SEND, FROM_NODE, RUN)).resolves.toEqual([{ provider: "zalo_oa", connectionId: "oa-2" }])
+        const liveRun = await build(TWO_EACH, [live, sandboxBank, sandboxOa], zaloNodeOf("auto"), readers(undefined, ["mb"], ["oa-2", "vcb"]))
+        await expect(liveRun.service.boundAccountsOf(WS, SALES, SEND, FROM_NODE, RUN)).resolves.toEqual([])
+    })
+
+    it("a run that touched no account yet (a clock round) takes the world its agent's DEFAULT accounts agree on", async () => {
+        // The live SePay `mb` is the agent's only default: the run is live, and the live account binds.
+        const { service } = await build(TWO_EACH, [live, sandboxBank, sandboxOa], bankNodeOf("auto"), readers(undefined, [], ["oa-2", "vcb"]))
+        await expect(service.boundAccountsOf(WS, SALES, BANK_TOOL, FROM_NODE, RUN)).resolves.toEqual([{ provider: "sepay", connectionId: "mb" }])
+        // A sandbox default instead: the same round is sandbox, and the sandbox bank binds though the node names nothing.
+        const sandboxDefault = Object.assign(rowOf(SALES, "vcb", "sepay"), { isDefault: true })
+        const other = await build(TWO_EACH, [rowOf(SALES, "mb", "sepay"), sandboxDefault, sandboxOa], bankNodeOf("auto"), readers(undefined, [], ["oa-2", "vcb"]))
+        await expect(other.service.boundAccountsOf(WS, SALES, BANK_TOOL, FROM_NODE, RUN)).resolves.toEqual([{ provider: "sepay", connectionId: "vcb" }])
+    })
+})
+
+/*
+ * SAFE-PICK (RESTART-R9 incident, 2026-11-15): a sale called by the front desk (`workflow.called`: its stored context names NO account)
+ * reached its pay step; the sales agent was attached to the shop's LIVE payOS and its SANDBOX payOS, the step's node settings listed
+ * [live, sandbox] in that order; the run's world was never fixed (no trigger account, its customer sends log no account), so the node
+ * setting's first entry bound the LIVE account. Rule 19 now fixes the world of a called run by its CALLER's (along the chain), narrows
+ * every rung to it, and refuses typed when that world holds no account; a run with nothing fixing it takes its agent's agreeing defaults.
+ */
+describe("AgentAccountsService: ONE WORLD PER RUN across a chain of calls, every rung, every road (SAFE-PICK)", () => {
+    const PAY_ACCOUNTS: ReadonlyArray<Account> = [
+        ["pay-live", "payos", "connected"],
+        ["pay-sbx", "payos", "connected"],
+        ["oa-sbx", "zalo_oa", "connected"],
+        ["oa-live", "zalo_oa", "connected"],
+        ["vcb", "sepay", "connected"],
+        ["mb", "sepay", "connected"],
+    ]
+    const SANDBOX = ["pay-sbx", "oa-sbx", "vcb"]
+    const CALLED = { runId: "run-sale" }
+    /** The pay step as the shop's standard stored it: payOS live then sandbox, then SePay with no account chosen. */
+    const payNode: OptionalNodeRequest = {
+        mode: "auto",
+        accounts: [
+            { kind: "payment", provider: "payos", connectionId: "pay-live" },
+            { kind: "payment", provider: "payos", connectionId: "pay-sbx" },
+            { kind: "payment", provider: "sepay", connectionId: null },
+        ],
+    }
+    /** A stored run: its trigger account (or none) and the run that called it (or none), as the wake's plain data names it. */
+    interface StoredRun {
+        readonly trigger?: string
+        readonly caller?: string
+        readonly used?: ReadonlyArray<string>
+    }
+    /** The run records of a chain of calls, by run id. */
+    const chain = (stored: Readonly<Record<string, StoredRun>>, logger?: Logger): RunReaders => {
+        const runs = mock<AgentRunsService>()
+        runs.runOf.mockImplementation((_workspaceId, runId) => {
+            const run = stored[runId]
+            if (run === undefined) return Promise.resolve(null)
+            const context = {
+                ...(run.trigger === undefined ? {} : { connectionId: run.trigger }),
+                ...(run.caller === undefined ? {} : { tagContext: JSON.stringify({ workflowCall: { workflow: "consult" }, caller: { runId: run.caller } }) }),
+            }
+            return Promise.resolve({ id: runId, workspaceId: WS, agentId: SALES, wakeId: `wake-${runId}`, trigger: "nivo.trigger.workflow.called", versionId: null, status: "running", context, errorCode: null, spoken: false })
+        })
+        const callLog = mock<ToolCallLogService>()
+        callLog.connectionsUsedByRun.mockImplementation((_workspaceId, runId) => Promise.resolve(stored[runId]?.used ?? []))
+        return { runs, callLog, sandbox: SANDBOX, ...(logger === undefined ? {} : { logger }) }
+    }
+    const both = [rowOf(SALES, "pay-live", "payos"), rowOf(SALES, "pay-sbx", "payos"), rowOf(SALES, "oa-sbx", "zalo_oa"), rowOf(SALES, "vcb", "sepay")]
+
+    it("THE INCIDENT: a sale CALLED by a run woken on a sandbox line pays through the SANDBOX payOS, though the node lists the live one first", async () => {
+        const runs = chain({ "run-sale": { caller: "run-desk" }, "run-desk": { trigger: "oa-sbx" } })
+        const { service } = await build(PAY_ACCOUNTS, both, payNode, runs)
+
+        await expect(service.boundAccountsOf(WS, SALES, QR_TOOL, FROM_NODE, CALLED)).resolves.toEqual([
+            { provider: "payos", connectionId: "pay-sbx" },
+            { provider: "sepay", connectionId: "vcb" },
+        ])
+        await expect(service.worldRefusalOf(WS, SALES, QR_TOOL, FROM_NODE, CALLED)).resolves.toBeNull()
+    })
+
+    it("the incident with ONLY the live payOS attached: binds nothing and refuses typed (other_world sandbox), never the live account", async () => {
+        const runs = chain({ "run-sale": { caller: "run-desk" }, "run-desk": { trigger: "oa-sbx" } })
+        const onlyLive = [rowOf(SALES, "pay-live", "payos"), rowOf(SALES, "oa-sbx", "zalo_oa")]
+        const node: OptionalNodeRequest = { mode: "auto", accounts: [{ kind: "payment", provider: "payos", connectionId: "pay-live" }] }
+        const { service } = await build(PAY_ACCOUNTS, onlyLive, node, runs)
+
+        await expect(service.boundAccountsOf(WS, SALES, QR_TOOL, FROM_NODE, CALLED)).resolves.toEqual([])
+        await expect(service.worldRefusalOf(WS, SALES, QR_TOOL, FROM_NODE, CALLED)).resolves.toEqual({ kind: "other_world", provider: "payos", world: "sandbox" })
+        // A SINGLE-world agent (every attached account live) in a sandbox run is no exception: the old read condition skipped it.
+        const allLive = await build(PAY_ACCOUNTS, [rowOf(SALES, "pay-live", "payos")], node, runs)
+        await expect(allLive.service.boundAccountsOf(WS, SALES, QR_TOOL, FROM_NODE, CALLED)).resolves.toEqual([])
+    })
+
+    it("every rung is narrowed: a live trigger-, run-, node- or default-named account never binds in a sandbox run", async () => {
+        const liveDefault = Object.assign(rowOf(SALES, "pay-live", "payos"), { isDefault: true })
+        const rows = [liveDefault, rowOf(SALES, "pay-sbx", "payos"), rowOf(SALES, "oa-sbx", "zalo_oa")]
+        const node: OptionalNodeRequest = { mode: "auto", accounts: [{ kind: "payment", provider: "payos", connectionId: "pay-live" }] }
+        // The sandbox world comes from the caller; the run's OWN earlier call names the live account (a stale log line), the node names it,
+        // and it is the agent's default: none of these rungs reaches it.
+        const runs = chain({ "run-sale": { caller: "run-desk", used: ["pay-live"] }, "run-desk": { trigger: "oa-sbx" } })
+        const { service } = await build(PAY_ACCOUNTS, rows, node, runs)
+        await expect(service.boundAccountsOf(WS, SALES, QR_TOOL, FROM_NODE, CALLED)).resolves.toEqual([{ provider: "payos", connectionId: "pay-sbx" }])
+    })
+
+    it("a hand-off two calls deep inherits the first run's world; a cycle in the chain ends the walk", async () => {
+        const deep = chain({ "run-sale": { caller: "run-mid" }, "run-mid": { caller: "run-desk" }, "run-desk": { trigger: "oa-sbx" } })
+        const { service } = await build(PAY_ACCOUNTS, both, payNode, deep)
+        await expect(service.boundAccountsOf(WS, SALES, QR_TOOL, FROM_NODE, CALLED)).resolves.toEqual([
+            { provider: "payos", connectionId: "pay-sbx" },
+            { provider: "sepay", connectionId: "vcb" },
+        ])
+        // A cycle with no account anywhere: nothing fixes the world, both payOS worlds serve: refused undecided, nothing bound.
+        const loop = chain({ "run-sale": { caller: "run-mid" }, "run-mid": { caller: "run-sale" } })
+        const looped = await build(PAY_ACCOUNTS, both, payNode, loop)
+        await expect(looped.service.boundAccountsOf(WS, SALES, QR_TOOL, FROM_NODE, CALLED)).resolves.toEqual([])
+        await expect(looped.service.worldRefusalOf(WS, SALES, QR_TOOL, FROM_NODE, CALLED)).resolves.toEqual({ kind: "undecided", provider: "payos" })
+    })
+
+    it("a LIVE caller gives a LIVE world: the called sale pays through the live payOS (the order of the node is not what decides)", async () => {
+        const liveRows = [...both, rowOf(SALES, "oa-live", "zalo_oa")]
+        const runs = chain({ "run-sale": { caller: "run-desk" }, "run-desk": { trigger: "oa-live" } })
+        const { service } = await build(PAY_ACCOUNTS, liveRows, { ...payNode, accounts: [...(payNode?.accounts ?? [])].reverse() }, runs)
+        await expect(service.boundAccountsOf(WS, SALES, QR_TOOL, FROM_NODE, CALLED)).resolves.toEqual([{ provider: "payos", connectionId: "pay-live" }])
+    })
+
+    it("second kind (a customer send, not a payment; outside a step and the multi-account reads too): the run's world narrows every road", async () => {
+        const rows = [rowOf(SALES, "oa-live", "zalo_oa"), rowOf(SALES, "oa-sbx", "zalo_oa"), rowOf(SALES, "vcb", "sepay"), rowOf(SALES, "mb", "sepay")]
+        const runs = chain({ "run-sale": { caller: "run-desk" }, "run-desk": { trigger: "oa-sbx" } })
+        const zaloChosen: OptionalNodeRequest = {
+            mode: "auto",
+            accounts: [
+                { kind: "messaging", provider: "zalo_oa", connectionId: "oa-live" },
+                { kind: "messaging", provider: "zalo_oa", connectionId: "oa-sbx" },
+            ],
+        }
+        const { service } = await build(PAY_ACCOUNTS, rows, zaloChosen, runs)
+        await expect(service.boundAccountsOf(WS, SALES, SEND, FROM_NODE, CALLED)).resolves.toEqual([{ provider: "zalo_oa", connectionId: "oa-sbx" }])
+        await expect(service.chosenAccountsOf(WS, SALES, FROM_NODE, CALLED)).resolves.toEqual([{ provider: "zalo_oa", connectionId: "oa-sbx" }])
+        // Outside a step: every serving account of the run's world only; a read over several accounts likewise.
+        await expect(service.boundAccountsOf(WS, SALES, BANK_TOOL, undefined, CALLED)).resolves.toEqual([{ provider: "sepay", connectionId: "vcb" }])
+        await expect(service.accountsOfAgent(WS, SALES, BANK_TOOL, undefined, CALLED)).resolves.toEqual(["vcb"])
+        // Without a run named, as before: every attached account.
+        await expect(service.accountsOfAgent(WS, SALES, BANK_TOOL)).resolves.toEqual(["vcb", "mb"])
+    })
+
+    it("a stored node setting naming an account the agent is NOT attached to names nothing, and is reported once", async () => {
+        const logger = mock<Logger>()
+        const runs = chain({ "run-sale": { trigger: "oa-sbx" } }, logger)
+        // `pay-gone` is in the stored setting but attached to no agent (detached after the setting was stored).
+        const node: OptionalNodeRequest = {
+            mode: "auto",
+            accounts: [
+                { kind: "payment", provider: "payos", connectionId: "pay-gone" },
+                { kind: "payment", provider: "payos", connectionId: "pay-sbx" },
+            ],
+        }
+        const { service } = await build(PAY_ACCOUNTS, both, node, runs)
+        await expect(service.boundAccountsOf(WS, SALES, QR_TOOL, FROM_NODE, CALLED)).resolves.toEqual([{ provider: "payos", connectionId: "pay-sbx" }])
+        await service.boundAccountsOf(WS, SALES, QR_TOOL, FROM_NODE, CALLED)
+        const skipped = logger.warn.mock.calls.filter(([event]) => event === "tools.node-setting.account-skipped")
+        expect(skipped).toHaveLength(1)
+        expect(skipped[0]?.[1]).toEqual(expect.objectContaining({ connectionId: "pay-gone", nodeKey: STEP.nodeKey }))
     })
 })

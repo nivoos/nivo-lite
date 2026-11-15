@@ -10,10 +10,9 @@ type PageProps = {
 
 /** What a newer template version would change in a workflow: its own route, opened from the notice of the workflow's page. */
 const Page = async (props: PageProps): Promise<ReactElement> => {
-    const { module, installation, workflowKey, templateVersion } = await props.params
+    const { installation, workflowKey, templateVersion } = await props.params
     return (
         <AgentWorkflowTemplatePreviewPage
-            module={module}
             installationId={installation}
             workflowKey={workflowKey}
             templateVersion={templateVersion}

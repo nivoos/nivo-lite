@@ -15,8 +15,8 @@ describe("source-tool-spec.policy built the way Nest does", () => {
     })
 
 describe("sourceToolSpecOf: the spec of a source's operation, from the pinned document", () => {
-    const of = (method: "GET" | "POST" | "PATCH", effect: "money" | "irreversible" | "none" | null) =>
-        sourceToolSpecOf({ source: "crm", dataKind: "customers", method, effect })
+    const of = (method: "GET" | "POST" | "PATCH", effect: "money" | "irreversible" | "none" | null, replayKeyed = false) =>
+        sourceToolSpecOf({ source: "crm", dataKind: "customers", method, effect, replayKeyed })
 
     it("reads a GET over every held account, owned by the source key", () => {
         expect(of("GET", null)).toEqual({
@@ -36,6 +36,12 @@ describe("sourceToolSpecOf: the spec of a source's operation, from the pinned do
         expect(of("POST", "money")).toEqual(plain)
         expect(of("POST", null)).toEqual(plain)
         expect(of("PATCH", "irreversible")).toEqual(plain)
+    })
+
+    it("makes a write repeatable exactly when the document declares it takes the replay key (the system answers a repeated key once)", () => {
+        expect(of("POST", "none", true)).toEqual({ ...of("POST", "none"), repeatable: true })
+        expect(of("PATCH", null, true).repeatable).toBe(true)
+        expect(of("GET", null, false).repeatable).toBe(true)
     })
 })
 })

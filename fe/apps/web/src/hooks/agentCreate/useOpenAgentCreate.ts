@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback } from "react"
-import { isModuleKey } from "@/modules/catalog"
+import { useModuleCatalog } from "@/hooks/moduleCatalog"
 import { navigation } from "@/modules/i18n"
 import { CREATE_AGENT_PARAM, CREATE_ANY_ROLE } from "./agentCreate.shared"
 
@@ -12,11 +12,12 @@ import { CREATE_AGENT_PARAM, CREATE_ANY_ROLE } from "./agentCreate.shared"
 export const useOpenAgentCreate = (): ((role?: string) => void) => {
     const router = navigation.useRouter()
     const pathname = navigation.usePathname()
+    const { modules } = useModuleCatalog()
     return useCallback(
         (role?: string) => {
-            const value = role !== undefined && isModuleKey(role) ? role : CREATE_ANY_ROLE
+            const value = role !== undefined && modules[role] !== undefined ? role : CREATE_ANY_ROLE
             router.replace(`${pathname}?${CREATE_AGENT_PARAM}=${value}`)
         },
-        [router, pathname],
+        [router, pathname, modules],
     )
 }

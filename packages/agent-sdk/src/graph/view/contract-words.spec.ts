@@ -28,7 +28,8 @@ describe("the words of the workflow contract's own vocabulary", () => {
         ]
         // 22 -> 20 problem words: R35 / R43 deleted the conversation hold (`ENTRY_HOLD_WITHOUT_CONVERSATION`) and a second contract problem code
         // with it; the table is typed by `ContractProblem["code"]`, so a word for a code that no longer exists cannot stay. Every kept code still has both texts (checked below).
-        expect(all).toHaveLength(11 + 2 + 6 + 5 + 20)
+        // 11 -> 12 source kinds: `record` (concept agent-data rule 2, E-STREAM S2).
+        expect(all).toHaveLength(12 + 2 + 6 + 5 + 20)
         for (const text of all) {
             expect(text.vi.trim()).not.toBe("")
             expect(text.en.trim()).not.toBe("")

@@ -20,3 +20,4 @@ export type {
     EngineWorkflowProvider,
     JobWorkflowBinding,
 } from "./entity-engine.contracts"
+export { isAppendOnly, recordEventsOf, streamSubjectOf, writtenOf } from "./record-stream.policy"

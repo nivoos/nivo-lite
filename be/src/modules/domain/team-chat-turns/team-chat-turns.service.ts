@@ -1,5 +1,4 @@
 import { Injectable, Optional, type OnModuleInit } from "@nestjs/common"
-import type { EntityManager } from "typeorm"
 import { LATEST_VERSION } from "@nivo-lite/agent-sdk/graph"
 import {
     TEAM_CHAT_LINES_MAX,
@@ -16,6 +15,7 @@ import { AgentDirectoryService, AgentViewScopeService, type AgentCard } from "@m
 import { BrainChangeRequestsService } from "@modules/domain/brain-facts"
 import { ProviderTriggersService } from "@modules/domain/provider-triggers"
 import {
+    ROOM_SUBJECT_KEY,
     TeamChatCardsService,
     TeamChatRoomsService,
     TeamChatStoreService,
@@ -24,7 +24,6 @@ import {
     type PersonLineListener,
 } from "@modules/domain/team-chat"
 import { WorkspaceMembersReadService } from "@modules/domain/workspace-members"
-import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { eachInOrder } from "@modules/platform/primitives"
 import { ChatFallbackService } from "./chat-fallback.service"
@@ -131,7 +130,6 @@ const unroutedOf = (ends: ReadonlyArray<AgentEnd>): ReadonlyArray<UnroutedTurn> 
  */
 export class TeamChatTurnsService implements OnModuleInit {
     constructor(
-        @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
         private readonly triggers: ProviderTriggersService,
         private readonly agents: AgentDirectoryService,
         private readonly members: WorkspaceMembersReadService,
@@ -311,24 +309,21 @@ export class TeamChatTurnsService implements OnModuleInit {
         })
         const event = WORKFLOW_CALL_TRIGGER.translate({ key: how.eventKey, params: { ...params } }, { connectionId: null })
         if (event === null) return "not_tagged"
-        const result = await this.entityManager.transaction((tx) =>
-            this.triggers.deliver(
+        const result = await this.triggers.deliverAlone({
+            workspaceId,
+            declaration: WORKFLOW_CALL_TRIGGER,
+            connectionId: null,
+            agentId: agent.id,
+            events: [
                 {
-                    workspaceId,
-                    declaration: WORKFLOW_CALL_TRIGGER,
-                    connectionId: null,
-                    agentId: agent.id,
-                    events: [
-                        {
-                            event,
-                            pin: { workflow: TEAM_CHAT_WORKFLOW_KEY, version: LATEST_VERSION },
-                            actorMemberId: context.asker.memberId,
-                        },
-                    ],
+                    event,
+                    pin: { workflow: TEAM_CHAT_WORKFLOW_KEY, version: LATEST_VERSION },
+                    // The turn is about the ROOM of the message (its subject): its run holds the room and answers in it.
+                    key: ROOM_SUBJECT_KEY,
+                    actorMemberId: context.asker.memberId,
                 },
-                tx,
-            ),
-        )
+            ],
+        })
         const delivery = callDeliveryOf(result)
         if (delivery === "started") return "started"
         return delivery === "duplicate" ? "duplicate" : "not_tagged"

@@ -6,7 +6,7 @@ import {
     type ContextVersion,
     type SetupSession,
 } from "@/modules/installations"
-import type { ModuleKey } from "@/modules/catalog"
+import type { ModuleCopy } from "@/modules/catalog"
 
 /** How far the checklist is and whether applying the draft would change anything. */
 type SetupProgress = {
@@ -18,17 +18,17 @@ type SetupProgress = {
     readonly isUnchanged: boolean
 }
 
-/** The progress of the gate checklist of a module against the version in use. */
+/** The progress of the gate checklist of a module (its catalogue row) against the version in use. */
 export const setupProgressOf = (
-    moduleKey: ModuleKey,
+    copy: ModuleCopy | undefined,
     session: SetupSession,
     active: ContextVersion | null,
 ): SetupProgress => {
-    const gates = gatesOf(moduleKey)
+    const gates = gatesOf(copy)
     return {
         confirmed: gates.filter((gate) => gateEntry(session.gateEvidence, gate.key).status === "confirmed").length,
         total: gates.length,
-        isReady: allGatesConfirmed(moduleKey, session.gateEvidence),
+        isReady: allGatesConfirmed(copy, session.gateEvidence),
         isUnchanged:
             active !== null &&
             JSON.stringify(active.snapshot) === JSON.stringify(snapshotOf(session.draft, session.gateEvidence)),

@@ -10,7 +10,7 @@ export { TeamChatNativeService } from "./team-chat-native.service"
 export { TeamChatModule } from "./team-chat.module"
 export { TeamChatRoomsService } from "./team-chat.service"
 export type { AgentLineReplied, HeardReply, PersonLineHeard, PersonLineListener } from "./team-chat-lines.contracts"
-export { lineKeyOf } from "./team-chat.policy"
+export { ROOM_SUBJECT_KEY, lineKeyOf } from "./team-chat.policy"
 export { TeamChatStoreService } from "./team-chat-store.service"
 export { TeamChatAccessService } from "./team-chat-access.service"
 export { TeamChatViewsService } from "./team-chat-views.service"
@@ -54,7 +54,7 @@ export {
 export { NO_NEEDS, STOP_CARD_MESSAGE_KIND } from "./stop-card.policy"
 export { brainChangeCardViewOf, brainChangeKeyOf, brainChangeMessageOf } from "./brain-change-card.policy"
 export type { BrainChangeEvidence, BrainChangePayload } from "./brain-change-card.contracts"
-export { channelFactOf, codeFactsOf, factWordsOf, LINE_FACT, LINE_NOT_TOLD, STUCK_FACT, wordOr } from "./engine-facts.policy"
+export { channelFactOf, codeFactsOf, factWordsOf, LINE_FACT, LINE_NOT_TOLD, STUCK_FACT, WAITING_FACT, wordOr } from "./engine-facts.policy"
 export type { FactWords } from "./engine-facts.policy"
 export type {
     StopCardApproval,

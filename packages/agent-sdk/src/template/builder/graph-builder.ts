@@ -162,9 +162,13 @@ export interface WaitTriggerOptions {
     readonly match?: ReadonlyArray<WaitMatch> | undefined
 }
 
-/** One trigger of a `wait`: the verb, the conditions on the event's members (`where`) and the tests against the run's data (`match`). */
-export const waitFor = <V extends TriggerVerb>(verb: V, options?: WaitTriggerOptions): WaitTrigger => ({
-    verb,
+/**
+ * One key of a `wait`: ONE meaning, the verb or verbs that bring it (a person's line on any channel is one meaning: `waitFor([zalo,
+ * telegram, ...])`), the conditions on the event's members (`where`) and the tests against the run's data (`match`), read on whichever
+ * listed verb came. A verb is listed under one key of a wait only (`WAIT_VERB_DUPLICATE`).
+ */
+export const waitFor = (verbs: TriggerVerb | readonly [TriggerVerb, ...Array<TriggerVerb>], options?: WaitTriggerOptions): WaitTrigger => ({
+    verbs: typeof verbs === "string" ? [verbs] : [...verbs],
     ...(options?.where === undefined ? {} : { where: options.where }),
     ...(options?.match === undefined ? {} : { match: options.match }),
 })

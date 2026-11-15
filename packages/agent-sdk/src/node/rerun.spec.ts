@@ -22,7 +22,7 @@ const effectOf = (id: `${string}.${string}`, payload: z.ZodType): EffectDefiniti
 const EFFECTS = [
     effectOf("nivo.tool.order.create", z.object({ leadId: z.string() })),
     effectOf("nivo.tool.order.confirm", z.object({ orderId: z.string() })),
-    effectOf("nivo.tool.payment.transfer.create", z.object({ orderId: z.string() })),
+    effectOf("nivo.tool.payment.request.create", z.object({ orderId: z.string() })),
     effectOf("nivo.tool.customer.message.send", z.object({ conversationId: z.string(), text: z.string() })),
 ]
 
@@ -38,7 +38,7 @@ const stepNode = defineNode({
     effects: [
         "nivo.tool.order.create",
         "nivo.tool.order.confirm",
-        "nivo.tool.payment.transfer.create",
+        "nivo.tool.payment.request.create",
         "nivo.tool.customer.message.send",
     ],
     run: async (input, context) => {
@@ -143,20 +143,20 @@ describe("a step that runs again after the founder's answer", () => {
     })
 
     it("a QR after a refusal: the refused call kept nothing, and the call made again is not answered with the holding message", async () => {
-        const world = worldOf({ "nivo.tool.payment.transfer.create": [{ kind: "refused", id: "order_not_payable" }] })
-        const qr = call("nivo.tool.payment.transfer.create", { orderId: "o-1" })
+        const world = worldOf({ "nivo.tool.payment.request.create": [{ kind: "refused", id: "order_not_payable" }] })
+        const qr = call("nivo.tool.payment.request.create", { orderId: "o-1" })
         await expect(attempt(world, [qr, HOLD, ASK])).rejects.toBeDefined()
 
         const ran = await attempt(world, [qr, { done: { orderId: "o-1" } }])
 
         expect(world.acted.map((one) => one.id)).toEqual([
             "nivo.tool.customer.message.send",
-            "nivo.tool.payment.transfer.create",
+            "nivo.tool.payment.request.create",
         ])
         expect(ran.effects).toEqual([
             {
-                id: "nivo.tool.payment.transfer.create",
-                subject: { kind: "nivo.tool.payment.transfer.create", id: "nivo.tool.payment.transfer.create#2" },
+                id: "nivo.tool.payment.request.create",
+                subject: { kind: "nivo.tool.payment.request.create", id: "nivo.tool.payment.request.create#2" },
             },
         ])
     })

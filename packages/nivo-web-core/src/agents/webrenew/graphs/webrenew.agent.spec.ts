@@ -143,12 +143,13 @@ describe("the Renewal agent template (webrenew)", () => {
             // 2026-11-13: answer + 1 again (NW-1: the customer sends without a mail path, `close-thank`, `reply-answer`, `paid-ack`, declare `auto`)
             // 2026-11-14 (R53, the conversation as one run): the answer is a talk loop, version 14.
             // 2026-11-14 (ask ONE write): answer 16, the quote send split by channel; WEBCORE-5: answer 17, `tell` is ONE step again.
-            [answerGraph, 17],
+            // 2026-11-15 (S7-WAIT, templates rule 12): the wait keeps each key with its verbs: answer 18.
+            [answerGraph, 18],
             [mailRepliesGraph, 8],
             // 2026-11-14 (EF-G): renew + 1 (a declined team post ends `declined`)
             // 2026-11-14 (R57): renew 13, the registrar renews and the CRM records; only a renewed service tells the customer and invoices.
             // 2026-11-14 (E-R57): renew 14, a pending order is read again (`settle`, `settled`).
-            [renewGraph, 15],
+            [renewGraph, 16],
             // 2026-11-14 (EF-G): the chat turn + 1 (a declined answer post ends the turn `declined`)
             [teamChatGraph, 5],
         ] as const

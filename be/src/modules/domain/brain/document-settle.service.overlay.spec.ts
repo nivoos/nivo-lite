@@ -19,7 +19,7 @@ import { FactEmbeddingsService } from "./fact-embeddings.service"
 import { TRUTH_CEILING } from "./truth-ceiling.policy"
 import { TruthCeilingService } from "./truth-ceiling.service"
 import { CHI_LAN_SUA_TREN_TRANG_VI, CHI_LAN_SUA_VI } from "@tests/fixtures/i18n/brain-b-spec.messages"
-import { SETTLE_HASH, SETTLE_STATE, objectLike, scriptSettleDoubles, settleFounderDoc, settleProposalOf, settleReviewed, stringLike } from "@tests/fixtures/builders/brain-document.builder"
+import { holdingSourcesProvider, SETTLE_HASH, SETTLE_STATE, objectLike, scriptSettleDoubles, settleFounderDoc, settleProposalOf, settleReviewed, stringLike } from "@tests/fixtures/builders/brain-document.builder"
 
 const WS = DOC_WS
 const SOURCE = DOC_SOURCE
@@ -58,7 +58,7 @@ const build = async (waiting: ReadonlyArray<FactRecord>, critique: PassageCritiq
             { provide: TruthCeilingService, useValue: ceiling },
             { provide: DocumentPartsService, useValue: parts },
             { provide: PublicDocumentsService, useValue: publicDocuments },
-            { provide: FactEmbeddingsService, useValue: vectors },
+            { provide: FactEmbeddingsService, useValue: vectors }, holdingSourcesProvider(),
             { provide: CritiqueDecisionsService, useValue: decisions },
             // A critic that has no such read yet (bare): no point holds anything.
             { provide: TRUTH_CRITIQUE_GATE, useValue: bare ? {} : critic },

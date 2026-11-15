@@ -170,11 +170,28 @@ describe("ZaloSandboxSendService", () => {
         await expect(off.send(CONNECTION, TARGET, USER, requestOf())).rejects.toMatchObject({ code: ProviderSandboxErrorCode.Off })
     })
 
+    it("ZALO-SEND-7 answers delivered with the note qr_image_failed (text out, picture not); ZALO-SEND-8 answers the unknown receipt but keeps the person as reached; STAFF-3 / -4 throw the not-sent answer and a plain transport failure", async () => {
+        const { service, sandbox } = setup()
+        await sandbox.setNextCase(ACCOUNT, "send", "ZALO-SEND-7")
+        await expect(service.send(CONNECTION, TARGET, USER, requestOf())).resolves.toMatchObject({ delivered: true, outcome: "acknowledged", note: "qr_image_failed" })
+        await sandbox.setNextCase(ACCOUNT, "send", "ZALO-SEND-8")
+        await expect(service.send(CONNECTION, TARGET, USER, requestOf())).resolves.toMatchObject({ delivered: false, outcome: "ambiguous" })
+        await service.send(CONNECTION, TARGET, USER, requestOf())
+        expect(await sandbox.kept(ACCOUNT, "delivered", USER)).toBe(2)
+        const message = { workspaceId: "ws-1", connectionId: "conn-z", provider: "zalo_oa", recipientId: "staff-1", text: "Hi" } as const
+        await sandbox.setNextCase(ACCOUNT, "sendToPerson", "ZALO-STAFF-3")
+        await expect(service.sendToPerson(CONNECTION, message)).rejects.toMatchObject({ code: "CHANNELS_SEND_UNAVAILABLE" })
+        await sandbox.setNextCase(ACCOUNT, "sendToPerson", "ZALO-STAFF-4")
+        await expect(service.sendToPerson(CONNECTION, message)).rejects.toThrow("no answer")
+        await sandbox.setNextCase(ACCOUNT, "profileOf", "ZALO-12")
+        await expect(service.nameOf(CONNECTION, "8800110022")).rejects.toThrow("429")
+    })
+
     it("has unique ZALO-SEND-<n> ids, exactly one default case, all for the send operation", () => {
         const ids = ZALO_SEND_SANDBOX_CASES.map((one) => one.id)
 
         expect(new Set(ids).size).toBe(ids.length)
-        expect(ids).toEqual(["ZALO-SEND-1", "ZALO-SEND-2", "ZALO-SEND-3", "ZALO-SEND-4", "ZALO-SEND-5", "ZALO-SEND-6"])
+        expect(ids).toEqual(["ZALO-SEND-1", "ZALO-SEND-2", "ZALO-SEND-3", "ZALO-SEND-4", "ZALO-SEND-5", "ZALO-SEND-6", "ZALO-SEND-7", "ZALO-SEND-8"])
         expect(ZALO_SEND_SANDBOX_CASES.filter((one) => one.default === true).map((one) => one.id)).toEqual(["ZALO-SEND-1"])
         expect(ZALO_SEND_SANDBOX_CASES.every((one) => one.operation === "send")).toBe(true)
     })
@@ -198,7 +215,8 @@ describe("ZaloSandboxSendService", () => {
         await sandbox.inbound(ACCOUNT, "ZALO-1", inboundOf("ZALO-1"), { userId: USER, text: "Chao shop" }, NOW)
         await expect(service.send(CONNECTION, TARGET, USER, requestOf())).resolves.toMatchObject({ delivered: true })
 
-        await sandbox.inbound(ACCOUNT, "ZALO-3", inboundOf("ZALO-3"), { userId: "8800110044", text: "Shop oi" }, NOW)
+        // The frame builds a `late` case at the arrival minus its interval (frame spec); here the case is built at that moment.
+        await sandbox.inbound(ACCOUNT, "ZALO-3", inboundOf("ZALO-3"), { userId: "8800110044", text: "Shop oi" }, new Date(NOW.getTime() - 49 * 3_600_000))
         await expect(service.send(CONNECTION, TARGET, "8800110044", requestOf())).resolves.toEqual({
             delivered: false,
             failure: "zalo_window_expired",
@@ -257,7 +275,7 @@ describe("ZaloSandboxSendService", () => {
     })
 
     it("has the staff cases ZALO-STAFF-<n> with exactly one default, all for the sendToPerson operation", () => {
-        expect(ZALO_STAFF_SANDBOX_CASES.map((one) => one.id)).toEqual(["ZALO-STAFF-1", "ZALO-STAFF-2"])
+        expect(ZALO_STAFF_SANDBOX_CASES.map((one) => one.id)).toEqual(["ZALO-STAFF-1", "ZALO-STAFF-2", "ZALO-STAFF-3", "ZALO-STAFF-4"])
         expect(ZALO_STAFF_SANDBOX_CASES.filter((one) => one.default === true).map((one) => one.id)).toEqual(["ZALO-STAFF-1"])
         expect(ZALO_STAFF_SANDBOX_CASES.every((one) => one.operation === "sendToPerson")).toBe(true)
     })

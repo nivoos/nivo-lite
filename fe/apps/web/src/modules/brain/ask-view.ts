@@ -1,5 +1,6 @@
 import type { useTranslations } from "next-intl"
-import { isAgentModule, type RetrievedPassage } from "@/modules/documents"
+import type { ModuleLabelOf } from "@/modules/catalog"
+import type { RetrievedPassage } from "@/modules/documents"
 import { knowledgeSourceHref, workspaceHref } from "@/modules/routes"
 import type { AskAgentOption, AskPassageView, AskSeesView, PaneGridLayout } from "@/modules/types"
 import { LENS_LANES, type AgentLens } from "./lenses"
@@ -19,9 +20,9 @@ export const askGridOf = (): PaneGridLayout => ({
 })
 
 /** What the agent reads and for whom, as one option of the picker: its name and the kind of agent it is. */
-export const askAgentOptionOf = (t: KnowledgeTranslate, lens: AgentLens): AskAgentOption => {
+export const askAgentOptionOf = (labelOf: ModuleLabelOf, lens: AgentLens): AskAgentOption => {
     const name = lens.name ?? ""
-    const kind = lens.module !== null && isAgentModule(lens.module) ? t(`module_${lens.module}`) : ""
+    const kind = labelOf(lens.module) ?? ""
     // An agent named after its kind reads once, not "Accounting · Accounting".
     const parts = kind.toLocaleLowerCase() === name.toLocaleLowerCase() ? [name] : [name, kind]
     return { id: lens.id, label: parts.filter(Boolean).join(" · ") }

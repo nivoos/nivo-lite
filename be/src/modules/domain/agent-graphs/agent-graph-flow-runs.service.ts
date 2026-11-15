@@ -409,7 +409,11 @@ export class AgentGraphFlowRunsService implements AgentWorkFlow, OnModuleInit {
         const behind = holder?.id ?? (await this.inFlightBehind(turn, active))
         const handedBack = behind === null ? null : await this.handedBackBy(turn, behind)
         if (behind !== null && handedBack !== null) return this.callHandedBack(turn, active, behind, handedBack)
-        if (behind !== null) return { status: "held", reason: `${WAITING_REASON}${behind}`, outcome: null }
+        if (behind !== null) {
+            // ENGINE-FIN (a): the stop a person decides on the holding run says how many events of its subject now wait behind it.
+            await this.holds?.eventHeld(turn.workspaceId, behind, turn.context)
+            return { status: "held", reason: `${WAITING_REASON}${behind}`, outcome: null }
+        }
         const waiting = (await this.holds?.waitingOf(turn.workspaceId, this.personOf(turn))) ?? []
         const told: FlowTriggerScope = waiting.length === 0 ? trigger : { ...trigger, [WAITING_MEMBER]: waiting }
         const refused = (await this.calls?.refusalOf(turn, trigger, active)) ?? null

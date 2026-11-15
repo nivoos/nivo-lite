@@ -60,16 +60,18 @@ export const ABILITY_LABELS: Readonly<Record<string, Readonly<Record<string, Abi
     },
     sepay: {
         "transactions.read": { vi: "Đọc giao dịch ngân hàng", en: "Read bank transactions" },
-        "transfer.instruction": { vi: "Lập thông tin chuyển khoản (QR, số tài khoản)", en: "Make bank-transfer details (QR, account number)" },
+        "request.create": { vi: "Yêu cầu khách thanh toán (QR, số tài khoản, nội dung)", en: "Ask the payer to pay (QR, account number, content)" },
+        "request.read": { vi: "Xem yêu cầu thanh toán", en: "Read a payment request" },
+        "request.cancel": { vi: "Huỷ yêu cầu thanh toán", en: "Cancel a payment request" },
     },
     casso: {
         "transactions.read": { vi: "Đọc tiền về tài khoản", en: "Read the credits received" },
     },
     payos: {
         "transactions.read": { vi: "Đọc một khoản tiền vào", en: "Read one bank credit" },
-        "link.create": { vi: "Tạo link thanh toán", en: "Create a payment link" },
-        "link.read": { vi: "Xem link thanh toán", en: "Read a payment link" },
-        "link.cancel": { vi: "Huỷ link thanh toán", en: "Cancel a payment link" },
+        "request.create": { vi: "Yêu cầu khách thanh toán (link thanh toán)", en: "Ask the payer to pay (a payment link)" },
+        "request.read": { vi: "Xem yêu cầu thanh toán", en: "Read a payment request" },
+        "request.cancel": { vi: "Huỷ yêu cầu thanh toán", en: "Cancel a payment request" },
     },
     google: {
         "ledger.read": { vi: "Xem sổ Google Sheet", en: "Read the Google Sheet ledger status" },

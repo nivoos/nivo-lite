@@ -35,6 +35,19 @@ export enum GraphNodesErrorCode {
      * the step stops on as "the AI failed", never a raw parse error (`handler_threw`, P-FIX2 / DEF-2). The issues ride in the params.
      */
     ModelAnswerInvalid = "GRAPH_NODES_MODEL_ANSWER_INVALID",
+    /**
+     * An act the step decided to make LEFT for the outside and the outside refused it for good (a refusal its tool declares in
+     * `outsideRefusals`, E-FIX12 rule A-1): the act failed, nothing was done; the step stops for a person, never routed on as business.
+     * The tool and the refusal ride in the params.
+     */
+    ActRefused = "GRAPH_NODES_ACT_REFUSED",
+    /** An installed tool declares no boolean `mutates`, or one its core spec contradicts: the install is refused at boot (E-FIX12 gate). */
+    WriteUndeclared = "GRAPH_NODES_WRITE_UNDECLARED",
+    /**
+     * A plugin's tool or effect declares final refusals the engine cannot honour as written (it duplicates a core tool's spec, or a code is an
+     * outcome-unknown one): the install is refused at boot (SDK-DECL gate).
+     */
+    FinalRefusalConflict = "GRAPH_NODES_FINAL_REFUSAL_CONFLICT",
 }
 
 /** How each graph-nodes code travels. */
@@ -54,6 +67,9 @@ export const GRAPH_NODES_ERROR_KINDS: Record<GraphNodesErrorCode, ErrorKind> = {
     [GraphNodesErrorCode.EffectNotRecorded]: "internal",
     [GraphNodesErrorCode.EffectKeyTaken]: "internal",
     [GraphNodesErrorCode.ModelAnswerInvalid]: "unavailable",
+    [GraphNodesErrorCode.ActRefused]: "conflict",
+    [GraphNodesErrorCode.WriteUndeclared]: "internal",
+    [GraphNodesErrorCode.FinalRefusalConflict]: "internal",
 }
 
 /** The one error class of the graph-nodes capability. */

@@ -367,8 +367,9 @@ class TypeormContactsTx implements ContactsTx {
 export class TypeormContactsStore implements ContactsStore {
     constructor(@InjectPrimaryEntityManager() private readonly entityManager: EntityManager) {}
 
-    /** Runs `work` in one database transaction and hands it the transactional contacts view. */
-    transaction<T>(work: (tx: ContactsTx) => Promise<T>): Promise<T> {
+    /** Runs `work` in one database transaction and hands it the transactional contacts view; on the caller's `manager` when it gives one. */
+    transaction<T>(work: (tx: ContactsTx) => Promise<T>, manager?: EntityManager): Promise<T> {
+        if (manager !== undefined) return work(new TypeormContactsTx(manager))
         return this.entityManager.transaction((tx) => work(new TypeormContactsTx(tx)))
     }
 }

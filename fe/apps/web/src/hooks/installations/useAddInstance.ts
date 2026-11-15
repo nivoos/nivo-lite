@@ -5,7 +5,6 @@ import { useCallback } from "react"
 import { mutate } from "@/modules/viewer-cache"
 import { useMutateInstallModuleSwr, QUERY_MODULE_INSTALLATIONS_SWR_KEY } from "@/hooks/swr"
 import { useWorkspaceId } from "@/hooks/workspaces"
-import type { ModuleKey } from "@/modules/catalog"
 import { navigation } from "@/modules/i18n"
 import { agentHref, cleanInstanceName } from "@/modules/installations"
 import { workspaceHref } from "@/modules/routes"
@@ -14,7 +13,7 @@ import { matchesSwrKey } from "@/modules/utils"
 
 /** The view `useAddInstance` returns. */
 export interface AddInstanceView {
-    add: (moduleKey: ModuleKey, text: string) => Promise<boolean>
+    add: (moduleKey: string, text: string) => Promise<boolean>
     isAdding: boolean
 }
 
@@ -26,7 +25,7 @@ export const useAddInstance = (): AddInstanceView => {
     const runGraphQL = useGraphQLWithToast()
     const { trigger, isMutating } = useMutateInstallModuleSwr()
     const add = useCallback(
-        async (moduleKey: ModuleKey, text: string): Promise<boolean> => {
+        async (moduleKey: string, text: string): Promise<boolean> => {
             const name = cleanInstanceName(text)
             if (name === null) return false
             const added = await runGraphQL(() => trigger({ moduleKey, name, newInstance: true }), {

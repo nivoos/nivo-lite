@@ -2,7 +2,7 @@ import { graphSpecSchema } from "@nivo-lite/agent-sdk/graph"
 import { graphViewOfSpec } from "@/modules/plugin-registry"
 import { stepsFlowOf, stepsLegendOf } from "@/modules/plugin-registry/client"
 import sale from "./__fixtures__/sale-consult.v1.json"
-import { dressedGraphOf, framedFlowOf, legendOf } from "./workflowMap"
+import { dressedGraphOf, framedFlowOf, legendOf, waitFactsOf } from "./workflowMap"
 import { mapWordsOf } from "./workflowMap.words"
 
 /**
@@ -180,5 +180,30 @@ describe("the conditions, hand-backs and trigger of the sale map", () => {
         expect(en.flow.nodes.find((card) => card.id === "exact")?.label).toBe("Exact amount?")
         expect(en.flow.nodes.find((card) => card.id === "hear")?.description).toContain(enWords.limit(1, "day"))
         expect(legendOf(stepsLegendOf("en"), en.flow.nodes, "en").find((item) => item.kind === "loop")?.label).toBe("Loop")
+    })
+})
+
+// S7-WAIT (concept templates rule 12): a wait KEY is one meaning listing its verbs. A key of the four channel verbs reads as the customer's
+// messages; a key of one record verb reads as that verb's own words (the second kind); a key whose verbs no words know reads as the key.
+describe("a wait key listing its verbs", () => {
+    const waitNode = (on: ReadonlyArray<Readonly<Record<string, unknown>>>): Parameters<typeof waitFactsOf>[0] =>
+        ({ id: "hold", step: "core.wait", params: { on, timeout: { days: 1 } } }) as unknown as Parameters<typeof waitFactsOf>[0]
+    const channels = [
+        "nivo.trigger.zalo.message.received",
+        "nivo.trigger.telegram.message.received",
+        "nivo.trigger.facebook.message.received",
+        "nivo.trigger.instagram.message.received",
+    ]
+
+    it("one key of the four channel verbs is the customer's messages, in both languages", () => {
+        for (const locale of ["vi", "en"] as const)
+            expect(waitFactsOf(waitNode([{ key: "said", verbs: channels }]), locale).events).toEqual([mapWordsOf(locale).customerMessages])
+    })
+
+    it("a key of one verb reads as that verb's words; a key no words know reads as its key", () => {
+        const words = mapWordsOf("en")
+        const zalo = words.verbs["nivo.trigger.zalo.message.received"]
+        expect(waitFactsOf(waitNode([{ key: "said", verbs: [channels[0]] }]), "en").events).toEqual([zalo ?? "said"])
+        expect(waitFactsOf(waitNode([{ key: "ordered", verbs: ["nivo.trigger.unknown.thing"] }]), "en").events).toEqual(["ordered"])
     })
 })

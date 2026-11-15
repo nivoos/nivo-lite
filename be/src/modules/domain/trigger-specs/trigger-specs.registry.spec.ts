@@ -172,7 +172,8 @@ describe("the trigger registry", () => {
         // registry with it (TOOLS-LEAD W2): no tag source of a bank credit is declared any more.
         // Ledger (ROAD Opus-1d, 2026-11-14): the care timer's tag writer (`timerTagOf`, `CARE_SOURCE`) is deleted (a due timer is the
         // `timer.due` event of the one pipeline); the registry's adapter still names the tag source, so the spec names it as written there.
-        expect([...tags].sort()).toEqual([WEBSITE_LEAD_TAG_SOURCE, "care-timer"].sort())
+        // `record-written`: the engine road of a record write (concept agent-data rule 2, E-STREAM S2).
+        expect([...tags].sort()).toEqual([WEBSITE_LEAD_TAG_SOURCE, "care-timer", "record-written"].sort())
     })
 
     it("maps verb ↔ (provider, trigger_name): the stored switch names stay the provider's event names", () => {

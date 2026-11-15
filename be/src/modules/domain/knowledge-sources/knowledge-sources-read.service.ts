@@ -33,6 +33,21 @@ const isChangedPublicSource = (value: unknown): value is ChangedPublicSource =>
 export class KnowledgeSourcesReadService {
     constructor(@InjectPrimaryEntityManager() private readonly entityManager: EntityManager) {}
 
+    /**
+     * Holds the document row against its deletion until the transaction `tx` ends and says whether it is still there. JOB-FRAME RULE
+     * (origin in force): a step that writes data derived from a deletable origin checks it in the transaction of the write; a delete
+     * then waits for the write to commit and withdraws what it left, or the write finds the origin gone and writes nothing.
+     */
+    async holds(tx: EntityManager, workspaceId: string, sourceId: string): Promise<boolean> {
+        const row = await tx
+            .createQueryBuilder(KnowledgeSourceEntity, "s")
+            .select("s.id")
+            .where("s.id = :sourceId AND s.workspaceId = :workspaceId", { sourceId, workspaceId })
+            .setLock("pessimistic_read")
+            .getOne()
+        return row !== null
+    }
+
     /** The text of the given public documents a module may quote, oldest first, at most `limit`; none when no id is given. */
     publicTexts(
         workspaceId: string,

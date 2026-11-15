@@ -4,7 +4,6 @@ import { useMemo } from "react"
 import { useQueryKnowledgeSourcesSwr } from "@/hooks/swr"
 import { slotOfSwr } from "@/hooks/slot"
 import { liveOf, toDocumentTruths, toKnowledgeDocument, type LiveProgress } from "@/modules/documents"
-import type { ModuleKey } from "@/modules/catalog"
 import { readError } from "@/hooks/workspaceread"
 import type { DataSlot, DocumentTruths, KnowledgeDocument } from "@/modules/types"
 
@@ -27,7 +26,7 @@ export interface KnowledgeSourcesView {
  * and stored progress move on their own; the state of the jobs of a document comes from `useKnowledgeJobs`, where a list draws it.
  * `module` = "all" or undefined lists every document.
  */
-export const useKnowledgeSources = (module?: ModuleKey | "all"): KnowledgeSourcesView => {
+export const useKnowledgeSources = (module?: string | "all"): KnowledgeSourcesView => {
     const swrRead = useQueryKnowledgeSourcesSwr(module === undefined || module === "all" ? {} : { module })
     const { data, isLoading } = swrRead
     const error = readError(swrRead)

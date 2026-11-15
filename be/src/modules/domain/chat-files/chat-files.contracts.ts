@@ -4,8 +4,16 @@ export interface CustomerAttachment {
     readonly kind: "image" | "file"
     /** The channel's address of the bytes (it may expire); empty when the channel gave none. */
     readonly url: string
-    /** The name the sender gave it, or an empty text. */
+    /**
+     * The name the sender gave it, or an empty text. For a part with NO bytes (`contentType` set) it is what the channel sends of the part,
+     * as sent: a link's address, a contact's name and number, a place's coordinates and title.
+     */
     readonly name: string
+    /**
+     * Set only for a content part that carries no file (a shared link, a contact card, a location): its media type (`text/uri-list`,
+     * `text/vcard`, `application/geo+json`). The line keeps it as a typed part with no address (`notKept: "no_file"`), never fetched.
+     */
+    readonly contentType?: string | undefined
 }
 
 /** The bytes of a kept customer file, as a model call carries them. */

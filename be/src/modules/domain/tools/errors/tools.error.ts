@@ -22,6 +22,17 @@ export enum ToolsErrorCode {
      * candidate accounts, comma separated) ride in the params; nothing was sent.
      */
     AccountNeedsPick = "TOOLS_ACCOUNT_NEEDS_PICK",
+    /**
+     * ONE WORLD PER RUN (lane concept provider-sandbox rule 19): the run acts in one world (`world`: sandbox or live) and the agent holds no
+     * account of that world of the provider the step's call needs (`provider`), only of the other: the call is never made in the other
+     * world; nothing was sent.
+     */
+    AccountOtherWorld = "TOOLS_ACCOUNT_OTHER_WORLD",
+    /**
+     * ONE WORLD PER RUN: nothing fixes the run's world (no event account, no caller, no earlier call, the agent's defaults do not agree on
+     * one) and the accounts serving the call (`provider`) are of both worlds: never a guess between them; the owner sets a default account.
+     */
+    RunWorldUndecided = "TOOLS_RUN_WORLD_UNDECIDED",
 }
 
 /** How each code travels. */
@@ -34,6 +45,8 @@ export const TOOLS_ERROR_KINDS: Record<ToolsErrorCode, ErrorKind> = {
     [ToolsErrorCode.NativeRefused]: "forbidden",
     [ToolsErrorCode.AttachmentRefused]: "invalid",
     [ToolsErrorCode.AccountNeedsPick]: "conflict",
+    [ToolsErrorCode.AccountOtherWorld]: "conflict",
+    [ToolsErrorCode.RunWorldUndecided]: "conflict",
 }
 
 /** The one error class of the gateway. */

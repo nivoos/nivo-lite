@@ -6,7 +6,6 @@ import { bankTransactionTriggerFor, feedTransactionRowsOf } from "@modules/domai
 import type { BankFeedProvider } from "@modules/domain/bank-feed-inbox/bank-feed-inbox.contracts"
 import { cassoTransaction, payosTransaction, sepayTransaction } from "@modules/domain/bank-feed-inbox/bank-feed.data-types"
 import { ConnectionsService } from "@modules/domain/connections"
-import { PaymentInstructionRegistryService } from "@modules/domain/provider-registry"
 import { connectionRecord } from "@tests/fixtures/builders/connection-records.builder"
 import { PAYMENT_TOOL, PaymentNativeService } from "./payment-native.service"
 
@@ -70,7 +69,6 @@ const build = async (kept: ReadonlyArray<Kept>) => {
         providers: [
             PaymentNativeService,
             { provide: ConnectionsService, useValue: connections },
-            { provide: PaymentInstructionRegistryService, useValue: new PaymentInstructionRegistryService() },
             { provide: AccountDataReadService, useValue: rows },
             { provide: AccountDataTypesService, useValue: types },
         ],

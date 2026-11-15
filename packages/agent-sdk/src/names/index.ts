@@ -118,21 +118,15 @@ export interface ToolNames {
     /** The payment claims of a lead. A read. */
     "nivo.tool.payment.claim.list": ToolSignature
     /**
-     * The bank-transfer instruction (QR and account details) for an amount and a content, into the workspace's receiving account. It
-     * composes the instruction only: it moves no money, records no order and settles nothing. Served by provider `sepay`.
+     * Asks a payer to pay an amount for the caller's reference (R111: ONE purpose, served by every money provider through one port):
+     * `{ amountVnd, reference, expiresAt? }` -> `{ amountVnd, reference, status, payUrl?, qrImageUrl?, qrPayload?, transferContent?, bank?,
+     * requestRef?, payKey, expiresAt? }`. A write (some providers create the request at the provider), so it can ask first.
      */
-    "nivo.tool.payment.transfer.create": ToolSignature
-    /**
-     * A hosted payment LINK at the payment provider under the provider's own integer order code (served by provider `payos`): `{ amountVnd,
-     * description, returnUrl, cancelUrl, reference?, expiresAt? }` -> `{ linkId, orderCode, checkoutUrl, qrPayload?, amountVnd, description,
-     * status, expiresAt?, reference? }`. Its OWN purpose, never merged into `paymentTransferCreate` (a bank-transfer instruction composes
-     * a QR and creates nothing; a link is created at the provider, so the two are not substitutable). It creates, so it can ask first.
-     */
-    "nivo.tool.payment.link.create": Asking
-    /** One payment link by its id or its order code: its status word and amounts. A read. */
-    "nivo.tool.payment.link.get": ToolSignature
-    /** Cancels one payment link by its id or its order code. Writes at the provider, so it can ask first. */
-    "nivo.tool.payment.link.cancel": Asking
+    "nivo.tool.payment.request.create": Asking
+    /** One payment request by its `requestRef`: its neutral status and amounts; `no_request_state` from a provider that keeps none. A read. */
+    "nivo.tool.payment.request.get": ToolSignature
+    /** Cancels one payment request by its `requestRef`; `no_request_state` (final) from a provider that keeps none. Writes, so it can ask first. */
+    "nivo.tool.payment.request.cancel": Asking
     /**
      * Arms a timer: later (after the run ended) the engine fires `TRIGGER.timerDue` for the same agent and subject with the caller's `ref`
      * and `data`. Arming the same `ref` again for the same agent and subject replaces the due instant.
@@ -326,6 +320,8 @@ export interface TriggerNames {
     "nivo.trigger.chat.message.received": TriggerSignature
     /** Another workflow called this one. */
     "nivo.trigger.workflow.called": TriggerSignature
+    /** A record of a type that declares `events` was written (concept agent-data rule 2). */
+    "nivo.trigger.record.written": TriggerSignature
 }
 
 /** What an API read takes (the payload a screen sends) and answers (the door's JSON). Every read is this until the door types each. */
@@ -532,11 +528,11 @@ export interface ProviderNames {
     telegram: true
     /** Meta: Facebook Page and Instagram messages and posts. */
     meta: true
-    /** SePay: a bank feed of credits and a bank-transfer instruction. */
+    /** SePay: a bank feed of credits and a payment request (a bank-transfer instruction it composes). */
     sepay: true
     /** Casso: a bank feed of credits. */
     casso: true
-    /** payOS: hosted payment links. */
+    /** payOS: a payment request (a hosted payment link under its own order code) and the paid webhook of it. */
     payos: true
     /** An SMTP server: sends mail. */
     smtp: true

@@ -1,8 +1,27 @@
 import type { z } from "../schema/zod-entry"
 import type { Namespaced, SpecText } from "../schema/schema.types"
 
+/**
+ * The refusals a tool or an effect of a PLUGIN declares about its own answers (the same two members the engine's native tool specs carry,
+ * E-FIX12 rule A-5). A refusal is a typed business answer of the call (`{ ok: false, refusal: <code> }`), never a throw.
+ */
+export interface RefusalDeclarations {
+    /**
+     * The typed refusal codes the call may answer (`customer_opted_out`: lower snake case, at most 64 characters, never the engine's own
+     * `declined`). Absent: none declared, so none can be final. Every code of `finalRefusals` is one of these.
+     */
+    readonly refusals?: ReadonlyArray<string> | undefined
+    /**
+     * The refusals that are FINAL for the subject (a subset of `refusals`): nobody may or can make the act happen through this call (the
+     * subject withdrew consent, the thing already exists). A final refusal is a BUSINESS answer: the step's `unsuccessful` declaration
+     * applies and nothing stops. Every other refusal of a write outside NIVO's database is a failed act a person can resolve: the step
+     * stops (E-FIX12 rules A-1 / A-5). Declared only on a write (`mutates`, or an effect); absent = none final.
+     */
+    readonly finalRefusals?: ReadonlyArray<string> | undefined
+}
+
 /** What `defineEffect` takes: a change a node may ask of the world and the payload it carries. */
-export interface EffectConfig<P extends z.ZodType> {
+export interface EffectConfig<P extends z.ZodType> extends RefusalDeclarations {
     /** The namespaced id nodes and grants name the effect by. */
     readonly id: Namespaced
     /** The words that name the effect for a person. */
@@ -30,7 +49,7 @@ export interface EffectDefinition<P extends z.ZodType = z.ZodType> extends Effec
  * What `defineTool` takes: a NIVO MCP tool a node may call, named by capability (`payment.quote`), never by provider. The host
  * routes it through the NIVO MCP door to whatever provider the workspace connected.
  */
-export interface ToolConfig<A extends z.ZodType, R extends z.ZodType> {
+export interface ToolConfig<A extends z.ZodType, R extends z.ZodType> extends RefusalDeclarations {
     /** The namespaced id nodes and grants name the tool by. */
     readonly id: Namespaced
     /** The words that name the tool for a person. */

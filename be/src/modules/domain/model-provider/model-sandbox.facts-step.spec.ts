@@ -23,7 +23,7 @@ import { LOGGER, type Logger } from "@modules/platform/logging"
 import { QUEUE_WORKER_REGISTRY, QueueError, QueueErrorCode, type QueueDelivery, type QueueWorkerRegistry } from "@modules/platform/queue"
 import { EXTRACT_FACTS_JOB } from "@modules/queues/knowledge"
 import { DOC_WS } from "@tests/fixtures/builders/document-facts.builder"
-import { STAGES_RULES_DOC, STAGES_STATE, stageRulesOf, stageSource } from "@tests/fixtures/builders/brain-document.builder"
+import { existingSourcesProvider, STAGES_RULES_DOC, STAGES_STATE, stageRulesOf, stageSource } from "@tests/fixtures/builders/brain-document.builder"
 import { CHAIN_JOB_ID, chainProviders } from "@tests/fixtures/builders/knowledge-chain.builder"
 import { sandboxServiceOf } from "@tests/fixtures/builders/provider-sandbox.builder"
 import { DocumentNatureService } from "../brain/document-nature.service"
@@ -140,6 +140,7 @@ const build = async (caseId: ModelSandboxCaseId) => {
             { provide: BrainFactsService, useValue: facts },
             { provide: BrainExtractionsService, useValue: extractions },
             { provide: KnowledgeChunksService, useValue: chunks },
+            existingSourcesProvider(),
             { provide: UsageMeterService, useValue: usage },
             { provide: FactEmbeddingsService, useValue: vectors },
             {
@@ -238,5 +239,44 @@ describe("the model sandbox on the knowledge facts step (exposing case, the chai
         expect(t.claims.complete).toHaveBeenCalledTimes(1)
         expect(t.chain.ledger.rows.get(`${CHAIN_JOB_ID}:model:extract:c0:1`)?.acts).toBe(2)
         expect(t.usage.record).toHaveBeenLastCalledWith(expect.objectContaining({ model: "claude-sonnet-5-5" }))
+    })
+})
+
+describe("the model sandbox on the knowledge facts step: the SBX standard's provider answers (second kind: the job frame, not the model door alone)", () => {
+    it.each([
+        [MODEL_SANDBOX_CASE.rateLimited, "RateLimitError"],
+        [MODEL_SANDBOX_CASE.tooLong, "BadRequestError"],
+        [MODEL_SANDBOX_CASE.providerError, "InternalServerError"],
+    ] as const)("%s (the provider's refusal %s): read as one failure class by the facts step, the ladder, then ONE dead letter; nothing reached the endpoint", async (caseId, errorName) => {
+        const t = await build(caseId)
+
+        const thrown: Array<unknown> = []
+        let attempt = 0
+        while (t.claims.park.mock.calls.length === 0 && attempt < 10) {
+            attempt += 1
+            thrown.push(await t.runner.run(t.processor, deliveryOf(attempt)).then(() => null, (cause: unknown) => cause))
+        }
+
+        expect(t.claims.park).toHaveBeenCalledTimes(1)
+        expect(t.deadLetters.raise).toHaveBeenCalledTimes(1)
+        const calls = await t.sandbox.calls(ACCOUNT, FACTS)
+        expect(calls).toHaveLength(attempt)
+        expect(calls.every((one) => one.result.outcome === "threw" && one.result.error === errorName)).toBe(true)
+        // A failed try that left no request is booked nowhere.
+        expect(t.usage.record).not.toHaveBeenCalled()
+        expect(t.reached.chat).toBe(0)
+    })
+
+    it("MODEL-8 (a fixed answer, no endpoint): the facts step asked for pipe-delimited lines gets the fixed words and reads them as malformed, like MODEL-3; billed nothing", async () => {
+        const t = await build(MODEL_SANDBOX_CASE.answered)
+
+        await t.runner.run(t.processor, deliveryOf(1))
+
+        expect(t.claims.complete).toHaveBeenCalledTimes(1)
+        expect(t.extractions.note).toHaveBeenCalledWith(DOC_WS, stageSource.id, expect.objectContaining({ skipped: true }))
+        for (const [entry] of t.usage.record.mock.calls) {
+            expect(entry).toMatchObject({ model: MODEL_SANDBOX_MODEL, usage: { promptTokens: 0, costUsd: 0 } })
+        }
+        expect(t.reached.chat).toBe(0)
     })
 })

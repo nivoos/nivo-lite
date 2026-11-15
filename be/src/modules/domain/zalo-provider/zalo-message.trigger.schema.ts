@@ -13,6 +13,7 @@ export const ZALO_MESSAGE_DATA: z.ZodType<ZaloMessageData> = z.object({
             thumbnailUrl: z.string(),
             name: z.string(),
             localPath: z.string(),
+            contentType: z.string().optional(),
         }),
     ),
     resume: z.literal("held").optional(),

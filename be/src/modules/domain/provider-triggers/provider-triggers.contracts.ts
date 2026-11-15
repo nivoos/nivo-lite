@@ -1,5 +1,6 @@
 import type { TriggerVerb } from "@nivo-lite/agent-sdk/names"
 import type { EntityManager } from "typeorm"
+import type { CustomerAttachment } from "@modules/domain/chat-files"
 import type { KeptFile } from "./trigger-delivery.policy"
 import type { CanonicalEvent, TriggerDeclaration } from "./trigger-declaration.contracts"
 
@@ -76,6 +77,16 @@ export interface TriggerTaker {
     readonly ownKey: string | null
 }
 
+/** The files an event names at its source, for PREPARE to keep (`DeliveredEvent.attachments`). */
+export interface EventAttachments {
+    /** The id of the delivery job the keeping is an effect of (stable across its retries and resumes). */
+    readonly keptUnder: string
+    /** The event's own key (a channel's message key): the store's path of each file is made from it. */
+    readonly key: string
+    /** The files, in the order the source gave them. */
+    readonly files: ReadonlyArray<CustomerAttachment>
+}
+
 /** The inbox row an event was translated from: its declared account data type and its id. */
 export interface DeliveredRaw {
     readonly type: string
@@ -90,10 +101,25 @@ export interface DeliveredEvent {
     readonly raw?: DeliveredRaw | undefined
     /** The files the entry kept in the shop's store for it: the run reads them as `trigger.data.files`. */
     readonly files?: ReadonlyArray<KeptFile> | undefined
+    /**
+     * The files the event names AT ITS SOURCE (a channel's addresses, which may expire), for the pipeline to keep: PREPARE reads each once
+     * and keeps its checked copy in the shop's store BEFORE any transaction (concept outbox-job rule 12: no outside call inside one), and
+     * the commit hands the kept entries on as `files` (a file it could not keep is a typed not-kept entry, customer-messages rule 18). Each
+     * file is one effect keyed by `keptUnder` (the delivery job's id: a retried or resumed job gets the entry kept the first time) and its
+     * place; `key` is the event's own key the store's path is made from. A source gives this OR `files`, never both.
+     */
+    readonly attachments?: EventAttachments | undefined
     /** The person an engine source already knows (a timer armed in a run of a contact, a call's caller subject). */
     readonly contactId?: string | null | undefined
     /** The route an engine source already knows. */
     readonly routeId?: string | null | undefined
+    /**
+     * The SUBJECT an engine source declares for this one event (concept triggers rule 13: the trigger declares the subject): the scope
+     * path its correlation key is read at (`contactId`, `routeId`, `data.<member>`), when the source's event is about something other
+     * than its declaration's default (a team chat turn is about its room, `data.roomId`). A registration's own key still wins; absent or
+     * not a legal path: the declaration's key.
+     */
+    readonly key?: string | null | undefined
     /** The member behind it (a team chat line), else null. */
     readonly actorMemberId?: string | null | undefined
     /** When it happened, ISO 8601; an account event older than its switch's start point is dropped. */
@@ -113,9 +139,17 @@ export interface DeliveredEvent {
      * cycle, duplicate, open to) and the hand-off's right to speak (`handedOffBy`) read it from the wake. Null for a person's start.
      */
     readonly caller?: { readonly agentId: string | null; readonly runId: string | null } | null | undefined
+    /**
+     * The run whose step wrote the data this event reports (a write event, concept agent-data rule 4) and its workflow: no registration of
+     * that workflow starts on it (a workflow never starts itself by its own write) and the waits never offer it back to that run.
+     */
+    readonly writer?: { readonly runId: string; readonly workflowId: string | null } | null | undefined
 }
 
-/** What a source hands the ONE delivery function (`ProviderTriggersService.deliver`), in its entry's transaction. */
+/**
+ * What a source hands the ONE delivery function: `ProviderTriggersService.prepare` (before any transaction), whose answer the entry commits
+ * with `deliver` in its own transaction.
+ */
 export interface DeliverInput {
     /** The workspace of the proven connection, or of the engine source. */
     readonly workspaceId: string

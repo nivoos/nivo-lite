@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto"
+import type { WorkflowCallFacts } from "@modules/domain/agent-work"
+
+// The call a wake names is read by agent-work's one reader (`callOf`), re-exported here for the guards.
+export { callOf, type WorkflowCallFacts } from "@modules/domain/agent-work"
 
 /** The most workflows one chain of calls may hold, the first included: a call past it is refused. */
 export const CALL_DEPTH_MAX = 8
@@ -24,14 +28,6 @@ export type CallRefusal =
      */
     | "call_target_hidden"
 
-/** What a wake says of the call that made it: the calling run and the params it passed. */
-export interface WorkflowCallFacts {
-    /** The calling run. */
-    readonly callerRunId: string
-    /** The params the caller mapped, as plain data. */
-    readonly params: Readonly<Record<string, unknown>>
-}
-
 /** One workflow of a chain of calls, as the guards compare them. */
 export interface CallLink {
     /** The agent. */
@@ -48,14 +44,6 @@ const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
     typeof value === "object" && value !== null && !Array.isArray(value)
 
 const textOf = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null)
-
-/** The call a tag's plain data names (`caller.runId` and `params`, as `core.call-workflow` writes them), or null for a wake no call made. */
-export const callOf = (payload: unknown): WorkflowCallFacts | null => {
-    if (!isRecord(payload) || !isRecord(payload.caller)) return null
-    const callerRunId = textOf(payload.caller.runId)
-    if (callerRunId === null) return null
-    return { callerRunId, params: isRecord(payload.params) ? payload.params : {} }
-}
 
 /** Plain data with every object's members in key order, so the same params give the same text. */
 const canonicalOf = (value: unknown): unknown => {

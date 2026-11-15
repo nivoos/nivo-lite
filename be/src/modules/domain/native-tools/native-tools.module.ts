@@ -4,7 +4,7 @@ import { ContactToolsNativeService } from "@modules/domain/contact-tools"
 import { DomainToolsService } from "@modules/domain/domain-tools"
 import { InvoiceToolsService } from "@modules/domain/invoice-tools"
 import { MediaNativeService, PROVIDER_FILE_SINK } from "@modules/domain/media-tools"
-import { PaymentLinkNativeService, PaymentNativeService } from "@modules/domain/payment-tools"
+import { PaymentNativeService, PaymentRequestNativeService } from "@modules/domain/payment-tools"
 import { TimerNativeService } from "@modules/domain/timer-tools"
 import { AgentTasksService, AgentWorkAccessService } from "@modules/domain/agent-work"
 import { CalendarNativeService } from "@modules/domain/calendar-tools"
@@ -64,7 +64,7 @@ export const NATIVE_TOOL_ADAPTERS: ReadonlyArray<Type<NativeToolFamily>> = [
     InvoiceToolsService,
     MediaNativeService,
     PaymentNativeService,
-    PaymentLinkNativeService,
+    PaymentRequestNativeService,
     TimerNativeService,
     CalendarNativeService,
     FacebookNativeService,

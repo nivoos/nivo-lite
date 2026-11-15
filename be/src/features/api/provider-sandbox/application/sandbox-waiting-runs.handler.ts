@@ -1,5 +1,5 @@
 import { QueryHandler } from "@nestjs/cqrs"
-import { ThreadWaitExpiryService, type ParkedWait } from "@modules/domain/agent-threads"
+import { ThreadParkedDeadlinesService, type ParkedDeadline } from "@modules/domain/agent-threads"
 import { AgentDirectoryService } from "@modules/domain/agents"
 import { ContactsService } from "@modules/domain/contacts"
 import { ProviderSandboxAccountsService } from "@modules/domain/provider-sandbox"
@@ -23,14 +23,15 @@ const textOf = (context: Readonly<Record<string, unknown>>, name: string): strin
 
 @QueryHandler(SandboxWaitingRunsQuery)
 /**
- * The runs parked at a wait, labelled for the Sandbox page: the gate first (sandbox on, owner or manager), then the engine's list
+ * The runs parked on a deadline (ENGINE-FIN (b): a wait's timeout, an until round, a retry-ladder rung, an approval's expiry, a stop's
+ * deadline), labelled for the Sandbox page: the gate first (sandbox on, owner or manager), then the engine's list
  * (newest first), the agents' names in ONE read, the people's names one read per distinct contact (at most the rows listed).
  */
 export class SandboxWaitingRunsHandler extends ICQRSHandler<SandboxWaitingRunsQuery, ReadonlyArray<SandboxWaitingRunView>> {
     constructor(
         @InjectLogger() logger: Logger,
         private readonly accounts: ProviderSandboxAccountsService,
-        private readonly expiry: ThreadWaitExpiryService,
+        private readonly expiry: ThreadParkedDeadlinesService,
         private readonly agents: AgentDirectoryService,
         private readonly contacts: ContactsService,
     ) {
@@ -53,6 +54,7 @@ export class SandboxWaitingRunsHandler extends ICQRSHandler<SandboxWaitingRunsQu
                 agentLabel: agentNames.get(run.agentId) ?? run.agentId,
                 personLabel: (contactId === null ? null : (personNames.get(contactId) ?? contactId)) ?? routeId ?? "",
                 routeId,
+                kind: run.kind,
                 waitsFor: [...new Set(run.waitsFor.map((one) => one.verb))],
                 parkKey: run.parkKey,
                 dueAt: run.dueAt,
@@ -61,13 +63,13 @@ export class SandboxWaitingRunsHandler extends ICQRSHandler<SandboxWaitingRunsQu
     }
 
     /** The name of each distinct agent, by id, from one batch read. */
-    private async agentNamesOf(workspaceId: string, parked: ReadonlyArray<ParkedWait>): Promise<Map<string, string>> {
+    private async agentNamesOf(workspaceId: string, parked: ReadonlyArray<ParkedDeadline>): Promise<Map<string, string>> {
         const cards = await this.agents.cardsOf(workspaceId, [...new Set(parked.map((run) => run.agentId))])
         return new Map(cards.map((card) => [card.id, card.name]))
     }
 
     /** The display name of each distinct contact the runs name, by id; a contact with no name or no longer there is left out. */
-    private async personNamesOf(workspaceId: string, parked: ReadonlyArray<ParkedWait>): Promise<Map<string, string>> {
+    private async personNamesOf(workspaceId: string, parked: ReadonlyArray<ParkedDeadline>): Promise<Map<string, string>> {
         const ids = [...new Set(parked.flatMap((run) => textOf(run.context, "contactId") ?? []))]
         const names = new Map<string, string>()
         await eachInOrder(ids, async (id) => {

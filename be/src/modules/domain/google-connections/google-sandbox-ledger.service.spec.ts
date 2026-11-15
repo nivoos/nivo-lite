@@ -148,3 +148,52 @@ describe("GoogleSandboxLedgerService", () => {
         expect(source).not.toContain("http")
     })
 })
+
+describe("GoogleSandboxLedgerService: void failures and the applied-but-unanswered cases (GOOGLE-LEDGER-9 .. 12)", () => {
+    it("GOOGLE-LEDGER-9 / -10: a void that fails before Google is not sent, and one Google never answers is unknown; neither keeps a row", async () => {
+        const { ledger, connection, sandbox, account } = build()
+
+        await sandbox.setNextCase(account, "void", GOOGLE_LEDGER_CASE.voidFailed)
+        expect(proofOf(await failure(ledger.void(connection, "TX-1")))).toBe("not_sent")
+        await sandbox.setNextCase(account, "void", GOOGLE_LEDGER_CASE.voidNoAnswer)
+        expect(proofOf(await failure(ledger.void(connection, "TX-1")))).toBe("unknown")
+        await sandbox.setNextCase(account, "void", GOOGLE_LEDGER_CASE.voided)
+
+        await expect(ledger.void(connection, "TX-1")).resolves.toBe("Sheet1!A2:H2")
+    })
+
+    it("GOOGLE-LEDGER-11 / -12: Google takes the row and the answer is lost: the caller hears unknown but the row IS there (the next row is the one after it)", async () => {
+        const { ledger, connection, sandbox, account } = build()
+
+        await sandbox.setNextCase(account, "append", GOOGLE_LEDGER_CASE.appendAppliedNoAnswer)
+        expect(proofOf(await failure(ledger.append(connection, entry("TX-1"))))).toBe("unknown")
+        await sandbox.setNextCase(account, "append", GOOGLE_LEDGER_CASE.appended)
+        await expect(ledger.append(connection, entry("TX-2"))).resolves.toBe("Sheet1!A3:H3")
+
+        await sandbox.setNextCase(account, "void", GOOGLE_LEDGER_CASE.voidAppliedNoAnswer)
+        expect(proofOf(await failure(ledger.void(connection, "TX-2")))).toBe("unknown")
+        await sandbox.setNextCase(account, "void", GOOGLE_LEDGER_CASE.voided)
+        await expect(ledger.void(connection, "TX-2")).resolves.toBe("Sheet1!A5:H5")
+    })
+
+    it("every case is tagged with an outcome and each operation keeps exactly one default tagged ok", () => {
+        const cases = GOOGLE_LEDGER_SANDBOX_CATALOGUE.cases
+        expect(cases.map((one) => one.id)).toEqual(Array.from({ length: 12 }, (_, index) => `GOOGLE-LEDGER-${String(index + 1)}`))
+        expect(cases.every((one) => one.outcome !== undefined)).toBe(true)
+        for (const operation of ["ready", "append", "void"]) {
+            expect(cases.filter((one) => one.operation === operation && one.default === true).map((one) => one.outcome)).toEqual(["ok"])
+        }
+        expect(Object.fromEntries(cases.filter((one) => one.operation !== "ready").map((one) => [one.id, one.outcome]))).toEqual({
+            "GOOGLE-LEDGER-3": "ok",
+            "GOOGLE-LEDGER-4": "refused",
+            "GOOGLE-LEDGER-5": "timeout",
+            "GOOGLE-LEDGER-6": "transient",
+            "GOOGLE-LEDGER-7": "ok",
+            "GOOGLE-LEDGER-8": "refused",
+            "GOOGLE-LEDGER-9": "transient",
+            "GOOGLE-LEDGER-10": "timeout",
+            "GOOGLE-LEDGER-11": "timeout",
+            "GOOGLE-LEDGER-12": "timeout",
+        })
+    })
+})

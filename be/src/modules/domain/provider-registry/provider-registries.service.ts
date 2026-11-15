@@ -4,15 +4,10 @@ import type {
     BankTransactionsPort,
     FeedWebhookPort,
     LedgerPort,
-    PaymentInstructionPort,
     PollReceiver,
 } from "./provider-ports.contracts"
 import type { DomainRegistrarPort } from "./domain-ports.contracts"
 import type { ChannelProfilePort } from "./channel-profile-ports.contracts"
-
-@Injectable()
-/** The bank providers that build the payment instruction (the QR a payer scans) for a workspace's account. */
-export class PaymentInstructionRegistryService extends ProviderRegistryService<PaymentInstructionPort> {}
 
 @Injectable()
 /** The bank providers that list a connection's transactions to nodes and agents. */

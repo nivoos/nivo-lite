@@ -16,7 +16,7 @@ const placeholderRoleOf = (key: string): AgentCatalogRoleEntry => ({
     card: {
         name: "-",
         description: "-",
-        moduleKey: "chatbot",
+        moduleKey: "",
         stateLabel: "-",
         isInstalled: false,
         needsLabel: "-",
@@ -29,7 +29,7 @@ const placeholderRoleOf = (key: string): AgentCatalogRoleEntry => ({
 const placeholderAgentOf = (key: string): AgentCatalogRow => ({
     key,
     name: "-",
-    roleKey: "chatbot",
+    roleKey: "",
     picture: null,
     isInitials: false,
     seed: key,

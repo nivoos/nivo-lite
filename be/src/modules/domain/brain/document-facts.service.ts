@@ -114,7 +114,22 @@ export class DocumentFactsService implements OnModuleInit, CritiqueChangedHook {
         // interrupted finished meanwhile) is opened again here, so this job settles with the verdict as it stands now.
         if (run.settleAgain === true) await this.extractions.reopen(run.workspaceId, run.sourceId)
         const source = await this.indexing.sourceForFacts(run.workspaceId, run.sourceId)
-        return source === null ? "skipped" : this.read(source, job)
+        if (source === null) return "skipped"
+        const outcome = await this.read(source, job)
+        // JOB-FRAME RULE (origin in force): a step that derives data from an origin another person can delete checks the origin before
+        // it writes (`stoppedBefore`, `settle`) and AGAIN after, because a delete that lands between the two commits first and then
+        // withdraws only what it can see. The second check is what leaves no truth standing on a document that went meanwhile: when
+        // the origin is gone, what this job wrote is taken back by the same call the deletion makes (idempotent) and the job ends
+        // with the typed outcome `origin_gone`, not an error.
+        if (outcome === "origin_gone") return outcome
+        return (await this.sources.exists(run.workspaceId, run.sourceId)) ? outcome : this.gone(source)
+    }
+
+    /** The document was deleted while the job ran: what the job filed is taken back like the deletion takes back the rest, and the job ends `origin_gone`. */
+    private async gone(source: SourceRecord): Promise<FactsOutcome> {
+        await this.withdraw(source.workspaceId, source.id, source.title)
+        this.logger.info(FactReadingLogEvent.OriginGone, { sourceId: source.id })
+        return "origin_gone"
     }
 
     /**
@@ -318,6 +333,7 @@ export class DocumentFactsService implements OnModuleInit, CritiqueChangedHook {
 
     /** A stage did not finish in this job: the reading waits for credits or hands over to a follow-up job. A call that gave nothing usable threw. */
     private async stopped(source: SourceRecord, result: StageResult, stage: ExtractionStage): Promise<FactsOutcome> {
+        if (result.end === "origin_gone") return this.gone(source)
         if (result.end === "blocked") {
             await this.report(source, "credits")
             return "blocked"
@@ -338,6 +354,7 @@ export class DocumentFactsService implements OnModuleInit, CritiqueChangedHook {
 
     /** Stage 3: what goes in force is settled; the reading then ends, or waits for room under the ceiling (told to the founder). */
     private async settle(source: SourceRecord, passages: ReadonlyArray<TruthPassage>, state: Reading): Promise<FactsOutcome> {
+        if (!(await this.sources.exists(source.workspaceId, source.id))) return this.gone(source)
         const parked = await this.settling.settle(source, passages, state)
         if (parked?.status === "at_ceiling") await this.report(source, "ceiling")
         if (parked !== null) return "waiting"

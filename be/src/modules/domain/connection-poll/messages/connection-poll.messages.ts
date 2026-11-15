@@ -4,6 +4,10 @@ import type { MessageBundle } from "@modules/platform/i18n"
 export const POLL_NEEDS_REAUTH_REASON =
     "Kết nối bị nhà cung cấp từ chối (token hết hạn hoặc bị thu hồi). Hãy kết nối lại."
 
+/** The item the owner reads when a connection could not be read for several cycles in a row because the provider's rate limit left no call. */
+export const POLL_RATE_DEFERRED_REASON =
+    "Kết nối chưa đọc lại được nhiều lần liên tiếp vì nhà cung cấp đang giới hạn tần suất đọc. Hệ thống vẫn tự thử lại."
+
 /** The reason stored on a connection whose provider says the credential lacks the permission to read messages: only the owner can grant it again. */
 export const POLL_NEEDS_PERMISSION_REASON =
     "Kết nối chưa được cấp quyền đọc tin nhắn. Hãy kết nối lại và cấp quyền đọc tin nhắn."

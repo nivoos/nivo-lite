@@ -30,16 +30,31 @@ const KEY_SEPARATOR = ":"
 const TITLE_PREFIX = "timer due "
 /** Between the due instant and the conversation in a task's title. */
 const TITLE_CONVERSATION = " in "
-/** The member of the timer a key names its subject by, or `none`. */
-type SubjectKind = "contact" | "conversation" | "none"
+/**
+ * The member of the timer a key names its subject by: a person (`contact`), a route (`conversation`), ANY other subject of the arming run
+ * (`subject`: a record, a transaction, a room; lines and records are one nature, so a record's timer is found by its subject as a person's
+ * is), or `none` (a timer of the agent).
+ */
+type SubjectKind = "contact" | "conversation" | "subject" | "none"
 const NO_SUBJECT = "-"
 
-/** Whom a timer is about: the contact, else the conversation, else nobody (a timer of the agent). */
+/** Between a run subject's kind and its id inside the `subject` member of a key (`timer:subject:<kind>=<id>:<ref>`). */
+const SUBJECT_JOIN = "="
+
+/** A run's subject that is no person and no route: its kind (the scope path, `data.subject`) and its id. */
+export interface TimerRunSubject {
+    readonly kind: string
+    readonly id: string
+}
+
+/** Whom a timer is about: the contact, else the conversation, else the run's other subject, else nobody (a timer of the agent). */
 export interface TimerSubject {
     /** The contact (the engine's person) the arming run served, or null. */
     readonly contactId: string | null
     /** The customer conversation the arming run served, or null. */
     readonly conversationId: string | null
+    /** The arming run's subject when it is no person and no route (a record), or absent. */
+    readonly subject?: TimerRunSubject | null | undefined
 }
 
 /** The member of a timer's key that names its subject: the kind and the id (or the placeholder for none). */
@@ -58,7 +73,22 @@ const subjectOf = (subject: TimerSubject): TimerSubjectKey => {
     if (subject.contactId !== null && subject.contactId !== "") return { kind: "contact", id: subject.contactId }
     if (subject.conversationId !== null && subject.conversationId !== "")
         return { kind: "conversation", id: subject.conversationId }
+    const other = subject.subject
+    if (other !== null && other !== undefined && other.kind !== "" && other.id !== "")
+        // The id is escaped so a separator inside it never moves the `ref` (the key's last member).
+        return { kind: "subject", id: `${encodeURIComponent(other.kind)}${SUBJECT_JOIN}${encodeURIComponent(other.id)}` }
     return { kind: "none", id: NO_SUBJECT }
+}
+
+/** The run subject a `subject` member of a key names, or null when it is not one this policy wrote. */
+const runSubjectOfKey = (id: string): TimerRunSubject | null => {
+    const at = id.indexOf(SUBJECT_JOIN)
+    if (at <= 0 || at === id.length - 1) return null
+    try {
+        return { kind: decodeURIComponent(id.slice(0, at)), id: decodeURIComponent(id.slice(at + 1)) }
+    } catch {
+        return null
+    }
 }
 
 /**
@@ -71,9 +101,8 @@ export const timerTaskKeyOf = (subject: TimerSubject, ref: string): string => {
 }
 
 /**
- * The start every timer task key of ONE subject shares (`timer:<kind>:<id>:`), whatever its `ref`: what the erasure of a person ends
- * (every timer armed for the contact or one of its conversations). Null for a subject of no contact and no conversation (an agent's own
- * timer is nobody's).
+ * The start every timer task key of ONE subject shares (`timer:<kind>:<id>:`), whatever its `ref`: what the erasure of a subject ends
+ * (every timer armed for the contact, one of its conversations, or a record the erase hid). Null for a timer of nobody (an agent's own).
  */
 export const timerSubjectKeyStartOf = (subject: TimerSubject): string | null => {
     const { kind, id } = subjectOf(subject)
@@ -111,6 +140,10 @@ const subjectFrom = (kind: string | undefined, id: string, titled: string | null
     if (kind === "contact") return { contactId: id, conversationId: titled }
     if (kind === "conversation") return { contactId: null, conversationId: id }
     if (kind === "none") return { contactId: null, conversationId: null }
+    if (kind === "subject") {
+        const other = runSubjectOfKey(id)
+        return other === null ? null : { contactId: null, conversationId: null, subject: other }
+    }
     return null
 }
 

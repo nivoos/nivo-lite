@@ -66,14 +66,17 @@ export class DossierReviewRunnerService {
      * critique waits for a request that may never come). The follow-up never spins: a critique that ended without progress is
      * `not_done`, not waiting, and a batch that ran nothing queues no follow-up (the next request or upkeep tick asks again).
      */
-    private ended(run: DossierReviewRunEntity, ran: number): Promise<void> {
-        return this.entityManager.transaction(async (tx) => {
+    private async ended(run: DossierReviewRunEntity, ran: number): Promise<void> {
+        // Read BEFORE the transaction: a connection that holds the run row never waits for another of the pool (D3-W1-6). The batch that
+        // ran is over, so what still waits is the same read a moment earlier.
+        const followUp = ran > 0 && (await this.documentCritic.hasWaiting(run.workspaceId))
+        await this.entityManager.transaction(async (tx) => {
             await tx.update(
                 DossierReviewRunEntity,
                 { id: run.id, workspaceId: run.workspaceId },
                 { status: "done", finishedAt: this.clock.now() },
             )
-            if (ran > 0 && (await this.documentCritic.hasWaiting(run.workspaceId))) await this.runs.continueCritiquesIn(tx, run.workspaceId)
+            if (followUp) await this.runs.continueCritiquesIn(tx, run.workspaceId)
         })
     }
 

@@ -1,16 +1,20 @@
 import { Injectable } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
 import { InjectPrimaryEntityManager, returnedRows, rowShape } from "@modules/platform/database"
-import type { SeedReceipt } from "./seed-standard.policy"
+import type { SeedDoorOutcome, SeedReceipt } from "./seed-standard.policy"
 import type { SeedTally } from "./set-seed.service"
 
-const FIND_SQL = `SELECT seed_name, environment, workspace_id::text AS workspace_id, seeded_commit, forced_commit, applied_at
+const FIND_SQL = `SELECT seed_name, environment, workspace_id::text AS workspace_id, seeded_commit, forced_commit, applied_at, tally -> 'doors' AS doors
 FROM public.workspace_seed_receipts WHERE seed_name = $1 AND environment = $2`
 
 const RECORD_SQL = `INSERT INTO public.workspace_seed_receipts (seed_name, environment, workspace_id, seeded_commit, forced_commit, applied_at, tally)
 VALUES ($1, $2, $3, $4, $5, now(), $6::jsonb)
 ON CONFLICT (seed_name, environment) DO UPDATE SET workspace_id = EXCLUDED.workspace_id, seeded_commit = EXCLUDED.seeded_commit,
     forced_commit = EXCLUDED.forced_commit, applied_at = EXCLUDED.applied_at, tally = EXCLUDED.tally`
+
+/** The door outcomes go into the receipt's tally (`tally.doors`): the receipt is the one record of what the seed did, door steps included. */
+const DOORS_SQL = `UPDATE public.workspace_seed_receipts SET tally = jsonb_set(tally, '{doors}', $3::jsonb, true)
+WHERE seed_name = $1 AND environment = $2 RETURNING seed_name`
 
 const REMOVE_SQL = "DELETE FROM public.workspace_seed_receipts WHERE seed_name = $1 AND environment = $2"
 
@@ -21,6 +25,7 @@ const isReceiptRow = rowShape({
     seeded_commit: "string",
     forced_commit: "string?",
     applied_at: "date",
+    doors: "json",
 })
 
 /** What a bring-up records after it applied a standard. */
@@ -56,6 +61,7 @@ export class SeedReceiptsService {
                   commit: row.seeded_commit,
                   forcedCommit: row.forced_commit,
                   appliedAt: row.applied_at.toISOString(),
+                  doors: Array.isArray(row.doors) ? (row.doors as ReadonlyArray<SeedDoorOutcome>) : [],
               }
     }
 
@@ -69,6 +75,12 @@ export class SeedReceiptsService {
             receipt.forcedCommit,
             JSON.stringify(receipt.tally),
         ])
+    }
+
+    /** Records the outcomes of the door steps in the receipt; false when the standard has no receipt in that environment. */
+    async recordDoors(name: string, environment: string, doors: ReadonlyArray<SeedDoorOutcome>): Promise<boolean> {
+        const raw: unknown = await this.entityManager.query(DOORS_SQL, [name, environment, JSON.stringify(doors)])
+        return Array.isArray(raw) && raw.length > 0
     }
 
     /** Drops the receipt (a reset took the workspace away: the next bring-up seeds the standard anew). */

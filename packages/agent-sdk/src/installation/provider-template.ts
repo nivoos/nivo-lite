@@ -44,6 +44,8 @@ const sandboxOperationValid = (operation: ProviderSandboxOperation): boolean => 
     const { keeps, readsBack, listsBack } = operation
     if ([keeps, readsBack, listsBack].filter((state) => state !== undefined).length > 1) return false
     if (keeps !== undefined && !(named(keeps.collection) && named(keeps.keyField))) return false
+    const { reuses } = keeps ?? {}
+    if (reuses !== undefined && !(reuses.by.length > 0 && reuses.by.every(named) && (reuses.whileIn === undefined || (named(reuses.whileIn.field) && reuses.whileIn.values.every(named))))) return false
     if (readsBack !== undefined && !(named(readsBack.collection) && named(readsBack.keyParam))) return false
     return listsBack === undefined || (named(listsBack.collection) && named(listsBack.listField))
 }

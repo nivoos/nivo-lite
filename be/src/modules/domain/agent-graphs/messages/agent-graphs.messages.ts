@@ -37,7 +37,7 @@ export const AGENT_GRAPHS_MESSAGES: MessageBundle = {
         "agentGraphs.runDead.title": "AI gặp lỗi xử lý tin – cần xem",
         "agentGraphs.sideStepFailed.title": "Một bước thông báo của AI bị lỗi – khách vẫn được phục vụ, cần xem",
         "agentGraphs.stepEnding.title": "Một bước của quy trình không thành – cần một người xem",
-        "agentGraphs.stepEnding.sendRefused": "Tin nhắn bước này viết cho khách đã không tới được khách.",
+        "agentGraphs.stepEnding.refused": "Việc bước này định làm không thể làm được cho người này (bị từ chối hẳn).",
         "agentGraphs.stepEnding.declined": "Một người đã từ chối duyệt việc bước này xin làm.",
         "agentGraphs.stepEnding.cannot": "Bước này báo không làm được việc của nó.",
         "agentGraphs.stepEnding.exhausted": "Vòng lặp đã chạy hết số vòng cho phép mà chưa xong.",
@@ -188,7 +188,7 @@ export const AGENT_GRAPHS_MESSAGES: MessageBundle = {
         "agentGraphs.sideStepFailed.title":
             "A notice step of the AI failed – the customer was still served, please review",
         "agentGraphs.stepEnding.title": "A workflow step did not succeed – a person should look",
-        "agentGraphs.stepEnding.sendRefused": "The message this step wrote to the customer did not reach them.",
+        "agentGraphs.stepEnding.refused": "What this step set out to do cannot be done for this person (refused for good).",
         "agentGraphs.stepEnding.declined": "A person declined to approve what this step asked to do.",
         "agentGraphs.stepEnding.cannot": "This step said it cannot do its work.",
         "agentGraphs.stepEnding.exhausted": "The loop ran every round it may without finishing.",

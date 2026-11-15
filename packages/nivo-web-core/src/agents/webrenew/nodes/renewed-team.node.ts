@@ -38,8 +38,7 @@ const GOAL =
     "Tell the team where this renewal stands in ONE message in its language (`locale`): the customer, the service, the term, the " +
     "`outcome` exactly as given and what a person must still do. Say the service is renewed only when `outcome` is `renewed` (with " +
     "`newExpiresOn` as given). `pending`: the registrar took the order (`reference`) but the end date has not moved; a person checks the " +
-    "order later. `refused`: the registrar refused (`reason`), nothing was renewed and the customer has paid; a person tops up the " +
-    "registrar balance or renews by hand. `not_renewable`: no registrar tool renews this service (`reason`); a person renews it by hand. " +
+    "order later. `not_renewable`: no registrar tool renews this service (`reason`); a person renews it by hand. " +
     "Never write a date the input does not give."
 
 /** One example renewal of the service, by its outcome. */
@@ -55,15 +54,6 @@ const RENEWED: RenewOutput = {
     expiresBefore: "2026-12-12",
 }
 const PENDING: RenewOutput = { ...RENEWED, outcome: "pending", newExpiresOn: null }
-const REFUSED: RenewOutput = {
-    ...RENEWED,
-    outcome: "refused",
-    reason: "insufficient_balance",
-    reference: null,
-    provider: null,
-    newExpiresOn: null,
-    expiresBefore: null,
-}
 
 const RENEWED_LINE = {
     title: "Da gia han EXAMPLE-TM",
@@ -72,10 +62,6 @@ const RENEWED_LINE = {
 const PENDING_LINE = {
     title: "Gia han EXAMPLE-TM dang cho nha dang ky",
     text: "KH-001: iNET da nhan don INET-ORD-7781 gia han EXAMPLE-TM 12 thang nhung ngay het han chua doi; can nguoi kiem tra lai don sau.",
-}
-const REFUSED_LINE = {
-    title: "Gia han EXAMPLE-TM bi tu choi",
-    text: "KH-001 da tra tien gia han EXAMPLE-TM 12 thang nhung nha dang ky tu choi (insufficient_balance): can nguoi nap tien va gia han tay.",
 }
 
 const GIVEN: RenewedTeamInput = { customerCode: "KH-001", renewal: RENEWED, locale: "vi" }
@@ -128,14 +114,6 @@ export const webrenewRenewedTeamNode: TemplateNode<typeof input, typeof output, 
             input: { ...GIVEN, renewal: PENDING },
             agent: [{ answer: PENDING_LINE }],
             tools: [{ id: TOOL.teamMessagePost, args: postOf(PENDING_LINE), answer: posted("m-team-7") }],
-            output: { posted: true, declined: false },
-        },
-        {
-            name: "a refused renewal: tells the team a person tops up and renews by hand",
-            params: {},
-            input: { ...GIVEN, renewal: REFUSED },
-            agent: [{ answer: REFUSED_LINE }],
-            tools: [{ id: TOOL.teamMessagePost, args: postOf(REFUSED_LINE), answer: posted("m-team-8") }],
             output: { posted: true, declined: false },
         },
         {

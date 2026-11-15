@@ -124,7 +124,10 @@ describe("every control step and trigger of an installed graph has words", () =>
             for (const node of graph.spec.nodes) {
                 const params: unknown = node.params
                 const on: unknown = isRecord(params) ? params.on : undefined
-                if (Array.isArray(on)) for (const one of on) if (isRecord(one) && typeof one.verb === "string") verbs.add(one.verb)
+                // Each key of a wait lists the verbs of its one meaning (concept templates rule 12).
+                if (Array.isArray(on))
+                    for (const one of on)
+                        if (isRecord(one) && Array.isArray(one.verbs)) for (const verb of one.verbs) if (typeof verb === "string") verbs.add(verb)
             }
         }
         expect(verbs.size).toBeGreaterThan(5)

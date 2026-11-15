@@ -198,6 +198,7 @@ export class ChannelFrontDoorService {
             connectionIds: connectionId === null ? [] : [connectionId],
             startFrom: "default",
             copyFrom: null,
+            platform: true,
         })
     }
 

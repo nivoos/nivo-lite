@@ -1,4 +1,5 @@
 import type { ModuleServer, ModuleTemplate } from "@nivo-lite/agent-sdk/module"
+import { knowledgeIdeasOf } from "../../../shared/modules/knowledge-ideas/knowledge-ideas"
 import { CONTENT_COPY as copy } from "./copy"
 
 /** The content module: its copy, agent and setup gates. */
@@ -20,6 +21,7 @@ export const CONTENT_TEMPLATE: ModuleTemplate = {
     includedWithWorkspace: false,
     available: true,
     knowledgeFolder: "content",
+    knowledgeIdeas: knowledgeIdeasOf(["content_pillars", "content_banned_claims", "content_offers_calendar", "content_channels_cadence", "brand_voice"]),
     workbench: "content",
     settingsExtras: null,
     requires: {

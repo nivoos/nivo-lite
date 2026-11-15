@@ -13,7 +13,6 @@ import {
     useInstanceHeader,
     useInstanceRail,
     useInstanceTabs,
-    type ModuleKey,
 } from "@/hooks/installations"
 import { isManager, useMember } from "@/hooks/member"
 import { useWorkspaceId } from "@/hooks/workspaces"
@@ -25,7 +24,8 @@ import { RUN_PATH, agentCrumbsOf, instanceViewOf, frameSubTabsOf, rootCrumbsOf, 
 
 const PLACEHOLDER: InstanceHeaderView = {
     name: "-",
-    module: "chatbot",
+    module: "",
+    glyph: "",
     isEarly: false,
     statusLabel: "-",
     statusTone: "neutral",
@@ -37,7 +37,7 @@ const PLACEHOLDER: InstanceHeaderView = {
 
 /** What the layout hands the frame: the type and the instance of the url, and the routed tab. */
 interface AgentInstanceFrameProps {
-    readonly module: ModuleKey
+    readonly module: string
     readonly installationId: string
     /** The routed tab drawn inside the frame. */
     readonly content: ReactNode
@@ -150,6 +150,7 @@ export const AgentInstanceFrame = (props: AgentInstanceFrameProps) => {
                     t,
                     needs,
                     module: props.module,
+                    glyph: header.glyph,
                 }),
             }}
             on={{ retry: header.retry, viewTabs: setViewTabs }}

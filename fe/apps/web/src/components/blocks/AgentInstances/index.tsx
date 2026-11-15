@@ -8,7 +8,6 @@ import {
     useInstanceList,
     isSetupPending,
     useAgentRoute,
-    type ModuleKey,
 } from "@/hooks/installations"
 import { isManager, useMember } from "@/hooks/member"
 import { useAddInstanceForm } from "@/hooks/rhf"
@@ -59,7 +58,7 @@ const toRowView = (
 
 /** What the type page hands the block: the type of the url, the query to carry on and whether the list was asked for. */
 interface AgentInstancesProps {
-    readonly module?: ModuleKey | undefined
+    readonly module?: string | undefined
     readonly query: string
     readonly showList: boolean
 }

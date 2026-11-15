@@ -45,7 +45,7 @@ const ZALO_LINE: TriggerDeclaration<z.infer<typeof LINE_RAW>, z.infer<typeof LIN
     }),
     key: { by: "subject" },
     // The source's pure reading of its event as a person's message (R26).
-    line: (data) => ({ key: data.messageKey, text: data.text, at: null }),
+    feeds: { stream: "lines", line: (data) => ({ key: data.messageKey, text: data.text, at: null }) },
     // A chat line settles a few seconds, capped: the SOURCE's settle time (the coordinator's final rule).
     settle: { windowMs: 6000, maxWaitMs: 20_000 },
 }
@@ -654,13 +654,72 @@ describe("ProviderTriggersService.deliver: how pending events combine (rule Q-4,
         })
     })
 
-    it("a declaration that combines as a stream but feeds no stream (no `line`) is refused at registration", () => {
-        const { line: _line, ...noLine } = ZALO_LINE
+    it("a declaration that combines as a stream but feeds no stream (no `feeds`) is refused at registration", () => {
+        const { feeds: _feeds, ...noLine } = ZALO_LINE
         expect(() => triggerDeclarations.register({ ...noLine, name: "message.streamless-test", combine: "stream" })).toThrow(
             expect.objectContaining({ code: "PROVIDER_TRIGGERS_DECLARATION_STREAMLESS" }),
         )
         expect(triggerDeclarations.of(PROVIDER.zaloOa, "message.streamless-test")).toBeNull()
         // `each` and `latest` need no stream.
         expect(() => triggerDeclarations.register({ ...noLine, name: "message.latest-test", combine: "latest" })).not.toThrow()
+    })
+
+    it("a declaration that feeds the records of a type may combine as a stream (the second engine stream)", () => {
+        const { feeds: _feeds, ...noLine } = ZALO_LINE
+        const records = { ...noLine, name: "record.stream-test", combine: "stream" as const, feeds: { stream: "records" as const, type: "fixture-web.webrenew.renewal-note" } }
+        expect(() => triggerDeclarations.register(records)).not.toThrow()
+        expect(triggerDeclarations.of(PROVIDER.zaloOa, "record.stream-test")?.feeds).toEqual({ stream: "records", type: "fixture-web.webrenew.renewal-note" })
+    })
+})
+
+describe("ProviderTriggersService.deliver: an event a run's own step wrote (concept agent-data rule 4, E-STREAM S2)", () => {
+    const tickOf = (slotMs: number) => {
+        const event = CLOCK_TICK.translate({ slotMs }, { connectionId: null })
+        if (event === null) throw new Error("the test tick does not translate")
+        return event
+    }
+
+    it("is taken by no registration of the WRITING workflow, and its wake names the writing run for the waits", async () => {
+        const { service, written } = await build([], { agent: { workflowId: "wf-writer", ownKey: null } })
+
+        const own = await service.deliver(
+            {
+                workspaceId: "ws-1",
+                declaration: CLOCK_TICK,
+                connectionId: null,
+                agentId: "agent",
+                events: [{ event: tickOf(1), writer: { runId: "run-7", workflowId: "wf-writer" } }],
+            },
+            mockEntityManager(),
+        )
+
+        expect(own).toMatchObject({ status: "delivered", woken: [], untaken: 1 })
+        expect([...written.values()]).toEqual([])
+    })
+
+    it("is taken by ANOTHER workflow's registration, its wake naming the writing run (the run's waits never take it back)", async () => {
+        const { service, written } = await build([], { agent: { workflowId: "wf-other", ownKey: null } })
+
+        const other = await service.deliver(
+            {
+                workspaceId: "ws-1",
+                declaration: CLOCK_TICK,
+                connectionId: null,
+                agentId: "agent",
+                events: [{ event: tickOf(2), writer: { runId: "run-7", workflowId: "wf-writer" } }],
+            },
+            mockEntityManager(),
+        )
+
+        expect(other).toMatchObject({ woken: [{ workflowId: "wf-other" }] })
+        expect([...written.values()][0]?.context).toMatchObject({ writerRunId: "run-7", workflowId: "wf-other" })
+    })
+
+    it("a person's line (no writer) is taken as before", async () => {
+        const { service } = await build(["agent-1"], { "agent-1": FRONT_DESK })
+
+        await expect(service.deliver(zaloInput([lineOf("m-w1", "alo")]), mockEntityManager())).resolves.toMatchObject({
+            woken: [{ workflowId: "wf-front" }],
+        })
     })
 })

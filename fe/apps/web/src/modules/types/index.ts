@@ -18,7 +18,7 @@ export type { Environment, Provider, ProviderKind, Purpose, AgentOption, Connect
 export type { ConnectionStatus, ConnectionTone, ConnectionCheck } from "./connections"
 export type { ConnectionFactView, ConnectionHeadView } from "./connections"
 export type { ConnectionLineView, ConnectionRailLinesView } from "./connections"
-export type { ConnectionRefusalView, ConnectionNotice, ConnectorAudience } from "./connections"
+export type { ConnectionRefusalView, ConnectionNotice } from "./connections"
 export type { ConnectorCategory, ConnectorGlyph, ConnectorStatus, FirstEvent, FirstEventState } from "./connections"
 export type { WebhookTestVerdict, MetaCheckSummary, SepayKeys, LibraryCard, LibraryCategory } from "./connections"
 export type { ConnectionSetupView } from "./connections"
@@ -65,7 +65,7 @@ export type { DocIdeasView, DocListView, DocMainView, DocMenuItemView, DocOpened
 export type { DocListCopy, DocListFace, DocListTabView } from "./knowledge-docs"
 export type { DocRowView, DocTabId, DocTabView, DocsCopy, DocsSelection, KnowledgeDocsView } from "./knowledge-docs"
 export type { NivoBodyView } from "./knowledge-docs"
-export type { KnowledgeAddDrawerView } from "./knowledge-add"
+export type { AddAreaView, KnowledgeAddDrawerView } from "./knowledge-add"
 export type { AskAgentOption, AskPassageView, AskSeesLane, AskSeesView, BrainAskCopy, BrainAskView } from "./brain-ask"
 export type { PublicAskView, PublicBrainCopy, PublicBrainView, PublicCardState, PublicDraftView } from "./brain-public"
 export type {
@@ -407,6 +407,8 @@ export type {
     SandboxInputView,
     SandboxKeyView,
     SandboxOpenView,
+    SandboxOutcomeRowView,
+    SandboxOutcomesData,
     SandboxPanesBaseProps,
     SandboxPendingView,
     SandboxScopeChoiceView,

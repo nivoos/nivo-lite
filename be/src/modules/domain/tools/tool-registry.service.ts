@@ -4,14 +4,16 @@ import { ToolCallLogService } from "@modules/domain/tool-call-log"
 import { providerCallCause, proofOf, type ProviderCallProof } from "@modules/domain/provider-registry"
 import { ToolReceiptsService, type ToolReceiptOperation } from "@modules/domain/tool-receipts"
 import { ToolGrantsService } from "@modules/domain/tool-grants"
+import { confirmByOf, repeatableBySpec } from "@modules/domain/tool-specs"
 import { outsideRefusalOf } from "@modules/domain/openapi-tools"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
+import type { FailureClass } from "@modules/platform/queue"
 import { argsHashOf, masked, summaryOf } from "./audit-mask.policy"
 import { statedRecordsOf, type StatedRecords } from "./call-records.policy"
 import { truthReadsOf, type TruthRead } from "./truth-reads.policy"
 import { breakerAfter, breakerGate, CLOSED } from "./circuit-breaker.policy"
-import { failureCodeOf, isTimeout, toolVisibleTo } from "./tool-call.policy"
+import { failureClassOf, failureCodeOf, isTimeout, toolVisibleTo } from "./tool-call.policy"
 import { isTainted, withTaint } from "./taint.policy"
 import { grantOf, toolFamilyOf } from "./tool-rows.mapper"
 import { grantVerdictOf } from "./grant.policy"
@@ -146,6 +148,8 @@ type Ran =
           readonly code: string
           /** What the adapter proved about the effect where it failed, or null when it typed nothing. */
           readonly proof: ProviderCallProof | null
+          /** What the failure says about the moment, by the engine's one classifier (typed code / status class, never a word): `transient` only when the other side could not answer now. */
+          readonly failureClass: FailureClass
       }
 
 /**
@@ -155,6 +159,10 @@ type Ran =
 export interface ToolProofSink {
     /** What the failure proves, or null when it proves nothing (or the call did not fail). */
     proof: ProviderCallProof | null
+    /** True when the failed call was a READ: it changed nothing outside, so a failure of it is safe to try again (set with the proof). */
+    read?: boolean
+    /** The class the engine's one failure classifier gave the failure (set with the proof): a read is tried again only when it is `transient`. */
+    failureClass?: FailureClass
 }
 
 /** One audit line of a resolved call, before the caller and the call are added. */
@@ -497,7 +505,14 @@ export class ToolRegistryService {
             executed = true
             return this.execute(caller, resolved, args.forwarded, started, proved)
         }
-        const result = await this.receipts.run(caller.workspaceId, key, operation)
+        // Only a settled answer is the key's receipt: an answer carrying the outside's own refusal changed nothing, so it is asked again.
+        const refusedAnswer = (answer: ToolCallResult): boolean => answer.ok && refusalCodeOf(resolved.spec, answer.value) !== null
+        // A kept unknown outcome is settled by the tool's declaration or by a PERSON (RETRY-FIX): a `repeatable` tool is made again under
+        // the same key (its own word), and so is any tool a step a PERSON ran again (Retry) calls. A tool that declares `confirmBy` keeps
+        // its own road (the runner reads first and settles by the proof), never a blind second act.
+        const remake =
+            confirmByOf(resolved.name) === null && (caller.personRetry === true || repeatableBySpec(resolved.name) === true)
+        const result = await this.receipts.run(caller.workspaceId, key, operation, refusedAnswer, remake)
         // A call the receipt answered ran nothing now: it is audited as such, so a step run again still leaves its line.
         if (!executed) {
             await this.audit(caller, resolved, args.forwarded, {
@@ -536,6 +551,8 @@ export class ToolRegistryService {
         this.breakers.set(breakerKey, breakerAfter(this.breakerOf(breakerKey), ran.kind !== "failed", now))
         if (proved !== undefined && ran.kind === "failed") {
             proved.proof = ran.proof ?? (ran.outcome === "timeout" && resolved.spec.scope !== "read" ? "unknown" : null)
+            proved.read = resolved.spec.scope === "read"
+            proved.failureClass = ran.failureClass
         }
         return this.answer(caller, resolved, args, ran, started)
     }
@@ -604,11 +621,13 @@ export class ToolRegistryService {
                 connector: connector.manifest.key,
                 tool: spec.name,
             })
+            const failureClass = failureClassOf(cause)
             return {
                 kind: "failed",
                 outcome: isTimeout(cause) ? "timeout" : "error",
-                code: failureCodeOf(providerCallCause(cause)),
+                code: failureCodeOf(providerCallCause(cause), failureClass),
                 proof: proofOf(cause),
+                failureClass,
             }
         }
     }

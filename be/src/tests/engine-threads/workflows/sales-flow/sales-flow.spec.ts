@@ -64,8 +64,8 @@ describe("the sale as one run: from the hand-off to the recorded order", () => {
         // The customer heard the summary, then the order's code, exact total and how to pay, the order message carrying the QR picture.
         expect(saidOf(db)).toEqual([SUMMARY, TOLD])
         expect(db.lines.every((line) => line.conversationId === CONV)).toBe(true)
-        expect(books.calls.filter((one) => one.tool === TOOL.paymentTransferCreate).map((one) => one.args)).toEqual([
-            { amountVnd: 4000, content: "DH-20261113-0001" },
+        expect(books.calls.filter((one) => one.tool === TOOL.paymentRequestCreate).map((one) => one.args)).toEqual([
+            { amountVnd: 4000, reference: "DH-20261113-0001" },
         ])
         expect(actsOf(db, TOOL.customerMessageSend).at(-1)?.payload).toMatchObject({
             text: TOLD,
@@ -82,7 +82,7 @@ describe("the sale as one run: from the hand-off to the recorded order", () => {
 /**
  * R68 (sale v30): the team posts of an unsuccessful ending are the ENGINE's (`report.facts`, under the key `step-ending:<run>:<step>:<attempt>`),
  * no longer a notice node's catalogue line. A world recognises one by its KIND and its FACTS (the step's declared notice facts, by their label in the
- * team's language), never by its wording.
+ * team's language), never by its wording. Since E-FIX12 rule A-1 only a business ending (here a person's `declined`) posts one.
  */
 const ENDING_KEY = "step-ending:"
 type TeamPost = { readonly key: string; readonly versions: ReadonlyArray<Readonly<Record<string, unknown>>> }
@@ -148,10 +148,9 @@ describe("the sale as one run: the payment wait", () => {
         expect(actsOf(db, TOOL.agentTag)).toHaveLength(1)
     })
 
-    it.each([
-        ["casso", "tx-casso"],
-        ["payos", "tx-payos"],
-    ] as const)("a %s credit matching the order is read the same way and pays it", async (feed, id) => {
+    // A payOS movement pays a payOS REQUEST, matched by its order code (R111: `pay-request.spec.ts`); a bank feed that keeps no request is
+    // matched by the transfer content, as SePay's.
+    it.each([["casso", "tx-casso"]] as const)("a %s credit matching the order is read the same way and pays it", async (feed, id) => {
         const { world } = await ordered()
 
         const arrived = await creditArrives(world, { id, amountVnd: 4000, content: PAYS.reference, feed })
@@ -446,14 +445,17 @@ describe("a website order reads the price truths", () => {
     })
 })
 
-// V28 PATHS (R45 packages). The payment loop's rounds run out: the sale ends `unpaid` WITH a team notice (order code and total), never silently.
-describe("the sale as one run: the payment loop runs out of rounds", () => {
-    it("every round's 24 h deadline falls due with no money: the customer is reminded each round, then the team is told the order and ends `unpaid`", async () => {
+// V28 PATHS (R45 packages), changed by E-FIX12 rule A-1 (coordinator ruling on D-W3-1, replaces R47/R68 for refusals): a reminder the channel REFUSES
+// (the reply window closed: the REAL send executor answers `outside_window`) is a failed act, never a business ending: ONE stop for a person, the run
+// waits holding the person, no team notice for it. The rounds before it remind the person as before.
+describe("the sale as one run: the payment loop's reminder is refused once the window closed", () => {
+    it("the rounds remind the person while the window is open; the first refused reminder stops the run for a person (one stop, no notice)", async () => {
         const { world, runId } = await ordered()
         const { db, process } = world
-        const rounds = 6
         const posts = db.team.length
-        for (let round = 1; round <= rounds; round += 1) {
+        let round = 0
+        while ((await stopsOf(process, runId)).length === 0 && round < 6) {
+            round += 1
             db.model.script(SP.remind, { done: { text: `${REMINDER} (${round})` } })
             db.clock.advance(24 * 60 * 60 * 1000)
             const from = db.wakes.length
@@ -462,63 +464,45 @@ describe("the sale as one run: the payment loop runs out of rounds", () => {
             expect((await drain(process, from)).map((one) => one.error)).toEqual([null])
         }
 
-        const steps = await threadStepsOf(process, runId)
-        expect(steps).toEqual(expect.arrayContaining(["pay[r1].remind", `pay[r${rounds}].remind`, "pay"]))
-        expect(steps.at(-1)).toBe("unpaid")
-        expect(steps).not.toContain("to-after-sale")
-        // The reminder is a courtesy (a refusal is a fact in its output, never a crash): while the Zalo reply window is open it reaches the person, once it has
-        // closed (the person's last line is older than 48 h) the real send executor refuses it `outside_window`. Every round asked; none crashed the run.
         const reminders = db.chat.ledger.rows.filter((row) => row.text.startsWith(REMINDER))
-        expect(reminders).toHaveLength(rounds)
-        expect(reminders.filter((row) => row.state === "delivered")).toHaveLength(saidOf(db).filter((line) => line.startsWith(REMINDER)).length)
-        expect(reminders.filter((row) => row.state === "refused").every((row) => row.reason === "outside_window")).toBe(true)
         expect(reminders[0]).toMatchObject({ state: "delivered" })
-        // R47 (sale v29) then R68 (v30): a reminder that did not reach the person (refused, other than `route_held`) is never silent: each one posts ONE team
-        // notice naming the order's code (now the ENGINE's, `remind` declares its ending), and the run's end adds ONE more (the loop out of rounds: code and
-        // total). A delivered reminder tells nobody.
-        const refused = reminders.filter((row) => row.state === "refused").length
-        expect(refused).toBeGreaterThan(0)
-        const posted = db.team.slice(posts)
-        expect(posted).toHaveLength(refused + 1)
-        expect(posted.filter((post) => post.key.includes(".remind:"))).toHaveLength(refused)
-        for (const post of posted) expectEndingOf(post)
-        expectEndingOf(posted.at(-1), { "Mã đơn": "DH-20261113-0001", "Tổng tiền": "4000" })
-        expect(world.books.orders.get("order-1")?.values.status).toBe("confirmed")
-        expect(db.records.get(AGENT_RUNS, runId)?.data).toMatchObject({ status: "done" })
-        expect(db.records.get(AGENT_RUNS, runId)?.data.waitMatch ?? null).toBeNull()
+        expect(reminders.at(-1)).toMatchObject({ state: "refused", reason: "outside_window" })
+        expect(reminders.filter((row) => row.state === "refused")).toHaveLength(1)
+        const stops = await stopsOf(process, runId)
+        expect(stops.map((stop) => [stop.stepKey, stop.state])).toEqual([[`pay[r${round}].remind`, "open"]])
+        expect(Object.fromEntries((stops[0]?.detail.facts ?? []).map((fact) => [fact.name, fact.value]))).toMatchObject({
+            code: "GRAPH_NODES_ACT_REFUSED",
+            effect: TOOL.customerMessageSend,
+            outsideRefusal: "outside_window",
+        })
+        expect(db.team.slice(posts).filter((post) => isEnding(post))).toEqual([])
+        const steps = await threadStepsOf(process, runId)
+        expect(steps).not.toContain("unpaid")
+        expect(db.records.get(AGENT_RUNS, runId)?.data.status).not.toBe("done")
     })
 })
 
-// V28: an answer about the order that did not reach the person (refused by the REAL send executor: the Zalo reply window is closed) is never silent: the
-// step answers the typed refusal, the team is told (`team.unsent-notice`: step, order code, refusal) and the wait goes on. (Under a staff hold the refusal is
-// `route_held` and nothing is told: sale-edges.)
+// V28, changed by E-FIX12 rule A-1: an answer about the order the channel REFUSES (the Zalo reply window is closed) is a failed act: ONE stop for a
+// person, nothing reaches the person, no team notice; the run waits holding the person. (Under a staff hold the refusal is `route_held`: quiet, sale-edges.)
 describe("the sale as one run: the answer about the order is refused", () => {
-    it("the reply window is closed: the team is told the order and the refusal, nothing reaches the person and the run waits on for the money", async () => {
+    it("the reply window is closed: ONE stop on the order-talk step, nothing reaches the person, no notice, the run waits", async () => {
         const { world, runId } = await ordered()
         const { db, process } = world
         db.model.script(ORDER_TALK, { done: { topic: "about", reply: "Don cua chi la 4.000 d a." } })
-        // The person's line is dated more than 48 h before now (the engine's own store of the conversation says when they last spoke).
         db.clock.advance(50 * 3_600_000)
         const said = saidOf(db).length
         const posts = db.team.length
         const from = db.wakes.length
 
         const wakes = await customersSay(process, [{ text: "Don cua em tong bao nhieu a?", key: "m-late-1", at: new Date(db.clock.now().getTime() - 49 * 3_600_000) }])
-        const ended = await runTurns(process, wakes)
-        const resumed = await drain(process, from)
+        await runTurns(process, wakes)
+        await drain(process, from)
 
-        expect(ended.map((one) => [one.ending?.status, one.ending?.reason])).toEqual([["done", "wait_took"], ["skipped", "no_waiter"]])
-        expect(resumed.map((one) => one.error)).toEqual([null])
-        expect(await threadStepsOf(process, runId)).toEqual(expect.arrayContaining(["pay[r1].order-talk"]))
+        expect((await stopsOf(process, runId)).map((stop) => [stop.stepKey, stop.state])).toEqual([["pay[r1].order-talk", "open"]])
         expect(saidOf(db)).toHaveLength(said)
         expect(db.chat.ledger.rows.at(-1)).toMatchObject({ state: "refused", reason: "outside_window" })
-        expect(db.team).toHaveLength(posts + 1)
-        expectEndingOf(db.team.at(-1))
-        // The wait goes on: the credit that comes next pays the order.
-        expect(db.records.get(AGENT_RUNS, runId)?.data.waitMatch).not.toEqual(null)
-        const paid = await creditArrives(world, { id: PAYS.id, amountVnd: PAYS.amountVnd, content: PAYS.reference })
-        expect(paid.resumed.map((one) => one.error)).toEqual([null])
-        expect(world.books.orders.get("order-1")?.values.status).toBe("paid")
+        expect(db.team.slice(posts).filter((post) => isEnding(post))).toEqual([])
+        expect(db.records.get(AGENT_RUNS, runId)?.data.status).not.toBe("done")
     })
 })
 
@@ -554,19 +538,18 @@ describe("the after-sale: the thank-you is refused", () => {
         return { world, ran, posts, said }
     }
 
-    it("the reply window is closed: nothing reaches the person, the team is told the order's code, the care goes on and the stage does not move", async () => {
+    it("the reply window is closed (E-FIX12 rule A-1): ONE stop on `thank`, nothing reaches the person, no notice, the care waits", async () => {
         const { world, ran, posts, said } = await afterSaleOf(false)
         const { db, process } = world
 
-        expect(ran.map((one) => one.error)).toEqual([null])
-        const steps = await threadStepsOf(process, ran[0]?.runId ?? "")
-        expect(steps).toEqual(expect.arrayContaining(["thank", "has-record", "plan-delivery", "plan-occasions"]))
+        const runId = ran[0]?.runId ?? ""
+        expect((await stopsOf(process, runId)).map((stop) => [stop.stepKey, stop.state])).toEqual([["thank", "open"]])
+        const steps = await threadStepsOf(process, runId)
+        expect(steps).not.toContain("plan-delivery")
         expect(steps).not.toContain("stage")
-        expect(steps.at(-1)).toBe("thanked")
         expect(saidOf(db)).toHaveLength(said)
         expect(db.chat.ledger.rows.at(-1)).toMatchObject({ state: "refused", reason: "outside_window", text: THANKS })
-        expect(db.team).toHaveLength(posts + 1)
-        expectEndingOf(db.team.at(-1))
+        expect(db.team.slice(posts).filter((post) => isEnding(post))).toEqual([])
     })
 
     it("the control: with the window open the thank-you is delivered, the stage moves, nobody is told", async () => {

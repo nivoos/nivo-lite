@@ -1,5 +1,4 @@
 import type { AgentCatalogQuery } from "@/modules/api"
-import type { ModuleKey } from "@/modules/catalog"
 import { foldText } from "@/modules/installations"
 
 /** What one agent holds and reads, as the back end `agentCatalog` read answers it. */
@@ -21,7 +20,7 @@ export interface AgentCatalogRow {
     readonly key: string
     readonly name: string
     /** The role the agent belongs to: the group it is listed under. */
-    readonly roleKey: ModuleKey
+    readonly roleKey: string
     /** The agent's own picture (an upload or a preset image); null draws the default sprout, or the initials. */
     readonly picture: string | null
     /** The owner chose the initials preset. */
@@ -92,7 +91,7 @@ interface CatalogRoleCard {
     readonly name: string
     readonly description: string
     /** The kind of agent: its mark and its colour. */
-    readonly moduleKey: ModuleKey
+    readonly moduleKey: string
     /** "Installed 1" or "Not installed". */
     readonly stateLabel: string
     readonly isInstalled: boolean

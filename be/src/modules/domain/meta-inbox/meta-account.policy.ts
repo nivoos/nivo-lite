@@ -35,6 +35,15 @@ const isTextOrNull = (value: unknown): boolean => value === null || typeof value
 const isReferralOrNull = (value: unknown): boolean =>
     value === null || (isRecord(value) && REFERRAL_MEMBERS.every((name) => isTextOrNull(value[name])))
 
+/** True when the value is absent (a message with no part beside its text) or a list of content parts as the parser keeps them. */
+const isAttachmentsOrAbsent = (value: unknown): boolean =>
+    value === undefined ||
+    (Array.isArray(value) &&
+        value.every(
+            (part: unknown) =>
+                isRecord(part) && typeof part.type === "string" && isTextOrNull(part.url) && isTextOrNull(part.name),
+        ))
+
 /** True when a stored value has the shape of a normalised Meta event, as the receipt parser wrote it. */
 export const isMetaEvent = (value: unknown): value is MetaEvent =>
     isRecord(value) &&
@@ -43,6 +52,7 @@ export const isMetaEvent = (value: unknown): value is MetaEvent =>
     PLATFORMS.has(value.platform) &&
     NULLABLE_TEXT_MEMBERS.every((name) => isTextOrNull(value[name])) &&
     isReferralOrNull(value.referral) &&
+    isAttachmentsOrAbsent(value.attachments) &&
     typeof value.timestamp === "number" &&
     Number.isFinite(value.timestamp) &&
     typeof value.event_key === "string" &&

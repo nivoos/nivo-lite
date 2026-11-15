@@ -1,5 +1,5 @@
 import { Injectable, Optional, type OnModuleInit } from "@nestjs/common"
-import { AgentGraphFlowRunsService, callerRunIdOf, subjectOfScope, type FlowWaits } from "@modules/domain/agent-graphs"
+import { AgentGraphFlowRunsService, VERB_MEMBER, callerRunIdOf, subjectOfScope, type FlowWaits } from "@modules/domain/agent-graphs"
 import { AgentRunsService } from "@modules/domain/agent-runs"
 import { handedBackOf, type AgentTurnView } from "@modules/domain/agent-work"
 import { AccountAttachmentsService } from "@modules/domain/tool-grants"
@@ -63,7 +63,9 @@ export class ThreadWaitsService implements FlowWaits, OnModuleInit {
             const park = view?.status === "stopped" ? parkOfWaitQuestion(view.stop?.question) : null
             const key = park === null ? null : waitTakes(park, verb, trigger)
             if (park === null || key === null) continue
-            const admission = await this.runs.waitAnswered(ref, park.parkKey, { key, event: eventOf(trigger) }, turn.wakeId)
+            // The event keeps the verb it came by (the pipeline's own `verb` member): a key may list several verbs of one meaning
+            // (concept templates rule 12), and a hand-back gives the event back under its own verb.
+            const admission = await this.runs.waitAnswered(ref, park.parkKey, { key, event: eventOf({ ...trigger, [VERB_MEMBER]: verb }) }, turn.wakeId)
             if (admission.kind === "refused") {
                 if (await taken(park.parkKey)) return true
                 continue
@@ -124,6 +126,8 @@ export class ThreadWaitsService implements FlowWaits, OnModuleInit {
         const agentOf = new Map<string, string>([...own, ...matched].map((run) => [run.id, run.agentId]))
         // An event is offered to each run at most once: a run that took it and handed it back is never asked again.
         const handedBack = new Set(handedBackOf(turn.context))
+        // An event a run's own step wrote (a record write event) is never offered back to that run (concept agent-data rule 4).
+        if (turn.context.writerRunId !== undefined) handedBack.add(turn.context.writerRunId)
         const candidates: ReadonlyArray<WaitCandidate> = [
             ...matched.map((run) => ({ id: run.id, callerRunId: callerRunIdOf(run.context), waitSince: run.waitSince })),
             ...own.map((run) => ({ id: run.id, callerRunId: callerRunIdOf(run.context), waitSince: null })),

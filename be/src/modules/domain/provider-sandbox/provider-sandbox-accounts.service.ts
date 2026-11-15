@@ -5,9 +5,12 @@ import type {
     SandboxAccount,
     SandboxCall,
     SandboxCase,
+    SandboxDeliveryMode,
+    SandboxInboundCase,
     SandboxInput,
     SandboxInputField,
     SandboxLatestRequest,
+    SandboxOutcome,
     SandboxPayLinkStatus,
 } from "./provider-sandbox.contracts"
 import { InjectSandboxWebhookPoster } from "./provider-sandbox.decorators"
@@ -35,17 +38,31 @@ export interface SandboxSendResult {
     readonly caseId: string
     readonly input: SandboxInput
     readonly deliveries: ReadonlyArray<SandboxDelivery>
-    /** True when the send was asked to drop its webhook: the account's state was written, nothing was posted (so no delivery). */
+    /** True when the send was `withheld`: the account's state was written, nothing was posted (so no delivery). */
     readonly webhookDropped: boolean
+    /** The delivery mode the send used (the one asked, else the case's own, else `once`). */
+    readonly mode: SandboxDeliveryMode
+    /** How long before its arrival the event happened, in seconds (`late` only, else 0). */
+    readonly lateBySeconds: number
 }
+
+/** The interval `late` uses when none is given: one hour. */
+export const SANDBOX_LATE_DEFAULT_SECONDS = 3_600
+
+/** The longest interval `late` takes: 30 days. */
+export const SANDBOX_LATE_MAX_SECONDS = 30 * 86_400
 
 /** What one send may be asked beside its inputs. */
 export interface SandboxSendOptions {
     /**
-     * Record the case as the provider would remember it (its kept state, the `inbound` call in the log) but do NOT post the webhook: the
-     * account's provider poll (its sandbox read) brings the row back, as a webhook the provider never delivered would be recovered.
+     * The delivery mode (GENERIC, see `SandboxDeliveryMode`); absent: the case's own (`once` when it declares none). `withheld` records
+     * the case as the provider would remember it (its kept state, the `inbound` call in the log) but posts NO webhook: the provider's poll
+     * (its sandbox read) brings the event back; refused for a case that is not `polled`. `twice` posts every event two times in a row.
+     * `late` stamps the event `lateBySeconds` before the arrival (no sleep: the arrival is the clock port's now).
      */
-    readonly dropWebhook?: boolean | undefined
+    readonly mode?: SandboxDeliveryMode | undefined
+    /** The interval of `late`, in seconds (default one hour, at most 30 days); ignored by every other mode. */
+    readonly lateBySeconds?: number | undefined
 }
 
 /** The account's next case of one outbound operation: the picked case, or the default (success) case when nothing is picked. */
@@ -209,8 +226,8 @@ export class ProviderSandboxAccountsService {
      * provider's webhook payload(s) (logged on the account as one `inbound` call) -> each POSTed, in order, to the provider's OWN route on
      * NIVO with the account's sandbox key, through this api's own listener (`SandboxWebhookPoster`). Inputs not given are prefilled from
      * the account's latest request (R62 "latest payment request"), else the case's examples; an input of the wrong kind is refused. A
-     * route's refusal is answered in its delivery (status and body), not thrown, so the page shows what NIVO did. With `dropWebhook` the
-     * case is still recorded as the provider would remember it, but nothing is POSTed (a webhook the provider never delivered).
+     * route's refusal is answered in its delivery (status and body), not thrown, so the page shows what NIVO did. The DELIVERY MODE (`once`, `twice`, `withheld`,
+     * `late`: see `SandboxSendOptions`) is the same for every provider's inbound case.
      */
     async send(
         actor: ConnectionActor,
@@ -224,18 +241,42 @@ export class ProviderSandboxAccountsService {
         if (inbound === undefined) throw new ProviderSandboxError({ code: ProviderSandboxErrorCode.CaseUnknown, params: { caseId } })
         const prefilled = (await this.latestOf(account))?.input ?? {}
         const input = inputOf(inbound.inputs, given, prefilled)
-        const events = await this.sandbox.inbound(account, caseId, inbound, input, this.clock.now())
-        if (options.dropWebhook === true) return { caseId, input, deliveries: [], webhookDropped: true }
+        const { mode, lateBySeconds } = this.deliveryOf(caseId, inbound, options)
+        if (mode === "withheld" && inbound.polled !== true) {
+            throw new ProviderSandboxError({ code: ProviderSandboxErrorCode.ModeUnavailable, params: { caseId, mode } })
+        }
+        const arrival = this.clock.now()
+        // `late`: the event happened before it arrives, so the case is built at its own moment; the arrival stays the clock's now.
+        const at = mode === "late" ? new Date(arrival.getTime() - lateBySeconds * 1_000) : arrival
+        const events = await this.sandbox.inbound(account, caseId, inbound, input, at)
+        if (mode === "withheld") return { caseId, input, deliveries: [], webhookDropped: true, mode, lateBySeconds }
         const key = await this.keyOf(account.workspaceId, account.id)
         const path = inbound.path(account.id)
+        const posts = mode === "twice" ? events.flatMap((event) => [event, event]) : events
         const deliveries: Array<SandboxDelivery> = []
-        for (const event of events) {
+        for (const event of posts) {
             // One after the other: a duplicate delivery reaches the route after the first one, as the provider's retry does.
             // eslint-disable-next-line no-await-in-loop
             const reply = await this.poster.post({ path, body: event.body, headers: { ...event.headers, [SANDBOX_KEY_HEADER]: key } })
             deliveries.push({ path, status: reply.status, body: reply.body })
         }
-        return { caseId, input, deliveries, webhookDropped: false }
+        return { caseId, input, deliveries, webhookDropped: false, mode, lateBySeconds }
+    }
+
+    /** The mode of a send: the one asked, else the case's own, else `once`; the `late` interval is checked (a positive whole number of seconds, bounded). */
+    private deliveryOf(
+        caseId: string,
+        inbound: SandboxInboundCase,
+        options: SandboxSendOptions,
+    ): { readonly mode: SandboxDeliveryMode; readonly lateBySeconds: number } {
+        const asked = options.mode
+        const mode = asked ?? inbound.delivery?.mode ?? "once"
+        if (mode !== "late") return { mode, lateBySeconds: 0 }
+        const interval = options.lateBySeconds ?? (inbound.delivery?.mode === "late" ? inbound.delivery.lateBySeconds : undefined) ?? SANDBOX_LATE_DEFAULT_SECONDS
+        if (!Number.isSafeInteger(interval) || interval < 1 || interval > SANDBOX_LATE_MAX_SECONDS) {
+            throw new ProviderSandboxError({ code: ProviderSandboxErrorCode.InputInvalid, params: { field: "lateBySeconds", caseId } })
+        }
+        return { mode, lateBySeconds: interval }
     }
 
     /**
@@ -309,6 +350,21 @@ export class ProviderSandboxAccountsService {
         const operation = key === "" ? picked.operation : key
         await this.sandbox.setNextCase(account, operation, caseId)
         return { operation, caseId, isDefault: false }
+    }
+
+    /**
+     * Picks the account's next answer of an operation by the GENERIC OUTCOME (`ok`, `refused`, `final`, `transient`, `timeout`): the first
+     * outbound case of that operation which is a thin name for that outcome becomes the sticky next case. An operation without a case of
+     * the outcome is refused `PROVIDER_SANDBOX_OUTCOME_UNAVAILABLE`.
+     */
+    async setNextOutcome(actor: ConnectionActor, connectionId: string, operation: string, outcome: SandboxOutcome): Promise<SandboxNextCase> {
+        const account = await this.accountOf(actor, connectionId)
+        const picked = this.outboundOf(account.provider).find((one) => one.operation === operation && one.outcome === outcome)
+        if (picked === undefined) {
+            throw new ProviderSandboxError({ code: ProviderSandboxErrorCode.OutcomeUnavailable, params: { operation, outcome } })
+        }
+        await this.sandbox.setNextCase(account, operation, picked.id)
+        return { operation, caseId: picked.id, isDefault: false }
     }
 
     /** A sandbox account of the actor's workspace (owner or manager), refused when the sandbox is off, unknown, removed or live. */

@@ -1,4 +1,4 @@
-import { builder, type MockOf } from "@starci/jest-preset"
+import { builder, mock, type MockOf } from "@starci/jest-preset"
 import { DOC_SOURCE, DOC_WS, docSourceOf } from "@tests/fixtures/builders/document-facts.builder"
 import { TRIAGE_VERSION } from "@modules/domain/brain/passage-triage.policy"
 import type { BrainExtractionsService } from "@modules/domain/brain-extractions"
@@ -8,7 +8,7 @@ import type { WorkspaceMember, WorkspaceMembersService } from "@modules/domain/w
 import type { PassageCritique, TruthCritiqueGate } from "@modules/domain/brain/direct-apply.policy"
 import type { DocumentPartsService, TruthCeilingService } from "@modules/domain/brain"
 import { passageTextHashOf, type TruthPassage } from "@modules/domain/knowledge-chunks"
-import type { SourceRecord } from "@modules/domain/knowledge-sources"
+import { KnowledgeSourcesReadService, KnowledgeSourcesService, type SourceRecord } from "@modules/domain/knowledge-sources"
 import type { UsageMeterService } from "@modules/domain/knowledge"
 import type { AiChatAnswer, AiCutSpend, AiService, AiUsage } from "@modules/integrations/ai"
 import type { Reading } from "@modules/domain/brain/document-truths.contracts"
@@ -101,6 +101,20 @@ export const factRecordOf: (changes?: Partial<FactRecord>) => FactRecord = build
 
 /** The answer of `propose` for a truth that was filed as a proposal: the row carries the id and the value it was filed with. */
 export const filedAs = (id: string, value: string): Promise<ProposeResult> => Promise.resolve({ fact: factRecordOf({ id, value }), outcome: "proposed" as const, created: true })
+
+/** The provider of a source store whose documents all still exist: what a job's origin check finds unless a spec deletes the document. */
+export const existingSourcesProvider = (): { readonly provide: typeof KnowledgeSourcesService; readonly useValue: MockOf<KnowledgeSourcesService> } => {
+    const sources = mock<KnowledgeSourcesService>()
+    sources.exists.mockResolvedValue(true)
+    return { provide: KnowledgeSourcesService, useValue: sources }
+}
+
+/** The provider of a source reader that holds every document: what the transaction of a write finds unless a spec deletes the document. */
+export const holdingSourcesProvider = (): { readonly provide: typeof KnowledgeSourcesReadService; readonly useValue: MockOf<KnowledgeSourcesReadService> } => {
+    const reader = mock<KnowledgeSourcesReadService>()
+    reader.holds.mockResolvedValue(true)
+    return { provide: KnowledgeSourcesReadService, useValue: reader }
+}
 
 /** The doubles a stage spec scripts: the model, the usage meter, the same-meaning judge and the document's map (the business's own rules). */
 export interface StageDoubles {

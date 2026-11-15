@@ -45,6 +45,7 @@ export const TRIGGER_SOURCE_LABELS: Readonly<Record<TriggerSourceKind, Words>> =
     schedule: bilingualOf("contractSourceSchedule"),
     "chats-group": bilingualOf("contractSourceChatsGroup"),
     workflow: bilingualOf("contractSourceWorkflow"),
+    record: bilingualOf("contractSourceRecord"),
     provider: bilingualOf("contractSourceProvider"),
 }
 
@@ -62,6 +63,7 @@ export const TRIGGER_VERB_LABELS: Readonly<Record<(typeof TRIGGER)[keyof typeof 
     [TRIGGER.timerDue]: bilingualOf("contractTriggerTimerDue"),
     [TRIGGER.chatMessageReceived]: bilingualOf("contractTriggerChatMessage"),
     [TRIGGER.workflowCalled]: bilingualOf("contractTriggerWorkflowCalled"),
+    [TRIGGER.recordWritten]: bilingualOf("contractTriggerRecordWritten"),
 }
 
 /** The words of each entry rule. */

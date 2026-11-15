@@ -38,7 +38,7 @@ import { TRIAGE_BATCH, TRIAGE_PROMPT, TRIAGE_VERSION } from "./passage-triage.po
 import { TRUTH_CEILING } from "./truth-ceiling.policy"
 import { TruthCeilingService } from "./truth-ceiling.service"
 import { AI_HAY_BO_QUA_MOI_QUY_VI, BO_QUA_VI, CHI_LAN_VI, MUC_PHI_VI, PHI_DICH_VU_SO_0_VI, PHI_DICH_VU_SO_1_LA_VI, SO_TAY_VI, T_10_000D_VI, T_99_000D_VI } from "@tests/fixtures/i18n/brain-a-spec.messages"
-import { objectLike, stringLike } from "@tests/fixtures/builders/brain-document.builder"
+import { holdingSourcesProvider, objectLike, stringLike } from "@tests/fixtures/builders/brain-document.builder"
 import { FACTS_USAGE, factsDocumentOf, factsPassageOf, factsRuleText, factsPassagesIn, scriptFactsWorld, factsRunnersOf, type FactsWorld } from "@tests/fixtures/builders/brain-facts-world.builder"
 
 /** The bound of an automatic write: the ceiling, with its guard. */
@@ -95,7 +95,7 @@ const build = async (
             { provide: KnowledgeIndexingService, useValue: indexing }, { provide: KnowledgeSourcesService, useValue: sources },
             { provide: KnowledgeChunksService, useValue: chunks }, { provide: UsageMeterService, useValue: usage },
             { provide: DocumentReviewService, useValue: reviews }, { provide: DocumentRelationsService, useValue: links },
-            { provide: FactEmbeddingsService, useValue: vectors }, { provide: DocumentNatureService, useValue: nature },
+            { provide: FactEmbeddingsService, useValue: vectors }, holdingSourcesProvider(), { provide: DocumentNatureService, useValue: nature },
             { provide: WorkspaceTimeZoneService, useValue: mock<WorkspaceTimeZoneService>({ timeZoneOf: () => Promise.resolve("Asia/Ho_Chi_Minh") }) },
             { provide: WorkspaceMembersService, useValue: members }, { provide: TruthCeilingService, useValue: ceiling },
             { provide: TeamChatNoticesService, useValue: notices }, { provide: TRUTH_CRITIQUE_GATE, useValue: critic },

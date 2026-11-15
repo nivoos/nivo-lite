@@ -54,7 +54,7 @@ import { stateOf } from "./agent-graph.builder"
 const quietRuns = (): AgentRunsService => mock<AgentRunsService>()
 
 /** Where the seed keeps its graph files, from this folder. */
-const SEEDS_DIR = "../../../../../.starcistacks/dev/seeds/data/graphs"
+const SEEDS_DIR = "../graphs"
 
 /** The name of a graph the seed ships. */
 export type SeededGraphName = "chatbot" | "sales"

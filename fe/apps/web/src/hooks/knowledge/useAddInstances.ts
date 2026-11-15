@@ -17,11 +17,9 @@ interface AddInstances {
 
 /** The membership and the agent instances the add documents drawer is built from. */
 export const useAddInstances = (): AddInstances => {
-    const { modules, slot } = useModuleCatalog()
+    const { list, slot } = useModuleCatalog()
     const locale = useLocale() === "en" ? "en" : "vi"
-    const moduleNames = Object.fromEntries(
-        Object.entries(modules).map(([key, module]) => [key, pickCopy(module.name, locale)]),
-    )
+    const moduleNames = Object.fromEntries(list.map((module) => [module.key, pickCopy(module.name, locale)]))
     const member = useWorkspaceMember()
     const { installations } = useModuleInstallations()
     return {

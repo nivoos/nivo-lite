@@ -80,6 +80,16 @@ export class MemoryProviderSandboxStore implements ProviderSandboxStore {
         )
     }
 
+    /** One lock per account, as the database store's advisory lock: a run waits for the earlier run of the same account. */
+    private readonly tails = new Map<string, Promise<unknown>>()
+
+    async serialized<Result>(account: SandboxAccount, run: () => Promise<Result>): Promise<Result> {
+        const before = this.tails.get(account.id) ?? Promise.resolve()
+        const running = before.then(run, run)
+        this.tails.set(account.id, running.catch(() => undefined))
+        return await running
+    }
+
     reset(account: SandboxAccount): Promise<void> {
         for (let index = this.entries.length - 1; index >= 0; index -= 1) {
             if (this.entries[index]?.connectionId === account.id) this.entries.splice(index, 1)

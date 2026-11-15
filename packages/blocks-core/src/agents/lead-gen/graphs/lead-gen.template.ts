@@ -1,4 +1,5 @@
 import type { ModuleServer, ModuleTemplate } from "@nivo-lite/agent-sdk/module"
+import { knowledgeIdeasOf } from "../../../shared/modules/knowledge-ideas/knowledge-ideas"
 import { LEAD_GEN_COPY as copy } from "./copy"
 import { LEAD_GEN_GATES } from "./lead-gen-gates"
 
@@ -18,8 +19,10 @@ export const LEAD_GEN_TEMPLATE: ModuleTemplate = {
     status: "early",
     audience: "customer",
     includedWithWorkspace: false,
-    available: true,
+    // Not built yet: no module declaration, no agent, no graph, and no workbench registered under `lead_gen`. The template stays; the catalogue does not offer it (the availability gate of the registry spec lifts this when it is built).
+    available: false,
     knowledgeFolder: "lead_gen",
+    knowledgeIdeas: knowledgeIdeasOf(["lead_icp", "lead_questions", "lead_scoring", "lead_objections", "lead_offers", "lead_forbidden_claims", "lead_routing", "brand_voice"]),
     workbench: "lead_gen",
     settingsExtras: null,
     requires: {

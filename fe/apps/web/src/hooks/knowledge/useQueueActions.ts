@@ -37,6 +37,7 @@ export const useQueueActions = (): QueueActions => {
         const meta = item.meta
         const asked = await enqueueSource({
             kind: item.kind,
+            visibility: meta.visibility,
             title: item.title,
             storagePath: item.storagePath,
             url: item.url,
@@ -64,10 +65,10 @@ export const useQueueActions = (): QueueActions => {
         return { id: queued.id }
     }
     return {
-        upload: async (file, onProgress) => {
+        upload: async (file, visibility, onProgress) => {
             const before = refusalBeforeUpload(file.size, usage?.documents)
             if (before !== null) return { path: null, refusal: { kind: "brain", refusal: before } }
-            const asked = await askUpload({ filename: file.name, contentType: file.type, sizeBytes: file.size }).then(
+            const asked = await askUpload({ filename: file.name, contentType: file.type, sizeBytes: file.size, visibility }).then(
                 (address) => ({ address, refusal: null }),
                 (error: unknown) => ({
                     address: undefined,

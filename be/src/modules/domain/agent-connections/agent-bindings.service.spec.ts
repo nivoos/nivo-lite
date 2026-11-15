@@ -183,6 +183,20 @@ describe("AgentBindingsService > connectionsFor", () => {
     })
 })
 
+describe("AgentBindingsService > a removed connection", () => {
+    // Customer-messages rule 16: removing a connection is a SOFT delete; its attachments stay as rows and count for nothing. The binding side
+    // lists a link only beside the facts of its connection (`ConnectionBindingsReadService.factsOf` hides a removed one), so the rows that
+    // remain are in no list: not the agent's connections (any purpose, connected only or not), and not the grants of several agents.
+    it("is listed nowhere: its attachment stays a row, the facts of a removed connection are never given", async () => {
+        const links = outboundLinks()
+        const em = mockEntityManager({ find: [AgentConnectionEntity, links] })
+        const { service } = await build(em, { connections: [] })
+
+        await expect(service.connectionsFor("a1", "outbound_chat")).resolves.toEqual([])
+        await expect(service.connectionsFor("a1", "outbound_chat", { connectedOnly: true })).resolves.toEqual([])
+    })
+})
+
 describe("AgentBindingsService > connectionsOfAgent", () => {
     it("lists every connection of an agent of the workspace for a member, whatever the purpose", async () => {
         const em = mockEntityManager({ find: [AgentConnectionEntity, [toolLink()]] })

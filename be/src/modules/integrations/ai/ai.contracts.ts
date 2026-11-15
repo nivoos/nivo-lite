@@ -97,7 +97,7 @@ export type AiTurnRead =
           /** Which upstream served it and why the model stopped. */
           readonly served?: AiServed | undefined
       }
-    | { readonly ok: false; readonly failure: AiFailure; readonly spent?: AiCutSpend | undefined }
+    | AiFailedTry
 
 /** One try of an agent turn: the model call made with the client of that try. */
 export type AiAgentAttempt<M> = (model: AiChatModel, tryNumber: number) => Promise<M>
@@ -319,10 +319,23 @@ export interface AiCutSpend {
     readonly cap: number | null
 }
 
+/**
+ * A try that gave no answer: why, what a cut or empty try spent, and `sent: false` when the try LEFT NO REQUEST (no endpoint is
+ * configured, or the runner that served the call failed it before anything was sent: see `AiRunner`). A try that left no request spent
+ * nothing at any provider: no meter books it, estimated or not. Absent means the request left (or may have left) and the try is booked
+ * as its meter rule says.
+ */
+export interface AiFailedTry {
+    readonly ok: false
+    readonly failure: AiFailure
+    readonly spent?: AiCutSpend | undefined
+    readonly sent?: false | undefined
+}
+
 /** One try of a chat call: its answer, or why there is none (with what a cut try spent). */
 export type AiChatAttempt =
     | { readonly ok: true; readonly answer: AiChatAnswer }
-    | { readonly ok: false; readonly failure: AiFailure; readonly spent?: AiCutSpend | undefined }
+    | AiFailedTry
 
 /** A chat answer, or null when AI is unavailable (no key), the call failed or the answer was empty. */
 export type AiChatResult = AiChatAnswer | null
@@ -419,6 +432,11 @@ export interface RoutedModels {
 }
 
 /** The two calls the app makes through LangChain; the adapter over `@langchain/*` implements it and a spec stands in for it. */
+/**
+ * The runner of one model call: the deployment's endpoint, or a runner the account route chose (`AiRunnerRoute`). A runner that fails a
+ * call WITHOUT sending any request (it answers the call itself, as a provider's sandbox does) throws an error whose `sent` is `false`
+ * (`NotSentFailure`), so the model door knows nothing was spent; any other throw is read as a try that may have reached the provider.
+ */
 export interface AiRunner {
     /** The chat client of one try of an agent turn: no retry of its own, the try's deadline, its reasoning and its output limit. */
     turnModel(request: AiTurnRequest): Promise<AiChatModel>
@@ -430,3 +448,9 @@ export interface AiRunner {
 
 /** The fetch function LangChain sends through; the client builds it over the platform HTTP port. */
 export type AiFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+
+/** The mark a runner's thrown failure carries when the call was failed before any request left (`AiRunner`). */
+export interface NotSentFailure {
+    /** Always false: no request of this call left the process. */
+    readonly sent: false
+}

@@ -317,7 +317,7 @@ describe("ConnectionPollRunService the cursor moves only after a whole walk", ()
 describe("ConnectionPollRunService why a provider refused", () => {
     it("logs the code and the params of a domain error next to the connection, so the refusal can be read", async () => {
         const { run, logger, poller } = build()
-        const failure = new ConnectionPollError({ code: ConnectionPollErrorCode.Deferred, params: { waitMs: 7000 } })
+        const failure = new ConnectionPollError({ code: ConnectionPollErrorCode.ReceiverMissing, params: { provider: "sepay" } })
         poller.read.mockRejectedValue(failure)
 
         await run.poll(poller, recordOf(), emptyPollSummary())
@@ -325,8 +325,20 @@ describe("ConnectionPollRunService why a provider refused", () => {
         expect(logger.error).toHaveBeenCalledWith(ConnectionPollLogEvent.Failed, failure, {
             connectionId: "conn-1",
             provider: "sepay",
-            errorCode: "CONNECTION_POLL_DEFERRED",
-            waitMs: 7000,
+            errorCode: "CONNECTION_POLL_RECEIVER_MISSING",
         })
+    })
+
+    it("answers a rate deferral as the typed outcome without a failure line or a failed count: the scheduler plans it again and says so as information", async () => {
+        const { run, logger, poller } = build()
+        const deferral = new ConnectionPollError({ code: ConnectionPollErrorCode.Deferred, params: { waitMs: 7000 } })
+        poller.read.mockRejectedValue(deferral)
+        const summary = emptyPollSummary()
+
+        await expect(run.poll(poller, recordOf(), summary)).resolves.toEqual({ kind: "failed", cause: deferral })
+
+        expect(logger.error).not.toHaveBeenCalled()
+        expect(summary.failed).toBe(0)
+        expect(summary.connections).toBe(1)
     })
 })

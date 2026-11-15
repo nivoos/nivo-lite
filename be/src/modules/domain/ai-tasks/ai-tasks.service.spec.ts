@@ -3,6 +3,7 @@ import { mock } from "@starci/jest-preset"
 import { THIS_MODEL_MESSAGE_VI } from "@tests/fixtures/i18n/ai-tasks-spec.messages"
 import { AI } from "@modules/integrations/ai"
 import { DomainError } from "@modules/platform/errors"
+import { isRecord } from "@modules/platform/primitives"
 import type { AiChatModel, AiService } from "@modules/integrations/ai"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
@@ -49,6 +50,12 @@ const build = async (_unused = 1, available = true, limits: Partial<AiTasksOptio
     ai.available.mockReturnValue(available)
     // The loop's try is timed: the stopwatch of a spec reads 1.2 s.
     ai.stopwatch.mockReturnValue(() => 1_200)
+    // The failed try of a throw is read by the real door's rule: the class from `failureOfThrow`, `sent: false` from the runner's mark.
+    ai.failedTryOf.mockImplementation((cause) =>
+        isRecord(cause) && cause.sent === false
+            ? { ok: false, failure: ai.failureOfThrow(cause), sent: false }
+            : { ok: false, failure: ai.failureOfThrow(cause) },
+    )
     ai.attempt.mockImplementation(async (request) => {
         const answer = await ai.chat(request)
         return answer === null ? { ok: false, failure: "timeout" } : { ok: true, answer }
@@ -589,6 +596,34 @@ describe("AiTasksService the turns of a node's agent loop: the tries", () => {
         expect(meter.record.mock.calls.map(([entry]) => entry.failure)).toEqual(["provider", "timeout", "empty"])
         // Two seconds before the retry of the provider error only.
         expect(timer.schedule.mock.calls.map(([, ms]) => ms)).toEqual([2000])
+    })
+
+    it("retries a try the runner failed before sending (`sent: false`) like any failure, and books none of them", async () => {
+        const { client, ai, meter } = await build(1, true, LOOP_LIMITS)
+        ai.turnModel.mockResolvedValue(modelOf())
+        ai.failureOfThrow.mockReturnValue("timeout")
+        const notSent = () => Object.assign(failedTry(), { sent: false as const })
+        const attempt = loopOf([notSent(), notSent(), notSent(), { never: true }])
+
+        await expect(client.nodeAgentTurns(scope, LOOP_ASK).turn(attempt)).rejects.toMatchObject({
+            code: AiTasksErrorCode.Unavailable,
+            params: { tries: 3, failures: "timeout, timeout, timeout" },
+        })
+
+        expect(attempt).toHaveBeenCalledTimes(3)
+        expect(meter.record).not.toHaveBeenCalled()
+    })
+
+    it("books a chat try the door read as not sent: nothing; a try that may have left: estimated, at the model it asked for", async () => {
+        const { client, ai, meter } = await build(1, true, LOOP_LIMITS)
+        ai.attempt
+            .mockResolvedValueOnce({ ok: false, failure: "timeout", sent: false })
+            .mockResolvedValueOnce({ ok: false, failure: "timeout" })
+            .mockResolvedValueOnce({ ok: true, answer: { ...ANSWER, text: "ok", usage: USAGE, model: "m" } })
+
+        await client.nodeText(scope, ORDER_ASK)
+
+        expect(meter.record.mock.calls.map(([entry]) => entry.failure ?? "answer")).toEqual(["timeout", "answer"])
     })
 
     it("takes a router failure to build the client as a failed try of its own and ends as unavailable, never carrying the router's error", async () => {

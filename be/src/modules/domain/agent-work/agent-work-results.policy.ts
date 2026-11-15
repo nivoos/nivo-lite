@@ -59,6 +59,7 @@ const CONTEXT_TEXT_KEY_SET: Readonly<Record<Exclude<ContextTextKey, "locale">, t
     handedBackJson: true,
     waitOnly: true,
     unclaimed: true,
+    writerRunId: true,
     combine: true,
     count: true,
     latestEventId: true,

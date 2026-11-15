@@ -1,6 +1,7 @@
 "use client"
 
-import { useFormatter, useNow, useTranslations } from "next-intl"
+import { useFormatter, useLocale, useNow, useTranslations } from "next-intl"
+import { useModuleCatalog } from "@/hooks/moduleCatalog"
 import { useParams } from "next/navigation"
 import { useBankName } from "@/hooks/banks"
 import { providerKey, PROVIDER_LOGO } from "@/hooks/connection-providers"
@@ -43,6 +44,9 @@ export const useConnectionProvider = (given?: string): ConnectionProviderRead =>
     const segment = given ?? params.provider ?? ""
     const t = useTranslations("connections")
     const tGrant = useTranslations("agentConnections")
+    const catalog = useModuleCatalog()
+    const modules = catalog.list
+    const locale = useLocale() === "en" ? "en" : "vi"
     const format = useFormatter()
     const now = useNow()
     const bankName = useBankName()
@@ -75,10 +79,16 @@ export const useConnectionProvider = (given?: string): ConnectionProviderRead =>
             t,
         ),
         rows: connections.map((connection) =>
-            providerRowOf(connection, t, bankName, workspaceId, agentUsesOf(grants, connection.id, tGrant)),
+            providerRowOf(
+                connection,
+                t,
+                bankName,
+                workspaceId,
+                agentUsesOf(grants, connection.id, tGrant, (module) => catalog.modules[module]?.glyph ?? ""),
+            ),
         ),
         count: String(connections.length),
-        about: aboutOf(provider, t),
+        about: aboutOf(provider, t, modules, locale),
     })
     const grants = grantsRead.data
     const read = slotOfReads([access.read, ...data.reads, grantsRead], () =>

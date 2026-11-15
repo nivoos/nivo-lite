@@ -13,6 +13,7 @@ import type { SeedReceiptWrite, SeedReceiptsService } from "./seed-receipts.serv
 import type { SeedStandardDriver } from "./seed-standard.port"
 import { SEED_STANDARD_COMPLETENESS, SEED_STANDARD_SCHEMA, layoutProblemsOf, readSeedStandardRef, seedDecisionOf, type SeedReceipt } from "./seed-standard.policy"
 import { SeedStandardService } from "./seed-standard.service"
+import { attachEveryOf } from "./roster-seed.policy"
 import { SET_SEED_SCHEMA, type SealedValues } from "./set-seed.contracts"
 import { connectionIdOf } from "./set-seed.policy"
 import { SetSeedService } from "./set-seed.service"
@@ -170,8 +171,14 @@ const worldOf = () => {
     const receiptsService = mock<SeedReceiptsService>()
     receiptsService.find.mockImplementation((name: string, environment: string) => Promise.resolve(receipts.get(`${name}|${environment}`) ?? null))
     receiptsService.record.mockImplementation((receipt: SeedReceiptWrite) => {
-        receipts.set(`${receipt.name}|${receipt.environment}`, { name: receipt.name, environment: receipt.environment, workspaceId: receipt.workspaceId, commit: receipt.commit, forcedCommit: receipt.forcedCommit, appliedAt: clock })
+        receipts.set(`${receipt.name}|${receipt.environment}`, { name: receipt.name, environment: receipt.environment, workspaceId: receipt.workspaceId, commit: receipt.commit, forcedCommit: receipt.forcedCommit, appliedAt: clock, doors: receipts.get(`${receipt.name}|${receipt.environment}`)?.doors ?? [] })
         return Promise.resolve()
+    })
+    receiptsService.recordDoors.mockImplementation((name: string, environment: string, doors) => {
+        const held = receipts.get(`${name}|${environment}`)
+        if (held === undefined) return Promise.resolve(false)
+        receipts.set(`${name}|${environment}`, { ...held, doors })
+        return Promise.resolve(true)
     })
     receiptsService.remove.mockImplementation((name: string, environment: string) => {
         receipts.delete(`${name}|${environment}`)
@@ -205,7 +212,7 @@ const worldOf = () => {
 
 describe("readSeedStandardRef and seedDecisionOf", () => {
     const ref = readSeedStandardRef({ schema: SEED_STANDARD_SCHEMA, name: NAME, repository: "r", commit: COMMIT_A, completeness: SEED_STANDARD_COMPLETENESS })
-    const receipt: SeedReceipt = { name: NAME, environment: "dev", workspaceId: "w", commit: COMMIT_A, forcedCommit: null, appliedAt: "2026-11-14T08:00:00.000Z" }
+    const receipt: SeedReceipt = { name: NAME, environment: "dev", workspaceId: "w", commit: COMMIT_A, forcedCommit: null, appliedAt: "2026-11-14T08:00:00.000Z", doors: [] }
 
     it("refuses a declaration without a pinned commit, a name that is no seed standard, a force kind outside the closed list or without force", () => {
         const field = (document: Record<string, unknown>): unknown => {
@@ -226,7 +233,7 @@ describe("readSeedStandardRef and seedDecisionOf", () => {
 
     it("seeds without a receipt; skips whole with one; reports a new pin; a declared force re-seeds once per commit", () => {
         expect(seedDecisionOf(ref, null)).toEqual({ act: "seed" })
-        expect(seedDecisionOf(ref, receipt)).toMatchObject({ act: "skip", why: `already seeded at ${COMMIT_A}` })
+        expect(seedDecisionOf(ref, receipt)).toMatchObject({ act: "skip", why: `already seeded at ${COMMIT_A}; door steps: none recorded yet` })
         expect(seedDecisionOf({ ...ref, commit: COMMIT_B }, receipt)).toMatchObject({ act: "skip", why: expect.stringContaining("standard changed since it was seeded") })
         expect(seedDecisionOf({ ...ref, commit: COMMIT_B, force: true }, receipt)).toEqual({ act: "reseed", since: receipt.appliedAt })
         expect(seedDecisionOf({ ...ref, commit: COMMIT_B, force: true }, { ...receipt, commit: COMMIT_B, forcedCommit: COMMIT_B })).toMatchObject({ act: "skip" })
@@ -278,19 +285,19 @@ describe("SeedStandardService.apply: loaded once by the bring-up", () => {
     it("stops the account whose secret member is empty, missing or unreadable with its typed reason and goes on", async () => {
         const world = worldOf()
         await world.service.apply(declaration(COMMIT_A), "dev", false)
-        expect(world.printed.some((line) => line.includes("live account mail (smtp) stopped: secret_empty (credential)"))).toBe(true)
+        expect(world.printed.some((line) => line.includes("live account mail (smtp) not created: secret_empty (credential)"))).toBe(true)
 
         const other = worldOf()
         other.setSealed({ opened: false, reason: "no identity" })
         await other.service.apply(declaration(COMMIT_A), "dev", false)
-        expect(other.printed.filter((line) => line.includes("stopped: sealed_unreadable"))).toHaveLength(4)
+        expect(other.printed.filter((line) => line.includes("not created: sealed_unreadable"))).toHaveLength(4)
         expect([...other.connections.values()].map((one) => one.provider)).toEqual(["zalo_oa"])
 
         const third = worldOf()
         third.setSealed({ opened: true, accounts: { "zalo-main": {}, bank: { credential: "x" }, mail: { credential: "y" } } })
         await third.service.apply(declaration(COMMIT_A), "dev", false)
-        expect(third.printed.some((line) => line.includes("zalo-main (zalo_oa) stopped: secret_missing (credential)"))).toBe(true)
-        expect(third.printed.some((line) => line.includes("bank (sepay) stopped: secret_missing (webhookSecret)"))).toBe(true)
+        expect(third.printed.some((line) => line.includes("zalo-main (zalo_oa) not created: secret_missing (credential); sandbox twin zalo-sbx in use"))).toBe(true)
+        expect(third.printed.some((line) => line.includes("bank (sepay) not created: secret_missing (webhookSecret)"))).toBe(true)
     })
 
     it("skips a seeded standard WHOLE on the next bring-up (no driver read), and only reports a new pin", async () => {
@@ -303,7 +310,7 @@ describe("SeedStandardService.apply: loaded once by the bring-up", () => {
 
         expect(world.driver.checkout).toHaveBeenCalledTimes(1)
         expect(world.printed).toEqual([
-            `${NAME}: already seeded at ${COMMIT_A}: nothing done`,
+            `${NAME}: already seeded at ${COMMIT_A}; door steps: none recorded yet: nothing done`,
             "unchanged",
             `${NAME}: standard changed since it was seeded (${COMMIT_A} -> ${COMMIT_B}): declare force on its stack declaration to re-seed: nothing done`,
             "unchanged",
@@ -316,6 +323,45 @@ describe("SeedStandardService.apply: loaded once by the bring-up", () => {
 
         await expect(bare.apply(declaration(COMMIT_A), "dev", false)).rejects.toMatchObject({ code: WorkspaceSeedErrorCode.DriverMissing })
         expect(world.connections.size).toBe(0)
+    })
+})
+
+describe("door steps are seed steps: a refused one is FAILED in the receipt, with its typed code (R109 finding 3)", () => {
+    it("records the door script's report and every later bring-up shows the failed steps", async () => {
+        const world = worldOf()
+        await world.service.apply(declaration(COMMIT_A), "dev", false)
+        world.printed.length = 0
+
+        await world.service.recordDoors(
+            JSON.stringify({ standards: { [NAME]: [{ step: "settings timeZone", outcome: "failed", code: "WORKSPACES_TIME_ZONE_INVALID" }, { step: "node chatbot.front-desk/answer", outcome: "done" }] } }),
+            "dev",
+        )
+        await world.service.apply(declaration(COMMIT_A), "dev", false)
+
+        expect(world.printed[0]).toBe(`${NAME}: door steps: 1 of 2 FAILED (settings timeZone: WORKSPACES_TIME_ZONE_INVALID)`)
+        expect(world.printed[1]).toContain("door steps: 1 of 2 FAILED (settings timeZone: WORKSPACES_TIME_ZONE_INVALID)")
+    })
+
+    it("refuses a report that is not the closed shape, and names a standard with no receipt", async () => {
+        const world = worldOf()
+
+        await expect(world.service.recordDoors(JSON.stringify({ standards: { [NAME]: [{ step: "x", outcome: "maybe" }] } }), "dev")).rejects.toMatchObject({ code: WorkspaceSeedErrorCode.InputInvalid })
+        await world.service.recordDoors(JSON.stringify({ standards: { [NAME]: [] } }), "dev")
+        expect(world.printed.at(-1)).toContain("no receipt in this environment")
+    })
+})
+
+describe("attachEveryOf: a standard attaches every working account it names (R109 finding 2)", () => {
+    const lines = [
+        { provider: "zalo_oa", connectionId: "live-zalo", accountLabel: "Zalo", connected: true },
+        { provider: "zalo_oa", connectionId: "sbx-zalo", accountLabel: "Sandbox Zalo", connected: true },
+        { provider: "sepay", connectionId: null, accountLabel: null, connected: false },
+    ]
+    const isSandbox = (id: string): boolean => id.startsWith("sbx")
+
+    it("attaches live AND sandbox accounts on the local stack (a node setting may name the sandbox one), only live ones in production", () => {
+        expect(attachEveryOf(lines, isSandbox, "local")).toEqual({ wishes: [{ connectionId: "live-zalo" }, { connectionId: "sbx-zalo" }], missing: ["sepay"] })
+        expect(attachEveryOf(lines, isSandbox, "prod")).toEqual({ wishes: [{ connectionId: "live-zalo" }], missing: ["sepay"] })
     })
 })
 

@@ -16,6 +16,8 @@ import {
 import {
     driveGrantLost,
     driveNoAccess,
+    driveNoAnswer,
+    driveRefreshRefused,
     driveTokenRejected,
     driveTooLarge,
     driveTypeUnsupported,
@@ -33,7 +35,7 @@ import {
  * listing the limits cut (-6), or throws what the live Drive client throws: the token refused (-7), the item not openable (-8), a server
  * failure (-9), the grant lost (-10); `readFile` answers the name and text of a file the sandbox Drive holds (-11, default; any other id is
  * refused as a file the account cannot open, as Drive's 404 is) or throws too large (-12), type unsupported (-13), not openable (-14),
- * unavailable (-15). Each operation answers by its own case: a read does not consult the grant's case. A listing and a read are reads: no
+ * unavailable (-15), no answer (-16 listing, -17 read: unavailable, status 0); `-18` the listing finds the token refresh refused (invalid_grant). Each operation answers by its own case: a read does not consult the grant's case. A listing and a read are reads: no
  * case has an unknown outcome. The failures are the integration's own errors, built in `./google-drive-sandbox.failures` (this class
  * reaches no integration).
  */
@@ -71,6 +73,10 @@ export class GoogleDriveSandboxReachService implements DriveReachPort {
                         throw driveUnavailable()
                     case GOOGLE_DRIVE_CASE.listGrantLost:
                         throw driveGrantLost()
+                    case GOOGLE_DRIVE_CASE.listNoAnswer:
+                        throw driveNoAnswer()
+                    case GOOGLE_DRIVE_CASE.listRefreshRefused:
+                        throw driveRefreshRefused()
                     default:
                         return GOOGLE_DRIVE_SANDBOX_LISTING
                 }
@@ -92,6 +98,8 @@ export class GoogleDriveSandboxReachService implements DriveReachPort {
                         throw driveNoAccess()
                     case GOOGLE_DRIVE_CASE.readUnavailable:
                         throw driveUnavailable()
+                    case GOOGLE_DRIVE_CASE.readNoAnswer:
+                        throw driveNoAnswer()
                     default: {
                         const read = googleDriveSandboxReadOf(fileId)
                         if (read === null) throw driveNoAccess()

@@ -58,6 +58,11 @@ export class PublicApiLedgerService {
         return earlier === undefined ? undefined : { ...earlier, inserted: false }
     }
 
+    /** The request belonging to this workspace as it stands, WITHOUT a lock: what the fenced worker PREPAREs from before its fence. */
+    find(workspaceId: string, requestId: string, manager: EntityManager): Promise<PublicApiEntity | null> {
+        return manager.findOne(PublicApiEntity, { where: { workspaceId, id: requestId } })
+    }
+
     /** Locks only the request belonging to this workspace, for the fenced worker that settles it. */
     lock(workspaceId: string, requestId: string, manager: EntityManager): Promise<PublicApiEntity | null> {
         return manager.findOne(PublicApiEntity, {

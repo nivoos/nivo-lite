@@ -216,7 +216,8 @@ describe("RecordNativeService", () => {
         await service.invoke(WS_A, "get", { type: PROJECT.name, id: created.id }, OTHER_AGENT)
             .catch(() => undefined)
         expect(engine.scoped.mock.calls.map(([workspaceId, , agent]) => [workspaceId, agent])).toEqual([
-            [WS_A, { id: AGENT_A, sees: "own" }],
+            // A step's write names its run (the call key's run), so its write event is never offered back to it (concept agent-data rule 4).
+            [WS_A, { id: AGENT_A, sees: "own", writerRunId: "run-1" }],
             [WS_A, { id: AGENT_B, sees: "all" }],
         ])
     })

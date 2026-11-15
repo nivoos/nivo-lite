@@ -9,6 +9,10 @@ import { salesNotSaleNoticeNode } from "../nodes/not-sale-notice.node"
 import { salesOrderCreateNode } from "../nodes/order-create.node"
 import { salesOrderPaidNode } from "../nodes/order-paid.node"
 import { salesOrderReadNode } from "../nodes/order-read.node"
+import { salesRequestPayNode } from "../nodes/request-pay.node"
+import { salesRequestReadNode } from "../nodes/request-read.node"
+import { salesRequestCancelNode } from "../nodes/request-cancel.node"
+import { orderEntity } from "../entities/order.entity"
 import { salesConsultGraph } from "./consult.graph"
 
 // The SALE AS ONE RUN (owner's final rule 7, 2026-11-14): the talk, the order and the payment wait are one graph; the reminder is the
@@ -57,11 +61,11 @@ const refsOf = (expr: unknown): ReadonlyArray<string> => {
     return Object.values(expr).flatMap((part) => refsOf(part))
 }
 
-describe("sales.consult v30: the sale as one run", () => {
+describe("sales.consult v33: the sale as one run", () => {
     // v28 (ruling R45): the hand-off also carries the visit's start (`since`): the consult reads the engine's thread itself.
-    it("is version 30, called by the front desk with the route, the words, the channel, the person and the visit's start (no recentLines)", () => {
+    it("is version 33, called by the front desk with the route, the words, the channel, the person and the visit's start (no recentLines)", () => {
         expect(salesConsultGraph.key).toBe("sales.consult")
-        expect(salesConsultGraph.spec.catalogue?.version).toBe(30)
+        expect(salesConsultGraph.spec.catalogue?.version).toBe(33)
         expect(salesConsultGraph.spec.triggers).toEqual([{ verb: TRIGGER.workflowCalled }])
         expect(callInputsOf(salesConsultGraph.spec.contract).map((one) => one.name).toSorted()).toEqual(["channel", "contactId", "conversationId", "since", "text"])
         const consult = JSON.stringify((stepOf("consult") as { params: unknown }).params)
@@ -72,7 +76,7 @@ describe("sales.consult v30: the sale as one run", () => {
     it("talks in a loop of at most 30 rounds: round 1 consults the hand-off, later rounds wait for the person's next message first", () => {
         expect(stepOf("talk")).toMatchObject({ kind: "loop", params: { mode: "until", max: 30 }, next: "keep-occasions", routes: { exhausted: "quiet" } })
         expect(stepOf("opening")).toMatchObject({ kind: "if", loop: "talk", params: { when: { op: "eq", ref: { $ref: "item.$round" }, value: 1 } }, routes: { yes: "consult", no: "hear" } })
-        expect(stepOf("hear")).toMatchObject({ kind: "wait", step: "core.wait", loop: "talk", routes: { zalo: "consult", telegram: "consult" } })
+        expect(stepOf("hear")).toMatchObject({ kind: "wait", step: "core.wait", loop: "talk", routes: { said: "consult" } })
         expect(steps.filter((step) => step.kind === "node" && step.step === "sales.consult-turn").map((step) => step.key)).toEqual(["consult"])
         // Only the draft comes from the round before (R13); the message is this round's.
         expect(JSON.stringify(stepOf("consult"))).toContain('"round":"previous"')
@@ -89,12 +93,13 @@ describe("sales.consult v30: the sale as one run", () => {
         expect(stepOf("short-notice")).toMatchObject({ kind: "node", step: "sales.credit-notice", loop: "pay" })
     })
 
-    it("records the order, sends the QR and tells the customer, then waits for the money in a loop of at most 6 rounds", () => {
-        expect(stepOf("create-order")).toMatchObject({ step: "sales.order-create", next: "request-qr" })
-        expect(stepOf("request-qr")).toMatchObject({ next: "tell-order" })
+    it("records the order, asks the customer to pay and tells them, then waits for the money in a loop of at most 6 rounds", () => {
+        expect(stepOf("create-order")).toMatchObject({ step: "sales.order-create", next: "request-pay" })
+        expect(stepOf("request-pay")).toMatchObject({ step: "sales.request-pay", next: "tell-order" })
         expect(stepOf("tell-order")).toMatchObject({ next: "pay" })
-        expect(stepOf("pay")).toMatchObject({ kind: "loop", params: { mode: "until", max: 6 }, next: "to-after-sale", routes: { exhausted: "unpaid" } })
-        expect((stepOf("await") as { routes: Record<string, string> }).routes).toMatchObject({ credit: "credit", zalo: "order-talk", timeout: "remind" })
+        expect(stepOf("pay")).toMatchObject({ kind: "loop", params: { mode: "until", max: 6 }, next: "settled", routes: { exhausted: "unpaid" } })
+        // A credit and the timeout first read the order as it stands now (U-04); a message goes to `order-talk` as before.
+        expect((stepOf("await") as { routes: Record<string, string> }).routes).toEqual({ credit: "order-now", said: "order-talk", ordered: "order-now", timeout: "order-now" })
     })
 
     it("a message during the payment wait goes to order-talk, routed by meaning; the reminder is the wait's timeout", () => {
@@ -116,7 +121,7 @@ describe("sales.consult v30: the sale as one run", () => {
     })
 
     it("ends paid (after the after-sale is called with the order's id and code) or unpaid; a cancel keeps its road", () => {
-        expect(salesConsultGraph.spec.outcomes.map((end) => end.key).toSorted()).toEqual(["declined", "not-sale", "paid", "quiet", "unpaid"])
+        expect(salesConsultGraph.spec.outcomes.map((end) => end.key).toSorted()).toEqual(["closed", "declined", "not-sale", "paid", "quiet", "unpaid"])
         expect(stepOf("to-after-sale")).toMatchObject({ kind: "call-workflow", next: "paid" })
         const handed = JSON.stringify((stepOf("to-after-sale") as { params: unknown }).params)
         expect(handed).toContain("steps.create-order.output.orderId")
@@ -124,7 +129,8 @@ describe("sales.consult v30: the sale as one run", () => {
         expect(stepOf("cancel-said")).toMatchObject({ routes: { yes: "cancel-read", no: "quiet" } })
         expect(stepOf("cancel-paid")).toMatchObject({ routes: { yes: "cancel-paid-notice", no: "cancel-order" } })
         expect(stepOf("cancel-paid-notice")).toMatchObject({ step: "sales.cancel-paid-notice", next: "quiet" })
-        expect(stepOf("cancel-order")).toMatchObject({ next: "tell-cancelled" })
+        expect(stepOf("cancel-order")).toMatchObject({ next: "cancel-request" })
+        expect(stepOf("cancel-request")).toMatchObject({ step: "sales.request-cancel", next: "tell-cancelled" })
         expect(stepOf("tell-cancelled")).toMatchObject({ next: "quiet" })
     })
 })
@@ -167,19 +173,23 @@ describe("sales.consult v30: the engine reports the unsuccessful endings (R68)",
     })
 
     it("the steps the order's road reads past a declined record see the recorded order: the decline never goes on (the engine ends it)", () => {
-        // The save check proves it (importing the graph compiled it): `request-qr` reads the order's code as a text, which the declined form has not.
+        // The save check proves it (importing the graph compiled it): `request-pay` reads the order's code as a text, which the declined form has not.
         const declined = exampleOutput(salesOrderCreateNode.examples, (output) => output["declined"] === true)
         expect(declined["orderNo"]).toBeNull()
-        expect(JSON.stringify((stepOf("request-qr") as { params: unknown }).params)).toContain("steps.create-order.output.orderNo")
+        expect(JSON.stringify((stepOf("request-pay") as { params: unknown }).params)).toContain("steps.create-order.output.orderNo")
     })
 })
 
 // The owner's target (R68): business steps and two loops; no edge branch may grow back silently.
 describe("sales.consult v30: the business shape", () => {
-    /** The most steps the sale may hold (v30 has 35: v29 had 55). */
-    const STEPS_MAX = 35
+    /**
+     * The most steps the sale may hold (v30 had 35: v29 had 55; v31 adds the order's status check at a credit and at the timeout: 8 steps;
+     * v32 adds the payment request's read at the wake and its withdrawal at a cancel: 2 steps; v33 adds the timeout test after a wake of
+     * an order still waiting, so a write of the order reminds nobody: 1 step).
+     */
+    const STEPS_MAX = 46
 
-    it("holds two until loops, two waits, two hand-backs and at most 35 steps", () => {
+    it("holds two until loops, two waits, two hand-backs and at most 46 steps", () => {
         expect(steps.filter((step) => step.kind === "loop").map((step) => step.key)).toEqual(["talk", "pay"])
         expect(steps.filter((step) => step.kind === "wait").map((step) => step.key)).toEqual(["hear", "await"])
         expect(steps.filter((step) => step.kind === "hand-back").map((step) => step.key)).toEqual(["give-back-talk", "give-back"])
@@ -202,7 +212,7 @@ describe("sales.consult v30: the business shape", () => {
             .map((step) => step.key)
         expect(unnamed).toEqual([])
         expect(salesConsultGraph.spec.outcomes.every((end) => end.title !== undefined)).toBe(true)
-        expect(stepOf("pay")).toMatchObject({ exits: { until: { vi: "Thoát khi đơn đã trả" }, exhausted: { vi: "Hết 6 vòng mà chưa trả" } } })
+        expect(stepOf("pay")).toMatchObject({ exits: { until: { vi: "Thoát khi đơn đã trả hoặc không còn chờ tiền" }, exhausted: { vi: "Hết 6 vòng mà chưa trả" } } })
         expect(stepOf("exact")).toMatchObject({ label: { vi: "Đủ tiền?" } })
     })
 })
@@ -228,7 +238,7 @@ describe("sales.consult v30: the `off` road on the matrix lines C-08 (round 1) a
 
     it("C-10, round 3: the consult's `off` (draft kept) does not end the talk; `off-round` hands the line back and the sale waits again", () => {
         expect(laterOff).toMatchObject({ branch: "off", reply: null, address: "25 Nguyen Hue" })
-        expect(exprHolds(conditionOf("talk", "until"), readerOf({ steps: { consult: { output: laterOff }, hear: { output: { trigger: "zalo" } } } }))).toBe(false)
+        expect(exprHolds(conditionOf("talk", "until"), readerOf({ steps: { consult: { output: laterOff }, hear: { output: { trigger: "said" } } } }))).toBe(false)
         expect(exprHolds(conditionOf("off-round", "when"), readerOf({ item: { $round: 3 } }))).toBe(false)
         // The next round's consult goes on from this draft (`round: "previous"`): the off turn carries the draft it was given.
         expect(laterOff["items"]).toEqual([expect.objectContaining({ quantity: 2 })])
@@ -259,7 +269,7 @@ describe("sales.consult v30: the stored conditions against the outputs the nodes
 
     it("a later round's `off` (a wait ran) and an `asked` turn do not end the talk; `ready`, `cancel` and the hear timeout do", () => {
         const until = conditionOf("talk", "until")
-        const waited = { hear: { output: { trigger: "zalo" } } }
+        const waited = { hear: { output: { trigger: "said" } } }
         expect(exprHolds(until, readerOf({ steps: { consult: { output: off }, ...waited } }))).toBe(false)
         expect(exprHolds(until, readerOf({ steps: { consult: { output: asked }, ...waited } }))).toBe(false)
         expect(exprHolds(until, readerOf({ steps: { consult: { output: { ...asked, branch: "ready" } }, ...waited } }))).toBe(true)
@@ -295,5 +305,173 @@ describe("sales.consult v30: the stored conditions against the outputs the nodes
         const when = conditionOf("cancel-paid", "when")
         expect(exprHolds(when, readerOf({ steps: { "cancel-read": { output: { status: "paid" } } } }))).toBe(true)
         for (const status of statuses.filter((one) => one !== "paid")) expect(exprHolds(when, readerOf({ steps: { "cancel-read": { output: { status } } } }))).toBe(false)
+    })
+})
+
+// U-04 (E-FIX15, 2026-11-15): a credit settles only an order still waiting for money. Run on the stored conditions: the wait's route, the order's
+// status as `order-now` read it, and the loop's way out.
+describe("sales.consult v31: the payment wake reads the order as it stands now (U-04)", () => {
+    const credit = exampleOutput(salesCreditReadNode.examples, (output) => typeof output["amountVnd"] === "number")
+    const woke = (trigger: string, status: string | null): ReturnType<typeof readerOf> =>
+        readerOf({ steps: { await: { output: { trigger } }, "order-now": { output: { status } }, credit: { output: credit } } })
+
+    it("a wake reaches the order read first, whatever woke the wait", () => {
+        expect(stepOf("order-now")).toMatchObject({ kind: "node", step: "sales.order-read", loop: "pay", next: "request-now" })
+        expect(JSON.stringify((stepOf("order-now") as { params: unknown }).params)).toContain("steps.create-order.output.orderId")
+        expect(stepOf("awaiting")).toMatchObject({ kind: "if", routes: { yes: "closed-credit", no: "credit-woke" } })
+    })
+
+    it("a CANCELLED order: the credit takes the stranger road (read, then the team notice) and never `credit` / `paid-order`", () => {
+        const awaiting = conditionOf("awaiting", "when")
+        for (const status of ["cancelled", "paid", "draft", "failed_system"]) expect(exprHolds(awaiting, woke("credit", status))).toBe(true)
+        expect(exprHolds(conditionOf("closed-credit", "when"), woke("credit", "cancelled"))).toBe(true)
+        expect(stepOf("closed-credit")).toMatchObject({ routes: { yes: "stranger-read" } })
+        expect(stepOf("stranger-read")).toMatchObject({ kind: "node", step: "sales.credit-read", next: "stranger-notice" })
+        expect(stepOf("stranger-notice")).toMatchObject({ kind: "node", step: "sales.credit-notice", loop: "pay" })
+        const noticed = JSON.stringify((stepOf("stranger-notice") as { params: unknown }).params)
+        for (const member of ["transactionId", "amountVnd", "content"]) expect(noticed).toContain(`steps.stranger-read.output.${member}`)
+        expect(stepOf("stranger-notice")).not.toHaveProperty("unsuccessful")
+    })
+
+    it("an order still waiting (`confirmed` / `invoiced`) goes on: a credit to `credit`, the timeout to `remind`", () => {
+        const awaiting = conditionOf("awaiting", "when")
+        for (const status of ["confirmed", "invoiced"]) expect(exprHolds(awaiting, woke("credit", status))).toBe(false)
+        expect(exprHolds(conditionOf("credit-woke", "when"), woke("credit", "confirmed"))).toBe(true)
+        expect(exprHolds(conditionOf("credit-woke", "when"), woke("timeout", "confirmed"))).toBe(false)
+        expect(stepOf("credit-woke")).toMatchObject({ routes: { yes: "credit", no: "late-woke" } })
+        expect(exprHolds(conditionOf("late-woke", "when"), woke("timeout", "confirmed"))).toBe(true)
+        expect(stepOf("late-woke")).toMatchObject({ kind: "if", loop: "pay", routes: { yes: "remind" } })
+    })
+
+    it("a closed order: the timeout sends no reminder (the round just ends and the loop leaves); a message never goes through the read", () => {
+        expect(exprHolds(conditionOf("closed-credit", "when"), woke("timeout", "cancelled"))).toBe(false)
+        // The round's end is the engine's own mark, so the `no` route is not written.
+        expect((stepOf("closed-credit") as { routes: Record<string, string> }).routes).toEqual({ yes: "stranger-read" })
+        expect(stepOf("give-back")).toMatchObject({ kind: "hand-back", loop: "pay" })
+    })
+
+    it("the loop leaves when the order is paid OR no longer waits; `settled` sends only a recorded payment to the after-sale, else the run ends `closed`", () => {
+        const until = conditionOf("pay", "until")
+        expect(exprHolds(until, woke("credit", "cancelled"))).toBe(true)
+        expect(exprHolds(until, woke("timeout", "confirmed"))).toBe(false)
+        expect(exprHolds(until, readerOf({ steps: {} }))).toBe(false)
+        const paid = exampleOutput(salesOrderPaidNode.examples, (output) => output["declined"] === false)
+        const loop = (last: JsonValue): ReturnType<typeof readerOf> => readerOf({ steps: { pay: { output: { rounds: 1, stopped: true, last } } } })
+        expect(exprHolds(conditionOf("settled", "when"), loop(paid))).toBe(true)
+        expect(exprHolds(conditionOf("settled", "when"), loop({ posted: true, refusal: null }))).toBe(false)
+        expect(stepOf("settled")).toMatchObject({ routes: { yes: "to-after-sale", no: "closed" } })
+        expect(stepOf("closed")).toMatchObject({ kind: "outcome" })
+    })
+})
+
+// S7-WAIT (concept templates rule 12, agent-data rule 2): a wait KEY is one meaning listing its verbs. The person's line on any channel is ONE
+// key `said`; a write of THIS order (the order type declares its writes as events keyed by the order) is the key `ordered`, routed through
+// the same read as a credit and the timeout: a workbench cancel ends the run `closed` with no reminder and no thank-you.
+describe("sales.consult v33: one meaning per key; the order's own write wakes the payment wait", () => {
+    const credit = exampleOutput(salesCreditReadNode.examples, (output) => typeof output["amountVnd"] === "number")
+    const woke = (trigger: string, status: string | null): ReturnType<typeof readerOf> =>
+        readerOf({ steps: { await: { output: { trigger } }, "order-now": { output: { status } }, credit: { output: credit } } })
+    const keysOf = (key: string): ReadonlyArray<{ readonly key: string; readonly verbs: ReadonlyArray<string> }> =>
+        (stepOf(key) as unknown as { params: { on: ReadonlyArray<{ key: string; verbs: ReadonlyArray<string> }> } }).params.on
+
+    it("both waits hear the person through ONE key listing the four channel verbs", () => {
+        const channels = [TRIGGER.zaloMessageReceived, TRIGGER.telegramMessageReceived, TRIGGER.facebookMessageReceived, TRIGGER.instagramMessageReceived]
+        expect(keysOf("hear")).toEqual([{ key: "said", verbs: channels }])
+        expect(keysOf("await").map((one) => one.key)).toEqual(["credit", "said", "ordered"])
+        expect(keysOf("await").find((one) => one.key === "said")?.verbs).toEqual(channels)
+    })
+
+    it("`ordered` listens for a write of the ORDER type matched on this run's order id, and the order type declares its writes as events", () => {
+        expect(keysOf("await").find((one) => one.key === "ordered")).toEqual({
+            key: "ordered",
+            verbs: [TRIGGER.recordWritten],
+            where: [{ param: "data.type", op: "equals", value: orderEntity.name }],
+            match: [{ member: "data.recordId", op: "eq", value: { $ref: "steps.create-order.output.orderId", default: null } }],
+        })
+        expect(orderEntity.name).toBe("blocks-core.sales.order")
+        expect(orderEntity.events).toEqual({ subject: "id", combine: "latest", members: ["status"] })
+    })
+
+    it("a workbench CANCEL (`ordered`, the order no longer waiting): no reminder, no credit road, the loop leaves, the run ends `closed`", () => {
+        expect(exprHolds(conditionOf("awaiting", "when"), woke("ordered", "cancelled"))).toBe(true)
+        expect(exprHolds(conditionOf("closed-credit", "when"), woke("ordered", "cancelled"))).toBe(false)
+        expect(exprHolds(conditionOf("pay", "until"), woke("ordered", "cancelled"))).toBe(true)
+        const loop = readerOf({ steps: { pay: { output: { rounds: 1, stopped: true, last: { trigger: "ordered" } } } } })
+        expect(exprHolds(conditionOf("settled", "when"), loop)).toBe(false)
+        expect(stepOf("settled")).toMatchObject({ routes: { no: "closed" } })
+    })
+
+    it("a write of an order STILL waiting (`confirmed` / `invoiced`): neither the credit road nor a reminder; the wait goes on", () => {
+        for (const status of ["confirmed", "invoiced"]) {
+            expect(exprHolds(conditionOf("awaiting", "when"), woke("ordered", status))).toBe(false)
+            expect(exprHolds(conditionOf("credit-woke", "when"), woke("ordered", status))).toBe(false)
+            expect(exprHolds(conditionOf("late-woke", "when"), woke("ordered", status))).toBe(false)
+            expect(exprHolds(conditionOf("pay", "until"), woke("ordered", status))).toBe(false)
+        }
+    })
+})
+
+// R111 (PAY-REQ, 2026-11-15): ONE payment request, whichever money provider the account is. The node holds no provider branch; the wait matches
+// the request's own key; every wake reads the request too (a payer cancelling at checkout or a request lapsing sends no event). Run on the
+// stored conditions with the nodes' OWN example outputs: a payOS account (a request kept) and a SePay account (none kept), through the same steps.
+describe("sales.consult v32: the payment request (R111)", () => {
+    const payos = exampleOutput(salesRequestPayNode.examples, (output) => output["requestRef"] !== null)
+    const sepay = exampleOutput(salesRequestPayNode.examples, (output) => output["requestRef"] === null)
+    const read = (status: string | null): Record<string, JsonValue> => exampleOutput(salesRequestReadNode.examples, (output) => output["status"] === status)
+    const woke = (trigger: string, status: string, request: Record<string, JsonValue>): ReturnType<typeof readerOf> =>
+        readerOf({ steps: { await: { output: { trigger } }, "order-now": { output: { status } }, "request-now": { output: request } } })
+
+    it("the same request step serves a payOS and a SePay account: one node, one tool, the accounts listed [payos, sepay]", () => {
+        expect(stepOf("request-pay")).toMatchObject({ kind: "node", step: "sales.request-pay" })
+        expect(salesRequestPayNode.accounts).toEqual(["payos", "sepay"])
+        expect(payos).toMatchObject({ payUrl: expect.any(String), qrImageUrl: null, payKey: payos["requestRef"] })
+        expect(sepay).toMatchObject({ payUrl: null, qrImageUrl: expect.any(String), requestRef: null, payKey: sepay["transferContent"] })
+        expect(JSON.stringify((stepOf("tell-order") as { params: unknown }).params)).toContain("steps.request-pay.output")
+    })
+
+    it("a credit is matched by the request's own key (the provider's request reference, or the transfer content for a provider that keeps none), never by a text the graph picks", () => {
+        const awaited = JSON.stringify(stepOf("await"))
+        expect(awaited).toContain('"member":"data.payKey"')
+        expect(awaited).toContain("steps.request-pay.output.payKey")
+        expect(awaited).not.toContain('"member":"data.content"')
+    })
+
+    it("every wake reads the request after the order (nothing called when the order keeps none): request-now -> awaiting", () => {
+        expect(stepOf("request-now")).toMatchObject({ kind: "node", step: "sales.request-read", loop: "pay", next: "awaiting" })
+        expect(JSON.stringify((stepOf("request-now") as { params: unknown }).params)).toContain("steps.order-now.output.paymentRequestRef")
+        expect(read(null)).toEqual({ status: null })
+    })
+
+    it("a request cancelled at checkout (PAYOS-9) or expired (PAYOS-10) ends the wait like a closed order: the timeout sends no reminder, a credit is a stranger credit, the run ends closed", () => {
+        const awaiting = conditionOf("awaiting", "when")
+        const until = conditionOf("pay", "until")
+        for (const status of ["cancelled", "expired"]) {
+            expect(exprHolds(awaiting, woke("timeout", "confirmed", read(status)))).toBe(true)
+            expect(exprHolds(awaiting, woke("credit", "confirmed", read(status)))).toBe(true)
+            expect(exprHolds(until, woke("timeout", "confirmed", read(status)))).toBe(true)
+            expect(exprHolds(conditionOf("closed-credit", "when"), woke("credit", "confirmed", read(status)))).toBe(true)
+        }
+        const loop = readerOf({ steps: { pay: { output: { rounds: 1, stopped: true, last: { status: "cancelled" } } } } })
+        expect(exprHolds(conditionOf("settled", "when"), loop)).toBe(false)
+    })
+
+    it("an open request (payOS) or no request (SePay) keeps waiting: a credit goes on to be read and settled, the timeout reminds", () => {
+        const awaiting = conditionOf("awaiting", "when")
+        for (const request of [read("open"), read(null)]) {
+            expect(exprHolds(awaiting, woke("credit", "confirmed", request))).toBe(false)
+            expect(exprHolds(conditionOf("pay", "until"), woke("timeout", "confirmed", request))).toBe(false)
+            expect(exprHolds(conditionOf("credit-woke", "when"), woke("credit", "confirmed", request))).toBe(true)
+        }
+    })
+
+    it("a credit for a closed order is still the stranger road, whatever the request says (the order's status first)", () => {
+        expect(exprHolds(conditionOf("awaiting", "when"), woke("credit", "cancelled", read("open")))).toBe(true)
+        expect(exprHolds(conditionOf("awaiting", "when"), woke("credit", "paid", read(null)))).toBe(true)
+    })
+
+    it("a cancelled order withdraws its request while it is open, and touches nothing when it keeps none", () => {
+        expect(JSON.stringify((stepOf("cancel-request") as { params: unknown }).params)).toContain("steps.cancel-read.output.paymentRequestRef")
+        const outputs = salesRequestCancelNode.examples.flatMap((example) => ("output" in example ? [example.output] : []))
+        expect(outputs).toEqual(expect.arrayContaining([{ withdrawn: true, status: "cancelled" }, { withdrawn: false, status: null }]))
     })
 })

@@ -65,8 +65,11 @@ export const HAND_BACK_STEP = "core.hand-back"
 /** The route, and the `trigger` of the output, when a wait's time ran out. */
 export const WAIT_TIMEOUT_ROUTE = "timeout"
 
-/** The most triggers one wait listens for. */
+/** The most keys one wait listens for: each key is ONE meaning with one route, however many verbs bring it (concept templates rule 12). */
 export const WAIT_TRIGGERS_MAX = 5
+
+/** The most verbs one key of a wait lists (a stored-document bound: one meaning arriving through each of its channels). */
+export const WAIT_KEY_VERBS_MAX = 20
 
 /** The member of a wait's output that names what came (a trigger key, or `timeout`): the member it routes by. */
 export const WAIT_ROUTE_MEMBER = "trigger"

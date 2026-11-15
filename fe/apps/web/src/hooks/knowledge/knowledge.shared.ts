@@ -1,11 +1,13 @@
+import type { ModuleChoices } from "@/modules/catalog"
 import type { useFormatter, useTranslations } from "next-intl"
-import type { ModuleKey } from "@/modules/catalog"
 import type { UsageView } from "@/modules/documents"
+import type { AddAreaView } from "@/modules/types"
 import type { useAddDocuments } from "./useAddDocuments"
 import {
     ADD_MODES,
     ADD_MODE_KEYS,
     buildDocumentFilesView,
+    buildAreaView,
     buildNoteView,
     buildOptionsView,
 } from "@/hooks/knowledgeAddParts"
@@ -19,7 +21,7 @@ export interface AddDocumentsViewInput {
     /** The words shown instead of the drop zone to members who may only read. */
     readonly readOnlyNote: string
     /** The agent the list of documents is filtered to; the drawer returns to it when it closes. */
-    readonly module: ModuleKey | "all"
+    readonly module: string | "all"
     /** The idea the form was opened from, or null. */
     readonly preset: AddPreset | null
 }
@@ -40,6 +42,7 @@ interface ViewContext {
     readonly add: ReturnType<typeof useAddDocuments>
     readonly canWrite: boolean
     readonly instances: ReturnType<typeof useAddInstances>["instances"]
+    readonly modules: ModuleChoices
     readonly zone: ZoneView
     readonly usage: UsageView | undefined
 }
@@ -116,7 +119,7 @@ export interface BuildAddDocumentsViewResult {
         readonly titleError: string | undefined
         readonly contentError: string | undefined
     }
-    readonly internalNote: string
+    readonly area: AddAreaView
     readonly options: {
         readonly title: string
         readonly topicLabel: string
@@ -128,27 +131,8 @@ export interface BuildAddDocumentsViewResult {
         readonly tags: string
         readonly module: string
         readonly moduleOptions: readonly [
-            {
-                readonly id: "all"
-                readonly label: string
-            },
-            ...(
-                | {
-                      id:
-                          | "content"
-                          | "chatbot"
-                          | "lead_gen"
-                          | "sales"
-                          | "booking"
-                          | "video"
-                          | "hiring"
-                      label: string
-                  }
-                | {
-                      id: string
-                      label: string
-                  }
-            )[],
+            { readonly id: "all"; readonly label: string },
+            ...ModuleChoices,
         ]
     }
     readonly notice: string | undefined
@@ -163,6 +147,7 @@ export const buildAddDocumentsView = ({
     add,
     canWrite,
     instances,
+    modules,
     zone,
     usage,
 }: ViewContext): BuildAddDocumentsViewResult =>
@@ -179,8 +164,8 @@ export const buildAddDocumentsView = ({
         mode: add.mode,
         files: buildDocumentFilesView(t, formatter, add),
         note: buildNoteView(t, add),
-        internalNote: t("addInternalNote"),
-        options: buildOptionsView(t, add.options, instances),
+        area: buildAreaView(t, add.options),
+        options: buildOptionsView(t, add.options, instances, modules),
         notice: add.queuedCount > 0 ? t("batchQueued", { count: add.queuedCount }) : undefined,
         error: add.failure === null ? undefined : t(add.failure),
     }) as const

@@ -13,6 +13,8 @@ export interface EffectCallPlain {
     readonly act: () => Promise<unknown>
     /** For an effect declared `settle: "confirm"`: the read that tells whether a lost act happened (true) or not (false). */
     readonly confirm?: () => Promise<boolean>
+    /** True when a PERSON decided this act is made again though its outcome is unknown (see `EffectCallKept.decided`). */
+    readonly decided?: true
     /** Nothing of the answer is kept. */
     readonly keep?: undefined
     /** Nothing was kept, so nothing is rebuilt. */
@@ -25,6 +27,12 @@ export interface EffectCallKept<T> {
     readonly act: () => Promise<T>
     /** For an effect declared `settle: "confirm"`: the read that tells whether a lost act happened; its answer, or null when it did not. */
     readonly confirm?: () => Promise<EffectConfirmed<T>>
+    /**
+     * True when a PERSON decided (a Retry on a stopped step) that a lost act under this key, whose outcome nobody knows, is made again:
+     * the person is the settle an effect declared `person` waits for, so the act is made again under the same key, the row an intent
+     * again first. A settled act is never made twice by it.
+     */
+    readonly decided?: true
     /** What of the act's answer is kept on the ledger row. */
     readonly keep: (answer: T) => EffectResult
     /** Rebuilds the answer from a kept result (the inverse of `keep`). */

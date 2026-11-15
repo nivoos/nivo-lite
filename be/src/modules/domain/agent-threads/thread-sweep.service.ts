@@ -8,6 +8,7 @@ import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { eachInOrder, isRecord } from "@modules/platform/primitives"
 import { AgentThreadsLogEvent } from "./agent-threads.log-events"
+import { isRunEnded } from "./run-ended.policy"
 import { AgentThreadsError, AgentThreadsErrorCode } from "./errors/agent-threads.error"
 import { RunStopRecordsService } from "./stops/run-stop-records.service"
 import type { RunStop } from "./stops/run-stop.contracts"
@@ -38,8 +39,6 @@ const ARM_GRACE_MS = 2 * 60_000
 /** The statuses of a run a thread still moves. */
 const OPEN_RUNS: ReadonlyArray<string> = ["running", "waiting"]
 
-/** The statuses of a run that is closed. */
-const CLOSED_RUNS: ReadonlySet<string> = new Set(["done", "failed", "cancelled", "dead"])
 
 /** The engine a thread run is marked with. */
 const THREAD_ENGINE = "langgraph"
@@ -323,7 +322,7 @@ export class ThreadSweepService {
     private async stop(workspaceId: string, stop: RunStop): Promise<Done> {
         const ref: ThreadRef = { workspaceId, runId: stop.runId }
         const run = await this.engine.scoped(workspaceId, (tx) => this.runRows.runRow(tx, stop.runId))
-        if (run === null || CLOSED_RUNS.has(run.status)) {
+        if (run === null || isRunEnded(run.status)) {
             const closed = await this.stops.runClosed(ref, { locale: localeOf(await this.portOf().stateOf(ref)) })
             return closed > 0 ? "closed" : null
         }

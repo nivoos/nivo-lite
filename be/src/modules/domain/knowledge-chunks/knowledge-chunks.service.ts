@@ -14,6 +14,7 @@ import type {
     PassageVerdict,
     PlaceWrite,
     SourcePassage,
+    MaybeStoredAt,
     StoredAt,
     StoredWithin,
     TruthPassage,
@@ -21,6 +22,7 @@ import type {
 import { passageHashOf, passageTextHashOf } from "./passage-hash.policy"
 import { placeOfRow } from "./passage-place.policy"
 import { KnowledgeChunkEntity } from "./persistence/entities"
+import { isSourceGone } from "./source-gone.policy"
 
 /** The most passages one source lists or reports as embedded. */
 const EMBEDDED_LIMIT = 2000
@@ -80,22 +82,31 @@ const INSERT_BATCH = 50
 export class KnowledgeChunksService {
     constructor(@InjectPrimaryEntityManager() private readonly entityManager: EntityManager) {}
 
-    /** Replaces the passages of a source with these in one transaction; a passage without a vector is found by keyword only. */
-    async replace(write: ChunkWrite): Promise<void> {
-        await this.entityManager.transaction(async (tx) => {
-            await tx.delete(KnowledgeChunkEntity, { sourceId: write.sourceId, workspaceId: write.workspaceId })
-            const starts = Array.from(
-                { length: Math.ceil(write.drafts.length / INSERT_BATCH) },
-                (_, index) => index * INSERT_BATCH,
-            )
-            await eachInOrder(starts, (from) => {
-                const drafts = write.drafts.slice(from, from + INSERT_BATCH)
-                return tx.insert(
-                    KnowledgeChunkEntity,
-                    drafts.map((draft, offset) => rowOf(write, draft, from + offset)),
+    /**
+     * Replaces the passages of a source with these in one transaction; a passage without a vector is found by keyword only. False (nothing
+     * written) when the source was deleted meanwhile (the passage's foreign key refused the write: `isSourceGone`).
+     */
+    async replace(write: ChunkWrite): Promise<boolean> {
+        try {
+            await this.entityManager.transaction(async (tx) => {
+                await tx.delete(KnowledgeChunkEntity, { sourceId: write.sourceId, workspaceId: write.workspaceId })
+                const starts = Array.from(
+                    { length: Math.ceil(write.drafts.length / INSERT_BATCH) },
+                    (_, index) => index * INSERT_BATCH,
                 )
+                await eachInOrder(starts, (from) => {
+                    const drafts = write.drafts.slice(from, from + INSERT_BATCH)
+                    return tx.insert(
+                        KnowledgeChunkEntity,
+                        drafts.map((draft, offset) => rowOf(write, draft, from + offset)),
+                    )
+                })
             })
-        })
+            return true
+        } catch (cause) {
+            if (isSourceGone(cause)) return false
+            throw cause
+        }
     }
 
     /**
@@ -103,26 +114,33 @@ export class KnowledgeChunksService {
      * retry keeps what is already stored. Answers the id each order was stored under: the caller hands the vectors to the vector
      * index under those ids (the point id is the row id); Postgres keeps no vector. `within` runs in the same transaction after the
      * passages are written (the caller settles the effect that made them, so the passages and the settle commit together).
+     * Null (nothing written, `within` not run) when the source was deleted meanwhile: the passage's foreign key to the document refused
+     * the write (`isSourceGone`) and the whole transaction rolled back; the caller ends cleanly.
      */
-    keep(write: ChunkBatchWrite, within?: StoredWithin): Promise<ReadonlyArray<StoredAt>> {
-        if (write.drafts.length === 0) return Promise.resolve([])
-        return this.entityManager.transaction(async (tx) => {
-            await tx.delete(KnowledgeChunkEntity, {
-                sourceId: write.sourceId,
-                workspaceId: write.workspaceId,
-                ord: In(write.drafts.map((draft) => draft.order)),
+    async keep(write: ChunkBatchWrite, within?: StoredWithin): Promise<MaybeStoredAt> {
+        if (write.drafts.length === 0) return []
+        try {
+            return await this.entityManager.transaction(async (tx) => {
+                await tx.delete(KnowledgeChunkEntity, {
+                    sourceId: write.sourceId,
+                    workspaceId: write.workspaceId,
+                    ord: In(write.drafts.map((draft) => draft.order)),
+                })
+                const inserted = await tx.insert(
+                    KnowledgeChunkEntity,
+                    write.drafts.map((draft) => rowOf(write, draft, draft.order)),
+                )
+                const stored = storedIdsOf(inserted)
+                if (within !== undefined) await within(tx)
+                return write.drafts.flatMap((draft, at): ReadonlyArray<StoredAt> => {
+                    const id = stored[at]
+                    return typeof id === "string" ? [{ order: draft.order, id }] : []
+                })
             })
-            const inserted = await tx.insert(
-                KnowledgeChunkEntity,
-                write.drafts.map((draft) => rowOf(write, draft, draft.order)),
-            )
-            const stored = storedIdsOf(inserted)
-            if (within !== undefined) await within(tx)
-            return write.drafts.flatMap((draft, at): ReadonlyArray<StoredAt> => {
-                const id = stored[at]
-                return typeof id === "string" ? [{ order: draft.order, id }] : []
-            })
-        })
+        } catch (cause) {
+            if (isSourceGone(cause)) return null
+            throw cause
+        }
     }
 
     /**

@@ -36,6 +36,8 @@ export interface DataBackupValues {
     readonly recipients: string | undefined
     /** `DATA_BACKUP_REMOTE`. */
     readonly remote: string | undefined
+    /** Whether `DATABASE_OWNER_URL` (the owner connection of the whole-database store) is declared; its value is never read here. */
+    readonly database: boolean
 }
 
 /** The settings of the data copy jobs. */

@@ -34,6 +34,8 @@ export interface ConnectionAgentUse {
     readonly name: string
     /** The module key of the agent, which picks its kind mark. */
     readonly module: string
+    /** The glyph the module template declares, the mark of a kind with no emblem file; empty when none is known. */
+    readonly glyph: string
     readonly purpose: string
 }
 

@@ -4,7 +4,7 @@ import { BrainExtractionsService, type AnswerNoteReason, type ExtractionStatus }
 import { BrainFactsService, foldedText, type FactRecord } from "@modules/domain/brain-facts"
 import { KnowledgeChunksService, type PassageVerdict, type TriageVerdict, type TruthPassage } from "@modules/domain/knowledge-chunks"
 import { UsageMeterService } from "@modules/domain/knowledge"
-import { StoredNote, type SourceRecord } from "@modules/domain/knowledge-sources"
+import { KnowledgeSourcesService, StoredNote, type SourceRecord } from "@modules/domain/knowledge-sources"
 import { InjectAi, spendOf, type AiChatAttempt, type AiService } from "@modules/integrations/ai"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectEffects, onceAnswered, type Effects } from "@modules/platform/effects"
@@ -106,6 +106,7 @@ export class DocumentTruthStagesService {
         private readonly facts: BrainFactsService,
         private readonly extractions: BrainExtractionsService,
         private readonly chunks: KnowledgeChunksService,
+        private readonly sources: KnowledgeSourcesService,
         private readonly usage: UsageMeterService,
         private readonly json: ModelJsonService,
         private readonly vectors: FactEmbeddingsService,
@@ -444,8 +445,12 @@ export class DocumentTruthStagesService {
         return { at: this.clock.now().toISOString(), reason, passages: read.map((passage) => passage.id), refused, answer }
     }
 
-    /** Why the next call is not made, or null when it may be: the job made its budget of calls, or the credit pool is empty (the reading then waits, saved). */
+    /**
+     * Why the next call is not made, or null when it may be: the document is gone (deleted while this job ran: nothing more is read or
+     * saved, and no credit is spent on it), the job made its budget of calls, or the credit pool is empty (the reading then waits, saved).
+     */
     private async stoppedBefore(run: Run, step: Step, budget: number): Promise<Ended | null> {
+        if (!(await this.sources.exists(run.source.workspaceId, run.source.id))) return this.ended("origin_gone", run, step)
         if (step.calls >= budget) return this.ended("budget", run, step)
         if (!(await this.usage.blockedBy(run.source.workspaceId, "brain", false))) return null
         await this.save(run, step, "blocked_credits", StoredNote.NoCreditsForFacts)

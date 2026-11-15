@@ -14,7 +14,7 @@ const stopOf = (over: Partial<RunStop>): RunStop => ({
     state: "open",
     reason: "The AI needs your approval",
     question: null,
-    detail: { suggestions: [], facts: [{ name: "tool", value: "nivo.tool.payment.transfer.create" }, { name: "workItemId", value: "item-1" }] },
+    detail: { suggestions: [], facts: [{ name: "tool", value: "nivo.tool.payment.request.create" }, { name: "workItemId", value: "item-1" }] },
     cardMessageId: "msg-1",
     customerLines: [],
     answers: [],

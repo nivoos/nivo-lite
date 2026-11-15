@@ -12,6 +12,7 @@ import {
 } from "@starci/grammar/common"
 import { AddFilesPanel, knowledgeUploadRowsOf } from "@/components/composites/AddFilesPanel"
 import { AddNotePanel } from "@/components/composites/AddNotePanel"
+import { AddAreaChoice } from "@/components/composites/AddAreaChoice"
 import { AddOptionsPanel } from "@/components/composites/AddOptionsPanel"
 import { DrawerFooter } from "@/components/composites/DrawerFooter"
 import { FormNotice } from "@/components/composites/FormNotice"
@@ -117,9 +118,7 @@ const DrawerBody = (props: Props) => (
             onTags={props.on.setTags}
             onModule={props.on.setModule}
         />
-        <Text size="xs" tone="muted">
-            {props.props.internalNote}
-        </Text>
+        <AddAreaChoice {...props.props.area} isBusy={props.props.isBusy} onArea={props.on.setArea} />
         {props.props.usage === undefined ? null : (
             <Meter
                 label={props.props.usage.label}

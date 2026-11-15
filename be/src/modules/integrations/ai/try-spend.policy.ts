@@ -1,3 +1,4 @@
+import { isRecord } from "@modules/platform/primitives"
 import type { AiChatAttempt, AiFailure, AiServed, AiUsage } from "./ai.contracts"
 
 /** What one try of a chat call spent, as a meter books it: the model that served it, its usage and the characters it wrote. */
@@ -51,3 +52,24 @@ export const spendOf = (tried: AiChatAttempt): MaybeTrySpend => {
               ...servedOf(tried.spent.served),
           }
 }
+
+/** How deep `sentOfThrow` follows a thrown failure's `cause` chain (a wrapper of a wrapper is the deepest the clients make). */
+const CAUSE_DEPTH = 4
+
+/**
+ * Whether the request of a call that THREW may have left: false only when the failure, or a failure it wraps (`cause`), carries the
+ * runner's mark `sent: false` (`NotSentFailure`: the runner failed the call itself before sending anything). Any other throw may have
+ * reached the provider, so it reads true.
+ */
+export const sentOfThrow = (cause: unknown, depth = 0): boolean => {
+    if (!isRecord(cause) || depth > CAUSE_DEPTH) return true
+    if (cause.sent === false) return false
+    return sentOfThrow(cause.cause, depth + 1)
+}
+
+/**
+ * True for a try that LEFT NO REQUEST (`AiFailedTry.sent`): it spent nothing at any provider, so no meter books it, not even as an
+ * estimate. The one test every caller that books failed tries makes before it books.
+ */
+export const leftNoRequest = (tried: { readonly ok: boolean; readonly sent?: false | undefined }): boolean =>
+    !tried.ok && tried.sent === false

@@ -49,7 +49,6 @@ const exampleOutput = (
 const issue = (has: (output: Record<string, JsonValue>) => boolean) => exampleOutput(webbooksInvoiceIssueNode.examples, has)
 const ISSUED = issue((output) => output["outcome"] === "issued" && output["invoiceNo"] !== null)
 const NUMBERLESS = issue((output) => output["outcome"] === "issued" && output["invoiceNo"] === null)
-const REJECTED = issue((output) => output["outcome"] === "rejected")
 const DECLINED = issue((output) => output["declined"] === true)
 const RECORDED = exampleOutput(webbooksIssueRecordNode.examples, (output) => output["recorded"] === true)
 const NOT_RECORDED = exampleOutput(webbooksIssueRecordNode.examples, (output) => output["recorded"] === false)
@@ -81,10 +80,9 @@ describe("webbooks.invoice v11: issued on MISA, recorded in the CRM (R57)", () =
         expect(holds("recorded", scopeOf(NUMBERLESS))).toBe(false)
     })
 
-    it("rejected: nothing issued; the team is told and the run ends `not-invoiced`", () => {
-        expect(REJECTED["declined"]).toBe(false)
-        expect(holds("issued", scopeOf(REJECTED))).toBe(false)
-        expect(holds("recorded", scopeOf(REJECTED))).toBe(false)
+    it("a refusal of the e-invoice service is no output: the issue example is a cannot the engine stops for a person (E-FIX12)", () => {
+        expect(webbooksInvoiceIssueNode.examples.some((example) => "failure" in example && JSON.stringify(example.failure).includes("invoice_issue_refused:rejected"))).toBe(true)
+        expect(webbooksInvoiceIssueNode.examples.every((example) => (example.output as Record<string, unknown> | undefined)?.["outcome"] !== "rejected")).toBe(true)
     })
 
     it("a declined draft or issue is the step's unsuccessful ending: the engine tells the team the service, the run ends `declined`", () => {

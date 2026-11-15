@@ -1,5 +1,5 @@
 export { AiService } from "./ai.service"
-export { spendOf } from "./try-spend.policy"
+export { leftNoRequest, spendOf } from "./try-spend.policy"
 export {
     CRITIC_EFFORT,
     DERIVE_EFFORT,
@@ -20,10 +20,12 @@ export type {
     AiChatAttempt,
     AiChatRequest,
     AiRunner,
+    NotSentFailure,
     ChainReply,
     AiChatModel,
     AiContext,
     AiCutSpend,
+    AiFailedTry,
     AiFailure,
     AiMessage,
     AiRouting,

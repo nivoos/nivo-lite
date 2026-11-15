@@ -20,13 +20,20 @@ export class BankFeedService {
         private readonly trigger: BankFeedTriggerService,
     ) {}
 
-    /** Processes one admitted movement; an absent or already completed one (a redelivery of the job) does nothing. */
-    processRecordedFeedDelivery(message: BankFeedDeliveryRecorded): Promise<void> {
-        return this.entityManager.transaction(async (manager) => {
+    /**
+     * Processes one admitted movement; an absent or already completed one (a redelivery of the job) does nothing. PREPARE first, with no
+     * transaction open (concept outbox-job rule 12), from the movement as it stands; then ONE short transaction: the movement locked again
+     * (absent: another delivery completed it meanwhile), marked, delivered, completed.
+     */
+    async processRecordedFeedDelivery(message: BankFeedDeliveryRecorded): Promise<void> {
+        const seen = await this.bankFeedInbox.seen(this.entityManager, message.provider, message.deliveryId)
+        if (seen === undefined) return
+        const prepared = await this.trigger.prepare(seen.owner, { type: seen.row.type, id: seen.row.id, value: seen.value })
+        await this.entityManager.transaction(async (manager) => {
             const pending = await this.bankFeedInbox.lock(manager, message.provider, message.deliveryId)
             if (pending === undefined) return
             await this.markFed(manager, pending.owner.connectionId, pending.value)
-            await this.trigger.emit(manager, pending.owner, { type: pending.row.type, id: pending.row.id, value: pending.value })
+            await this.trigger.emit(manager, prepared)
             await this.bankFeedInbox.complete(manager, pending)
         })
     }

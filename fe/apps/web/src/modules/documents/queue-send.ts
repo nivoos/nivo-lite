@@ -66,11 +66,12 @@ export const sendAllOf = (sendOne: (item: QueueItem, meta: BatchMeta) => Promise
 const bytesOf = async (
     item: QueueItem,
     actions: QueueActions,
+    meta: BatchMeta,
     patch: (id: string, change: Partial<QueueItem>) => void,
 ): Promise<UploadOutcome> => {
     if (item.file === undefined) return { path: null }
     if (item.storagePath !== undefined) return { path: item.storagePath }
-    return actions.upload(item.file, (fraction) => patch(item.id, { uploaded: Math.min(fraction, 1) }))
+    return actions.upload(item.file, meta.visibility, (fraction) => patch(item.id, { uploaded: Math.min(fraction, 1) }))
 }
 
 /** Sends one item: its bytes to storage, then the document to the job queue. */
@@ -78,13 +79,14 @@ export const sendOneOf = (patch: (id: string, change: Partial<QueueItem>) => voi
     return async (item: QueueItem, meta: BatchMeta): Promise<boolean> => {
         patch(item.id, { status: "uploading", error: undefined, refusal: undefined, uploaded: 0 })
         const info = {
+            visibility: meta.visibility,
             topic: meta.topic ?? item.topic ?? null,
             tags: meta.tags,
             module: meta.module,
             installationId: meta.installationId,
             origin: item.origin ?? null,
         }
-        const sent = await bytesOf(item, actions, patch)
+        const sent = await bytesOf(item, actions, meta, patch)
         const { path } = sent
         if (sent.refusal !== undefined) {
             patch(item.id, { status: "failed", error: "errQuota", refusal: sent.refusal, uploaded: undefined })

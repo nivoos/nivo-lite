@@ -8,7 +8,6 @@ import { brainTabHref, workspaceHref } from "@/modules/routes"
 import { isDocumentActive, refusalNoticeOf } from "@/modules/documents"
 import type { KnowledgeAddDrawerView } from "@/modules/types"
 import type { AddPreset } from "@/hooks/knowledgeAddTypes"
-import type { ModuleKey } from "@/modules/catalog"
 import { useAddDocumentsView } from "./useAddDocumentsView"
 import { useKnowledgeSources } from "./useKnowledgeSources"
 import { useWorkspaceId } from "@/hooks/workspaces"
@@ -19,7 +18,7 @@ interface KnowledgeAddDrawerInput {
     /** The words shown instead of the form to members who may only read. */
     readonly readOnlyNote: string
     /** The agent the list is filtered to; the drawer returns to it when it is done. */
-    readonly module: ModuleKey | "all"
+    readonly module: string | "all"
     /** The idea the drawer was opened from, or null. */
     readonly preset: AddPreset | null
     /** Changes with what the drawer was opened from, so its form starts again for each. */
@@ -95,6 +94,7 @@ export const useKnowledgeAddDrawer = (input: KnowledgeAddDrawerInput): Knowledge
             setTopic: options.setTopic,
             setTags: options.setTags,
             setModule: options.pickModule,
+            setArea: options.pickVisibility,
             submit: add.submit,
         },
     }

@@ -54,6 +54,12 @@ const WEBSITE_MEMBERS: ReadonlyArray<SuppliedParam> = TRIGGER_SOURCES.website.su
 /** What a due timer supplies: its task, the caller's key, the moment and the armed data as `data`, the person when the arm had one. */
 const TIMER_MEMBERS: ReadonlyArray<SuppliedParam> = TRIGGER_SOURCES.timer.supplies
 
+/** What a record write supplies (concept agent-data rule 2): ids, the op, the writer kind, the subject and the declared enum values. */
+const RECORD_MEMBERS: ReadonlyArray<SuppliedParam> = TRIGGER_SOURCES.record.supplies
+
+/** The tag source of a record write's wake on the engine's road. */
+const RECORD_WRITTEN_TAG = "record-written"
+
 /** What a clock tick supplies: the slot it fired for, as `data.slotMs`. */
 const CLOCK_MEMBERS: ReadonlyArray<SuppliedParam> = TRIGGER_SOURCES.schedule.supplies
 
@@ -355,6 +361,25 @@ export const TRIGGERS: Readonly<Record<TriggerVerb, TriggerSpec>> = {
                 road: "chats-group",
                 supplies: CHAT_MEMBERS,
                 sources: [kind("chats-group")],
+                eventKey: { kind: "wake" },
+            },
+        ],
+    },
+    [TRIGGER.recordWritten]: {
+        verb: TRIGGER.recordWritten,
+        args: NO_ARGS,
+        payload: "ids",
+        supply: "fixed",
+        // The person when the type's subject is a contact field; any other subject is the event's own key (`data.subject`).
+        subject: ["contactId"],
+        adapters: [
+            {
+                provider: ENGINE_ROAD,
+                receivedBy: "engine",
+                road: "system-event",
+                supplies: RECORD_MEMBERS,
+                sources: [kind("record")],
+                tagSource: RECORD_WRITTEN_TAG,
                 eventKey: { kind: "wake" },
             },
         ],

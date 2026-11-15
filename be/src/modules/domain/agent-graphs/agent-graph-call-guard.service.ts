@@ -46,8 +46,8 @@ const callOfContext = (context: { readonly tagContext?: unknown }): WorkflowCall
 /** The call that made a run, or null for a run no call made. */
 const callOfRun = (run: RunView): WorkflowCallFacts | null => callOfContext(run.context)
 
-/** The run that called the run of this context (its parent), or null for a run no call made: the waits ask a child before its parent. */
-export const callerRunIdOf = (context: { readonly tagContext?: unknown }): string | null => callOfContext(context)?.callerRunId ?? null
+/** The run that called the run of this context (its parent): agent-work's one reader, re-exported for the engine. */
+export { callerRunIdOf } from "@modules/domain/agent-work"
 
 @Injectable()
 /**

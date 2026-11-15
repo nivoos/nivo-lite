@@ -411,9 +411,9 @@ const rewrittenWith = async (rewrite: Record<string, unknown>) => {
     return stored
 }
 
-describe("AgentMessagePostExecutorService the engine's holding line on a rewritten stop card (rewrite.lineFacts)", () => {
+describe("AgentMessagePostExecutorService the engine's holding line on a rewritten stop card (rewrite.liveFacts)", () => {
     it("stores the card with the line worded (not told, why, the code technical) and keeps every other stored fact", async () => {
-        const facts = await rewrittenWith({ lineFacts: NOT_TOLD })
+        const facts = await rewrittenWith({ liveFacts: NOT_TOLD })
 
         expect(facts).toEqual([
             LINE_STORED_FACTS[0],
@@ -427,9 +427,9 @@ describe("AgentMessagePostExecutorService the engine's holding line on a rewritt
     })
 
     it.each([
-        ["no lineFacts at all", {}],
-        ["an empty lineFacts list", { lineFacts: [] }],
-        ["lineFacts that are no { name, value } strings", { lineFacts: [{ name: 1, value: "x" }, "customerLine", null] }],
+        ["no liveFacts at all", {}],
+        ["an empty liveFacts list", { liveFacts: [] }],
+        ["liveFacts that are no { name, value } strings", { liveFacts: [{ name: 1, value: "x" }, "customerLine", null] }],
     ])("a rewrite with %s leaves the stored facts byte-equal", async (_name, rewrite) => {
         const facts = await rewrittenWith(rewrite)
 
@@ -437,7 +437,7 @@ describe("AgentMessagePostExecutorService the engine's holding line on a rewritt
     })
 
     it("an allowed send (the stop says nothing of the line) never shows a not-told fact", async () => {
-        const facts = await rewrittenWith({ lineFacts: [] })
+        const facts = await rewrittenWith({ liveFacts: [] })
 
         expect(facts.every(isFact)).toBe(true)
         const shown = facts.filter(isFact).map((fact) => `${fact.name} ${fact.value}`).join(" | ")

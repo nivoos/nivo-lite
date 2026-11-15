@@ -82,3 +82,35 @@ export interface StorageAssetsPort {
     /** Writes one file into a bucket, replacing an earlier one at the same path. */
     upload(bucket: string, path: string, body: Buffer, contentType: string): Promise<StorageAssetUpload>
 }
+
+/** What a bucket records about one object, without its bytes. */
+export interface BucketObjectHead {
+    /** The size in bytes. */
+    readonly size: number
+    /** The content type the store recorded. */
+    readonly contentType: string
+}
+
+/** An object's size and content type, or none when it is not there. */
+export type MaybeBucketObjectHead = BucketObjectHead | null
+
+/** An object's bytes and content type, or none when it is not there. */
+export type MaybeBucketObject = StoredObject | null
+
+/**
+ * Every object of every bucket the deployment owns, for a whole-deployment copy. A bucket is named by its SET: its purpose with hyphens and
+ * WITHOUT the environment prefix (`records`, `avatars-public`), so a copy taken in one environment restores into another. A bucket that does
+ * not exist is an empty one; a store that cannot be reached throws.
+ */
+export interface StorageBucketsPort {
+    /** The set of every bucket the deployment owns, in byte order. */
+    sets(): ReadonlyArray<string>
+    /** The next keys of the bucket after the key `after` (empty: from the start), in byte order, at most `limit`; empty at the end. */
+    keys(set: string, after: string, limit: number): Promise<ReadonlyArray<string>>
+    /** The size and content type of an object, or null when it is not there. */
+    head(set: string, key: string): Promise<MaybeBucketObjectHead>
+    /** The bytes and content type of an object, or null when it is not there. */
+    read(set: string, key: string): Promise<MaybeBucketObject>
+    /** Writes an object, creating the bucket first when it is missing; a public bucket keeps its anonymous read. */
+    write(set: string, key: string, bytes: Uint8Array, contentType: string): Promise<void>
+}

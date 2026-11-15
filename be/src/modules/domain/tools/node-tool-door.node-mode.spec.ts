@@ -86,6 +86,8 @@ const NEVER_ROWS: ReadonlyArray<ToolGrantView> = [SETTLE, LEDGER, INVOICE].map((
 const CONNECTIONS = {
     recordOf: () => Promise.resolve({ meta: {} }),
     ofProvider: () => Promise.resolve([]),
+    // The facts the world rule reads (rule 19): every account here is a live one.
+    factsOf: (ids: ReadonlyArray<string>) => Promise.resolve(ids.map((id) => ({ id, sandbox: false }))),
 }
 
 const build = async (mode: "auto" | "ask", rows: ReadonlyArray<ToolGrantView> = []) => {

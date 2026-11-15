@@ -45,6 +45,9 @@ const TEXT_MAX = 2000
 /** The member of the tag context that names the run that called; the target's engine adds the caller's agent and workflow. */
 export const CALLER_MEMBER = "caller"
 
+/** The kind of the subject a call names its person by: the trigger scope's generic person member, the call trigger's key. */
+const CALL_PERSON_SUBJECT = "contactId"
+
 const params: NodeSchema<CallTarget> = callTargetSchema
 
 /** The id the example runner gives the first effect a node runs, `<effect>-1`: the tag the examples answer. */
@@ -66,7 +69,8 @@ const textOf = (inputs: Readonly<Record<string, unknown>>, name: string): string
 /**
  * The `nivo.tool.agent.tag` payload of a hand-off: the agent of the target's module, the pin of the workflow and version routing honours, and
  * ONLY the mapped inputs as the data the target's trigger reads (`trigger.<name>`). The lead and the conversation ride along when the
- * target declares them, so the target speaks in the same chat and reads the same lead memory; the calling run is named so the target
+ * target declares them, so the target speaks in the same chat and reads the same lead memory; the person it maps (`contactId`) rides as
+ * the call's `subject`, the called run's subject; the calling run is named so the target
  * sees `trigger.caller`. The line shown is the customer's words when
  * the hand-off passes them, else a neutral note.
  */
@@ -78,6 +82,9 @@ export const callPayloadOf = (
     const leadId = textOf(inputs, "leadId")
     const conversationId = textOf(inputs, "conversationId")
     const channel = textOf(inputs, "channel")
+    // The PERSON the call is about, when it maps one (`contactId`): the called run's subject (the call trigger's key), so a run started by
+    // something that is no person (a bank credit, a clock) still hands its callee the person it found.
+    const contactId = textOf(inputs, "contactId")
     return {
         toModuleKey: target.agent,
         text: (textOf(inputs, "text") ?? messageOf("vi", "nodeCoreCallWorkflowNote")).slice(0, TEXT_MAX),
@@ -88,6 +95,7 @@ export const callPayloadOf = (
         },
         ...(leadId === undefined ? {} : { leadId }),
         ...(conversationId === undefined ? {} : { conversationId }),
+        ...(contactId === undefined ? {} : { subject: { kind: CALL_PERSON_SUBJECT, id: contactId } }),
         ...(channel === undefined ? {} : { channel }),
     }
 }
@@ -136,9 +144,9 @@ export const coreCallWorkflowNode: NodeDefinition<typeof input, typeof output, t
             ],
         },
         {
-            name: "a hand-off with no words shows the neutral note and keeps a pinned version",
+            name: "a hand-off with no words shows the neutral note, keeps a pinned version and names the person it maps as the subject",
             params: { agent: "sales", workflow: "after-sale", version: 3 },
-            input: { inputs: { orderId: "o1" } },
+            input: { inputs: { orderId: "o1", contactId: "p1" } },
             output: { agent: "sales", workflow: "after-sale", version: 3, tag: { kind: TOOL.agentTag, id: FIRST_TAG_ID } },
             effects: [
                 {
@@ -148,9 +156,10 @@ export const coreCallWorkflowNode: NodeDefinition<typeof input, typeof output, t
                         text: "Chuy\u1ec3n ti\u1ebfp sang quy tr\u00ecnh ti\u1ebfp theo",
                         context: {
                             workflowCall: { workflow: "after-sale", version: 3 },
-                            params: { orderId: "o1" },
+                            params: { orderId: "o1", contactId: "p1" },
                             caller: { runId: "turn-1" },
                         },
+                        subject: { kind: "contactId", id: "p1" },
                     },
                 },
             ],

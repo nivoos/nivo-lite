@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
+import { ElevenlabsError, ElevenlabsErrorCode } from "@modules/integrations/elevenlabs"
 import { connectionRecord } from "@tests/fixtures/builders/connection-records.builder"
 import { sandboxAccount, sandboxServiceOf, sandboxServiceOff } from "@tests/fixtures/builders/provider-sandbox.builder"
 import {
@@ -18,10 +19,8 @@ import {
     ELEVENLABS_SANDBOX_EXPECTED_SECONDS,
     ELEVENLABS_SANDBOX_PAGE_TOKEN_MESSAGE,
     ELEVENLABS_SANDBOX_QUOTA_MESSAGE,
-    ELEVENLABS_SANDBOX_SOURCES,
     ELEVENLABS_SANDBOX_SPEECH_MIME,
     ELEVENLABS_SANDBOX_VOICES,
-    ELEVENLABS_SANDBOX_VOICE_IDS,
     ELEVENLABS_SANDBOX_VOICE_NOT_FOUND_MESSAGE,
     elevenLabsSandboxClipOf,
     elevenLabsSandboxDubbedBytesOf,
@@ -35,6 +34,9 @@ const build = () => {
     const { sandbox } = sandboxServiceOf(account)
     return { sandbox, service: new ElevenLabsSandboxMediaService(sandbox) }
 }
+
+/** The account picks the next case of an operation (sticky), as the Sandbox page does. */
+const pick = (sandbox: ReturnType<typeof build>["sandbox"], operation: string, caseId: string): Promise<void> => sandbox.setNextCase(account, operation, caseId)
 
 const speechOf = (voiceId: string, text = "Xin chao"): SpeechRequest => ({ text, voiceId, modelId: null, languageCode: null, format: null, seed: null })
 
@@ -94,11 +96,15 @@ describe("ElevenLabsSandboxMediaService > speech", () => {
         expect(await sandbox.calls(account, "synthesize")).toHaveLength(1)
     })
 
-    it("ELEVENLABS-4 and 5: an unheld voice is not_found, a spent quota is rejected, both proved not_sent", async () => {
-        const { service } = build()
+    it("ELEVENLABS-4 and 5: an unheld voice is not_found, a spent quota (the account picked the case: no magic voice id any more) is rejected, both proved not_sent", async () => {
+        const { sandbox, service } = build()
 
         const missing = await failure(service.synthesize(connection, speechOf("SBX-VOICE-NONE")))
-        const quota = await failure(service.synthesize(connection, speechOf(ELEVENLABS_SANDBOX_VOICE_IDS.quota)))
+        // The old magic voice id is just a voice the account does not hold now.
+        const oldMagic = await failure(service.synthesize(connection, speechOf("SBX-VOICE-QUOTA")))
+        await pick(sandbox, "synthesize", "ELEVENLABS-5")
+        const quota = await failure(service.synthesize(connection, speechOf("SBX-VOICE-RACHEL")))
+        expect(providerRefusalReason(oldMagic)).toBe("not_found")
 
         expect(providerRefusalReason(missing)).toBe("not_found")
         expect(providerRefusalDetail(missing)).toBe(ELEVENLABS_SANDBOX_VOICE_NOT_FOUND_MESSAGE)
@@ -112,7 +118,7 @@ describe("ElevenLabsSandboxMediaService > dubbing and files", () => {
     it("ELEVENLABS-6 and 11: a dub is accepted, reads dubbing then dubbed with its file, whose handle reopens with fixed bytes", async () => {
         const { sandbox, service } = build()
 
-        const started = await service.create(connection, dubOf(ELEVENLABS_SANDBOX_SOURCES.completes, "vi"))
+        const started = await service.create(connection, dubOf("https://sandbox.nivo.test/media/any.mp4", "vi"))
         const running = await service.get(connection, started.jobId)
         const done = await service.get(connection, started.jobId)
 
@@ -128,11 +134,11 @@ describe("ElevenLabsSandboxMediaService > dubbing and files", () => {
         expect(await sandbox.calls(account, "file")).toHaveLength(2)
     })
 
-    it("a source the catalogue does not name takes the first case, with the next running id", async () => {
+    it("a dubbing with no case picked takes the default case (completes), with the next running id", async () => {
         const { service } = build()
 
-        await service.create(connection, dubOf(ELEVENLABS_SANDBOX_SOURCES.completes))
-        const second = await service.create(connection, dubOf("a-source-the-catalogue-never-named"))
+        await service.create(connection, dubOf("https://sandbox.nivo.test/media/any.mp4"))
+        const second = await service.create(connection, dubOf("a-source-nobody-named"))
 
         expect(second.jobId).toBe("SBX-DUBBING-000002")
         await service.get(connection, second.jobId)
@@ -140,8 +146,9 @@ describe("ElevenLabsSandboxMediaService > dubbing and files", () => {
     })
 
     it("ELEVENLABS-7: a dub that later fails ends failed with the provider's words and no file", async () => {
-        const { service } = build()
-        const { jobId } = await service.create(connection, dubOf(ELEVENLABS_SANDBOX_SOURCES.fails))
+        const { sandbox, service } = build()
+        await pick(sandbox, "create", "ELEVENLABS-7")
+        const { jobId } = await service.create(connection, dubOf("https://sandbox.nivo.test/media/any.mp4"))
 
         await service.get(connection, jobId)
 
@@ -156,9 +163,10 @@ describe("ElevenLabsSandboxMediaService > dubbing and files", () => {
     })
 
     it("ELEVENLABS-8: a source refused at start is the live refusal (rejected, not_sent) and starts nothing", async () => {
-        const { service } = build()
+        const { sandbox, service } = build()
+        await pick(sandbox, "create", "ELEVENLABS-8")
 
-        const cause = await failure(service.create(connection, dubOf(ELEVENLABS_SANDBOX_SOURCES.refused)))
+        const cause = await failure(service.create(connection, dubOf("https://sandbox.nivo.test/media/any.mp4")))
 
         expect(providerRefusalReason(cause)).toBe("rejected")
         expect(proofOf(cause)).toBe("not_sent")
@@ -166,10 +174,13 @@ describe("ElevenLabsSandboxMediaService > dubbing and files", () => {
     })
 
     it("ELEVENLABS-9: an unknown outcome throws the unknown proof AFTER the job exists", async () => {
-        const { service } = build()
+        const { sandbox, service } = build()
+        await pick(sandbox, "create", "ELEVENLABS-9")
 
-        const cause = await failure(service.create(connection, dubOf(ELEVENLABS_SANDBOX_SOURCES.serverError)))
+        const cause = await failure(service.create(connection, dubOf("https://sandbox.nivo.test/media/any.mp4")))
 
+        expect(cause).toBeInstanceOf(ElevenlabsError)
+        expect(cause).toMatchObject({ code: ElevenlabsErrorCode.Failed })
         expect(proofOf(cause)).toBe("unknown")
         await expect(service.get(connection, "SBX-DUBBING-000001")).resolves.toMatchObject({ state: "pending" })
     })
@@ -186,7 +197,7 @@ describe("ElevenLabsSandboxMediaService > dubbing and files", () => {
 
     it("ELEVENLABS-12: a speech handle, a malformed handle or a language the job does not dub is not_found", async () => {
         const { service } = build()
-        const { jobId } = await service.create(connection, dubOf(ELEVENLABS_SANDBOX_SOURCES.completes, "vi"))
+        const { jobId } = await service.create(connection, dubOf("https://sandbox.nivo.test/media/any.mp4", "vi"))
 
         for (const handle of ["speech/abc", "dubbing/only-two", `dubbing/${jobId}/fr`, "dubbing/SBX-DUBBING-000009/vi"]) {
             const cause = await failure(service.open(connection, handle).fetch())
@@ -198,7 +209,7 @@ describe("ElevenLabsSandboxMediaService > dubbing and files", () => {
     it("is deterministic: two fresh accounts answer the same ids and bytes", async () => {
         const answers = async (): Promise<unknown> => {
             const { service } = build()
-            const { jobId } = await service.create(connection, dubOf(ELEVENLABS_SANDBOX_SOURCES.completes))
+            const { jobId } = await service.create(connection, dubOf("https://sandbox.nivo.test/media/any.mp4"))
             await service.get(connection, jobId)
             const done = await service.get(connection, jobId)
             return [jobId, done, await done.files[0]?.fetch()]
@@ -242,5 +253,150 @@ describe("ElevenLabsSandboxMediaService > the frame and the law", () => {
         expect(ElevenLabsSandboxMediaService.length).toBe(1)
         expect(source).not.toContain("@modules/integrations")
         expect(source).not.toContain("http")
+    })
+})
+
+describe("ElevenLabsSandboxMediaService > the situations of the SBX standard (next case, the live twin's answers)", () => {
+    const URL_ = "https://sandbox.nivo.test/media/any.mp4"
+
+    it("ELEVENLABS-20: a dubbing that never finishes: reads stay `dubbing` for ever (never dubbed, never failed), with no file", async () => {
+        const { sandbox, service } = build()
+        await pick(sandbox, "create", "ELEVENLABS-20")
+        const { jobId } = await service.create(connection, dubOf(URL_))
+
+        const reads = []
+        for (let one = 0; one < 8; one += 1) reads.push(await service.get(connection, jobId))
+
+        expect(reads.every((read) => read.state === "pending" && read.providerStatus === "dubbing" && read.error === null && read.files.length === 0)).toBe(true)
+    })
+
+    it("ELEVENLABS-21 / 22 / 23: a dubbing start refused for the key, answered 429 or with no answer fails as the live twin does and starts NOTHING", async () => {
+        const { sandbox, service } = build()
+
+        await pick(sandbox, "create", "ELEVENLABS-21")
+        const refused = await failure(service.create(connection, dubOf(URL_)))
+        await pick(sandbox, "create", "ELEVENLABS-22")
+        const limited = await failure(service.create(connection, dubOf(URL_)))
+        await pick(sandbox, "create", "ELEVENLABS-23")
+        const silent = await failure(service.create(connection, dubOf(URL_)))
+
+        expect(providerRefusalReason(refused)).toBe("auth_refused")
+        expect(proofOf(refused)).toBe("not_sent")
+        expect(limited).toBeInstanceOf(ElevenlabsError)
+        expect(limited).toMatchObject({ code: ElevenlabsErrorCode.RateLimited, params: { status: 429, retryAfterSeconds: 30 } })
+        expect(proofOf(limited)).toBe("not_sent")
+        expect(silent).toMatchObject({ code: ElevenlabsErrorCode.Unreachable })
+        expect(proofOf(silent)).toBe("unknown")
+        await pick(sandbox, "create", "ELEVENLABS-6")
+        await expect(service.create(connection, dubOf(URL_))).resolves.toMatchObject({ jobId: "SBX-DUBBING-000004" })
+        await expect(failure(service.get(connection, "SBX-DUBBING-000001"))).resolves.toMatchObject({ code: ProviderRegistryErrorCode.RefusedNotFound })
+    })
+
+    it("ELEVENLABS-9 differs from ELEVENLABS-23 only by what was applied: the job exists", async () => {
+        const { sandbox, service } = build()
+        await pick(sandbox, "create", "ELEVENLABS-9")
+        await failure(service.create(connection, dubOf(URL_)))
+
+        await expect(service.get(connection, "SBX-DUBBING-000001")).resolves.toMatchObject({ state: "pending" })
+    })
+
+    it("ELEVENLABS-13 / 14 / 15: the voice list refused for the key, answered 429 or with no answer fails as the live twin does", async () => {
+        const { sandbox, service } = build()
+        const query = { search: null, pageSize: 10, pageToken: null }
+
+        await pick(sandbox, "voices", "ELEVENLABS-13")
+        const refused = await failure(service.voices(connection, query))
+        await pick(sandbox, "voices", "ELEVENLABS-14")
+        const limited = await failure(service.voices(connection, query))
+        await pick(sandbox, "voices", "ELEVENLABS-15")
+        const silent = await failure(service.voices(connection, query))
+
+        expect(providerRefusalReason(refused)).toBe("auth_refused")
+        expect(limited).toMatchObject({ code: ElevenlabsErrorCode.RateLimited })
+        expect(proofOf(limited)).toBe("not_sent")
+        expect(silent).toMatchObject({ code: ElevenlabsErrorCode.Unreachable })
+        expect(proofOf(silent)).toBe("unknown")
+        await pick(sandbox, "voices", "ELEVENLABS-1")
+        await expect(service.voices(connection, query)).resolves.toMatchObject({ voices: ELEVENLABS_SANDBOX_VOICES })
+    })
+
+    it("ELEVENLABS-16 / 17 / 18 / 19: speech refused for the key, answered 429, with no answer or with a 5xx fails as the live twin does", async () => {
+        const { sandbox, service } = build()
+        const request = speechOf("SBX-VOICE-RACHEL")
+
+        await pick(sandbox, "synthesize", "ELEVENLABS-16")
+        const refused = await failure(service.synthesize(connection, request))
+        await pick(sandbox, "synthesize", "ELEVENLABS-17")
+        const limited = await failure(service.synthesize(connection, request))
+        await pick(sandbox, "synthesize", "ELEVENLABS-18")
+        const silent = await failure(service.synthesize(connection, request))
+        await pick(sandbox, "synthesize", "ELEVENLABS-19")
+        const broken = await failure(service.synthesize(connection, request))
+
+        expect(providerRefusalReason(refused)).toBe("auth_refused")
+        expect(proofOf(refused)).toBe("not_sent")
+        expect(limited).toMatchObject({ code: ElevenlabsErrorCode.RateLimited })
+        expect(proofOf(limited)).toBe("not_sent")
+        expect(silent).toMatchObject({ code: ElevenlabsErrorCode.Unreachable })
+        expect(broken).toMatchObject({ code: ElevenlabsErrorCode.Failed })
+        expect([proofOf(silent), proofOf(broken)]).toEqual(["unknown", "unknown"])
+        await pick(sandbox, "synthesize", "ELEVENLABS-3")
+        await expect(service.synthesize(connection, request)).resolves.toMatchObject({ mimeType: ELEVENLABS_SANDBOX_SPEECH_MIME })
+    })
+
+    it("ELEVENLABS-24 is the default read; 10 / 25 / 26 / 27 fail the dubbing read as the live twin does", async () => {
+        const { sandbox, service } = build()
+        const { jobId } = await service.create(connection, dubOf(URL_))
+
+        await pick(sandbox, "get", "ELEVENLABS-10")
+        const missing = await failure(service.get(connection, jobId))
+        await pick(sandbox, "get", "ELEVENLABS-25")
+        const refused = await failure(service.get(connection, jobId))
+        await pick(sandbox, "get", "ELEVENLABS-26")
+        const limited = await failure(service.get(connection, jobId))
+        await pick(sandbox, "get", "ELEVENLABS-27")
+        const silent = await failure(service.get(connection, jobId))
+
+        expect(providerRefusalReason(missing)).toBe("not_found")
+        expect(providerRefusalReason(refused)).toBe("auth_refused")
+        expect(limited).toMatchObject({ code: ElevenlabsErrorCode.RateLimited })
+        expect(silent).toMatchObject({ code: ElevenlabsErrorCode.Unreachable })
+        expect(proofOf(silent)).toBe("unknown")
+        await pick(sandbox, "get", "ELEVENLABS-24")
+        await expect(service.get(connection, jobId)).resolves.toMatchObject({ state: "pending" })
+    })
+
+    it("ELEVENLABS-11 is the default fetch; 12 / 28 / 29 / 30 fail the fetch of a dubbed language the account holds as the live twin does", async () => {
+        const { sandbox, service } = build()
+        const { jobId } = await service.create(connection, dubOf(URL_, "vi"))
+        const handle = `dubbing/${jobId}/vi`
+
+        await pick(sandbox, "file", "ELEVENLABS-12")
+        const missing = await failure(service.open(connection, handle).fetch())
+        await pick(sandbox, "file", "ELEVENLABS-28")
+        const refused = await failure(service.open(connection, handle).fetch())
+        await pick(sandbox, "file", "ELEVENLABS-29")
+        const limited = await failure(service.open(connection, handle).fetch())
+        await pick(sandbox, "file", "ELEVENLABS-30")
+        const silent = await failure(service.open(connection, handle).fetch())
+
+        expect(providerRefusalReason(missing)).toBe("not_found")
+        expect(providerRefusalReason(refused)).toBe("auth_refused")
+        expect(limited).toMatchObject({ code: ElevenlabsErrorCode.RateLimited })
+        expect(silent).toMatchObject({ code: ElevenlabsErrorCode.Unreachable })
+        await pick(sandbox, "file", "ELEVENLABS-11")
+        await expect(service.open(connection, handle).fetch()).resolves.toEqual(elevenLabsSandboxDubbedBytesOf(jobId, "vi"))
+    })
+
+    it("every outbound case has an outcome tag and each operation exactly one default, tagged ok; the tag order picks the plain case first", () => {
+        const outbound = ELEVENLABS_SANDBOX_CATALOGUE.cases.filter((one) => one.operation !== undefined)
+        for (const operation of ["voices", "synthesize", "create", "get", "file"]) {
+            const own = outbound.filter((one) => one.operation === operation)
+            expect(own.filter((one) => one.default === true).map((one) => one.outcome)).toEqual(["ok"])
+            expect(own.every((one) => one.outcome !== undefined)).toBe(true)
+        }
+        const firstOf = (operation: string, outcome: string): string | undefined => outbound.find((one) => one.operation === operation && one.outcome === outcome)?.id
+        expect(["ok", "refused", "transient", "timeout"].map((outcome) => firstOf("create", outcome))).toEqual(["ELEVENLABS-6", "ELEVENLABS-8", "ELEVENLABS-22", "ELEVENLABS-23"])
+        expect(["ok", "refused", "transient", "timeout"].map((outcome) => firstOf("synthesize", outcome))).toEqual(["ELEVENLABS-3", "ELEVENLABS-5", "ELEVENLABS-17", "ELEVENLABS-18"])
     })
 })

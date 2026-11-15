@@ -62,6 +62,9 @@ export class GraphNodeRunTokensService {
             contactId: runContactOf(turn),
             leadId: runLeadOf(turn),
             ...(step === undefined ? {} : { step }),
+            ...(turn.personRetry === true ? { personRetry: true as const } : {}),
+            // The run's subject rides every call of the run, whatever road brought the run to this step (D3-W1-10).
+            ...(turn.subject === null || turn.subject === undefined ? {} : { subject: { kind: turn.subject.kind, id: turn.subject.id } }),
         }
         return signRunToken(this.key, claims)
     }

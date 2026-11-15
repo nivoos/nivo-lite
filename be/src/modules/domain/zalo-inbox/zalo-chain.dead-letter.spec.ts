@@ -4,11 +4,11 @@ import { channelAnswers, zaloChain, ZALO_DELIVERY } from "@tests/fixtures/builde
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10])
 
 describe("zalo chain: a failure ends as a bounded retry (transient only), then ONE dead letter, and a resume finishes", () => {
-    it("a channel that stays unreachable is retried on the waited ladder (1, 2, 4, 8 min), then parks transient with ONE item and the event pending; the resume keeps the picture and finishes", async () => {
+    it("the shop's own file store staying down is retried on the waited ladder (1, 2, 4, 8 min), then parks transient with ONE item and the event pending; the resume keeps the picture and finishes", async () => {
         const h = await buildInboundRunner()
         const t = await zaloChain(h.claims)
         h.claim(ZALO_DELIVERY)
-        t.remote.read.mockRejectedValue(refused())
+        t.assets.upload.mockResolvedValue({ error: refused() })
 
         const pauses: Array<number | undefined> = []
         for (const attempt of [1, 2, 3, 4]) {
@@ -41,6 +41,23 @@ describe("zalo chain: a failure ends as a bounded retry (transient only), then O
         expect(again.state.completed).toBe(true)
         expect(resumed.claims.complete).toHaveBeenCalledTimes(1)
         expect(resumed.deadLetters.raise).not.toHaveBeenCalled()
+    })
+
+    it("a channel that stays unreachable is NOT a failure (R72 DEF-7): the line is delivered with the picture typed fetch_failed, one run wakes, no job fails", async () => {
+        const h = await buildInboundRunner()
+        const t = await zaloChain(h.claims)
+        h.claim(ZALO_DELIVERY)
+        t.remote.read.mockRejectedValue(refused())
+
+        await h.run(t.processor, ZALO_DELIVERY, 1)
+
+        expect(h.claims.park).not.toHaveBeenCalled()
+        expect(h.claims.complete).toHaveBeenCalledTimes(1)
+        expect(t.state.wakes).toBe(1)
+        expect(t.state.completed).toBe(true)
+        expect(t.triggers.deliver.mock.calls[0]?.[0].events[0]?.files).toEqual([
+            expect.objectContaining({ id: "unread:fetch_failed:0", url: "", notKept: "fetch_failed" }),
+        ])
     })
 
     it("a picture the channel refuses for good is NOT a failure: the message is delivered with a typed not-kept file entry that says why, and the job finishes", async () => {

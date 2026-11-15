@@ -95,7 +95,7 @@ export class PaymentOrderRequestsService {
         const dead = deadLetterCauseOf(cause)
         const fault =
             dead !== undefined && (dead.failureClass === "input" || dead.failureClass === "config")
-                ? dead.reason
+                ? (dead.code ?? PaymentOrderRequestsErrorCode.JobFailed)
                 : PaymentOrderRequestsErrorCode.JobFailed
         await this.close(payload.requestId, { status: "failed", fault }, payload.workspaceId)
     }

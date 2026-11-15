@@ -39,6 +39,14 @@ export interface ToolRun {
     readonly stepTools: ReadonlyArray<string>
 }
 
+/** The subject of the run a call is made in: its kind (the scope path: `contactId`, `routeId`, ...) and its id. */
+export interface CallerSubject {
+    /** The kind of the subject. */
+    readonly kind: string
+    /** The id within its kind. */
+    readonly id: string
+}
+
 /** Who calls the gateway; where its call came from (`CallerOrigin`) is a label of the audit and decides nothing. */
 export interface ToolCaller extends CallerOrigin {
     /** The workspace. */
@@ -72,12 +80,19 @@ export interface ToolCaller extends CallerOrigin {
     readonly byMember?: string | undefined
     /** The graph step the call runs in, when a node run makes it through the node tool door; absent otherwise. */
     readonly run?: ToolRun | undefined
+    /** The subject of the run the call is made in (kind + id, as the host's run token signs it), when the run has one; absent otherwise. */
+    readonly subject?: CallerSubject | undefined
     /**
      * True when the call is a step of a workflow, made through the node tool door under a token the host minted. The conversation of
      * such a caller is the one its RUN carries (whoever started it), not a customer the agent answers freely: a tool for internal use
      * is then judged by the audience of the step's agent alone.
      */
     readonly graphStep?: true | undefined
+    /**
+     * True when the call is made by a step a PERSON ran again with a Retry decision (the run token says so): a write whose kept answer is
+     * an unknown outcome is made again under its key (a person settles what only a person may). Never set by a machine's retry.
+     */
+    readonly personRetry?: true | undefined
     /**
      * True for the engine's own caller: a module's declared job run as the workspace's internal agent. It is code, not an agent an
      * owner attaches to providers, so the provider abilities do not judge it; its fixed door grants and its grant rows do.
@@ -120,6 +135,8 @@ export interface NativeCaller extends CallerOrigin {
     readonly approvedBy?: string | undefined
     /** The graph step the call runs in, when a node run makes it; absent otherwise. */
     readonly run?: ToolRun | undefined
+    /** The subject of the run the call is made in (kind + id), when the run has one: what the engine keeps for the subject is keyed by it. */
+    readonly subject?: CallerSubject | undefined
     /** True when the call is a step of a workflow: the conversation is the run's, and the agent's own audience judges an internal tool. */
     readonly graphStep?: true | undefined
     /**

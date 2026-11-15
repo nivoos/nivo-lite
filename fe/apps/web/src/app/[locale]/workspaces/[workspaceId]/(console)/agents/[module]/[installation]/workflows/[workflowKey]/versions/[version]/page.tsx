@@ -8,9 +8,9 @@ type PageProps = { readonly params: Promise<{ module: string; installation: stri
 
 /** One version of a workflow against the one before it: its own route, opened from a row of the versions part. */
 const Page = async (props: PageProps): Promise<ReactElement> => {
-    const { module, installation, workflowKey, version } = await props.params
+    const { installation, workflowKey, version } = await props.params
     return (
-        <AgentWorkflowVersionPage module={module} installationId={installation} workflowKey={workflowKey} version={version} />
+        <AgentWorkflowVersionPage installationId={installation} workflowKey={workflowKey} version={version} />
     )
 }
 

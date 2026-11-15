@@ -1,5 +1,6 @@
 import { PROVIDER, TRIGGER, type TriggerVerb } from "@nivo-lite/agent-sdk/names"
 import { z } from "zod"
+import type { CustomerAttachment } from "@modules/domain/chat-files"
 import type { DeclaredLine, OptionalCanonicalEvent, TriggerDeclaration } from "@modules/domain/provider-triggers"
 import type { MetaEvent } from "@modules/integrations/meta"
 import { isMetaEvent } from "./meta-account.policy"
@@ -11,20 +12,25 @@ type MetaPlatform = MetaEvent["platform"]
 /*
  * THE META CONNECTION'S TWO MESSAGE TRIGGERS (stage 1 of the one event pipeline, concept triggers rule 13): a direct message to a Facebook
  * Page or to an Instagram account, each its own verb, as ONE canonical event. Pure: the translate reads only its argument (the `meta.event`
- * row's event, normalised from Meta's webhook by the integration). Only a direct message with words is a message, as the conversation intake
- * answered: comments, mentions, postbacks and lead ads are dropped here (comments and the reply window are kept by the receipt's own
- * consumer, which wakes nothing).
+ * row's event, normalised from Meta's webhook by the integration). A direct message with any content (words, or a content part with no
+ * words: a picture, a voice note, a file) is a message: comments, mentions, postbacks and lead ads are dropped here (comments and the reply
+ * window are kept by the receipt's own consumer, which wakes nothing).
  */
 
 /** The trigger's name inside the provider. */
 export const META_MESSAGE_RECEIVED = "message.received"
 
-/** The data of one direct message (the channel message members of every channel). */
+/** The data of one direct message (the channel message members of every channel, plus its content parts). */
 export type MetaMessageData = {
     /** The key the line is stored once under: `meta:<event key>`. */
     readonly messageKey: string
-    /** What the person wrote. */
+    /** What the person wrote; empty for a message of content parts only (a picture, a voice note, a file, a location). */
     readonly text: string
+    /**
+     * Every content part of the message beside its words, as Meta names it (`kind` image for a picture, file for any other part), with
+     * the address Meta gave (empty when none): the pipeline keeps each one or records it typed not-kept; empty for a message of words.
+     */
+    readonly attachments: ReadonlyArray<CustomerAttachment>
     /** When it was sent (ISO 8601). */
     readonly at: string | null
     /** Set only on the engine's release delivery of the channel verb (`held`): no new words. */
@@ -39,16 +45,44 @@ export interface MetaEventRow {
     readonly raw: MetaEvent
 }
 
-/** The direct message of one event on one platform, or null for any other event, another platform, no person or no words. */
+/** Meta's type word of a picture; every other part with bytes is a file to the shop (its bytes decide whether it can be read). */
+const META_IMAGE = "image"
+
+/** Meta's part types that carry NO file, with their media type (standard IANA types): a shared place, a shared link. */
+const TYPED_PARTS: ReadonlyMap<string, string> = new Map([
+    ["location", "application/geo+json"],
+    ["fallback", "text/uri-list"],
+])
+
+/**
+ * The content parts of a message as the line keeps them: a picture or a file with the address Meta gave (empty when none: typed
+ * not-kept downstream), or a typed part with no file (a place, a link) holding what Meta sent of it. None dropped for its kind.
+ */
+const partsOf = (event: MetaEvent): ReadonlyArray<CustomerAttachment> =>
+    (event.attachments ?? []).map((part): CustomerAttachment => {
+        const typed = TYPED_PARTS.get(part.type)
+        if (typed !== undefined)
+            return { kind: "file", url: "", name: [part.name, part.url].filter((one) => one !== null).join(" "), contentType: typed }
+        return { kind: part.type === META_IMAGE ? "image" : "file", url: part.url ?? "", name: part.name ?? "" }
+    })
+
+/**
+ * The direct message of one event on one platform, or null for any other event, another platform, no person, or a message with no
+ * content at all (no words and no part). A message of parts only (a picture with no caption) IS a message: its line carries its files.
+ */
 const messageOf = (event: MetaEvent, platform: MetaPlatform): OptionalCanonicalEvent<MetaMessageData> => {
     const person = event.sender_psid ?? event.sender_igsid
-    if (event.platform !== platform || event.kind !== "dm" || person === null || event.text === null || event.text === "") return null
+    if (event.platform !== platform || event.kind !== "dm" || person === null) return null
+    const text = event.text ?? ""
+    const attachments = partsOf(event)
+    if (text === "" && attachments.length === 0) return null
     return {
         id: event.event_key,
         subject: { channel: platform, id: person, ...(event.sender_name === null ? {} : { name: event.sender_name }) },
         data: {
             messageKey: `meta:${event.event_key}`,
-            text: event.text,
+            text,
+            attachments,
             at: new Date(event.timestamp).toISOString(),
         },
     }
@@ -58,6 +92,9 @@ const messageOf = (event: MetaEvent, platform: MetaPlatform): OptionalCanonicalE
 const META_MESSAGE_DATA: z.ZodType<MetaMessageData> = z.object({
     messageKey: z.string(),
     text: z.string(),
+    attachments: z.array(
+        z.object({ kind: z.enum(["image", "file"]), url: z.string(), name: z.string(), contentType: z.string().optional() }),
+    ),
     at: z.string().nullable(),
     resume: z.literal("held").optional(),
 })
@@ -110,6 +147,7 @@ const messageTriggerOf = (platform: MetaPlatform, verb: TriggerVerb): TriggerDec
         members: {
             messageKey: { vi: "Mã tin nhắn", en: "The message's key" },
             text: { vi: "Nội dung người đó viết", en: "What the person wrote" },
+            attachments: { vi: "Ảnh và tệp người đó gửi", en: "The pictures and files the person sent" },
             at: { vi: "Thời điểm gửi", en: "When it was sent" },
         },
     },
@@ -117,7 +155,7 @@ const messageTriggerOf = (platform: MetaPlatform, verb: TriggerVerb): TriggerDec
     raw: META_EVENT_ROW,
     data: META_MESSAGE_DATA,
     translate: (row) => messageOf(row.raw, platform),
-    line: metaLineOf,
+    feeds: { stream: "lines", line: metaLineOf },
     key: { by: "subject" },
     settle: CHAT_SETTLE,
     // The person's lines append to the route's stream: held lines are ONE marker the workflow reads the stream from (rule Q-4).

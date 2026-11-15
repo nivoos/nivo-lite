@@ -4,10 +4,11 @@ import { ConnectionApiTokenService } from "@modules/domain/connection-secrets"
 import { ConnectionsService, type ConnectionRecord } from "@modules/domain/connections"
 import { IMAP_MAIL_TYPE, type DataRecordInput } from "@modules/domain/data-records"
 import type { PollCadence, PolledRow, PollReceiver } from "@modules/domain/provider-registry"
-import { DataSourcesError, DataSourcesErrorCode, InjectImap, type ImapClient } from "@modules/integrations/data-sources"
+import { InjectImap, type ImapClient } from "@modules/integrations/data-sources"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import { IMAP_INBOUND_PROVIDER, holdsInbound, inboundFromSecret, inboundIsReadCredential } from "./imap-inbound.policy"
 import { parseConfig, parseCredential } from "./imap-connection.policy"
+import { imapPollFailureOf } from "./imap-poll-failure.policy"
 import { IMAP_POLL_CADENCE, imapPolledRowsOf } from "./imap-polled-rows.policy"
 
 const DAY_MS = 86_400_000
@@ -56,8 +57,6 @@ export class ImapInboxPollerService implements PollReceiver {
 
     /** A refused login is the credential (only the owner fixes it); a server that does not answer is tried again; anything else ends. */
     classify(error: unknown): PollFailure {
-        if (error instanceof DataSourcesError && error.code === DataSourcesErrorCode.Rejected) return { kind: "auth_failed", reason: "credential" }
-        if (error instanceof DataSourcesError && error.code === DataSourcesErrorCode.Unavailable) return { kind: "transient" }
-        return { kind: "fatal" }
+        return imapPollFailureOf(error)
     }
 }

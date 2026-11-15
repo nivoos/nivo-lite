@@ -1,4 +1,3 @@
-import type { ModuleKey } from "@/modules/catalog"
 
 /**
  * Where an installed agent stands: being installed, in setup, ready to go live, live, paused, or waiting for a connection its module
@@ -29,7 +28,7 @@ export type OperatingMode = "assist" | "autopilot"
 export type Installation = {
     readonly id: string
     readonly workspaceId: string
-    readonly moduleKey: ModuleKey
+    readonly moduleKey: string
     /**
      * The one display name of the agent, as the owner gave it: the header, Settings, the profile, Office and the chat
      * all show this name. The instance label the back end keeps beside it only tells instances of one type apart; no screen reads it.

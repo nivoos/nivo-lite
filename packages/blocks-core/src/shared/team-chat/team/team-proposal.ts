@@ -40,6 +40,8 @@ export const teamProposalSchema: NodeSchema<TeamProposal> = z.object({
         .min(1)
         .max(1000)
         .describe("Who said what, which value in use it replaces, from when or for how long"),
-    validFrom: z.string().max(40).optional(),
-    validTo: z.string().max(40).optional(),
+    // The tool reads these as ISO date-times with seconds and an offset (`2026-11-15T00:00:00Z`): the model's answer is checked against
+    // the same shape here, so a loose date (`2026-11-15T00:00Z`) is the model's own retry, never the tool's `invalid_arguments`.
+    validFrom: z.iso.datetime({ offset: true }).max(40).describe("When it starts to hold, ISO 8601 with seconds and offset, e.g. 2026-11-15T00:00:00Z").optional(),
+    validTo: z.iso.datetime({ offset: true }).max(40).describe("When it stops holding, ISO 8601 with seconds and offset, e.g. 2026-12-31T23:59:59Z").optional(),
 })

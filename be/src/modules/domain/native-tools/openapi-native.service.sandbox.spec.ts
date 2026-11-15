@@ -1,4 +1,6 @@
-import { OpenApiReachRegistryService, OpenApiSandboxFixturesRegistryService, OpenApiSandboxReachService, OPENAPI_CALL_OPERATION } from "@modules/domain/openapi-provider"
+import { OpenApiReachRegistryService, OpenApiSandboxFixturesRegistryService, OpenApiSandboxReachService } from "@modules/domain/openapi-provider"
+import { readDocument } from "@modules/domain/openapi-tools"
+import fixture from "@modules/domain/native-tools/openapi-native.service.fixtures.json"
 import { ProviderRegistryErrorCode } from "@modules/domain/provider-registry"
 import { sandboxAccount, sandboxServiceOf } from "@tests/fixtures/builders/provider-sandbox.builder"
 import { ACCOUNT, CALLER, CRM, CUSTOMER, SOURCES, WORKSPACE, build, metaOf } from "@tests/fixtures/builders/openapi-native.builder"
@@ -13,7 +15,9 @@ const sandboxWorld = (withRegistry = true) => {
     const world = build()
     const { sandbox } = sandboxServiceOf(sandboxAccount({ id: ACCOUNT, workspaceId: WORKSPACE, provider: "openapi" }))
     const fixtures = new OpenApiSandboxFixturesRegistryService()
-    fixtures.register({ connector: CRM, operations: { "customer.get": { status: 200, body: CUSTOMER } } })
+    const reading = readDocument(JSON.stringify(fixture), CRM)
+    if (!reading.ok) throw new Error(reading.problem)
+    fixtures.register({ connector: CRM, document: reading.document, operations: { "customer.get": { status: 200, body: CUSTOMER } } })
     const reaches = new OpenApiReachRegistryService()
     reaches.register({
         live: new OpenApiLiveReach(world.ports.secrets, world.ports.client, world.ports.host),
@@ -38,8 +42,8 @@ describe("OpenApiConnectorService on a sandbox account (lane concept provider-sa
         expect(fetchSpec).not.toHaveBeenCalled()
         expect(secretOf).not.toHaveBeenCalled()
         expect(resolve).not.toHaveBeenCalled()
-        const logged = await sandbox.calls(sandboxAccount({ id: ACCOUNT, workspaceId: WORKSPACE, provider: "openapi" }), OPENAPI_CALL_OPERATION)
-        expect(logged.map((one) => one.key)).toEqual(["customer.get"])
+        const logged = await sandbox.calls(sandboxAccount({ id: ACCOUNT, workspaceId: WORKSPACE, provider: "openapi" }))
+        expect(logged.map((one) => [one.operation, one.key])).toEqual([["customer.get", "customer.get"]])
     })
 
     it("never reaches a sandbox account live when no registry is composed: PROVIDER_SANDBOX_MISSING, nothing sent", async () => {

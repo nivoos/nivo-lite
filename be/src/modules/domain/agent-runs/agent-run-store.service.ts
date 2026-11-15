@@ -30,12 +30,6 @@ const contextOf = (value: unknown): Readonly<Record<string, unknown>> => {
 const IN_FLIGHT_STATUSES: ReadonlyArray<string> = ["running", "waiting", "parked"]
 
 /**
- * The statuses of a run parked between steps by its status: at a stop (`waiting`) or parked. A run parked at a `wait` keeps the status
- * `running` and carries its wait mark (`wait_match`); the erasure of a subject ends both kinds.
- */
-const PARKED_STATUSES: ReadonlyArray<string> = ["waiting", "parked"]
-
-/**
  * The statuses of a run whose wait an event is asked of: `waiting`, and `running` for the moment between the park's mark and the status
  * the projection writes (the run's own park decides; a resumed run has cleared its mark).
  */
@@ -137,14 +131,15 @@ export class AgentRunStoreService {
     }
 
     /**
-     * The workspace's thread runs PARKED AT A `wait` (status `running` WITH a wait mark: the runs `waitersOf` offers events to), newest
-     * start first, at most `limit`: the dev Sandbox page's "Run đang chờ" list (R66). Exact, through the wait mark; no page decides.
+     * The workspace's thread runs IN FLIGHT (running, waiting for a person, parked), newest start first, at most `limit`: the runs one of
+     * which may be parked on a deadline (a wait's timeout, an until round or a retry rung, a stop's expiry). Which deadline, if any, is
+     * read from the thread itself by its caller (ENGINE-FIN (b): the dev time levers' list, one generic door for every parked deadline).
      */
-    parkedAtWait(workspaceId: string, limit: number): Promise<ReadonlyArray<RunView>> {
+    inFlightThreads(workspaceId: string, limit: number): Promise<ReadonlyArray<RunView>> {
         return this.at(workspaceId, undefined, async (scoped) => {
             const rows = await this.records.runRows(
                 scoped,
-                { statuses: ["running"], waitMarked: true, engine: THREAD_ENGINE, order: "started" },
+                { statuses: IN_FLIGHT_STATUSES, engine: THREAD_ENGINE, order: "started" },
                 limit,
             )
             const views: Array<RunView> = []
@@ -221,14 +216,16 @@ export class AgentRunStoreService {
     }
 
     /**
-     * ENDS, in `tx`, every thread run of any agent PARKED on one of these subjects, once: at a stop (`waiting`), parked, or at a `wait`
-     * (status `running` WITH a wait mark: the same runs `waitersOf` offers events to). The run is marked cancelled with the typed reason
-     * `code` and the moment, its deadline and its wait mark are cleared (no event finds it, no deadline fires it), and its open step rows
-     * (the parked `wait` step and the loop step around it) are closed with the same `code` in the same transaction (`closeOpenSteps`), so
-     * the one-run-per-subject slot is free and nothing of the run reads as running. A run running a step now (`running`, no wait mark) is left to end on its own. What the erasure of
-     * a subject (a contact and its routes, owner ruling R31 / coordinator ruling R37) calls; answers the runs it ended.
+     * ENDS, in `tx`, every thread run of any agent IN FLIGHT on one of these subjects, once, WHATEVER its state: at a stop (`waiting`),
+     * parked, at a `wait`, on a retry rung or an until round, or running a step now (all `running`). The run is marked cancelled with the
+     * typed reason `code` and the moment, its deadline and its wait mark are cleared, and its open step rows are closed with the same
+     * `code` in the same transaction (`closeOpenSteps`), so the one-run-per-subject slot is free and nothing of the run reads as running.
+     * What comes for it later does nothing by the one ended-run rule (`agent-threads/run-ended.policy`): a rung, a round, a deadline or a
+     * decision is refused before it is written, a wake already written is skipped, and a drive still in flight stops at its next step
+     * (the step running at this instant ends as it ends; nothing after it runs). What the erasure of a subject (a contact and its routes,
+     * a record the erase hid; owner ruling R31 / coordinator ruling R37) calls; answers the runs it ended.
      */
-    endParkedOfSubjects(
+    endInFlightOfSubjects(
         tx: EntityManager,
         workspaceId: string,
         subjects: ReadonlyArray<RunSubject>,
@@ -238,28 +235,15 @@ export class AgentRunStoreService {
             const at = iso(this.clock.now())
             const ended: Array<RunView> = []
             await eachInOrder(subjects, async (subject) => {
-                const parked = await this.records.runRows(
+                const rows = await this.records.runRows(
                     scoped,
-                    { subject, statuses: PARKED_STATUSES, engine: THREAD_ENGINE, order: "started" },
+                    { subject, statuses: IN_FLIGHT_STATUSES, engine: THREAD_ENGINE, order: "started" },
                     SUBJECT_RUNS_MAX,
                 )
-                const waiting = await this.records.runRows(
-                    scoped,
-                    { subject, statuses: ["running"], waitMarked: true, engine: THREAD_ENGINE, order: "started" },
-                    SUBJECT_RUNS_MAX,
-                )
-                const atWait = new Set(waiting.map((row) => row.id))
-                const rows = [...parked, ...waiting.filter((row) => !parked.some((other) => other.id === row.id))]
                 await eachInOrder(rows, async (row) => {
                     const moved = await this.patchRunWith(scoped, row.id, (run) =>
-                        PARKED_STATUSES.includes(run.status) || (atWait.has(run.id) && run.status === "running")
-                            ? {
-                                  status: "cancelled",
-                                  error: { code },
-                                  endedAt: at,
-                                  waitWorkItemId: null,
-                                  waitDeadlineAt: null,
-                              }
+                        IN_FLIGHT_STATUSES.includes(run.status)
+                            ? { status: "cancelled", error: { code }, endedAt: at, waitWorkItemId: null, waitDeadlineAt: null }
                             : null,
                     )
                     if (moved === null) return

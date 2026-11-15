@@ -28,6 +28,8 @@ export type TemplateNodeProblemCode =
     | "NODE_EXAMPLES_EMPTY"
     /** Two examples with the same name. */
     | "NODE_EXAMPLE_NAME_DUPLICATE"
+    /** `readsHeldEvents` written as anything but `true` (absent says "no": `false`, a word or a number is a second way to say it). */
+    | "NODE_HELD_READS_INVALID"
 
 /** Why a template graph is refused at save. Each is decided without the engine unless its doc says otherwise. */
 export type TemplateGraphProblemCode =
@@ -118,6 +120,10 @@ export type TemplateGraphProblemCode =
     | "WAIT_ROUTE_UNKNOWN"
     | "WAIT_TIMEOUT_INVALID"
     | "WAIT_TRIGGER_UNSERVED"
+    /** A key of a wait that lists no verb (a key is one meaning brought by 1 or more verbs). */
+    | "WAIT_VERBS_EMPTY"
+    /** A verb listed twice in one wait (under two keys, or twice under one): an event of it would have two meanings. */
+    | "WAIT_VERB_DUPLICATE"
     /** An expression deeper than 4 (a leaf is 1). */
     | "EXPR_TOO_DEEP"
     /** An expression of more than 16 leaves. */

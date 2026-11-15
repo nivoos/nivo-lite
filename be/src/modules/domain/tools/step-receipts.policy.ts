@@ -10,6 +10,8 @@ export interface StepReceipt {
     readonly subject: SubjectRef
     /** When it was kept (ISO text). */
     readonly at: string
+    /** The ledger key it is kept under, when the ledger names it (`call:<run>:<step>:<digest>`, `dedupe:<key>`). */
+    readonly key?: string | undefined
 }
 
 /** A founder's answer as the turn carries it: when, and `engine` for the engine's own words among them (an approved call's answer). */

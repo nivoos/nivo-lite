@@ -9,6 +9,7 @@
   "errors.MODULES_INSTANCE_NAME_INVALID": "Tên agent cần từ 1 đến 80 ký tự.",
   "errors.MODULES_INSTANCE_NAME_TAKEN": "Đã có agent cùng loại với tên này.",
   "errors.MODULES_SINGLE_INSTANCE_ONLY": "Loại agent này chỉ có một agent cho mỗi workspace.",
+  "errors.MODULES_NOT_AVAILABLE": "Loại agent này không thể thêm từ danh mục.",
   "errors.MODULES_INSTALLATION_NOT_FOUND": "Không tìm thấy agent đã cài.",
   "errors.MODULES_AGENT_MISSING": "Agent này chưa có nhân viên AI đi kèm.",
   "errors.MODULES_AGENT_NAME_INVALID": "Tên hiển thị cần từ {{min}} đến {{max}} ký tự.",

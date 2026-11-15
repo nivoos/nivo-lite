@@ -37,10 +37,18 @@ export enum AgentThreadsLogEvent {
     RouteHeldEnded = "agent_threads.route_held_ended",
     /** A step failed in a class that runs again by itself (rule Q-2): the run parks on it until its retry timer. */
     StepRetryParked = "agent_threads.step_retry_parked",
+    /**
+     * One automatic retry of a step RAN (E-FIX12, the matrix's "dropped rung"): the step, the retry's number, the code it failed with
+     * before, and how many recorded acts it made again before the node ran (0: the node runs as a fresh try). A rung that writes no act
+     * is visible here next time.
+     */
+    StepRetryRan = "agent_threads.step_retry_ran",
     /** The wakes held behind a finished run are pending again (rule Q-1). */
     HeldWakesReleased = "agent_threads.held_wakes_released",
     /** The release of the wakes held behind a run failed; the sweep tries again. */
     HeldWakesReleaseFailed = "agent_threads.held_wakes_release_failed",
+    /** ENGINE-FIN (a): the open stops of a run could not be told how many events wait behind it (logged, the hold itself stands). */
+    HeldCountFailed = "agent_threads.held_count_failed",
     /**
      * R68: a step that declares its unsuccessful ending ended so (a customer send refused, an approval declined, the node's `cannot`, a loop
      * out of rounds) and the engine told the team (`runId`, `stepKey`, `kind`, `then`). Never the words of the notice.
@@ -76,6 +84,10 @@ export enum AgentThreadsLogEvent {
     SubjectErasedRunEnded = "agent_threads.subject_erased_run_ended",
     /** The erasure of subjects ended everything pending for them: parked runs, waiting wakes and armed timers, with the counts (R72 Q1). */
     SubjectErasedWorkEnded = "agent_threads.subject_erased_work_ended",
+    /** The open stops of a run an erasure ended could not be closed after the commit (the thread sweep closes them on its next pass). */
+    SubjectErasedStopsLeft = "agent_threads.subject_erased_stops_left",
+    /** A step of a run that had already ended (outside its drive) was not run: the thread goes to its end, nothing acts (`run-ended.policy`). */
+    StepOfEndedRun = "agent_threads.step_of_ended_run",
     /** One pass of the thread sweep ended, with its counts. */
     SweepDone = "agent_threads.sweep_done",
     /** A reply in the team chat to the card of a stop was handed to the stop door (`runId`, `outcome`); never the reply's words. */

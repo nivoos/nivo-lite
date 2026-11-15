@@ -1,6 +1,7 @@
 export { DATA_HUB_ERROR_KINDS } from "./errors/data-hub.error"
 export { DATA_HUB_MESSAGES } from "./messages/data-hub.messages"
 export { DataHubModule } from "./data-hub.module"
+export { IMAP_MAIL_TRIGGER } from "./imap-mail.trigger"
 export { CsvImportWizardService } from "./csv-import-wizard.service"
 export { DataSyncService } from "./data-sync.service"
 export { DatabaseWizardService } from "./database-wizard.service"

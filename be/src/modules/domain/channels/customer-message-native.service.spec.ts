@@ -8,6 +8,8 @@ import { CONVERSATION_MESSAGE_MANIFEST, CONVERSATION_SOURCE, CustomerMessageNati
 const ROUTE = "route-1"
 const NOW = new Date("2026-11-14T03:00:00.000Z")
 const CALLER = { agentId: "agent-sales", conversationId: ROUTE }
+/** The memory row of the calling agent's position on the route (concept agent-data rule 8). */
+const KEY = `agent-sales|lines|${ROUTE}`
 
 const line = (over: Partial<CustomerLine> = {}): CustomerLine => ({
     id: "l-1",
@@ -147,13 +149,34 @@ describe("CustomerMessageNativeService (nivo.tool.conversation.message.list, eng
 
         // A read for context (no `consume`) notes nothing.
         await service.invoke("ws-1", "list", {}, { ...step, opKey: "run-1:understand:d1" })
-        expect(store.rows.get(ROUTE)).toBeUndefined()
+        expect(store.rows.get(KEY)).toBeUndefined()
         expect(await service.invoke("ws-1", "list", { consume: true }, step)).toMatchObject({ consumedSeq: null })
-        expect(store.rows.get(ROUTE)?.read).toEqual({ by: "run-1:hear:d1", seq: "11" })
+        expect(store.rows.get(KEY)?.read).toEqual({ by: "run-1:hear:d1", seq: "11" })
         await cursor.stepEnded("ws-1", "run-1", "hear")
         expect(await service.invoke("ws-1", "list", {}, CALLER)).toMatchObject({ consumedSeq: "11", facts: [{ seq: "12" }, { seq: "11" }, { seq: "10" }] })
         // A consuming read outside a step notes nothing new.
         await service.invoke("ws-1", "list", { consume: true }, CALLER)
-        expect(store.rows.get(ROUTE)?.read).toBeNull()
+        expect(store.rows.get(KEY)?.read).toBeNull()
+    })
+
+    // Concept agent-data rule 8 (decided 2026-11-15): the consumer is the AGENT. A line one agent's step consumed is still unread for ANOTHER
+    // agent reading the same route (a person's line handed from the front desk's workflow to the sale's is answered by the sale once).
+    it("keeps each agent's own position on the route: what the front desk consumed is still unread for the sale", async () => {
+        const store = new MemoryStreamCursorStore()
+        const cursor = new StreamCursorService(store)
+        const lines = mock<CustomerMessagesService>()
+        lines.threadOf.mockResolvedValue({ rows: [line({ seq: "11" }), line({ seq: "10" })], next: null })
+        const service = new CustomerMessageNativeService(lines, new FakeClock(NOW), cursor)
+
+        await service.invoke("ws-1", "list", { consume: true }, { ...CALLER, graphStep: true, opKey: "run-front:hear:d1" })
+        await cursor.stepEnded("ws-1", "run-front", "hear")
+        const sale = { ...CALLER, agentId: "agent-sale" }
+
+        expect(await service.invoke("ws-1", "list", {}, CALLER)).toMatchObject({ consumedSeq: "11" })
+        expect(await service.invoke("ws-1", "list", {}, sale)).toMatchObject({ consumedSeq: null })
+        // The sale consumes it once; its next read finds it consumed, the front desk's position never moved back.
+        await service.invoke("ws-1", "list", { consume: true }, { ...sale, graphStep: true, opKey: "run-sale:talk:d1" })
+        await cursor.stepEnded("ws-1", "run-sale", "talk")
+        expect(await service.invoke("ws-1", "list", {}, sale)).toMatchObject({ consumedSeq: "11" })
     })
 })

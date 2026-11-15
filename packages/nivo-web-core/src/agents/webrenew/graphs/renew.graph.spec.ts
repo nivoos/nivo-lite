@@ -99,8 +99,8 @@ describe("webrenew.renew v14: the registrar renews, a pending order is read agai
         expect(holds("renewed-check", scope)).toBe(true)
     })
 
-    it("pending, refused and not renewable: the team told, then `not-renewed` (no customer line, no invoice)", () => {
-        for (const outcome of ["pending", "refused", "not_renewable"]) {
+    it("pending and not renewable: the team told, then `not-renewed` (no customer line, no invoice)", () => {
+        for (const outcome of ["pending", "not_renewable"]) {
             const scope = scopeOf(renewed(outcome))
             expect([outcome, holds("renewed-team-declined", scope)]).toEqual([outcome, false])
             expect([outcome, holds("renewed-check", scope)]).toEqual([outcome, false])
@@ -129,6 +129,6 @@ describe("webrenew.renew v14: the registrar renews, a pending order is read agai
         expect(outputs).toContainEqual({ recorded: true, state: "renewed" })
         expect(outputs).toContainEqual({ recorded: true, state: "pending_person" })
         expect(outputs).not.toContainEqual({ recorded: false, state: null })
-        expect(outputs.filter((one) => one?.recorded === true).length).toBe(4)
+        expect(outputs.filter((one) => one?.recorded === true).length).toBe(3)
     })
 })

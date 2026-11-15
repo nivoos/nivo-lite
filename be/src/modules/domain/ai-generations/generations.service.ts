@@ -48,6 +48,16 @@ const failure = (reason: GenerationFailureReason, message: string): GenerationFa
 /** A stored JSON value as an object; anything else is empty. */
 const record = (value: unknown): Record<string, unknown> => (isPlainObject(value) ? value : {})
 
+/** The brand of an admitted request: only `GenerationsService.admit` makes one, so no request is enqueued unchecked. */
+const ADMITTED: unique symbol = Symbol("ai-generations.admitted")
+
+/** A request whose allowance and engine were checked before any transaction (`GenerationsService.admit`). */
+export interface AdmittedGeneration {
+    readonly [ADMITTED]: true
+    /** What was asked. */
+    readonly params: GenerateParams
+}
+
 @Injectable()
 /**
  * The one door for every text the app writes as a generation (the floating assistant, setup chat, content, brain lessons): it writes an
@@ -101,12 +111,12 @@ export class GenerationsService {
         return this.generate(params)
     }
 
-    /** Enqueues an authorized application's request and immediately returns its polling id. */
-    async request(
-        params: GenerateParams,
-        context: GenerationContext = {},
-        tx?: EntityManager,
-    ): Promise<GenerationEnqueued> {
+    /**
+     * PREPARE of an authorized application's request, with NO transaction open (concept outbox-job rule 12): the workspace's allowance
+     * (a read through the pool that may tell the owner) and the engine's availability are checked here, so the enqueue that follows, in
+     * the caller's transaction, awaits nothing but that transaction. Refused with `QuotaBlocked` or `EngineUnavailable`.
+     */
+    async admit(params: GenerateParams): Promise<AdmittedGeneration> {
         const locale = params.locale ?? "vi"
         const blocked = await this.usage.blockedBy(params.workspaceId, params.kind, locale)
         if (blocked !== null || !this.ai.available()) {
@@ -114,6 +124,19 @@ export class GenerationsService {
                 code: blocked !== null ? AiGenerationsErrorCode.QuotaBlocked : AiGenerationsErrorCode.EngineUnavailable,
             })
         }
+        return { [ADMITTED]: true, params }
+    }
+
+    /**
+     * Enqueues an ADMITTED request (`admit`) and immediately returns its polling id: in `tx` when the caller hands its transaction (which
+     * may hold its own lock: only that transaction's manager is used), else in a transaction of its own.
+     */
+    request(
+        admitted: AdmittedGeneration,
+        context: GenerationContext = {},
+        tx?: EntityManager,
+    ): Promise<GenerationEnqueued> {
+        const { params } = admitted
         const enqueue = async (manager: EntityManager): Promise<GenerationEnqueued> => {
             const id = await this.store(
                 params,

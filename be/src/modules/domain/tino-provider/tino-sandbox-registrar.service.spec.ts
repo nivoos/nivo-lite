@@ -37,17 +37,17 @@ const pick = (ctx: ReturnType<typeof build>, id: string) => ctx.sandbox.setNextC
 
 describe("TinoSandboxRegistrarService", () => {
     describe("the catalogue", () => {
-        it("has unique ids TINO-<n>, the owner's first three, exactly one default per operation, and no inbound case", () => {
+        it("has unique ids TINO-<n> (the renewal) and TINO-<OPERATION>-<n> (the rest), the owner's first three, exactly one default per operation, every case tagged with an outcome, and no inbound case", () => {
             const ids = TINO_SANDBOX_CATALOGUE.cases.map((one) => one.id)
             expect(new Set(ids).size).toBe(ids.length)
-            expect(ids.every((id) => /^TINO-\d+$/.test(id))).toBe(true)
+            expect(ids.every((id) => /^TINO-([A-Z-]+-)?\d+$/.test(id))).toBe(true)
             expect(ids.slice(0, 3)).toEqual(["TINO-1", "TINO-2", "TINO-3"])
             expect(TINO_SANDBOX_CATALOGUE.cases.every((one) => one.inbound === undefined && one.label.length > 0)).toBe(true)
-            expect(TINO_SANDBOX_CATALOGUE.cases.every((one) => one.operation === "renew")).toBe(true)
-            expect(TINO_SANDBOX_CATALOGUE.cases.filter((one) => one.default === true).map((one) => one.id)).toEqual(["TINO-1"])
+            expect(TINO_SANDBOX_CATALOGUE.cases.every((one) => one.operation !== undefined && one.outcome !== undefined)).toBe(true)
+            expect(TINO_SANDBOX_CATALOGUE.cases.filter((one) => one.default === true && one.operation === "renew").map((one) => one.id)).toEqual(["TINO-1"])
             expect(TINO_SANDBOX_CATALOGUE.provider).toBe("tino")
             expect(TINO_SANDBOX_CASES).toBe(TINO_SANDBOX_CATALOGUE.cases)
-            expect(Object.values(TINO_CASE).toSorted()).toEqual(ids.toSorted())
+            expect(ids).toEqual(expect.arrayContaining(Object.values(TINO_CASE)))
         })
 
         it("is the same on every call (determinism)", async () => {

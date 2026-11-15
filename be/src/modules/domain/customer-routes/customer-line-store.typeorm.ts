@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common"
 import type { EntityManager, SelectQueryBuilder } from "typeorm"
-import { InjectPrimaryEntityManager } from "@modules/platform/database"
+import { InjectPrimaryEntityManager, lockStreamSubject } from "@modules/platform/database"
 import type {
     CustomerLine,
     CustomerLineRows,
@@ -12,6 +12,7 @@ import type { DeliveryState } from "./delivery.policy"
 import { CustomerRoutesError, CustomerRoutesErrorCode } from "./errors/customer-routes.error"
 import { ofLiveContact } from "./live-contact.policy"
 import { CustomerMessageEntity } from "./persistence/entities"
+import { LINES_STREAM } from "./stream-cursor.policy"
 
 const HEARD = "from_person"
 
@@ -86,12 +87,17 @@ export const pageOfLines = async (query: SelectQueryBuilder<CustomerMessageEntit
 export class TypeormCustomerLineStore implements CustomerLineStore {
     constructor(@InjectPrimaryEntityManager() private readonly entityManager: EntityManager) {}
 
-    /** Writes a heard line once on its route: an insert-or-nothing; a line heard before answers its id. */
+    /**
+     * Writes a heard line once on its route: an insert-or-nothing; a line heard before answers its id. The route's stream lock is taken
+     * FIRST (concept agent-data rule 12): two lines of one route commit in the order of their `seq`, so a cursor never passes a line that
+     * commits later with a lower one.
+     */
     async insertHeard(
         manager: EntityManager,
         workspaceId: string,
         line: HeardLineRow,
     ): Promise<{ readonly id: string; readonly written: boolean }> {
+        await lockStreamSubject(manager, workspaceId, LINES_STREAM, line.routeId)
         const result = await manager
             .createQueryBuilder(CustomerMessageEntity, "line")
             .insert()

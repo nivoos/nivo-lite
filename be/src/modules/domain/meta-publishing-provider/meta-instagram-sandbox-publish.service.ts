@@ -12,21 +12,19 @@ import {
 } from "@modules/domain/provider-registry"
 import { ProviderSandboxService, type SandboxState } from "@modules/domain/provider-sandbox"
 import {
+    INSTAGRAM_CASE,
+    INSTAGRAM_CONTAINER_WALKS,
+    INSTAGRAM_PUBLISH_OPERATION,
+    INSTAGRAM_RELEASE_OPERATION,
     INSTAGRAM_SANDBOX_CAROUSEL_MAX,
-    INSTAGRAM_SANDBOX_MEDIA,
+    INSTAGRAM_SANDBOX_REFUSALS,
+    INSTAGRAM_STATUS_OPERATION,
     type InstagramSandboxCodes,
 } from "./meta-instagram-sandbox.catalogue"
-
-/** The sandbox operation words, the port's own method names. */
-const PUBLISH_OPERATION = "publish"
-const RELEASE_OPERATION = "release"
-const STATUS_OPERATION = "status"
+import { metaPublishingRateLimited, metaPublishingServerError, metaPublishingUnreachable } from "./meta-publishing-sandbox.failures"
 
 /** State name: the containers the account created, by container id. */
 const CONTAINER = "container"
-
-/** The codes a container created from a caption the catalogue does not name walks: finished at once. */
-const DEFAULT_CODES: InstagramSandboxCodes = ["FINISHED"]
 
 /** A container as the account's state keeps it: the status words it walks, how many reads walked them, and whether it was published. */
 interface KeptContainer {
@@ -36,13 +34,20 @@ interface KeptContainer {
 }
 
 /** Where a documented `status_code` leaves the container (the live adapter's own table). */
-const STATE_OF_CODE: Readonly<Record<"IN_PROGRESS" | "FINISHED" | "ERROR", InstagramPublishState>> = {
+const STATE_OF_CODE: Readonly<Record<InstagramSandboxCodes[number], InstagramPublishState>> = {
     IN_PROGRESS: "pending",
     FINISHED: "ready",
     ERROR: "failed",
+    EXPIRED: "failed",
 }
 
 const refused = (detail: string): ProviderRegistryError => withProof(providerRefusal(PROVIDER.meta, "rejected", detail), "not_sent")
+
+/** The refusal a refusing case throws, or null when the picked case refuses nothing. */
+const refusalOf = (nextCase: string | null): ProviderRegistryError | null => {
+    const refusal = nextCase === null ? undefined : INSTAGRAM_SANDBOX_REFUSALS[nextCase]
+    return refusal === undefined ? null : withProof(providerRefusal(PROVIDER.meta, refusal.reason, refusal.detail), "not_sent")
+}
 
 /** Reads the container kept under an id as the state holds it, or null when the account never created it. */
 const keptOf = async (state: SandboxState, containerId: string): Promise<KeptContainer | null> => {
@@ -52,15 +57,16 @@ const keptOf = async (state: SandboxState, containerId: string): Promise<KeptCon
 
 @Injectable()
 /**
- * Meta's SANDBOX implementation of the Instagram destination (`InstagramPublishPort`; owner rulings R56, R59, R60): used when the Meta
+ * Meta's SANDBOX implementation of the Instagram destination (`InstagramPublishPort`; owner rulings R56, R59, R60, R62): used when the Meta
  * account is a sandbox account. It answers through the generic sandbox frame from the hardcoded `INSTAGRAM-<n>` catalogue and never
- * reaches a host. A media request is picked by its exact caption (the natural key); a caption the catalogue does not name creates a
- * container that is finished at once. Like the live twin, `publish` creates the container, reads its status ONCE and publishes it when it
- * is finished; the later outcome arrives through `status` / `release` (the poll): the container the account kept in state walks its
- * catalogue status words one per read (processing, then finished or ERROR) and stays on the last; `release` publishes a finished one.
- * A published container reads `PUBLISHED` with no media id, as the live read does. Refusals throw exactly the live ones (`providerRefusal`
- * proving `not_sent`), a request that does not fit its kind is refused `rejected` before anything is created. Container ids run
- * `sbx-ig-container-<n>` by the publishes the account took (`state.seq`). The sandbox adds no idempotency.
+ * reaches a host. The account's NEXT CASE of each operation (`instagram.publish`, `instagram.status`, `instagram.release`) picks the
+ * answer (sticky; the operation's default while nothing is picked); the request's words pick nothing. Like the live twin, `publish`
+ * creates the container, reads its status ONCE and publishes it when it is finished; the picked publish case decides the container's
+ * fate: the container kept in state walks its status words one per read (processing, then finished, ERROR or EXPIRED, or processing for
+ * ever) and stays on the last; `release` publishes a finished one. A published container reads `PUBLISHED` with no media id, as the live
+ * read does. Refusals throw exactly the live ones (`providerRefusal` proving `not_sent`); a rate limit, an outage and a lost answer throw
+ * the live failures (`meta-publishing-sandbox.failures.ts`). A request that does not fit its kind is refused `rejected` before anything is
+ * created. Container ids run `sbx-ig-container-<n>` by the publishes the account took (`state.seq`). The sandbox adds no idempotency.
  */
 export class MetaInstagramSandboxPublishService implements InstagramPublishPort {
     /** The provider key. */
@@ -70,7 +76,7 @@ export class MetaInstagramSandboxPublishService implements InstagramPublishPort 
 
     /** Creates the container of a sandbox account through exactly one sandbox call keyed by the caption, then reads it and publishes it when finished. */
     async publish(connection: ConnectionRecord, request: InstagramMediaRequest): Promise<InstagramContainer> {
-        return await this.sandbox.call(connection, PUBLISH_OPERATION, request, {
+        return await this.sandbox.call(connection, INSTAGRAM_PUBLISH_OPERATION, request, {
             key: request.caption ?? "",
             answer: async (state) => {
                 if (request.mediaType === "carousel") {
@@ -78,12 +84,23 @@ export class MetaInstagramSandboxPublishService implements InstagramPublishPort 
                 } else if (request.mediaUrl === null) {
                     throw refused("media url")
                 }
-                const named = request.caption === null ? undefined : INSTAGRAM_SANDBOX_MEDIA[request.caption]
-                if (named?.outcome.kind === "refused") {
-                    throw withProof(providerRefusal(PROVIDER.meta, named.outcome.reason, named.outcome.detail), "not_sent")
+                const refusal = refusalOf(state.nextCase)
+                if (refusal !== null) throw refusal
+                if (state.nextCase === INSTAGRAM_CASE.rateLimited) throw metaPublishingRateLimited()
+                if (state.nextCase === INSTAGRAM_CASE.serverError) throw metaPublishingServerError()
+                if (state.nextCase === INSTAGRAM_CASE.timeout) throw metaPublishingUnreachable()
+                const number = String(state.seq + 1).padStart(6, "0")
+                const containerId = `sbx-ig-container-${number}`
+                if (state.nextCase === INSTAGRAM_CASE.carouselPartial && request.mediaType === "carousel") {
+                    // The live adapter creates one container per item, one at a time, and a refusal stops the rest (`createContainer`).
+                    await state.write(CONTAINER, `${containerId}-1`, { codes: ["FINISHED"], polls: 0, published: false } satisfies KeptContainer)
+                    throw refused("carousel item")
                 }
-                const codes = named?.outcome.kind === "container" ? named.outcome.codes : DEFAULT_CODES
-                const containerId = `sbx-ig-container-${String(state.seq + 1).padStart(6, "0")}`
+                if (state.nextCase === INSTAGRAM_CASE.appliedNoAnswer) {
+                    await state.write(CONTAINER, containerId, { codes: ["FINISHED"], polls: 0, published: false } satisfies KeptContainer)
+                    throw metaPublishingUnreachable()
+                }
+                const codes = (state.nextCase === null ? undefined : INSTAGRAM_CONTAINER_WALKS[state.nextCase]) ?? INSTAGRAM_CONTAINER_WALKS[INSTAGRAM_CASE.accepted] ?? ["FINISHED"]
                 return await this.stand(state, containerId, { codes, polls: 0, published: false }, true)
             },
         })
@@ -91,21 +108,27 @@ export class MetaInstagramSandboxPublishService implements InstagramPublishPort 
 
     /** Reads a container the account created and publishes it when it is finished, through exactly one sandbox call. */
     async release(connection: ConnectionRecord, containerId: string): Promise<InstagramContainer> {
-        return await this.read(connection, RELEASE_OPERATION, containerId, true)
+        return await this.read(connection, INSTAGRAM_RELEASE_OPERATION, containerId, true)
     }
 
     /** Reads one container (a pure read of the container; the sandbox poll clock moves one step), through exactly one sandbox call. */
     async status(connection: ConnectionRecord, containerId: string): Promise<InstagramContainer> {
-        return await this.read(connection, STATUS_OPERATION, containerId, false)
+        return await this.read(connection, INSTAGRAM_STATUS_OPERATION, containerId, false)
     }
 
     private async read(connection: ConnectionRecord, operation: string, containerId: string, publish: boolean): Promise<InstagramContainer> {
         return await this.sandbox.call(connection, operation, { containerId }, {
             key: containerId,
             answer: async (state) => {
+                const refusal = refusalOf(state.nextCase)
+                if (refusal !== null) throw refusal
+                if (state.nextCase === INSTAGRAM_CASE.statusRateLimited || state.nextCase === INSTAGRAM_CASE.releaseRateLimited) throw metaPublishingRateLimited()
+                if (state.nextCase === INSTAGRAM_CASE.statusTimeout || state.nextCase === INSTAGRAM_CASE.releaseTimeout) throw metaPublishingUnreachable()
                 const kept = await keptOf(state, containerId)
                 if (kept === null) throw withProof(providerRefusal(PROVIDER.meta, "not_found", "container not found"), "not_sent")
-                return await this.stand(state, containerId, kept, publish)
+                const stood = await this.stand(state, containerId, kept, publish)
+                if (state.nextCase === INSTAGRAM_CASE.releaseAppliedNoAnswer && stood.state === "published") throw metaPublishingUnreachable()
+                return stood
             },
         })
     }

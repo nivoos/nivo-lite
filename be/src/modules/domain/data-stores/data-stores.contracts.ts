@@ -15,6 +15,10 @@ export type MaybeWorkspaceRef = WorkspaceRef | null
 export interface WorkspaceDirectory {
     /** The workspace of an enterprise identifier, else the one live workspace of that name; null when none or several. */
     resolve(natural: string): Promise<MaybeWorkspaceRef>
+    /** Every live workspace, in workspace id order (none: an environment with no workspace yet). */
+    all(): Promise<ReadonlyArray<WorkspaceRef>>
+    /** The live workspace with this id, or null when none (also for a text that is no id). */
+    byId(workspaceId: string): Promise<MaybeWorkspaceRef>
 }
 
 /** One row a set door holds: its natural key, its own id and its record. */
@@ -106,16 +110,26 @@ export interface WorkspaceObjects {
 /** The rows of one set a door holds, by key. */
 export type HeldRows = Map<string, DoorRow>
 
-/** One import into the database store, being run: where it writes, what it counted, what the doors hold and what the entries named. */
-export interface DatabaseRun {
+/** What an import into the database store works with inside ONE workspace: what its doors hold and what the entries named. */
+export interface DatabaseWork {
     /** The workspace the entries are written into. */
     readonly workspace: WorkspaceRef
-    /** The options of the import call. */
-    readonly options: ImportOptions
-    /** What the import counted, by set. */
-    readonly tallies: ImportTallies
+    /** True for an unscoped import: the keys the copy reports carry the workspace id prefix. */
+    readonly prefixed: boolean
     /** The rows each door held, listed once per set. */
     readonly held: Map<string, HeldRows>
     /** The keys the entries named, by set. */
     readonly named: Map<string, Set<string>>
+}
+
+/** One import into the database store, being run: where it writes, what it counted and the work of each workspace it reached. */
+export interface DatabaseRun {
+    /** The one workspace a scoped call names, or null for an unscoped import (every entry names its own workspace by key prefix). */
+    readonly only: WorkspaceRef | null
+    /** The options of the import call. */
+    readonly options: ImportOptions
+    /** What the import counted, by set. */
+    readonly tallies: ImportTallies
+    /** The work of each workspace the entries reached, by workspace id. */
+    readonly works: Map<string, DatabaseWork>
 }

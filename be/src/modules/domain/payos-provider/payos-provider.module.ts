@@ -7,8 +7,8 @@ import { ConfigurableModuleClass, OPTIONS_TYPE } from "./payos-provider.module-d
 
 @Module({})
 /**
- * Everything payOS-specific that core asks a provider for, registered under the capability names: the payment-link purpose the generic
- * payment-link tools (`nivo.tool.payment.link.*`) run through. It needs the payOS client (`PayosModule`), the connection secrets and the
+ * Everything payOS-specific that core asks a provider for, registered under the capability names: the payment request the generic
+ * payment-request tools (`nivo.tool.payment.request.*`) run through. It needs the payOS client (`PayosModule`), the connection secrets and the
  * provider registry, registered globally by the app. payOS's webhook feed lives in billing (the bank-feed door) and is unchanged.
  */
 export class PayosProviderModule extends ConfigurableModuleClass {

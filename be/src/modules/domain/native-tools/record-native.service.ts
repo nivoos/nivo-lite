@@ -5,9 +5,12 @@ import {
     ENTITY_ENGINE_ERROR_KINDS,
     EntityEngineService,
     EntityPortsService,
+    isAppendOnly,
+    recordEventsOf,
     type AgentScope,
     type RunIn,
 } from "@modules/domain/entity-engine"
+import { StreamCursorService } from "@modules/domain/customer-routes"
 import {
     type ToolJson,
     type NativeToolFamily,
@@ -28,6 +31,7 @@ import {
     recordRefusal,
     recordViewOf,
     resultRefusalOf,
+    streamSubjectOfWhere,
     updateOf,
     verbOf,
     writeRefusalOf,
@@ -134,6 +138,8 @@ export class RecordNativeService implements NativeToolFamily {
     constructor(
         @Optional() private readonly engine?: EntityEngineService,
         @Optional() private readonly ports?: EntityPortsService,
+        // The consumers' positions on the records streams (concept agent-data rules 5, 8); absent in an app with no streams.
+        @Optional() private readonly cursor?: StreamCursorService,
     ) {}
 
     /** Runs one record tool for the workspace the gateway bound, on the records of the agent that calls. */
@@ -142,7 +148,9 @@ export class RecordNativeService implements NativeToolFamily {
         if (verb === null) throw unknownTool(tool)
         const store = this.storeOf()
         // A write is confined to the calling agent's own records; a read reaches every record of the workspace (R16).
-        const agent: AgentScope = { id: caller.agentId, sees: "own" }
+        // A step's write names its run (the call key `<run>:<step>:<digest>`), so its write event is never offered back to it (agent-data rule 4).
+        const writerRunId = caller.graphStep === true && caller.opKey !== undefined ? (caller.opKey.split(":")[0] ?? "") : ""
+        const agent: AgentScope = { id: caller.agentId, sees: "own", ...(writerRunId === "" ? {} : { writerRunId }) }
         const reader: AgentScope = { id: caller.agentId, sees: "all" }
         if (verb === "get") {
             const asked = argumentsOf(tool, RECORD_GET_SCHEMA, args)
@@ -151,7 +159,7 @@ export class RecordNativeService implements NativeToolFamily {
         }
         if (verb === "list") {
             const asked = argumentsOf(tool, RECORD_LIST_SCHEMA, args)
-            return this.listed(store, workspaceId, reader, asked, this.declared(store, asked.type))
+            return this.listed(store, workspaceId, reader, asked, this.declared(store, asked.type), caller)
         }
         if (verb === "create") {
             const asked = argumentsOf(tool, RECORD_CREATE_SCHEMA, args)
@@ -215,13 +223,33 @@ export class RecordNativeService implements NativeToolFamily {
         agent: AgentScope,
         asked: RecordListArgs,
         definition: EntityDefinition,
+        caller: NativeCaller,
     ): Promise<ToolJson> {
+        // A STREAM read (concept agent-data rule 5): an append-only type, its `where` fixing ONE subject; a consuming read of anything else
+        // is a query that does not fit (`query_invalid`).
+        const subjectField = isAppendOnly(definition) ? (recordEventsOf(definition)?.subject ?? null) : null
+        const subject = subjectField === null ? null : streamSubjectOfWhere(subjectField, asked.where)
+        if (asked.consume === true && subject === null) throw recordRefusal("query_invalid")
         const plan = listPlanOf(definition, asked)
         if (plan.kind === "refused") throw recordRefusal(plan.reason)
         const page = await this.fitted("query_invalid", () =>
             this.scoped(store, workspaceId, agent, (records) => records.list(plan.query)),
         )
-        return { records: page.rows.map((row) => recordViewOf(row.row)), next: page.next }
+        const views = page.rows.map((row) => recordViewOf(row.row))
+        if (subjectField === null) return { records: views, next: page.next }
+        // Each fact answers its position; the answer names the CALLER AGENT's position on the subject, and a consuming read by a step is
+        // that step's pending read until the step ends (the same cursor as the lines of a route).
+        const seqs = await store.engine.scoped(workspaceId, (tx) => store.engine.seqsOf(tx, definition.name, views.map((view) => view.id)), agent)
+        const ref = subject === null ? null : { agentId: caller.agentId, stream: definition.name, subject }
+        const consumedSeq = ref === null || this.cursor === undefined ? null : await this.cursor.cursorOf(workspaceId, ref)
+        const newest = [...seqs.values()].reduce<string | null>((top, seq) => (top === null || BigInt(seq) > BigInt(top) ? seq : top), null)
+        if (asked.consume === true && ref !== null && newest !== null && caller.graphStep === true && caller.opKey !== undefined)
+            await this.cursor?.read(workspaceId, ref, caller.opKey, newest)
+        return {
+            records: views.map((view) => ({ ...view, ...(seqs.has(view.id) ? { seq: seqs.get(view.id) ?? null } : {}) })),
+            next: page.next,
+            consumedSeq,
+        }
     }
 
     private async created(

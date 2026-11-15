@@ -11,3 +11,4 @@ export type {
     WorkspaceObjects,
     WorkspaceRef,
 } from "./data-stores.contracts"
+export { DataStoreServeService } from "./data-store-serve.service"

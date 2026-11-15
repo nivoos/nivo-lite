@@ -312,4 +312,5 @@ export type {
     SendSandboxCaseMutation,
     SetAgentProviderDefaultMutation,
     SetSandboxNextCaseMutation,
+    SetSandboxNextOutcomeMutation,
 } from "./graphql/__generated__/graphql"

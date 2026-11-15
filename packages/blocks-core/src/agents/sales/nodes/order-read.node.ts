@@ -27,6 +27,8 @@ export interface OrderReadOutput {
     readonly amountVnd: number | null
     /** Its customer, or null. */
     readonly contactId: string | null
+    /** The money provider's reference of its payment request, or null when none is kept. */
+    readonly paymentRequestRef: string | null
 }
 
 const input: NodeSchema<OrderReadInput> = z.object({ orderId: z.string().min(1).max(MAX_ID).nullable() })
@@ -37,11 +39,12 @@ const output: NodeSchema<OrderReadOutput> = z.object({
     status: z.string().min(1).max(MAX_LINE).describe("Where the order stands."),
     amountVnd: z.number().int().min(0).nullable().describe("The order's total in VND, or null."),
     contactId: z.string().min(1).max(MAX_ID).nullable().describe("The order's customer, or null."),
+    paymentRequestRef: z.string().min(1).max(MAX_ID).nullable().describe("The reference of the order's payment request, or null."),
 })
 
 /**
  * `sales.order-read` (Doc don hang): reads one `blocks-core.sales.order` record by id (`nivo.tool.record.get`) and hands its code, status, total and
- * customer to the steps after it; whether the order still waits for its money is the graph's `ifNode` on the status, exactly. Plain
+ * customer and the reference of its payment request to the steps after it; whether the order still waits for its money is the graph's `ifNode` on the status, exactly. Plain
  * logic: it decides nothing. An order the record tool does not find stops the run with the refusal.
  */
 export const salesOrderReadNode: TemplateNode<typeof input, typeof output> = defineTemplateNode({
@@ -56,7 +59,14 @@ export const salesOrderReadNode: TemplateNode<typeof input, typeof output> = def
     run: async (given, context) => {
         if (given.orderId === null) return context.fail({ kind: "cannot", why: "the order read was reached with no order named" })
         const order = await readOrder(context, given.orderId)
-        return { orderId: order.id, orderNo: order.orderNo, status: order.status, amountVnd: order.amountVnd, contactId: order.contactId }
+        return {
+            orderId: order.id,
+            orderNo: order.orderNo,
+            status: order.status,
+            amountVnd: order.amountVnd,
+            contactId: order.contactId,
+            paymentRequestRef: order.paymentRequestRef,
+        }
     },
     examples: [
         {
@@ -77,7 +87,35 @@ export const salesOrderReadNode: TemplateNode<typeof input, typeof output> = def
                     ),
                 },
             ],
-            output: { orderId: "o1", orderNo: "DH-20261113-0001", status: "confirmed", amountVnd: 4500, contactId: "contact-1" },
+            output: { orderId: "o1", orderNo: "DH-20261113-0001", status: "confirmed", amountVnd: 4500, contactId: "contact-1", paymentRequestRef: null },
+        },
+        {
+            name: "an order that keeps its payment request's reference hands it on",
+            params: {},
+            input: { orderId: "o2" },
+            tools: [
+                {
+                    id: TOOL.recordGet,
+                    args: { type: SALES_ORDER_ENTITY, id: "o2" },
+                    answer: answered(
+                        orderRecordAnswerOf("o2", {
+                            orderNo: "DH-20261113-0002",
+                            status: "confirmed",
+                            amountVnd: 4500,
+                            contactId: "contact-1",
+                            paymentRequestRef: "1789000000001",
+                        }),
+                    ),
+                },
+            ],
+            output: {
+                orderId: "o2",
+                orderNo: "DH-20261113-0002",
+                status: "confirmed",
+                amountVnd: 4500,
+                contactId: "contact-1",
+                paymentRequestRef: "1789000000001",
+            },
         },
         {
             name: "an order the record tool does not find stops the run with the refusal",

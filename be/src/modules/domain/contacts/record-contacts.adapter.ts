@@ -1,4 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common"
+import type { EntityManager } from "typeorm"
 import type { RecordContactsPort } from "@modules/domain/entity-engine/record-contacts.port"
 import { eachInOrder } from "@modules/platform/primitives"
 import { CONTACTS_STORE, type ContactsStore } from "./contacts-store.port"
@@ -14,7 +15,7 @@ export class RecordContactsAdapter implements RecordContactsPort {
     constructor(@Inject(CONTACTS_STORE) private readonly store: ContactsStore) {}
 
     /** Every id that names an active contact of the workspace (directly or through its merge), to the id it stands for now. */
-    async currentOf(workspaceId: string, contactIds: ReadonlyArray<string>): Promise<ReadonlyMap<string, string>> {
+    async currentOf(workspaceId: string, contactIds: ReadonlyArray<string>, manager?: EntityManager): Promise<ReadonlyMap<string, string>> {
         const ids = [...new Set(contactIds)].filter(isContactId)
         if (ids.length === 0) return new Map()
         return await this.store.transaction(async (tx) => {
@@ -23,7 +24,7 @@ export class RecordContactsAdapter implements RecordContactsPort {
             const held = await tx.contactsOf(workspaceId, [...new Set(ids.map((id) => nowOf(id)))])
             const active = new Set(held.filter((contact) => contact.state === "active").map((contact) => contact.id))
             return new Map(ids.flatMap((id): ReadonlyArray<readonly [string, string]> => (active.has(nowOf(id)) ? [[id, nowOf(id)]] : [])))
-        })
+        }, manager)
     }
 
     /**
@@ -34,6 +35,7 @@ export class RecordContactsAdapter implements RecordContactsPort {
     async aliasesOf(
         workspaceId: string,
         contactIds: ReadonlyArray<string>,
+        manager?: EntityManager,
     ): Promise<ReadonlyMap<string, ReadonlyArray<string>>> {
         const ids = [...new Set(contactIds)]
         const shaped = ids.filter(isContactId)
@@ -53,6 +55,6 @@ export class RecordContactsAdapter implements RecordContactsPort {
                 answered.set(id, [...new Set([now, id, ...merged])])
             })
             return answered
-        })
+        }, manager)
     }
 }

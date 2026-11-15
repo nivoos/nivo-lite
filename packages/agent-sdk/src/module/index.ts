@@ -9,6 +9,7 @@ export type {
     ModuleListProblemCode,
     ModuleServer,
     ModuleServerVocabulary,
+    ModuleKnowledgeIdea,
     ModuleTemplate,
     ModuleTemplateAgent,
     ModuleTemplateGate,
@@ -17,7 +18,10 @@ export type {
     ModuleTemplateTrigger,
     ModuleTriggerPreset,
 } from "./module.types"
+export { PLATFORM_MODULE_KEY } from "./platform-module"
 export { moduleListProblems, templatesOf } from "./registry"
+export type { ModuleAvailabilityProblem, ModuleShipment } from "./availability"
+export { moduleAvailabilityProblems } from "./availability"
 export type {
     ModuleAgent,
     ModuleAbilityDefault,

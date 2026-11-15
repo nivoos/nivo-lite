@@ -6,8 +6,9 @@ import type { OptionalCanonicalEvent, TriggerDeclaration } from "@modules/domain
  * THE WORKFLOW CALL'S TRIGGER (stage 1 of the one event pipeline, concept triggers rule 13): a run's `callWorkflow` hand-off, a declared
  * job's start of a workflow, or the team chat's turn, as ONE canonical event for the callee agent. Pure: the translate reads only its
  * argument. The event's `data` is exactly what the caller mapped (the callee's declared input, `supply: caller`), flat. The workflow the
- * call names and its version are the delivery's pin (`DeliveredEvent.pin`), never part of the event; the caller's person rides beside
- * the event too (`contactId`), the key.
+ * call names and its version are the delivery's pin (`DeliveredEvent.pin`), never part of the event; the person the call is about rides
+ * beside the event too (`contactId`: the one the caller passes, else the caller's own), the key. A source whose call is about something
+ * else declares it per event (`DeliveredEvent.key`: a team chat turn is about its room).
  */
 
 /** The trigger's name. */

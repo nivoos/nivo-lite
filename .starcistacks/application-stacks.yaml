@@ -125,15 +125,20 @@ data:
   stores:
     - {id: database, kind: database, level: logical, component: db, adapter: {module: be/src/modules/domain/data-stores/workspace-database.adapter.ts}}
     - {id: storage, kind: storage, level: logical, component: nivo-minio, adapter: {module: be/src/modules/domain/data-stores/workspace-storage.adapter.ts}}
+    # The WHOLE deployment (the seed-backup set): the whole relational database (the `public` and `auth` schemas minus the rebuildable tables listed with
+    # their reasons in be/src/modules/integrations/seed/seed-postgres.policy.ts) read over the database owner role (DATABASE_OWNER_URL), and every object
+    # of every bucket the app owns (set = the bucket without its environment prefix). Both are reached by `cli data-store <id>`.
+    - {id: database-all, kind: database, level: physical, component: db, adapter: {module: be/src/modules/integrations/seed/seed-postgres.policy.ts, command: [node, be/dist/apps/cli/src/main.js, data-store, database-all]}}
+    - {id: storage-all, kind: storage, level: logical, component: nivo-minio, adapter: {module: be/src/modules/domain/data-stores/storage-all.adapter.ts, command: [node, be/dist/apps/cli/src/main.js, data-store, storage-all]}}
   derived:
-    - {component: nivo-redis, from: database, rebuild: "the outbox relay republishes the queue; caches refill"}
-    - {component: nivo-qdrant, from: database, rebuild: "the vector reconcile job (tick vector-reconcile) rewrites every point from the Postgres rows, to which each vector maps one to one"}
-    - {component: nivo-postgres-backup, from: database, rebuild: "the next daily run (02:00 Asia/Ho_Chi_Minh) takes a new age-encrypted pg_dump of db; the files on its volume are a copy of the database, never a record"}
+    - {component: nivo-redis, from: database-all, rebuild: "the outbox relay republishes the queue; caches refill"}
+    - {component: nivo-qdrant, from: database-all, rebuild: "the vector reconcile job (tick vector-reconcile) rewrites every point from the Postgres rows, to which each vector maps one to one"}
+    - {component: nivo-postgres-backup, from: database-all, rebuild: "the next daily run (02:00 Asia/Ho_Chi_Minh) takes a new age-encrypted pg_dump of db; the files on its volume are a copy of the database, never a record"}
     - {component: nivo-n8n, rebuild: "not rebuilt from a store: its SQLite database and workflows on the volume nivo-engine_n8n-data are kept by the host's age-encrypted tarball (starci app stack backup, 14 days); no store adapter covers them"}
   sets:
     - id: nivo-lite-backup
       purpose: seed-backup
-      stores: [database, storage]
+      stores: [database-all, storage-all]
       environments: [dev, production]
       everyMinutes: 1440
       to: [{driver: git, repository: "https://github.com/starci183/nivo-lite-seed-backup-{env}"}]
@@ -440,7 +445,15 @@ environments:
         - {name: db, wait: healthy}
         - {name: nivo-redis, wait: healthy}
         - {name: nivo-qdrant, wait: healthy}
-        - {name: nivo-minio, wait: tcp, port: minio}
+        - {name: nivo-minio, wait: tcp, port: minio, kind: object-store}
+      # The dev tunnel (PROJECT-STACKS-15): the S3 API port of MinIO gets a public host so a file or image link renders in a browser, in a provider
+      # (Zalo fetching an image URL) and on any machine. STORAGE_ENDPOINT stays the loopback address of the api's own writes; STORAGE_PUBLIC_URL is the
+      # origin every link is built on (the `publicEndpoint` option of @starci/object-storage). MinIO's console is not published. `stack up --execute`
+      # adds the ingress rule to ~/.cloudflared/nivo-dev.yml and the DNS record; the other hosts of the tunnel (nivo-local*.starci.org) are not declared here.
+      tunnel:
+        name: nivo-dev
+        routes:
+          - {name: storage, host: nivo-local-files.starci.org, port: minio}
       dirs: [ai-router, mail-outbox]
       database:
         service: db
@@ -499,6 +512,7 @@ environments:
             AUTH_WEB_ORIGIN: "https://nivo-local-app.starci.org"
             PUBLIC_API_URL: "https://nivo-local.starci.org"
             STORAGE_ENDPOINT: "http://127.0.0.1:${port.minio}"
+            STORAGE_PUBLIC_URL: "https://nivo-local-files.starci.org"
             STORAGE_BUCKET_PREFIX: nivo-dev
             MAIL_PORT: "587"
             MAIL_SECURITY: starttls
@@ -519,6 +533,7 @@ environments:
             AUTH_WEB_ORIGIN: "https://nivo-local-app.starci.org"
             PUBLIC_API_URL: "https://nivo-local.starci.org"
             STORAGE_ENDPOINT: "http://127.0.0.1:${port.minio}"
+            STORAGE_PUBLIC_URL: "https://nivo-local-files.starci.org"
             STORAGE_BUCKET_PREFIX: nivo-dev
             MAIL_PORT: "587"
             MAIL_SECURITY: starttls
@@ -530,7 +545,7 @@ environments:
           argv: [node, dist/apps/api/src/main.js]
           cwd: be
           port: api
-          files: [AUTH_JWT_PRIVATE_KEY, AUTH_JWT_PUBLIC_KEY, CHANNEL_TOKEN_KEY, ENTITY_ENGINE_CURSOR_KEY, OTP_PEPPER, N8N_SIGNING_SECRET, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY, OPENROUTER_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, NIVO_PLATFORM_ADMINS, STARCI_AI_KEY, MAIL_HOST, MAIL_USER, MAIL_PASSWORD, MAIL_FROM, TELEGRAM_API_ID, TELEGRAM_API_HASH, GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, QDRANT_API_KEY]
+          files: [AUTH_JWT_PRIVATE_KEY, AUTH_JWT_PUBLIC_KEY, CHANNEL_TOKEN_KEY, ENTITY_ENGINE_CURSOR_KEY, OTP_PEPPER, N8N_SIGNING_SECRET, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY, OPENROUTER_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, NIVO_PLATFORM_ADMINS, STARCI_AI_KEY, MAIL_HOST, MAIL_USER, MAIL_PASSWORD, MAIL_FROM, TELEGRAM_API_ID, TELEGRAM_API_HASH, GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, QDRANT_API_KEY, DATABASE_OWNER_URL]
           env:
             PORT: "${port.api}"
             PRIMARY_DB_SCHEMA: public
@@ -551,6 +566,12 @@ environments:
             # has one workspace and reaches all of them; only a shared multi-tenant deployment sets it lower (agent-runs-limit.service.ts).
             AGENT_RUNS_CONCURRENCY: "100"
             AGENT_RUNS_WORKSPACE_CONCURRENCY: "100"
+            # THE DATABASE BOUND (POOL-LOCK, D3-W1-6; platform/database DatabasePoolBound, the defaults written out): pool size, the wait for
+            # a pooled connection (then DATABASE_UNAVAILABLE), the session lock_timeout and idle_in_transaction_session_timeout.
+            PRIMARY_DB_POOL_MAX: "20"
+            PRIMARY_DB_ACQUIRE_TIMEOUT: "10s"
+            PRIMARY_DB_LOCK_TIMEOUT: "15s"
+            PRIMARY_DB_IDLE_TRANSACTION_TIMEOUT: "60s"
             # The running build's name (the jobs and the entity engine read it).
             APP_BUILD_ID: dev
             # The dev seed-backup (PROJECT-STACKS-13): the scheduled job writes nivo-lite-seed-backup-dev, sealed to the dev rule's public
@@ -558,6 +579,8 @@ environments:
             DATA_BACKUP_ENV: dev
             DATA_BACKUP_CHECKOUT: "D:/Repositories/nivo-lite-seed-backup-dev"
             DATA_BACKUP_RECIPIENTS: age173qfq7f776syam9tpkyfej0h2jjt6rc4ha7r38ez40n5mn0lwyaqp9ejt7
+            # The whole-database backup connects as the database OWNER role of this stack (not app_be): `DATABASE_OWNER_URL` in this process's
+            # `files` makes `stack up` write the owner connection to DATABASE_OWNER_URL_FILE from custody (@starci/hfs 6.13.0, PROJECT-STACKS-13).
             SMTP_ALLOW_PRIVATE_HOSTS: "true"
             # Dev only: provider sandbox accounts (no credentials, hardcoded cases; rulings R56-R62). Absent in production = off.
             PROVIDER_SANDBOX_ENABLED: "true"
@@ -565,6 +588,7 @@ environments:
             # (embeddings); OPENROUTER_API_KEY stays sealed and listed in files: but the pool no longer reads it (owner 2026-11-11).
             AI_EMBEDDING_MODEL: embed-oa
             STORAGE_ENDPOINT: "http://127.0.0.1:${port.minio}"
+            STORAGE_PUBLIC_URL: "https://nivo-local-files.starci.org"
             STORAGE_BUCKET_PREFIX: nivo-dev
             MAIL_PORT: "587"
             MAIL_SECURITY: starttls
@@ -595,9 +619,15 @@ environments:
           files: [CHANNEL_TOKEN_KEY, ENTITY_ENGINE_CURSOR_KEY, STARCI_AI_KEY, QDRANT_API_KEY, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY]
           env:
             PORT: "${port.mcp}"
+            # The same database bound as the api (POOL-LOCK; its own pool of the same size).
+            PRIMARY_DB_POOL_MAX: "20"
+            PRIMARY_DB_ACQUIRE_TIMEOUT: "10s"
+            PRIMARY_DB_LOCK_TIMEOUT: "15s"
+            PRIMARY_DB_IDLE_TRANSACTION_TIMEOUT: "60s"
             # TEN (RESTART-R, rehearsal 2026-11-13): the mcp env reader requires the object store and the site origin; drop with H1 if the narrowed mcp no longer reads them.
             SITE_URL: "https://nivo-local-app.starci.org"
             STORAGE_ENDPOINT: "http://127.0.0.1:${port.minio}"
+            STORAGE_PUBLIC_URL: "https://nivo-local-files.starci.org"
             STORAGE_BUCKET_PREFIX: nivo-dev
             PRIMARY_DB_SCHEMA: public
             HTTP_SECURITY_ALLOWED_ORIGINS: "http://localhost:${port.web},https://nivo-local-app.starci.org"
@@ -662,6 +692,7 @@ environments:
         - {name: api, url: "http://localhost:${port.api}"}
         - {name: mcp, url: "http://localhost:${port.mcp}"}
   production:
+    short: prod
     status: supported
     runtime: docker-swarm
     composeFiles:
@@ -1067,6 +1098,10 @@ environments:
             QUEUE_REDIS_PREFIX: nivo
             REALTIME_HUB: redis
             REALTIME_REDIS_PREFIX: nivo-realtime
+            # The production seed-backup (PROJECT-STACKS-13): the repository is nivo-lite-seed-backup-prod (the environment's `short`). The checkout, the
+            # public age recipients of the production rule and the owner connection DATABASE_OWNER_URL_FILE are provisioned by the owner; the backup stays off
+            # (and the tick says which key is missing) until they are declared.
+            DATA_BACKUP_ENV: prod
             # The vector index (Qdrant) on the private agents network; QDRANT_API_KEY comes from the sealed qdrant member. This address is
             # REQUIRED: the only home of vectors (the api refuses to start without it; /readyz is unready while it does not answer).
             QDRANT_URL: "http://nivo-qdrant:6333"

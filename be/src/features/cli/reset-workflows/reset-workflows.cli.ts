@@ -3,7 +3,7 @@ import { Command, CommandRunner, Option } from "nest-commander"
 import { WorkflowResetCommandService, type ResetWorkflowsCommand } from "@modules/domain/workspace-seed"
 
 /** The folder of the seeded graphs, relative to the lane root the command runs in. */
-const DEFAULT_GRAPHS = ".starcistacks/dev/seeds/data/graphs"
+const DEFAULT_GRAPHS = "be/src/tests/fixtures/graphs"
 
 @Command({
     name: "reset-workflows",

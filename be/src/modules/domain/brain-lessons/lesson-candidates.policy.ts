@@ -25,7 +25,7 @@ export const namesCustomerData = (text: string): boolean => {
 }
 
 /**
- * The shapes of the engine's own identifiers: a NIVO tool id (`nivo.tool.payment.transfer.create`), a uuid (a run, a step's record, a change), a
+ * The shapes of the engine's own identifiers: a NIVO tool id (`nivo.tool.payment.request.create`), a uuid (a run, a step's record, a change), a
  * snake_case key (`order_has_money`, `already_told_for_this_stop`) and an engine ref (`run:…`, `step:…`, `brain-change:…`). Never a word
  * of a shop rule.
  */

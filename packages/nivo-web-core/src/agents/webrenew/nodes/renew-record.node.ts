@@ -35,7 +35,7 @@ const output: z.ZodType<RenewRecordOutput> = z.object({
     state: z.string().min(1).max(40).nullable().describe("The request's `state` as the CRM answered it; null when nothing was written."),
 })
 
-/** The outcome body for a renewal the registrar answered: `renewed` with its date, else `pending` for a person (never `failed`). */
+/** The outcome body for a renewal the registrar answered: `renewed` with its date, else `pending` for a person (the agent never writes `failed`: a registrar's refusal stops the renew step before this one, E-FIX12). */
 const bodyOf = (renewal: RenewOutput): Readonly<Record<string, string>> => {
     const ref = renewal.reference === null ? {} : { providerRef: renewal.reference }
     switch (renewal.outcome) {
@@ -48,8 +48,6 @@ const bodyOf = (renewal: RenewOutput): Readonly<Record<string, string>> => {
             }
         case "pending":
             return { outcome: "pending", ...ref, confirmedBy: CONFIRMED_BY, note: PROVIDER_PENDING }
-        case "refused":
-            return { outcome: "pending", confirmedBy: CONFIRMED_BY, ...(renewal.reason === null ? {} : { note: renewal.reason }) }
         case "not_renewable":
             return { outcome: "pending", confirmedBy: CONFIRMED_BY, note: AWAITING_MANUAL }
     }
@@ -69,10 +67,10 @@ const RENEWED: RenewOutput = {
 
 const PENDING: RenewOutput = { ...RENEWED, outcome: "pending", newExpiresOn: null }
 
-const REFUSED: RenewOutput = {
+const NOT_RENEWABLE: RenewOutput = {
     ...RENEWED,
-    outcome: "refused",
-    reason: "insufficient_balance",
+    outcome: "not_renewable",
+    reason: "not_a_domain",
     reference: null,
     provider: null,
     newExpiresOn: null,
@@ -96,8 +94,8 @@ const requestOf = (state: string, newExpiresOn: string | null) =>
 /**
  * `webrenew.renew-record` (Record the provider answer, R57): ONE CRM write, no AI. It writes the registrar's answer on the paid request
  * (`nivo.api.crm.nivoweb.post.renewals.id.outcome`, mode `auto`: a record of what happened, it moves no money): `renewed` with the
- * reference and the new end date; `pending` (order taken) with the reference and the note `provider_pending`; a refusal as `pending`
- * with the refusal as the note (the customer has paid: a person finishes it, the agent never writes `failed`). A service no registrar
+ * reference and the new end date; `pending` (order taken) with the reference and the note `provider_pending` (the customer has paid: a person finishes it, the agent never writes `failed`; a registrar's refusal never reaches
+ * this step, the engine stops the renew step for a person). A service no registrar
  * tool renews (hosting, SSL, R83) is recorded as `pending` with the note `awaiting_manual_renewal` (the team is told by the next step). A CRM refusal stops the run (the engine reports it; never silent). A person declining the write (a shop's
  * own `ask`) made a decision: nothing is recorded.
  */
@@ -162,22 +160,9 @@ export const webrenewRenewRecordNode: TemplateNode<typeof input, typeof output, 
             output: { recorded: true, state: "pending_person" },
         },
         {
-            name: "a refused renewal waits for a person: pending with the refusal as the note, never failed",
-            params: {},
-            input: { renewal: REFUSED },
-            tools: [
-                {
-                    id: CRM_NIVOWEB.post_renewals_id_outcome,
-                    args: { id: RENEWAL_ID, outcome: "pending", confirmedBy: CONFIRMED_BY, note: "insufficient_balance" },
-                    answer: requestOf("pending_person", null),
-                },
-            ],
-            output: { recorded: true, state: "pending_person" },
-        },
-        {
             name: "a service no registrar tool renews (hosting, SSL): recorded as awaiting manual renewal, pending for a person",
             params: {},
-            input: { renewal: { ...REFUSED, outcome: "not_renewable", reason: "not_a_domain" } },
+            input: { renewal: NOT_RENEWABLE },
             tools: [
                 {
                     id: CRM_NIVOWEB.post_renewals_id_outcome,

@@ -1,5 +1,5 @@
 import { mock } from "@starci/jest-preset"
-import type { ParkedWait, ThreadWaitExpiryService } from "@modules/domain/agent-threads"
+import type { ParkedDeadline, ThreadParkedDeadlinesService } from "@modules/domain/agent-threads"
 import type { AgentDirectoryService } from "@modules/domain/agents"
 import type { ContactsService } from "@modules/domain/contacts"
 import type { ProviderSandboxAccountsService } from "@modules/domain/provider-sandbox"
@@ -8,19 +8,20 @@ import { SandboxWaitingRunsQuery } from "./provider-sandbox.queries"
 import { SandboxWaitingRunsHandler } from "./sandbox-waiting-runs.handler"
 
 /** One parked run with the given context. */
-const parkedOf = (runId: string, agentId: string, context: Record<string, unknown>, verbs: ReadonlyArray<string> = ["customer.message"]): ParkedWait => ({
+const parkedOf = (runId: string, agentId: string, context: Record<string, unknown>, verbs: ReadonlyArray<string> = ["customer.message"]): ParkedDeadline => ({
     runId,
     agentId,
     context,
+    kind: "wait",
     parkKey: `park-${runId}`,
     dueAt: "2026-11-14T10:00:00.000Z",
     waitsFor: verbs.map((verb, at) => ({ key: `k${at}`, verb })),
 })
 
 /** The handler over mocked doors. */
-const handlerOf = (parked: ReadonlyArray<ParkedWait>) => {
+const handlerOf = (parked: ReadonlyArray<ParkedDeadline>) => {
     const accounts = mock<ProviderSandboxAccountsService>()
-    const expiry = mock<ThreadWaitExpiryService>()
+    const expiry = mock<ThreadParkedDeadlinesService>()
     const agents = mock<AgentDirectoryService>()
     const contacts = mock<ContactsService>()
     accounts.assertManager.mockResolvedValue(undefined)
@@ -101,9 +102,23 @@ describe("SandboxWaitingRunsHandler", () => {
         expect(row).toMatchObject({
             runId: "run-1",
             agentId: "agent-1",
+            kind: "wait",
             waitsFor: ["customer.message", "money.received"],
             parkKey: "park-run-1",
             dueAt: "2026-11-14T10:00:00.000Z",
         })
+    })
+
+    it("lists any parked deadline the same way (ENGINE-FIN (b)): a retry rung or an approval names its kind and waits for nothing", async () => {
+        const rung: ParkedDeadline = { ...parkedOf("run-2", "agent-1", {}, []), kind: "retry", parkKey: "retry:answer[r1]" }
+        const approval: ParkedDeadline = { ...parkedOf("run-3", "agent-1", {}, []), kind: "approval", parkKey: "answer" }
+        const { handler } = handlerOf([rung, approval])
+
+        const rows = await handler.execute(readOf())
+
+        expect(rows.map((row) => [row.kind, row.parkKey, row.waitsFor])).toEqual([
+            ["retry", "retry:answer[r1]", []],
+            ["approval", "answer", []],
+        ])
     })
 })

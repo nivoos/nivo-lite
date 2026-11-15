@@ -5,6 +5,7 @@ export {
     confirmByOf,
     confirmReadsOf,
     confirmedHappened,
+    finalRefusalBySpec,
     mutatesBySpec,
     ownersOfTool,
     repeatableBySpec,

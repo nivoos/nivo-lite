@@ -51,6 +51,14 @@
           "reason": "proves the outside Postgres session passes its statement text through as given"
         },
         {
+          "file": "src/modules/platform/database/postgres-owner.client.ts",
+          "reason": "runs the statement text the whole-database copy sends over the owner connection, as it is; the app writes no SQL there"
+        },
+        {
+          "file": "src/modules/integrations/seed/seed-database.service.ts",
+          "reason": "hands the statement text the whole-database store builds to the owner connection, as it is; the app writes no SQL there"
+        },
+        {
           "file": "src/modules/domain/channel-provisioning/chat-seed.service.ts",
           "reason": "the tracked dev seed of the team chat: writes rooms, seats and lines under fixed ids and past instants, which the entity columns (created_at is database-set) cannot carry; plain statement constants, no value in the text"
         },

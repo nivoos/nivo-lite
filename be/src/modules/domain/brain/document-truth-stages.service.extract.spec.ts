@@ -1,3 +1,4 @@
+import { KnowledgeSourcesService } from "@modules/domain/knowledge-sources"
 import { WorkspaceTimeZoneService } from "@modules/domain/workspace-settings"
 import { Test } from "@nestjs/testing"
 import { FakeClock, mock } from "@starci/jest-preset"
@@ -38,6 +39,8 @@ const build = async () => {
     const vectors = mock<FactEmbeddingsService>()
     const nature = mock<DocumentNatureService>()
     scriptStageDoubles({ ai, usage, vectors, nature })
+    const sourcesStore = mock<KnowledgeSourcesService>()
+    sourcesStore.exists.mockResolvedValue(true)
     const moduleRef = await Test.createTestingModule({
         providers: [
             ...chain.providers,
@@ -49,16 +52,29 @@ const build = async () => {
             { provide: BrainFactsService, useValue: facts },
             { provide: BrainExtractionsService, useValue: extractions },
             { provide: KnowledgeChunksService, useValue: chunks },
+            { provide: KnowledgeSourcesService, useValue: sourcesStore },
             { provide: UsageMeterService, useValue: usage },
             { provide: FactEmbeddingsService, useValue: vectors },
             { provide: DocumentNatureService, useValue: nature },
             { provide: WorkspaceTimeZoneService, useValue: mock<WorkspaceTimeZoneService>({ timeZoneOf: () => Promise.resolve("Asia/Ho_Chi_Minh") }) },
         ],
     }).compile()
-    return { service: moduleRef.get(DocumentTruthStagesService), chain, ai, facts, extractions, chunks, usage, vectors, logger, nature }
+    return { service: moduleRef.get(DocumentTruthStagesService), chain, sourcesStore, ai, facts, extractions, chunks, usage, vectors, logger, nature }
 }
 
 describe("DocumentTruthStagesService extract", () => {
+    it("K-9b: a document deleted while the stage ran ends it `origin_gone` BEFORE the next call: no credit is spent, nothing is filed, nothing is saved", async () => {
+        const t = await build()
+        t.sourcesStore.exists.mockResolvedValue(false)
+        const passages = [stagePassageOf(0, STAGES_RULE, { triage: "rule", triageVersion: TRIAGE_VERSION })]
+
+        const result = await t.service.extract({ job: JOB, source, passages, state: STAGES_STATE })
+
+        expect(result.end).toBe("origin_gone")
+        expect(t.ai.chat).not.toHaveBeenCalled()
+        expect(t.facts.propose).not.toHaveBeenCalled()
+    })
+
     it("reads only the rule passages not read by this version and files each truth as a proposal naming its passage", async () => {
         const t = await build()
         t.ai.chat.mockResolvedValue(stageReply("1|policy|Shipping inside the city|fee|30.000 VND|-|-|-"))

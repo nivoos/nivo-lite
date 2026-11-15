@@ -11,7 +11,7 @@ import { CloseStoppedWorkInput } from "./dto/close-stopped-work.input"
 export class CloseStoppedWorkResolver {
     constructor(@InjectCommandBus() private readonly commandBus: CommandBus) {}
 
-    /** Closes a stopped job of the active workspace for good, with the person's reason; false when it is not a stopped job of this workspace. The owner only. */
+    /** Closes a stopped job of the active workspace for good, with the person's reason; a typed refusal (not found, already closed, not stopped) otherwise. The owner only. */
     @Mutation(() => Boolean, { name: "closeStoppedWork" })
     closeStoppedWork(
         @CurrentPrincipal() principal: Principal,

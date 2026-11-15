@@ -1,7 +1,7 @@
 import { Test } from "@nestjs/testing"
 import fixture from "./openapi-document.policy.fixtures.json"
 import { readDocument } from "./openapi-document.policy"
-import { argumentsSchemaOf, baseUrlProblemOf, dryRunPlaceOf, replayKeyOf, plannedRequestOf, resolvedProblemOf } from "./openapi-request.policy"
+import { argumentsSchemaOf, baseUrlProblemOf, dryRunPlaceOf, replayKeyOf, plannedRequestOf, resolvedProblemOf, takesReplayKey } from "./openapi-request.policy"
 import type { CallIdentity, PinnedOperation, PlannedRequest, SchemaNode, ToolsAccountFacts } from "./openapi-tools.contracts"
 
 const SUBJECT = Symbol("openapi-request.policy")
@@ -142,5 +142,18 @@ describe("baseUrlProblemOf", () => {
         expect(subject.resolvedProblemOf("127.0.0.1", false)).toBe("private_host")
         expect(subject.resolvedProblemOf("127.0.0.1", true)).toBeNull()
         expect(subject.resolvedProblemOf("10.1.2.3", true)).toBe("private_host")
+    })
+})
+
+describe("takesReplayKey", () => {
+    const op = (method: PinnedOperation["method"], header: string | null): PinnedOperation =>
+        ({ method, parameters: header === null ? [] : [{ name: header, in: "header", required: true, schema: { type: "string" } }] }) as unknown as PinnedOperation
+
+    it("is true only for a write whose document declares the replay-key header (any case), never for a read or another header", () => {
+        expect(takesReplayKey(op("POST", "Idempotency-Key"))).toBe(true)
+        expect(takesReplayKey(op("PATCH", "idempotency-key"))).toBe(true)
+        expect(takesReplayKey(op("POST", null))).toBe(false)
+        expect(takesReplayKey(op("POST", "X-Workspace"))).toBe(false)
+        expect(takesReplayKey(op("GET", "Idempotency-Key"))).toBe(false)
     })
 })

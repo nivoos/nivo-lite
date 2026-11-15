@@ -43,23 +43,13 @@ export interface AgentRowView {
     readonly liveAction: "pause" | "resume" | "none"
 }
 
-/** The kinds of agent that wear a mark. */
-export type AgentKind =
-    | "chatbot"
-    | "lead_gen"
-    | "sales"
-    | "booking"
-    | "video"
-    | "content"
-    | "hiring"
-
 /** One role card, already in the reader language. */
 export interface RoleEntryView {
     readonly key: string
     readonly card: {
         readonly name: string
         readonly description: string
-        readonly moduleKey: AgentKind
+        readonly moduleKey: string
         readonly stateLabel: string
         readonly isInstalled: boolean
         readonly needsLabel: string

@@ -23,6 +23,9 @@ export const bucketNameOf = (prefix: string, purpose: string): string => {
     return name
 }
 
+/** The set name of a purpose bucket: its purpose in kebab-case, without the environment prefix (`avatars_public` -> `avatars-public`). */
+export const bucketSetOf = (purpose: string): string => purpose.toLowerCase().replaceAll("_", "-")
+
 /** A purpose bucket of the product and whether anonymous readers may fetch its objects. */
 export interface StorageBucket {
     /** The purpose name the domains use. */

@@ -109,6 +109,78 @@ describe("Meta sandbox cases on the real Meta webhook controller (R62)", () => {
         else expect(translated).toBeNull()
     })
 
+    it.each([
+        ["META-7", "facebook", FACEBOOK_MESSAGE_WEBHOOK, { psid: ASKED.psid, payload: "GET_PRICE" }],
+        ["META-8", "instagram", INSTAGRAM_MESSAGE_WEBHOOK, { psid: ASKED.psid, payload: "GET_PRICE" }],
+    ])("%s (a quick reply) reaches the intake as a dm and the %s message trigger translates it as a line whose words are the payload", async (caseId, platform, trigger, input) => {
+        const { doors, accepted } = world()
+
+        await doors.send(ACTOR, SANDBOX.id, caseId, input)
+
+        const [event] = accepted()[0]?.events ?? []
+        expect(event).toMatchObject({ kind: "dm", platform, text: "GET_PRICE" })
+        const translated = event === undefined ? null : trigger.translate({ eventKey: event.event_key, raw: event }, { connectionId: SANDBOX.id })
+        expect(translated?.data.text).toBe("GET_PRICE")
+    })
+
+    it.each([
+        ["META-9", { psid: ASKED.psid, type: "audio" }],
+        ["META-10", { psid: ASKED.psid, type: "video" }],
+        ["META-11", { psid: ASKED.psid, payload: "GET_PRICE", title: "Xem giá" }],
+        ["META-12", { psid: ASKED.psid, payload: "GET_PRICE", title: "Xem giá" }],
+    ])("%s (an attachment with no words, a postback) reaches the intake and its platform's message trigger translates NO line from it", async (caseId, input) => {
+        const { doors, accepted } = world()
+
+        await doors.send(ACTOR, SANDBOX.id, caseId, input)
+
+        const [event] = accepted()[0]?.events ?? []
+        expect(event).toBeDefined()
+        const trigger = event?.platform === "instagram" ? INSTAGRAM_MESSAGE_WEBHOOK : FACEBOOK_MESSAGE_WEBHOOK
+        expect(event === undefined ? undefined : trigger.translate({ eventKey: event.event_key, raw: event }, { connectionId: SANDBOX.id })).toBeNull()
+    })
+
+    it.each([
+        ["META-13", { psid: ASKED.psid, text: "Cam on ban" }],
+        ["META-14", { psid: ASKED.psid }],
+    ])("%s (the Page's echo, a delivery receipt) is accepted by the door (200) and Meta's real parser reads no event from the delivered bytes", async (caseId, input) => {
+        const { doors, inbox, accepted } = world()
+
+        const sent = await doors.send(ACTOR, SANDBOX.id, caseId, input)
+
+        expect(sent.deliveries.map((one) => one.status)).toEqual([200])
+        expect(inbox.acceptSandbox).toHaveBeenCalledTimes(1)
+        expect(accepted()[0]?.events).toEqual([])
+    })
+
+    it.each([
+        ["META-15", "comment"],
+        ["META-16", "comment"],
+        ["META-17", "leadgen"],
+        ["META-18", "mention"],
+        ["META-19", "mention"],
+    ])("%s reaches the intake as one %s event that no message trigger turns into a line", async (caseId, kind) => {
+        const { doors, accepted } = world()
+
+        await doors.send(ACTOR, SANDBOX.id, caseId, ASKED)
+
+        const events = accepted()[0]?.events ?? []
+        expect(events.map((one) => one.kind)).toEqual([kind])
+        for (const event of events) {
+            for (const trigger of [FACEBOOK_MESSAGE_WEBHOOK, INSTAGRAM_MESSAGE_WEBHOOK]) {
+                expect(trigger.translate({ eventKey: event.event_key, raw: event }, { connectionId: SANDBOX.id })).toBeNull()
+            }
+        }
+    })
+
+    it("META-20 hands the door the bytes of a JSON array and answers 200 here (the intake behind the controller is a double): the real intake's refusal of them is proved in meta-inbox.service.spec.ts", async () => {
+        const { doors, inbox } = world()
+
+        const sent = await doors.send(ACTOR, SANDBOX.id, "META-20", {})
+
+        expect(sent.deliveries.map((one) => one.status)).toEqual([200])
+        expect(String(inbox.acceptSandbox.mock.calls[0]?.[0])).toBe("[]")
+    })
+
     it("runs the message id on across the account's sends", async () => {
         const { doors, accepted } = world()
 

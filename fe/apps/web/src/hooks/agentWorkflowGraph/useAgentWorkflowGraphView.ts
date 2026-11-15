@@ -6,7 +6,6 @@ import { useInstallations, useInstanceRail } from "@/hooks/installations"
 import { slotOfSwr } from "@/hooks/slot"
 import { useWorkspaceId } from "@/hooks/workspaces"
 import { workflowGraphViewOf, type WorkflowGraphView } from "@/modules/agentWorkflowGraph"
-import { isModuleKey } from "@/modules/catalog"
 import { agentHref } from "@/modules/installations"
 import { workspaceHref } from "@/modules/routes"
 import type { DataSlot } from "@/modules/types"
@@ -33,7 +32,7 @@ export const useAgentWorkflowGraphView = (module: string, installationId: string
     const installed = useInstallations()
     const rail = useInstanceRail(installationId)
     const read = useQueryAgentWorkflowGraphSwr(installationId)
-    const base = `${agentHref(isModuleKey(module) ? module : "chatbot", installationId)}/workflows`
+    const base = `${agentHref(module, installationId)}/workflows`
     const listHref = workspaceHref(workspaceId, base)
     const { data } = read
     const view = useMemo(
@@ -47,7 +46,7 @@ export const useAgentWorkflowGraphView = (module: string, installationId: string
                           workflowHref: (key) => `${listHref}/${key}`,
                           agentGraphHref: (other) => {
                               const found = installed.installations?.find((one) => one.moduleKey === other)
-                              return found === undefined || !isModuleKey(other)
+                              return found === undefined
                                   ? null
                                   : workspaceHref(workspaceId, agentHref(other, found.id, "graph"))
                           },

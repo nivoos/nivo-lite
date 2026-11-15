@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
-import { AccountDataAdmissionsService, AccountDataIntakeService } from "@modules/domain/account-data"
+import { AccountDataAdmissionsService, AccountDataIntakeService, type AccountAdmission } from "@modules/domain/account-data"
 import type { ConnectionRecord } from "@modules/domain/connections"
 import type { PolledRow } from "@modules/domain/provider-registry"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
@@ -25,17 +25,29 @@ export class PollReceiptsService {
     async keep(account: ConnectionRecord, dataType: string, rows: ReadonlyArray<PolledRow>): Promise<number> {
         let fresh = 0
         await eachInOrder(inTimeOrder(rows), async (row) => {
-            if (await this.entityManager.transaction((tx) => this.keepOne(tx, account, dataType, row))) fresh += 1
+            // The type's admission is PREPARED with no transaction open (concept outbox-job rule 12), then run in the row's transaction.
+            const admission = await this.admissions.prepared({
+                type: dataType,
+                owner: { provider: account.provider, connectionId: account.id, workspaceId: account.workspaceId },
+                value: row.value,
+            })
+            if (await this.entityManager.transaction((tx) => this.keepOne(tx, account, dataType, row, admission))) fresh += 1
         })
         return fresh
     }
 
     /** Writes one row; a new one is admitted in the same transaction. True when it was new. */
-    private async keepOne(tx: EntityManager, account: ConnectionRecord, dataType: string, row: PolledRow): Promise<boolean> {
+    private async keepOne(
+        tx: EntityManager,
+        account: ConnectionRecord,
+        dataType: string,
+        row: PolledRow,
+        admission: AccountAdmission,
+    ): Promise<boolean> {
         const written = await this.intake.write(tx, account.id, [{ type: dataType, value: row.value }])
         const [kept] = written.rows
         if (written.owner === null || kept?.isNew !== true) return false
-        await this.admissions.admit(tx, { id: kept.id, type: kept.type, key: kept.key, owner: written.owner, value: row.value })
+        await admission(tx, { id: kept.id, type: kept.type, key: kept.key, owner: written.owner, value: row.value })
         return true
     }
 }

@@ -38,7 +38,7 @@ const storedLineOf = (line: CustomerLine, memberName: string | null): StoredLine
         authorName: memberName,
         deliveryStatus: deliveryOf(line),
         sentBy: line.agentId,
-        files: line.files.map((file, index) => ({ id: `${line.id}:${index}`, url: file.url, name: file.name, contentType: file.contentType })),
+        files: line.files.map((file, index) => ({ id: `${line.id}:${index}`, url: file.url ?? "", name: file.name, contentType: file.contentType })),
         ...(order?.success === true ? { order: order.data } : {}),
     }
 }

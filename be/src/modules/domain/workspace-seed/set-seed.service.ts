@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common"
+import { Injectable, Optional } from "@nestjs/common"
 import type { TemplateAgent } from "@nivo-lite/agent-sdk/template"
 import { templateVersionOf } from "@nivo-lite/agent-sdk/template"
 import { BrainPolicyStoreService } from "@modules/domain/brain"
@@ -15,6 +15,7 @@ import { ConnectionApiTokenService, randomSecret } from "@modules/domain/connect
 import { ConnectionsService, isProvider, type ConnectionRecord } from "@modules/domain/connections"
 import { INSTALLED, customerChannelProviders, inboundChannelsOf } from "@modules/domain/installed-plugins"
 import { ProfileSourcesService } from "@modules/domain/knowledge-sources"
+import { ProviderTriggerStatesService } from "@modules/domain/provider-triggers"
 import { AgentAccountsService } from "@modules/domain/tools"
 import { WorkspaceEnterpriseService, WorkspaceLobbyService, WorkspacesService } from "@modules/domain/workspaces"
 import { InjectClock, type Clock } from "@modules/platform/clock"
@@ -22,7 +23,7 @@ import { eachInOrder } from "@modules/platform/primitives"
 import { WorkspaceSeedError, WorkspaceSeedErrorCode } from "./errors/workspace-seed.error"
 import { GraphSeedService, type GraphSeedEntry, type SeededModule } from "./graph-seed.service"
 import { primaryGraphOf } from "./primary-graph.policy"
-import { attachPlanOf } from "./roster-seed.policy"
+import { attachEveryOf, attachPlanOf } from "./roster-seed.policy"
 import { RosterSeedService } from "./roster-seed.service"
 import { readinessOf, readyLineOf, sealedNamesOf, type ReadinessInstalled } from "./seed-readiness.policy"
 import type { AccountStop, DocumentTexts, ForceKind, SealedValues, SetAccount, SetFact, SetPlan, SetProfile } from "./set-seed.contracts"
@@ -174,6 +175,7 @@ export class SetSeedService {
         private readonly enterprise: WorkspaceEnterpriseService,
         private readonly sources: ProfileSourcesService,
         private readonly apiTokens: ConnectionApiTokenService,
+        @Optional() private readonly triggers?: ProviderTriggerStatesService,
     ) {}
 
     /** Seeds the TEST set the envelope on stdin carries; prints what it did, ending with `unchanged` when nothing changed. */
@@ -230,6 +232,7 @@ export class SetSeedService {
         changed = (await this.keepDocuments(profile, workspaceId, ownerId, input.texts)) || changed
         changed = (await this.writeTruths(profile, plan.facts, workspaceId, input.reseed, tally, true)) || changed
         if (input.bind) changed = (await this.bindDoors(profile, workspaceId, ownerId, installed.seeded, input.place)) || changed
+        changed = (await this.switchSandboxTriggersOn(profile, workspaceId, ownerId)) || changed
         this.options.print(`${profile.name}: ${tallyLineOf(tally, "")}`)
         return { changed, workspaceId, tally }
     }
@@ -343,7 +346,12 @@ export class SetSeedService {
                 const value = held?.[member]
                 return `${member}=${held === null ? "unreadable" : value === undefined ? "missing" : value === "" ? "empty" : "set"}`
             })
-            this.options.print(`${profile.name}: live account ${account.key} (${account.provider}) would use secrets/${account.key}: ${states.join(", ")}`)
+            const unset = held === null || account.secrets.some((member) => (held[member] ?? "") === "")
+            const twin = unset ? profile.accounts.find((one) => one.sandbox && one.provider === account.provider) : undefined
+            this.options.print(
+                `${profile.name}: live account ${account.key} (${account.provider}) would use secrets/${account.key}: ${states.join(", ")}` +
+                    (twin === undefined ? "" : `; not created: sandbox twin ${twin.key} in use (local)`),
+            )
         }
         if (sealed?.opened === false) this.options.print(`${profile.name}: sealed file not opened: ${sealed.reason}`)
     }
@@ -385,7 +393,11 @@ export class SetSeedService {
             const base = { workspaceId, createdBy: ownerId, provider: account.provider, name: account.name, status, environment: "live" as const, meta }
             if (secrets !== null && !secrets.ok) {
                 stopped.push(account.key)
-                this.options.print(`${profile.name}: live account ${account.key} (${account.provider}) stopped: ${secrets.stop} (${secrets.member})`)
+                const twin = input.place === "local" ? profile.accounts.find((one) => one.sandbox && one.provider === account.provider) : undefined
+                this.options.print(
+                    `${profile.name}: live account ${account.key} (${account.provider}) not created: ${secrets.stop} (${secrets.member})` +
+                        (twin === undefined ? "" : `; sandbox twin ${twin.key} in use`),
+                )
                 return
             }
             if (found === undefined) {
@@ -428,7 +440,7 @@ export class SetSeedService {
         const gone = held.filter((one) => !ids.has(one.id))
         tally.gone += gone.length
         for (const one of gone) this.options.print(`${profile.name}: account ${one.id} (${one.provider}) is no longer in the standard: kept (removal is a person's act)`)
-        if (stopped.length > 0) this.options.print(`${profile.name}: ${String(stopped.length)} live accounts stopped: ${stopped.join(", ")}`)
+        if (stopped.length > 0) this.options.print(`${profile.name}: ${String(stopped.length)} live accounts not created (credentials not set): ${stopped.join(", ")}`)
         return changed
     }
 
@@ -446,13 +458,41 @@ export class SetSeedService {
                 this.options.print(`${profile.name}: ${module} has no single primary workflow installed: not seeded`)
                 return
             }
-            const plan = attachPlanOf(await this.abilities.templateProposal(workspaceId, module), (id) => sandbox.has(id), place)
+            // A test set attaches as the roster does (live first); a standard attaches every working account it names (node settings may name a sandbox one).
+            const attach = profile.use === "workspace" ? attachEveryOf : attachPlanOf
+            const plan = attach(await this.abilities.templateProposal(workspaceId, module), (id) => sandbox.has(id), place)
             for (const kind of plan.missing) this.options.print(`${profile.name}: ${module} works with ${kind}: no usable account`)
             entries.push({ spec, wishes: plan.wishes })
         })
         if (entries.length === 0) return { seeded: [], changed: false }
         const seeded = await this.graphs.seedInto(workspaceId, entries)
         return { seeded, changed: seeded.some((module) => module.changed) }
+    }
+
+    /**
+     * A SANDBOX account is a test account, and the door that opens one by hand (the Sandbox page: open, attach, `switchOn`) leaves every
+     * trigger its provider declares with an owner switch ON (`catchUp` off: from now). The seed opens and attaches the same accounts and must
+     * leave the same state, else a paid webhook or a mail is kept and never wakes a run (matrix round 3, D3-W2-2). So after the attachments,
+     * each SANDBOX account the profile names gets its still-off, never-fired switches turned on, through the one switch door
+     * (`ProviderTriggerStatesService.setEnabled`). A LIVE account is never touched here: its triggers stay off until the owner turns them on
+     * (concept triggers rule 6). A switch already on, or one that fired, stays as it is. Answers whether any switch was turned on.
+     */
+    private async switchSandboxTriggersOn(profile: SetProfile, workspaceId: string, ownerId: string): Promise<boolean> {
+        if (this.triggers === undefined) return false
+        const actor = { principalId: ownerId, workspaceId }
+        const held = await this.connections.list(workspaceId)
+        let changed = false
+        await eachInOrder(profile.accounts.filter((account) => account.sandbox), async (account) => {
+            const id = this.accountIdOf(profile, account.key, workspaceId, held)
+            if (!held.some((one) => one.id === id && one.sandbox)) return
+            const off = (await this.triggers?.statesOf(actor, id) ?? []).filter((state) => !state.enabled && state.lastFiredAt === null)
+            await eachInOrder(off, async (state) => {
+                await this.triggers?.setEnabled(actor, { connectionId: id, trigger: state.name, enabled: true, catchUp: false })
+                this.options.print(`${profile.name}: sandbox account ${account.key} (${account.provider}) trigger ${state.name} switched on`)
+                changed = true
+            })
+        })
+        return changed
     }
 
     /** Keeps each document through the knowledge door (found by the seed's origin and its title; a changed text is queued again). */

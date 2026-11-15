@@ -221,6 +221,8 @@ export interface TurnAttempt {
     readonly reason: string
     /** True when the deadline of the request passed before the text did. */
     readonly timedOut: boolean
+    /** False when the try left no request (`AiFailedTry.sent`): nothing was spent, nothing is booked. Absent otherwise. */
+    readonly sent?: false | undefined
 }
 
 /** Where the model call of one generation leaves the attempt that made no text, so the runner can write its typed reason on the row (the call itself throws, releasing its ledger intent). */

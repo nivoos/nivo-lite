@@ -1,5 +1,6 @@
 "use client"
 
+import { useModuleLabels } from "@/hooks/moduleCatalog"
 import { useFormatter, useTranslations } from "next-intl"
 import { useState } from "react"
 import {
@@ -42,6 +43,7 @@ export const useKnowledgeDocs = (input: KnowledgeDocsInput): KnowledgeDocsView =
     const tp = useTranslations("pane")
     const brain = useTranslations("secondBrain")
     const format = useFormatter()
+    const modules = useModuleLabels()
     const address = useDocsAddress()
     const sources = useKnowledgeSources()
     const jobOf = useKnowledgeJobs(sources.sources)
@@ -53,9 +55,10 @@ export const useKnowledgeDocs = (input: KnowledgeDocsInput): KnowledgeDocsView =
     const selection = input.selection
     const doc = useOpenedDoc(selection.kind === "doc" ? selection.id : undefined, row)
     const [isRemoveOpen, setIsRemoveOpen] = useState(false)
+    const [isAreaOpen, setIsAreaOpen] = useState(false)
     const [hiddenFor, setHiddenFor] = useState<string | null>(null)
     const { list, chosen, selectedId } = useDocsList({ selection, row, sources, nivo })
-    const nivoOpened = docsNivoSlotOf(nivo.slot, chosen === undefined ? undefined : nivoOpenedOf(t, format, chosen))
+    const nivoOpened = docsNivoSlotOf(nivo.slot, chosen === undefined ? undefined : nivoOpenedOf(t, format, chosen, modules.labelOf))
     const isDocPending = selection.kind === "doc" && selection.id === undefined
     const main = docsMainViewOf(selection, isDocPending ? loadingSlot() : doc.opened, nivoOpened)
     const selectedKey = `${selection.kind}:${selectedId ?? ""}`
@@ -78,11 +81,12 @@ export const useKnowledgeDocs = (input: KnowledgeDocsInput): KnowledgeDocsView =
         selection,
         selectTab: header.on.selectTab,
         reloads: [sources.reload, nivo.reload, doc.reload],
-        doc: { reindex: doc.commands.reindex, remove: doc.commands.remove, row: row.dispatch },
+        doc: { reindex: doc.commands.reindex, remove: doc.commands.remove, area: doc.setArea, row: row.dispatch },
         ideas: { idea: ideas.decide, moreIdeas: ideas.toggleMore },
         overlays: {
             openRemove: () => setIsRemoveOpen(true),
             setRemoveOpen: setIsRemoveOpen,
+            setAreaOpen: setIsAreaOpen,
         },
         hideAside: () => setHiddenFor(selectedKey),
     })
@@ -99,6 +103,7 @@ export const useKnowledgeDocs = (input: KnowledgeDocsInput): KnowledgeDocsView =
             isWaiting: isWaitingOf(list.slot, ...(main.kind === "none" ? [] : [main.slot])),
             hasAside,
             isRemoveOpen,
+            isAreaOpen,
             canAdd: row.member.canWrite,
             addHref: workspaceHref(workspaceId, brainTabHref("sources", { ...address.carried, add: "upload" })),
             addLabel: t("addTitle"),

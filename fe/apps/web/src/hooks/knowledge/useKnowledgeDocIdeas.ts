@@ -20,6 +20,9 @@ const oneLineOf = (hint: string): string => {
     return first.length > HINT_MAX ? `${first.slice(0, HINT_MAX - 1).trimEnd()}…` : first
 }
 
+/** An idea the owner set aside, with what they decided. */
+type SkippedIdea = { readonly key: string; readonly topic: string; readonly hint: string; readonly state?: IdeaDecision }
+
 /** What the suggestions give the side pane. */
 interface DocIdeas {
     /** Nothing is drawn for a reader who may not add documents. */
@@ -42,21 +45,21 @@ export const useKnowledgeDocIdeas = (onFailed: () => void): DocIdeas => {
     const ideas = useKnowledgeIdeas()
     const [isExpanded, setIsExpanded] = useState(false)
     const pendingOf = (key: string) => commands.pending[`idea:${key}`]
-    const openOf = (key: string): DocIdeaView => ({
-        id: key,
-        title: t(`suggest_${key}_topic`),
-        line: oneLineOf(t(`suggest_${key}_hint`)),
-        addHref: workspaceHref(workspaceId, brainTabHref("sources", { add: key })),
-        isPending: pendingOf(key) !== undefined,
+    const openOf = (idea: { readonly key: string; readonly topic: string; readonly hint: string }): DocIdeaView => ({
+        id: idea.key,
+        title: idea.topic,
+        line: oneLineOf(idea.hint),
+        addHref: workspaceHref(workspaceId, brainTabHref("sources", { add: idea.key })),
+        isPending: pendingOf(idea.key) !== undefined,
         menu: [
             { id: "na", label: t("suggestNotApplicable") },
             { id: "hide", label: t("suggestDismiss") },
         ],
     })
-    const skippedOf = (key: string, state: IdeaDecision | undefined) => ({
-        ...openOf(key),
+    const skippedOf = (idea: SkippedIdea) => ({
+        ...openOf(idea),
         line: "",
-        state: t(state === "dismissed" ? "suggestHidden" : "suggestNA"),
+        state: t(idea.state === "dismissed" ? "suggestHidden" : "suggestNA"),
         menu: [{ id: "restore", label: t("suggestRestore") }],
     })
     const shown = isExpanded ? ideas.open : ideas.open.slice(0, VISIBLE_IDEAS)
@@ -69,8 +72,8 @@ export const useKnowledgeDocIdeas = (onFailed: () => void): DocIdeas => {
                   hint: t("suggestHint"),
                   addLabel: t("suggestAdd"),
                   menuLabel: t("suggestMenu"),
-                  open: shown.map((one) => openOf(one.key)),
-                  skipped: ideas.skipped.map((one) => skippedOf(one.key, one.state)),
+                  open: shown.map(openOf),
+                  skipped: ideas.skipped.map(skippedOf),
                   skippedTitle: t("suggestSkipped"),
                   moreLabel:
                       ideas.open.length > VISIBLE_IDEAS

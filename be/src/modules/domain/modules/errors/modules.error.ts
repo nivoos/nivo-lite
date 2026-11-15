@@ -13,6 +13,8 @@ export enum ModulesErrorCode {
     InstanceNameTaken = "MODULES_INSTANCE_NAME_TAKEN",
     /** The type allows one instance per workspace. */
     SingleInstanceOnly = "MODULES_SINGLE_INSTANCE_ONLY",
+    /** The module's template declares `available: false`: the catalogue door does not add it (a platform door may install what its package declares). */
+    NotAvailable = "MODULES_NOT_AVAILABLE",
     /** The installation is not one of the workspace. */
     InstallationNotFound = "MODULES_INSTALLATION_NOT_FOUND",
     /** The installation has no agent row. */
@@ -65,6 +67,7 @@ export const MODULES_ERROR_KINDS: Record<ModulesErrorCode, ErrorKind> = {
     [ModulesErrorCode.InstanceNameInvalid]: "invalid",
     [ModulesErrorCode.InstanceNameTaken]: "conflict",
     [ModulesErrorCode.SingleInstanceOnly]: "invalid",
+    [ModulesErrorCode.NotAvailable]: "invalid",
     [ModulesErrorCode.InstallationNotFound]: "not-found",
     [ModulesErrorCode.AgentMissing]: "not-found",
     [ModulesErrorCode.AgentNameInvalid]: "invalid",

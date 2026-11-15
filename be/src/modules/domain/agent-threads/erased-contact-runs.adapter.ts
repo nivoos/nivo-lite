@@ -4,6 +4,7 @@ import type { RunSubject } from "@modules/domain/agent-runs"
 import type { ContactRunsPort } from "@modules/domain/contacts/contact-runs.port"
 import { CUSTOMER_ROUTE_STORE, type CustomerRouteStore } from "@modules/domain/customer-routes/customer-route-store.port"
 import { ROUTES_PAGE_MAX } from "@modules/domain/customer-routes/customer-routes.service"
+import { RECORD_SUBJECT_PATH } from "@modules/domain/record-events/record-written.trigger"
 import { ErasedSubjectRunsService } from "./erased-subject-runs.service"
 
 /** The subject path of a run keyed on a person (`key:contactId=<id>`). */
@@ -24,14 +25,27 @@ export class ErasedContactRunsAdapter implements ContactRunsPort {
         @Inject(CUSTOMER_ROUTE_STORE) private readonly routes: CustomerRouteStore,
     ) {}
 
-    /** Ends the runs parked on the contacts or their routes, in `tx`; answers how many it ended. */
-    async erasing(tx: EntityManager, workspaceId: string, contactIds: ReadonlyArray<string>): Promise<number> {
-        if (contactIds.length === 0) return 0
+    /** Ends the runs parked on the contacts or their routes, in `tx`; answers the runs it ended. */
+    async erasing(
+        tx: EntityManager,
+        workspaceId: string,
+        contactIds: ReadonlyArray<string>,
+        hidden: ReadonlyArray<{ readonly type: string; readonly id: string }> = [],
+    ): Promise<ReadonlyArray<string>> {
+        if (contactIds.length === 0) return []
         const routes = await this.routes.ofContacts(workspaceId, contactIds, ROUTES_PAGE_MAX)
         const subjects: ReadonlyArray<RunSubject> = [
             ...contactIds.map((id) => ({ kind: CONTACT_SUBJECT, id })),
             ...routes.map((route) => ({ kind: ROUTE_SUBJECT, id: route.id })),
+            // A record the erase hid that is its own subject (a type whose write events are keyed by the record): its runs end too
+            // (concept agent-data, "Contact and subject"). A record keyed by another subject leaves that subject untouched.
+            ...hidden.map((record) => ({ kind: RECORD_SUBJECT_PATH, id: record.id })),
         ]
         return this.erased.ended(tx, workspaceId, subjects)
+    }
+
+    /** Once the deletion committed: the open stops of the runs it ended close with them; answers how many closed. */
+    stopsClosed(workspaceId: string, runIds: ReadonlyArray<string>): Promise<number> {
+        return this.erased.stopsClosed(workspaceId, runIds)
     }
 }

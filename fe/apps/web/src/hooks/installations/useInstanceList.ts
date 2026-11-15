@@ -5,7 +5,7 @@ import { useEffect } from "react"
 import { useModuleCatalog } from "@/hooks/moduleCatalog"
 import { loadingSlot, slotOfReads } from "@/hooks/slot"
 import { useWorkspaceId } from "@/hooks/workspaces"
-import { MODULE_REGISTRY, pickCopy, type ModuleKey } from "@/modules/catalog"
+import { pickCopy } from "@/modules/catalog"
 import {
     agentHref,
     agentLifecycleOf,
@@ -44,12 +44,11 @@ export interface InstanceListView {
 }
 
 /** The instances of one agent type for the list screen, with the names of the type in the reader language. */
-export const useInstanceList = (module: ModuleKey, query: string, mode: TypeRouteMode): InstanceListView => {
+export const useInstanceList = (module: string, query: string, mode: TypeRouteMode): InstanceListView => {
     const locale = useLocale() === "en" ? "en" : "vi"
     const workspaceId = useWorkspaceId()
     const route = useTypeRoute(module, "setup", query, mode)
     const channelsOf = useInstanceChannels()
-    const def = MODULE_REGISTRY[module]
     const catalog = useModuleCatalog()
     const copy = catalog.modules[module]
     const typeShort = copy === undefined ? "" : pickCopy(copy.shortName, locale)
@@ -72,7 +71,7 @@ export const useInstanceList = (module: ModuleKey, query: string, mode: TypeRout
         typeShort,
         typeDescription: copy === undefined ? "" : pickCopy(copy.description, locale),
         isCopyReady: copy !== undefined,
-        isMulti: def.multiInstance,
+        isMulti: copy?.multiInstance ?? false,
         names,
         defaultName: copy === undefined ? "" : nextInstanceName(typeShort, names),
         rows: instances.map((instance) => {

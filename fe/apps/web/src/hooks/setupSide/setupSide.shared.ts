@@ -1,6 +1,5 @@
 import type { useSetupGates } from "@/hooks/agentSetup"
-import type { useModuleCatalog } from "@/hooks/moduleCatalog"
-import type { MODULE_KEYS } from "@/modules/catalog"
+import type { RegistryGate } from "@/modules/catalog"
 import { gateEntry, gateHint, gateLabel, type SetupSession } from "@/modules/installations"
 import type { useSetupRequirements } from "@/hooks/setupRequirements"
 import type { SetupSideNotice, SetupSideView } from "@/modules/types"
@@ -63,11 +62,7 @@ export const commandsOf = (gatesState: ReturnType<typeof useSetupGates>): Comman
     apply: (): undefined => void gatesState.apply(),
 })
 
-type GateViewMapperResult = (
-    gate: NonNullable<
-        NonNullable<ReturnType<typeof useModuleCatalog>["modules"][(typeof MODULE_KEYS)[number]]>["gates"]
-    >[number],
-) => SetupSideView["gates"]["gates"][number]
+type GateViewMapperResult = (gate: RegistryGate) => SetupSideView["gates"]["gates"][number]
 
 /** Builds the mapper that turns a catalog gate into its row, with the status of the session evidence. */
 export const gateViewMapper = (

@@ -11,7 +11,7 @@ Program `ext/checks/seed-graphs.mjs`: no arguments, exit 0 is green. Run by the 
 
 ## What it guards
 
-Each dev seed graph (`.starcistacks/dev/seeds/data/graphs/<module>.json`) equals the installed primary graph of its template agent.
+Each generated primary graph (`be/src/tests/fixtures/graphs/<module>.json`, read by specs and `reset-workflows`; the dev seed step no longer installs graphs: the seed standards do) equals the installed primary graph of its template agent.
 
 ## What it runs
 

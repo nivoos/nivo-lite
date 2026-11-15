@@ -128,21 +128,17 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
         { vi: "Xem kh\u00e1ch b\u00e1o \u0111\u00e3 tr\u1ea3", en: "List payment claims" },
         { vi: "Xem nh\u1eefng l\u1ea7n kh\u00e1ch n\u00f3i \u0111\u00e3 chuy\u1ec3n ti\u1ec1n.", en: "Lists what a customer said they paid." },
     ),
-    [TOOL.paymentTransferCreate]: reads(
-        { vi: "T\u1ea1o th\u00f4ng tin chuy\u1ec3n kho\u1ea3n", en: "Create a bank-transfer instruction" },
-        { vi: "L\u1eadp m\u00e3 QR v\u00e0 s\u1ed1 t\u00e0i kho\u1ea3n \u0111\u1ec3 kh\u00e1ch chuy\u1ec3n kho\u1ea3n \u0111\u00fang s\u1ed1 ti\u1ec1n v\u00e0 n\u1ed9i dung; ch\u1ec9 l\u1eadp th\u00f4ng tin, kh\u00f4ng chuy\u1ec3n hay ghi nh\u1eadn ti\u1ec1n.", en: "Makes the QR and account details for a customer to transfer an amount with a content; it only makes the instruction and moves or records no money." },
+    [TOOL.paymentRequestCreate]: acts(
+        { vi: "Y\u00eau c\u1ea7u kh\u00e1ch thanh to\u00e1n", en: "Ask the payer to pay" },
+        { vi: "Y\u00eau c\u1ea7u kh\u00e1ch tr\u1ea3 \u0111\u00fang s\u1ed1 ti\u1ec1n qua t\u00e0i kho\u1ea3n nh\u1eadn ti\u1ec1n: link thanh to\u00e1n, m\u00e3 QR ho\u1eb7c th\u00f4ng tin chuy\u1ec3n kho\u1ea3n t\u00f9y nh\u00e0 cung c\u1ea5p; kh\u00f4ng chuy\u1ec3n hay ghi nh\u1eadn ti\u1ec1n.", en: "Asks the payer to pay an amount through the money account: a pay link, a QR or the transfer details, as the provider gives; it moves or records no money." },
     ),
-    [TOOL.paymentLinkCreate]: acts(
-        { vi: "T\u1ea1o link thanh to\u00e1n", en: "Create a payment link" },
-        { vi: "T\u1ea1o m\u1ed9t link thanh to\u00e1n c\u00f3 m\u00e3 \u0111\u01a1n ri\u00eang c\u1ee7a nh\u00e0 cung c\u1ea5p \u0111\u1ec3 kh\u00e1ch tr\u1ea3 \u0111\u00fang s\u1ed1 ti\u1ec1n; ch\u1ec9 t\u1ea1o link, kh\u00f4ng chuy\u1ec3n hay ghi nh\u1eadn ti\u1ec1n.", en: "Creates a payment link under the provider's own order code for a customer to pay an amount; it only creates the link and moves or records no money." },
+    [TOOL.paymentRequestGet]: reads(
+        { vi: "Xem y\u00eau c\u1ea7u thanh to\u00e1n", en: "Read a payment request" },
+        { vi: "Xem m\u1ed9t y\u00eau c\u1ea7u thanh to\u00e1n theo m\u00e3 c\u1ee7a nh\u00e0 cung c\u1ea5p: c\u00f2n m\u1edf, \u0111\u00e3 tr\u1ea3, \u0111\u00e3 h\u1ee7y hay h\u1ebft h\u1ea1n.", en: "Reads one payment request by the provider's reference: open, paid, cancelled or expired." },
     ),
-    [TOOL.paymentLinkGet]: reads(
-        { vi: "Xem link thanh to\u00e1n", en: "Read a payment link" },
-        { vi: "Xem m\u1ed9t link thanh to\u00e1n theo m\u00e3 link ho\u1eb7c m\u00e3 \u0111\u01a1n: t\u00ecnh tr\u1ea1ng v\u00e0 s\u1ed1 ti\u1ec1n \u0111\u00e3 tr\u1ea3.", en: "Reads one payment link by its id or order code: its status and the amount paid." },
-    ),
-    [TOOL.paymentLinkCancel]: acts(
-        { vi: "Hu\u1ef7 link thanh to\u00e1n", en: "Cancel a payment link" },
-        { vi: "Hu\u1ef7 m\u1ed9t link thanh to\u00e1n theo m\u00e3 link ho\u1eb7c m\u00e3 \u0111\u01a1n, k\u00e8m l\u00fd do n\u1ebfu c\u00f3.", en: "Cancels a payment link by its id or order code, with a reason when given." },
+    [TOOL.paymentRequestCancel]: acts(
+        { vi: "H\u1ee7y y\u00eau c\u1ea7u thanh to\u00e1n", en: "Cancel a payment request" },
+        { vi: "H\u1ee7y m\u1ed9t y\u00eau c\u1ea7u thanh to\u00e1n theo m\u00e3 c\u1ee7a nh\u00e0 cung c\u1ea5p, k\u00e8m l\u00fd do n\u1ebfu c\u00f3.", en: "Cancels a payment request by the provider's reference, with a reason when given." },
     ),
     [TOOL.timerArm]: acts(
         { vi: "H\u1eb9n gi\u1edd", en: "Arm a timer" },

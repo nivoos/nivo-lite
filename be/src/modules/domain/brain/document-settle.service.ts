@@ -12,7 +12,7 @@ import {
   type FactRecord,
 } from "@modules/domain/brain-facts"
 import type { TruthPassage } from "@modules/domain/knowledge-chunks"
-import type { SourceRecord } from "@modules/domain/knowledge-sources"
+import { KnowledgeSourcesReadService, type SourceRecord } from "@modules/domain/knowledge-sources"
 import { CritiqueDecisionsService } from "@modules/domain/dossier-review"
 import { WorkspaceMembersService, type WorkspaceRole } from "@modules/domain/workspace-members"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
@@ -160,6 +160,7 @@ export class DocumentSettleService {
         private readonly publicDocuments: PublicDocumentsService,
         @InjectTruthCritiqueGate() private readonly critic: TruthCritiqueGate,
         private readonly vectors: FactEmbeddingsService,
+        private readonly sources: KnowledgeSourcesReadService,
         @Optional() private readonly decisions?: CritiqueDecisionsService,
     ) {}
 
@@ -438,9 +439,11 @@ export class DocumentSettleService {
      * may: `mayJoin`), a value that argues with it and was not put there by this document makes it asked. Throws the `SettleLostRace` error; nothing is
      * written.
      */
-    private guardOf(source: SourceRecord, fact: FactRecord, mayJoin: boolean): () => Promise<void> {
-        return async () => {
-            const inForce = await this.facts.byKey(source.workspaceId, fact.subjectKey, fact.attribute, "active", fact.installationId)
+    private guardOf(source: SourceRecord, fact: FactRecord, mayJoin: boolean): (tx: EntityManager) => Promise<void> {
+        return async (tx) => {
+            // JOB-FRAME RULE (origin in force): the document is held in THIS transaction, or the write is refused.
+            if (!(await this.sources.holds(tx, source.workspaceId, source.id))) throw new BrainError({ code: BrainErrorCode.SettleOriginGone })
+            const inForce = await this.reads.keyed(tx, source.workspaceId, fact.subjectKey, fact.attribute, "active", fact.installationId)
             const others = inForce.filter((other) => other.id !== fact.id)
             if (mayJoin && others.some((other) => sameValue(valueLineOf(other), valueLineOf(fact)))) throw lostRace("joined")
             if (others.some((other) => arguesWith(fact, other, true) && !putInForceBy(other, source.id))) throw lostRace("raced")
@@ -470,6 +473,7 @@ export class DocumentSettleService {
             return "applied"
         } catch (cause) {
             if (cause instanceof BrainFactsError && cause.code === BrainFactsErrorCode.InForceFull) return "full"
+            if (cause instanceof BrainError && cause.code === BrainErrorCode.SettleOriginGone) return "failed"
             if (cause instanceof BrainError && cause.code === BrainErrorCode.SettleLostRace) {
                 return this.lostRace(source, fact, cause.params.outcome === "joined" ? "joined" : "raced")
             }

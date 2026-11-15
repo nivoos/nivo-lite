@@ -84,6 +84,8 @@ export const salesPaidClaimReplyNode: TemplateNode<typeof input, typeof output> 
     tools: [TOOL.conversationMessageList, TOOL.customerMessageSend],
     mode: "auto",
     accounts: [PROVIDER.zaloOa, PROVIDER.telegram, PROVIDER.meta],
+    // Reads the person's lines with `consume: true` (the stream cursor): the lines held behind a stopped run are this step's to take (E-FIX12 rule A-7).
+    readsHeldEvents: true,
     input,
     output,
     model: "claude-sonnet-5-5",

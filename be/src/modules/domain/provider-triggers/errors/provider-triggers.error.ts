@@ -16,7 +16,7 @@ export enum ProviderTriggersErrorCode {
     DeclarationTaken = "PROVIDER_TRIGGERS_DECLARATION_TAKEN",
     /** A delivery named a declaration that is not the one registered for its source and name. */
     DeclarationUnknown = "PROVIDER_TRIGGERS_DECLARATION_UNKNOWN",
-    /** A declaration combines its events as a `stream` but feeds no stream of the engine (it declares no `line`): a boot error. */
+    /** A declaration combines its events as a `stream` but feeds no stream of the engine (it declares no `feeds`): a boot error. */
     DeclarationStreamless = "PROVIDER_TRIGGERS_DECLARATION_STREAMLESS",
 }
 

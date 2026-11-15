@@ -1,4 +1,5 @@
 import type { ModuleServer, ModuleTemplate } from "@nivo-lite/agent-sdk/module"
+import { knowledgeIdeasOf } from "../../../shared/modules/knowledge-ideas/knowledge-ideas"
 import { VIDEO_COPY as copy } from "./copy"
 
 /** The video module: its copy, agent and setup gates. */
@@ -20,6 +21,7 @@ export const VIDEO_TEMPLATE: ModuleTemplate = {
     includedWithWorkspace: false,
     available: true,
     knowledgeFolder: "video",
+    knowledgeIdeas: knowledgeIdeasOf(["video_brand_kit", "video_offers", "video_claims", "brand_voice"]),
     workbench: "video",
     settingsExtras: null,
     requires: {

@@ -12,6 +12,8 @@ const OTHER_WS = "99999999-9999-4999-8999-999999999999"
 const OWNER = "22222222-2222-4222-8222-222222222222"
 const MANAGER = "55555555-5555-4555-8555-555555555555"
 const MINE = "44444444-4444-4444-8444-444444444444"
+const CLOSED = "88888888-8888-4888-8888-888888888888"
+const RUNNING = "99999999-9999-4999-8999-999999999990"
 const THEIRS = "66666666-6666-4666-8666-666666666666"
 const PARKED_AT = new Date("2026-11-14T10:00:00.000Z")
 
@@ -31,6 +33,12 @@ const build = async () => {
     const resumer = mock<ParkedJobResumerService>()
     resumer.resume.mockResolvedValue(1)
     resumer.close.mockResolvedValue(true)
+    // What the workspace holds under an id: MINE is parked, CLOSED was closed, RUNNING is not stopped; any other id (or another workspace's) is missing.
+    resumer.stateOf.mockImplementation((workspaceId, jobId) =>
+        Promise.resolve(
+            workspaceId !== WS ? "missing" : jobId === MINE ? "parked" : jobId === CLOSED ? "closed" : jobId === RUNNING ? "other" : "missing",
+        ),
+    )
     const seats = mock<WorkspaceMemberSeatsService>()
     seats.activeSeatOfUser.mockImplementation((_workspaceId, userId) =>
         Promise.resolve(
@@ -93,32 +101,49 @@ describe("StoppedWorkService: the person's door to stopped work", () => {
         expect(resumer.resume).toHaveBeenCalledWith(MINE)
     })
 
-    it("a job of ANOTHER workspace is refused as a job that is not parked: false, the resumer is never asked", async () => {
+    it("a job of ANOTHER workspace, or an id that never existed, is `not found`: the resumer is never asked to change anything", async () => {
         const { door, resumer } = await build()
 
-        await expect(door.resume(OWNER, OTHER_WS, THEIRS)).resolves.toBe(false)
-        await expect(door.resume(OWNER, WS, THEIRS)).resolves.toBe(false)
-        await expect(door.close(OWNER, WS, THEIRS, "not mine")).resolves.toBe(false)
+        expect(await refusalOf(door.resume(OWNER, OTHER_WS, THEIRS))).toBe(JobOpsErrorCode.StoppedWorkNotFound)
+        expect(await refusalOf(door.resume(OWNER, WS, THEIRS))).toBe(JobOpsErrorCode.StoppedWorkNotFound)
+        expect(await refusalOf(door.close(OWNER, WS, THEIRS, "not mine"))).toBe(JobOpsErrorCode.StoppedWorkNotFound)
 
         expect(resumer.resume).not.toHaveBeenCalled()
         expect(resumer.close).not.toHaveBeenCalled()
     })
 
-    it("resume answers false when the job is no longer parked (another replica or a person got there first)", async () => {
+    it("a job a person already closed answers `already closed` to a second close AND to a resume, and changes nothing", async () => {
+        const { door, resumer } = await build()
+
+        expect(await refusalOf(door.close(OWNER, WS, CLOSED, "again"))).toBe(JobOpsErrorCode.StoppedWorkAlreadyClosed)
+        expect(await refusalOf(door.resume(OWNER, WS, CLOSED))).toBe(JobOpsErrorCode.StoppedWorkAlreadyClosed)
+
+        expect(resumer.resume).not.toHaveBeenCalled()
+        expect(resumer.close).not.toHaveBeenCalled()
+    })
+
+    it("a job that exists but is not stopped (running, queued, done) answers `not stopped`", async () => {
+        const { door } = await build()
+
+        expect(await refusalOf(door.resume(OWNER, WS, RUNNING))).toBe(JobOpsErrorCode.StoppedWorkNotStopped)
+        expect(await refusalOf(door.close(OWNER, WS, RUNNING, "why"))).toBe(JobOpsErrorCode.StoppedWorkNotStopped)
+    })
+
+    it("resume answers `not stopped` when the job stopped being parked between the look and the hand-back (another replica or a person got there first)", async () => {
         const { door, resumer } = await build()
         resumer.resume.mockResolvedValue(0)
 
-        await expect(door.resume(OWNER, WS, MINE)).resolves.toBe(false)
+        expect(await refusalOf(door.resume(OWNER, WS, MINE))).toBe(JobOpsErrorCode.StoppedWorkNotStopped)
     })
 
-    it("closes a parked job of the workspace for good with the trimmed reason; false when it was no longer parked", async () => {
+    it("closes a parked job of the workspace for good with the trimmed reason; `not stopped` when it was no longer parked", async () => {
         const { door, resumer } = await build()
 
         await expect(door.close(OWNER, WS, MINE, "  the source was deleted  ")).resolves.toBe(true)
         expect(resumer.close).toHaveBeenCalledWith(MINE, "the source was deleted")
 
         resumer.close.mockResolvedValue(false)
-        await expect(door.close(OWNER, WS, MINE, "again")).resolves.toBe(false)
+        expect(await refusalOf(door.close(OWNER, WS, MINE, "again"))).toBe(JobOpsErrorCode.StoppedWorkNotStopped)
     })
 
     it.each([["an empty reason", "   "], ["a reason over the limit", "x".repeat(501)]])(

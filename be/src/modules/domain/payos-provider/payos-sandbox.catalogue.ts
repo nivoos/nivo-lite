@@ -22,7 +22,26 @@ export const PAYOS_SANDBOX_CASE = {
     readNotFound: "PAYOS-6",
     /** PAYOS-7: payOS refuses to cancel (the link is not pending), whatever its state. */
     cancelRefused: "PAYOS-7",
+    /** PAYOS-11: payOS answers 429 to the create: nothing was sent (proof `not_sent`), the engine retries later. */
+    createTransient: "PAYOS-11",
+    /** PAYOS-12: the create never gets an answer: the link may exist (proof `unknown`). */
+    createTimeout: "PAYOS-12",
+    /** PAYOS-13: 429 to the read. */
+    readTransient: "PAYOS-13",
+    /** PAYOS-14: the read never gets an answer (proof `unknown`). */
+    readTimeout: "PAYOS-14",
+    /** PAYOS-15: 429 to the cancel. */
+    cancelTransient: "PAYOS-15",
+    /** PAYOS-16: the cancel never gets an answer (proof `unknown`: the link may be cancelled). */
+    cancelTimeout: "PAYOS-16",
+    /** PAYOS-19: the create gets no answer, but the link WAS created (proof `unknown`; a read finds it). */
+    createTimeoutApplied: "PAYOS-19",
+    /** PAYOS-20: the cancel gets no answer, but the link WAS cancelled (proof `unknown`; a read finds it CANCELLED). */
+    cancelTimeoutApplied: "PAYOS-20",
 } as const
+
+/** The order code PAYOS-8 names when none is given: a code no sandbox account ever issues. */
+export const PAYOS_SANDBOX_UNKNOWN_ORDER_CODE = 1_789_999_999_999
 
 /** The words payOS refuses with for a duplicate order code (its documentation names the refusal "order already exists"). */
 export const PAYOS_SANDBOX_REFUSED_REASON = "order already exists"
@@ -118,6 +137,14 @@ const paidBodyOf = (paid: {
         signature: "sandbox-placeholder",
     }) as const
 
+/** The order code input every payOS inbound case takes. */
+const ORDER_CODE_FIELD = {
+    name: "orderCode",
+    label: "Mã đơn payOS / payOS order code",
+    kind: "integer",
+    example: PAYOS_SANDBOX_FIRST_ORDER_CODE,
+} as const
+
 /**
  * The paid-order webhook of a link the account created (its order code is the one input, payOS's own word): the link id, the amount and
  * the description (the transfer content) are read back from the account's state when the account holds the link, else the id counts from
@@ -127,7 +154,7 @@ const paidBodyOf = (paid: {
 const paidCase: SandboxInboundCase = {
     trigger: "transaction.received",
     path: (connectionId) => `api/connections/payos/${connectionId}`,
-    inputs: [{ name: "orderCode", label: "Mã đơn payOS / payOS order code", kind: "integer", example: PAYOS_SANDBOX_FIRST_ORDER_CODE }],
+    inputs: [ORDER_CODE_FIELD],
     eventsOf: async (input: SandboxInput, context) => {
         const orderCode = typeof input.orderCode === "number" ? input.orderCode : PAYOS_SANDBOX_FIRST_ORDER_CODE
         const keptLinkId = await context.state.read(ORDER_STATE, String(orderCode))
@@ -155,6 +182,52 @@ const paidCase: SandboxInboundCase = {
         ]
     },
 }
+
+/** payOS's own sample order code (its webhook confirmation ping): `isPayosSample` in billing/payos.policy. */
+const PAYOS_SANDBOX_SAMPLE_ORDER_CODE = 123
+
+/**
+ * A payOS delivery that books nothing, in payOS's body shape: `sample` is the confirmation ping payOS sends when the owner saves the webhook
+ * (the sample order code 123), `notPaid` a result that is not a paid order (`success` false, a code other than `00`): the door acknowledges
+ * both and books nothing (`readPayosDelivery`: reasons `sample` and `not_paid`). The link is untouched.
+ */
+const ignoredCase = (kind: "sample" | "notPaid"): SandboxInboundCase => ({
+    trigger: "transaction.received",
+    path: (connectionId) => `api/connections/payos/${connectionId}`,
+    inputs: [],
+    eventsOf: (_input: SandboxInput, context) => {
+        const body = paidBodyOf({
+            orderCode: kind === "sample" ? PAYOS_SANDBOX_SAMPLE_ORDER_CODE : PAYOS_SANDBOX_FIRST_ORDER_CODE,
+            linkId: payosSandboxLinkId(context.connectionId, 1),
+            amount: PAYOS_SANDBOX_DEFAULT_AMOUNT,
+            description: PAYOS_SANDBOX_DEFAULT_DESCRIPTION,
+            seq: context.state.seq,
+            at: context.at,
+        })
+        return Promise.resolve([{ body: kind === "sample" ? body : { ...body, code: "01", desc: "failed", success: false } }])
+    },
+})
+
+/** The state change a link takes when a case moves it out of PENDING by something other than a payment. */
+const movedCase = (status: "CANCELLED" | "EXPIRED"): SandboxInboundCase => ({
+    trigger: "link.status",
+    path: (connectionId) => `api/connections/payos/${connectionId}`,
+    inputs: [ORDER_CODE_FIELD],
+    // payOS posts no webhook for it (its webhook is for paid orders: the parser ignores every other code): NIVO learns by reading the link.
+    eventsOf: async (input: SandboxInput, context) => {
+        const orderCode = typeof input.orderCode === "number" ? input.orderCode : PAYOS_SANDBOX_FIRST_ORDER_CODE
+        const linkId = await context.state.read(ORDER_STATE, String(orderCode))
+        const link = typeof linkId === "string" ? linkOf(await context.state.read(LINK_STATE, linkId)) : null
+        if (link !== null && link.status === PENDING) {
+            const moved: PaymentLinkState =
+                status === "CANCELLED"
+                    ? { ...link, status, canceledAt: payosTimeOf(context.at), cancellationReason: "customer cancelled at checkout" }
+                    : { ...link, status }
+            await context.state.write(LINK_STATE, link.linkId, moved)
+        }
+        return []
+    },
+})
 
 /** The ids of the cases that pay a link (payOS posts the paid webhook; a payOS link is paid in full or not at all). */
 const PAYOS_SANDBOX_PAYING_CASES = ["PAYOS-3"] as const
@@ -200,12 +273,14 @@ export const PAYOS_SANDBOX_CATALOGUE: SandboxCatalogue = {
     cases: [
         {
             id: PAYOS_SANDBOX_CASE.created,
+            outcome: "ok",
             label: "A payment link is created: a PENDING link, its id and order code counting up from the account's state",
             operation: PAYOS_SANDBOX_OPERATION.create,
             default: true,
         },
         {
             id: PAYOS_SANDBOX_CASE.createRefused,
+            outcome: "refused",
             label: `A create is refused: payOS rejects it ("${PAYOS_SANDBOX_REFUSED_REASON}"), no link, no proof attached as live`,
             operation: PAYOS_SANDBOX_OPERATION.create,
         },
@@ -216,25 +291,71 @@ export const PAYOS_SANDBOX_CATALOGUE: SandboxCatalogue = {
         },
         {
             id: PAYOS_SANDBOX_CASE.read,
+            outcome: "ok",
             label: "A link is read by its link id or its order code: the account's kept link, or the not-found refusal for one it never created",
             operation: PAYOS_SANDBOX_OPERATION.get,
             default: true,
         },
         {
             id: PAYOS_SANDBOX_CASE.cancelled,
+            outcome: "ok",
             label: `A link is cancelled: a PENDING link becomes CANCELLED with the reason; a link that is not pending is rejected ("${PAYOS_SANDBOX_CANNOT_CANCEL_REASON}"); an unknown one is not found`,
             operation: PAYOS_SANDBOX_OPERATION.cancel,
             default: true,
         },
         {
             id: PAYOS_SANDBOX_CASE.readNotFound,
+            outcome: "refused",
             label: "A link is not found: payOS answers not found to the read, whatever the reference",
             operation: PAYOS_SANDBOX_OPERATION.get,
         },
         {
+            id: "PAYOS-8",
+            label: "A paid webhook for an order code the account never issued: payOS posts the paid-order body (code 00) naming a code no link holds (the default code names none)",
+            inbound: { ...paidCase, inputs: [{ ...ORDER_CODE_FIELD, example: PAYOS_SANDBOX_UNKNOWN_ORDER_CODE }] },
+        },
+        {
+            id: "PAYOS-9",
+            label: "The customer cancels at the checkout page: the pending link becomes CANCELLED (payOS posts no webhook for it; NIVO learns by reading the link)",
+            inbound: movedCase("CANCELLED"),
+        },
+        {
+            id: "PAYOS-10",
+            label: "The link expires on demand: the pending link becomes EXPIRED now (payOS posts no webhook for it; NIVO learns by reading the link)",
+            inbound: movedCase("EXPIRED"),
+        },
+        {
+            id: "PAYOS-17",
+            label: "payOS's confirmation ping: the sample order (code 123) payOS posts when the webhook is saved; the door acknowledges it and books nothing",
+            inbound: ignoredCase("sample"),
+        },
+        {
+            id: "PAYOS-18",
+            label: "A result that is not a paid order (success false, a code other than 00): the door acknowledges it and books nothing",
+            inbound: ignoredCase("notPaid"),
+        },
+        {
             id: PAYOS_SANDBOX_CASE.cancelRefused,
+            outcome: "refused",
             label: `A cancel is refused: payOS rejects it ("${PAYOS_SANDBOX_CANNOT_CANCEL_REASON}"), the link stays as it was`,
             operation: PAYOS_SANDBOX_OPERATION.cancel,
         },
+        ...(
+            [
+                ["createTransient", "create", "transient", "A create is answered 429 (too many requests): nothing was sent, the engine retries later"],
+                ["createTimeout", "create", "timeout", "A create gets no answer in time: the link may exist, the outcome is unknown"],
+                ["readTransient", "get", "transient", "A read is answered 429 (too many requests): nothing was sent, the engine retries later"],
+                ["readTimeout", "get", "timeout", "A read gets no answer in time: the outcome is unknown"],
+                ["cancelTransient", "cancel", "transient", "A cancel is answered 429 (too many requests): nothing was sent, the engine retries later"],
+                ["cancelTimeout", "cancel", "timeout", "A cancel gets no answer in time: the link may be cancelled, the outcome is unknown"],
+            ["createTimeoutApplied", "create", "timeout", "A create gets no answer in time, but the link WAS created: the outcome is unknown, a read finds the link PENDING"],
+            ["cancelTimeoutApplied", "cancel", "timeout", "A cancel gets no answer in time, but the link WAS cancelled: the outcome is unknown, a read finds the link CANCELLED"],
+            ] as const
+        ).map(([key, operation, outcome, label]) => ({
+            id: PAYOS_SANDBOX_CASE[key],
+            label,
+            operation: PAYOS_SANDBOX_OPERATION[operation],
+            outcome,
+        })),
     ],
 }

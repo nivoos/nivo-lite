@@ -1,8 +1,6 @@
 import type { ReactElement } from "react"
 import type { Metadata } from "next"
 import { getLocale, getTranslations } from "next-intl/server"
-import { notFound } from "next/navigation"
-import { isModuleKey } from "@/modules/catalog"
 import { navigation } from "@/modules/i18n"
 import { setupGeneralHref } from "@/modules/installations"
 import { workspaceHref } from "@/modules/routes"
@@ -22,7 +20,6 @@ export const agentSettingsMetadata = async (): Promise<Metadata> => {
 
 /** Moved: the settings of an agent are the "Chung" section of Setup, so the old address forwards there. */
 export const AgentSettingsPage = async (props: AgentSettingsPageProps): Promise<ReactElement> => {
-    if (!isModuleKey(props.module)) notFound()
     return navigation.redirect({
         href: workspaceHref(props.workspaceId, setupGeneralHref(props.module, props.installationId)),
         locale: (await getLocale()) === "en" ? "en" : "vi",

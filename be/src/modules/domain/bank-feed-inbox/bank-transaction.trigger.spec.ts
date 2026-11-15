@@ -64,13 +64,13 @@ describe("the bank feeds' transaction trigger", () => {
         expect(triggerFor(PROVIDER.payos)?.withoutPoll?.reason.en).toContain("NOT VERIFIED")
     })
 
-    it("words every member of its data, and never declares a line", async () => {
+    it("words every member of its data, and feeds no stream", async () => {
         const { triggers } = await buildSubject()
-        const members = ["transactionId", "direction", "amountVnd", "content", "at", "account", "bankRef"]
+        const members = ["transactionId", "direction", "amountVnd", "content", "at", "account", "bankRef", "payKey"]
 
         for (const one of triggers) {
             expect(Object.keys(one.words.members ?? {}).sort()).toEqual([...members].sort())
-            expect(one.line).toBeUndefined()
+            expect(one.feeds).toBeUndefined()
         }
     })
 
@@ -105,8 +105,22 @@ describe("the bank feeds' transaction trigger", () => {
                 at: "2026-11-14T01:00:00.000Z",
                 account: "0123",
                 bankRef: "FT1",
+                // SePay keeps no payment request: what identifies its payment is the transfer content the payer wrote (R111).
+                payKey: "DH123 thanh toan",
             },
         })
+    })
+
+    it("R111: payOS identifies a payment by the request it pays (its order code), never by the words; a payOS movement of no named request carries an empty key", async () => {
+        const { triggerFor } = await buildSubject()
+        const payos = triggerFor(PROVIDER.payos)
+
+        expect(payos?.translate({ ...rowOf(), content: "611130001", requestRef: "1780000000001" } as never, ORIGIN)?.data).toMatchObject({
+            content: "611130001",
+            payKey: "1780000000001",
+        })
+        expect(payos?.translate(rowOf(), ORIGIN)?.data).toMatchObject({ payKey: "" })
+        expect(payos?.raw.safeParse({ ...rowOf(), requestRef: "1780000000001" }).success).toBe(true)
     })
 
     it("is pure (same row, same event, no subject: a movement names no person) and fits its schemas", async () => {
@@ -125,6 +139,6 @@ describe("the bank feeds' transaction trigger", () => {
         const { triggerFor } = await buildSubject()
 
         const debit = triggerFor(PROVIDER.casso)?.translate(rowOf({ direction: "debit", account: undefined, bankRef: undefined, occurredAt: undefined }), ORIGIN)
-        expect(debit?.data).toEqual({ transactionId: "tx-1", direction: "out", amountVnd: 150_000, content: "DH123 thanh toan" })
+        expect(debit?.data).toEqual({ transactionId: "tx-1", direction: "out", amountVnd: 150_000, content: "DH123 thanh toan", payKey: "DH123 thanh toan" })
     })
 })

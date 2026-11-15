@@ -57,11 +57,13 @@ export class RecordFilesWorkspaceObjects implements WorkspaceObjects {
         private readonly engine: EntityEngineService,
     ) {}
 
-    /** The relative keys of the workspace's record files and staged objects. */
+    /** The relative keys of the workspace's record files and staged objects; a bucket that does not exist (a fresh object store) holds none. */
     async keys(workspaceId: string): Promise<ReadonlyArray<string>> {
         const listed = await this.objects.list(RECORDS_BUCKET, `${workspaceId}/${STAGED_FOLDER}`, STAGED_MAX)
-        if (listed.kind === "refused") throw new DataStoresError({ code: DataStoresErrorCode.StorageUnavailable })
-        const found = new Set(listed.value.map((file) => `${STAGED_FOLDER}/${file.name}`))
+        if (listed.kind === "refused" && listed.code !== OBJECT_STORAGE_ERROR_CODES.ObjectNotFound)
+            throw new DataStoresError({ code: DataStoresErrorCode.StorageUnavailable })
+        const staged = listed.kind === "ok" ? listed.value : []
+        const found = new Set(staged.map((file) => `${STAGED_FOLDER}/${file.name}`))
         await this.engine.scoped(workspaceId, (tx) => this.collect(tx, `${workspaceId}/`, found))
         return [...found]
     }

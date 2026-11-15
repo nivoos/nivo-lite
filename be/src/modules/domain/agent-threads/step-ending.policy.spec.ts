@@ -52,19 +52,19 @@ describe("step-ending.policy", () => {
 
     it("words every reason by the catalogue and states its typed value", () => {
         const reasons = [
-            { kind: "send_refused", tool: "nivo.tool.customer.message.send", refusal: "outside_window" },
+            { kind: "refused", tool: "nivo.tool.customer.message.send", refusal: "customer_opted_out" },
             { kind: "declined", tool: "nivo.tool.record.create" },
             { kind: "cannot", why: "no_order_code" },
             { kind: "exhausted", rounds: 6 },
         ] as const
         expect(reasons.map((one) => endingSentenceKeyOf(one))).toEqual([
-            "agentGraphs.stepEnding.sendRefused",
+            "agentGraphs.stepEnding.refused",
             "agentGraphs.stepEnding.declined",
             "agentGraphs.stepEnding.cannot",
             "agentGraphs.stepEnding.exhausted",
         ])
         expect(reasons.map((one) => reasonValueOf(one))).toEqual([
-            "outside_window",
+            "customer_opted_out (nivo.tool.customer.message.send)",
             "declined (nivo.tool.record.create)",
             "NODE_CANNOT: no_order_code",
             "6",

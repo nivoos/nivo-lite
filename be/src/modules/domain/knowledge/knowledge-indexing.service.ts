@@ -182,7 +182,7 @@ export class KnowledgeIndexingService {
         await this.sources.enterStage(workspaceId, id, { stage: "chunk", done: pieces.length, total: pieces.length })
         await this.progress.report(job, pieces.length, pieces.length, `${INDEX_SOURCE_JOB.name}.chunk`)
         if (!this.embeddings.configured()) {
-            await this.chunks.replace({ ...this.writeOf(source), drafts: keywordDraftsOf(located) })
+            if (!(await this.chunks.replace({ ...this.writeOf(source), drafts: keywordDraftsOf(located) }))) return "origin_gone"
             return this.finish(source, StoredNote.KeywordOnly, pieces.length)
         }
         const stored = await this.chunks.embeddedOf(workspaceId, id)
@@ -200,7 +200,8 @@ export class KnowledgeIndexingService {
                 job,
             ),
         )
-        if (!wordOnly) return this.finish(source, null, pieces.length)
+        if (wordOnly === "origin_gone") return "origin_gone"
+        if (wordOnly === "embedded") return this.finish(source, null, pieces.length)
         // The vector sync of the document is written in the same transaction that parks it.
         await this.sources.blockIndexing(workspaceId, id, StoredNote.NoCreditsForIndex, pieces.length, (tx) =>
             this.vectorSync.changedSource(workspaceId, id, tx),
@@ -252,7 +253,8 @@ export class KnowledgeIndexingService {
      * `withoutVectors` (no credits left) it only stores them as keyword passages. A batch that comes back with no vectors is asked
      * about once: the pool ran out since the document started (this batch and the rest are stored as keyword passages), or the
      * provider failed (thrown, so the queue retries and nothing is stored keyword-only by accident). Answers whether passages were
-     * stored without vectors for want of credits.
+     * stored without vectors for want of credits (`word_only`), or that the source was deleted meanwhile (`origin_gone`: the batch whose
+     * write found it gone and every later one are not written; the write checks the source in its own transaction).
      */
     private async embedMissing(
         source: SourceRecord,
@@ -260,12 +262,12 @@ export class KnowledgeIndexingService {
         todo: ReadonlyArray<MissingPassage>,
         withoutVectors: boolean,
         job: ClaimedJob,
-    ): Promise<boolean> {
+    ): Promise<"embedded" | "word_only" | "origin_gone"> {
         const { total } = layout
         const batches = Array.from({ length: Math.ceil(todo.length / EMBED_BATCH) }, (_, index) =>
             todo.slice(index * EMBED_BATCH, index * EMBED_BATCH + EMBED_BATCH),
         )
-        const state = { done: total - todo.length, wordOnly: withoutVectors }
+        const state = { done: total - todo.length, wordOnly: withoutVectors, gone: false }
         await this.sources.enterStage(source.workspaceId, source.id, {
             stage: "embed",
             done: state.done,
@@ -273,6 +275,7 @@ export class KnowledgeIndexingService {
             progress: embedPercent(state.done, total),
         })
         await eachInOrder(batches, async (batch) => {
+            if (state.gone) return
             // The key names the batch by the order of its first passage: stable when a resume plans the batches again over what is left.
             const key = keyOf(job, "embed", batch[0]?.order ?? 0)
             const vectors = state.wordOnly
@@ -294,11 +297,16 @@ export class KnowledgeIndexingService {
                 },
                 vectors === null ? undefined : (tx) => this.effects.settleIn(tx, key, { kept: batch.length }),
             )
+            if (stored === null) {
+                state.gone = true
+                return
+            }
             await this.handOver(source, batch, vectors, stored)
             state.done += batch.length
             await this.progress.report(job, state.done, total, `${INDEX_SOURCE_JOB.name}.embed`)
         })
-        return state.wordOnly
+        if (state.gone) return "origin_gone"
+        return state.wordOnly ? "word_only" : "embedded"
     }
 
     /**

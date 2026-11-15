@@ -1,5 +1,4 @@
 import { Injectable, type OnModuleInit } from "@nestjs/common"
-import type { EntityManager } from "typeorm"
 import { AgentDirectoryService } from "@modules/domain/agents"
 import { callDeliveryOf } from "@modules/domain/agent-schedules/workflow-call-delivery.policy"
 import { WORKFLOW_CALL_TRIGGER } from "@modules/domain/agent-schedules/workflow-call.trigger"
@@ -9,7 +8,6 @@ import {
     type JobWorkflowBinding,
 } from "@modules/domain/entity-engine"
 import { ProviderTriggersService } from "@modules/domain/provider-triggers"
-import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import type { WorkflowApi } from "@nivo-lite/agent-sdk/mutation"
 import { EntityEngineDoorError, EntityEngineDoorErrorCode } from "./errors/entity-engine-door.error"
 
@@ -26,7 +24,6 @@ const startKeyOf = (dedupeKey: string): string => `workflow-start:${dedupeKey}`
  */
 export class EngineWorkflowService implements EngineWorkflowProvider, OnModuleInit {
     constructor(
-        @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
         private readonly agents: AgentDirectoryService,
         private readonly triggers: ProviderTriggersService,
         private readonly runner: ModuleJobRunnerService,
@@ -53,18 +50,13 @@ export class EngineWorkflowService implements EngineWorkflowProvider, OnModuleIn
                     { connectionId: null },
                 )
                 if (event === null) return { started: false, reason: "refused" }
-                const result = await this.entityManager.transaction((tx) =>
-                    this.triggers.deliver(
-                        {
-                            workspaceId: binding.workspaceId,
-                            declaration: WORKFLOW_CALL_TRIGGER,
-                            connectionId: null,
-                            agentId,
-                            events: [{ event, pin: { workflow: request.workflow, version: request.version } }],
-                        },
-                        tx,
-                    ),
-                )
+                const result = await this.triggers.deliverAlone({
+                    workspaceId: binding.workspaceId,
+                    declaration: WORKFLOW_CALL_TRIGGER,
+                    connectionId: null,
+                    agentId,
+                    events: [{ event, pin: { workflow: request.workflow, version: request.version } }],
+                })
                 const delivery = callDeliveryOf(result)
                 if (delivery === "started") return { started: true }
                 return { started: false, reason: delivery === "duplicate" ? "duplicate" : "refused" }

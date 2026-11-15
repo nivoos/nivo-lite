@@ -124,7 +124,7 @@ describe("lesson candidates policy: what a lesson may say", () => {
             expect(subject.namesInternalIds("run 1aaedeaf-0000-4000-8000-000000000000")).toBe(true)
             expect(subject.namesInternalIds("xem brain-change:96380be6")).toBe(true)
             expect(subject.namesInternalIds(RULE_PAID_TWICE_VI)).toBe(false)
-            expect(subject.lessonTextOk("nivo.tool.payment.transfer.create")).toBe(false)
+            expect(subject.lessonTextOk("nivo.tool.payment.request.create")).toBe(false)
             expect(subject.lessonTextOk(RULE_DELIVERY_FEE_VI)).toBe(true)
             // No code decides that a text addresses an AI: such a line is words like any other here.
             expect(subject.lessonTextOk(LINE_IGNORE_INSTRUCTIONS_VI)).toBe(true)

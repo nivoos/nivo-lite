@@ -5,6 +5,7 @@ import { TELEGRAM_WIZARD_TEXT } from "./messages/telegram-user-wizard.messages"
 import {
     TELEGRAM_USER_AS_OF,
     TELEGRAM_USER_CASE,
+    TELEGRAM_USER_LEFT_CHAT_ID,
     TELEGRAM_USER_PER_CHAT_LIMIT,
     TELEGRAM_USER_PULL_OPERATION,
     TELEGRAM_USER_SANDBOX_CHATS,
@@ -23,13 +24,13 @@ const asOfOf = (nextCase: string | null): number => {
 
 @Injectable()
 /**
- * The sandbox twin of the personal Telegram pull (`TELEGRAM_USER-1` .. `6`): the normal poll of a sandbox Telegram account hands the
+ * The sandbox twin of the personal Telegram pull (`TELEGRAM_USER-1` .. `7`): the normal poll of a sandbox Telegram account hands the
  * sandbox chats' messages (three chats, a fixed history) to the SAME keep path the live pull uses (`context.upsert`, `message` rows made
  * by the live `mapMessage`) and never opens a Telegram session or reads a credential. It reads each chat's cursor from the connection's
  * public meta as the live pull does (`cursor:<chatId>`), brings the messages after it as of the moment the account's next case names (the
  * oldest first, at most the live per-chat limit; a chat that meets it says older lines are left) and moves the cursor to the newest.
  * `TELEGRAM_USER-1` (default) the first state, `-2` with new lines, `-3` the busy group (250 lines, two pulls), `-4` the revoked session,
- * `-5` no Telegram app credentials, `-6` Telegram not answering. A pull is a read: no outcome is unknown. One logged call per pull.
+ * `-5` no Telegram app credentials, `-6` Telegram not answering, `-7` a chat the owner left (skipped, the others brought). A pull is a read: no outcome is unknown. One logged call per pull.
  */
 export class TelegramUserSandboxSyncService implements DataConnector {
     /** The provider this connector serves. */
@@ -48,6 +49,9 @@ export class TelegramUserSandboxSyncService implements DataConnector {
         }
         return this.sandbox.call(account, TELEGRAM_USER_PULL_OPERATION, { chats: TELEGRAM_USER_SANDBOX_CHATS.map((chat) => chat.id) }, {
             key: "",
+            // The pull writes what it brings through the caller's own store (`context.upsert`, its own connections) and only reads the
+            // account's next case: it runs outside the account's lock (a connection holding a lock never waits for another of the pool).
+            lock: "outside",
             answer: async (state): Promise<DataSyncResult> => {
                 if (state.nextCase === TELEGRAM_USER_CASE.sessionRevoked) throw telegramSessionRevoked()
                 if (state.nextCase === TELEGRAM_USER_CASE.notConfigured) throw telegramNotConfigured()
@@ -58,6 +62,8 @@ export class TelegramUserSandboxSyncService implements DataConnector {
                 let capped = 0
                 for (const chat of TELEGRAM_USER_SANDBOX_CHATS) {
                     if (context.isExpired()) break
+                    // A chat the owner left is not among Telegram's dialogs: the live client skips it (no entity), the others are read.
+                    if (state.nextCase === TELEGRAM_USER_CASE.chatGone && chat.id === TELEGRAM_USER_LEFT_CHAT_ID) continue
                     const cursor = readCursor(connection.meta, chat.id)
                     const found = chat.messages
                         .filter((message) => message.id > cursor && message.asOf <= asOf)

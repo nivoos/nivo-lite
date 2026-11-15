@@ -1,5 +1,6 @@
 import type { ConnectionRecord } from "@modules/domain/connections"
 import type { PolledRow } from "@modules/domain/provider-registry"
+import { ConnectionPollError, ConnectionPollErrorCode } from "./errors/connection-poll.error"
 import { failureFieldsOf } from "./poll-failure-fields.policy"
 import { ConnectionPollLogEvent } from "./connection-poll.log-events"
 import type { PollOutcome, PollWalkOptions } from "./poll-schedule.contracts"
@@ -58,6 +59,8 @@ export class ConnectionPollRunService {
         try {
             return await this.pollWith(account, record, summary, options)
         } catch (cause) {
+            // A rate deferral is no failure of the account: the scheduler plans it again and says so as the information event `Deferred`.
+            if (cause instanceof ConnectionPollError && cause.code === ConnectionPollErrorCode.Deferred) return { kind: "failed", cause }
             summary.failed += 1
             this.deps.logger.error(ConnectionPollLogEvent.Failed, cause, {
                 connectionId: record.id,

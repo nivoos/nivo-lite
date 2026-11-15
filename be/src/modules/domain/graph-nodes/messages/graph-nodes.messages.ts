@@ -19,6 +19,9 @@ export const GRAPH_NODES_MESSAGES: MessageBundle = {
         "errors.GRAPH_NODES_EFFECT_NOT_RECORDED": "Việc {{effect}} đã chạy nhưng chưa ghi được vào sổ.",
         "errors.GRAPH_NODES_EFFECT_KEY_TAKEN": "Khóa của việc {{effect}} đang do việc {{heldBy}} giữ nên không chạy.",
         "errors.GRAPH_NODES_MODEL_ANSWER_INVALID": "Câu trả lời của AI không đúng dạng bước này cần: {{issues}}.",
+        "errors.GRAPH_NODES_ACT_REFUSED": "Việc {{effect}} đã gửi đi nhưng bên ngoài từ chối hẳn ({{outsideRefusal}}): chưa làm được.",
+        "errors.GRAPH_NODES_WRITE_UNDECLARED": "Công cụ {{tool}} không khai báo rõ có ghi ra ngoài hay không ({{why}}).",
+        "errors.GRAPH_NODES_FINAL_REFUSAL_CONFLICT": "Công cụ {{tool}} khai báo lời từ chối cuối cùng không dùng được ({{why}}).",
     },
     en: {
         "errors.GRAPH_NODES_NODE_UNKNOWN": "The step {{node}} is not installed.",
@@ -37,5 +40,8 @@ export const GRAPH_NODES_MESSAGES: MessageBundle = {
         "errors.GRAPH_NODES_EFFECT_NOT_RECORDED": "The effect {{effect}} ran but could not be written to the ledger.",
         "errors.GRAPH_NODES_EFFECT_KEY_TAKEN": "The key of the effect {{effect}} is held by {{heldBy}}, so it did not run.",
         "errors.GRAPH_NODES_MODEL_ANSWER_INVALID": "The AI answer did not fit what this step needs: {{issues}}.",
+        "errors.GRAPH_NODES_ACT_REFUSED": "The act {{effect}} left but the outside refused it for good ({{outsideRefusal}}): it was not done.",
+        "errors.GRAPH_NODES_WRITE_UNDECLARED": "The tool {{tool}} does not declare whether it writes ({{why}}).",
+        "errors.GRAPH_NODES_FINAL_REFUSAL_CONFLICT": "The tool {{tool}} declares a final refusal the engine cannot honour ({{why}}).",
     },
 }

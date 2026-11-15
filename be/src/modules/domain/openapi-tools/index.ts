@@ -10,6 +10,8 @@ export {
 } from "./openapi-declaration.policy"
 export {
     DOCUMENT_MAX_CHARS,
+    REPLAY_KEY_HEADER,
+    canonicalJsonOf,
     operationOfApiVerb,
     readDocument,
     sourceApiPrefixOf,
@@ -21,7 +23,7 @@ export { toolNamesOf, toolNamesTextOf } from "./openapi-names.policy"
 export { connectorTakenBy, pinOf, toolAudiencesOf, toolStatesOf, undeclaredOperationsOf } from "./openapi-pin.policy"
 export type { PinnedToolAudience, PinnedToolState, UndeclaredOperation } from "./openapi-pin.policy"
 export { pinCountsOf, pinReportOf } from "./openapi-pin-report.policy"
-export { argumentsSchemaOf, baseUrlProblemOf, plannedRequestOf, resolvedProblemOf } from "./openapi-request.policy"
+export { argumentsSchemaOf, baseUrlProblemOf, plannedRequestOf, resolvedProblemOf, takesReplayKey } from "./openapi-request.policy"
 export {
     ENVELOPE_ANSWERS,
     OUTSIDE_REFUSAL_CLASS,
@@ -30,7 +32,7 @@ export {
     responseSchemaOf,
     toolOutcomeOf,
 } from "./openapi-response.policy"
-export { violationOf } from "./openapi-schema.policy"
+export { declaredPropertiesOf, typesOf, violationOf } from "./openapi-schema.policy"
 export type {
     AccountBase,
     AccountKey,

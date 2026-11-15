@@ -137,6 +137,7 @@ const judge = (name, repo, commit) => {
         const missing = readiness.readinessOf(profile, installed, namesOf[place] ?? null, place)
         const line = readiness.readyLineOf(`${name} (${place}, ${sha.slice(0, 12)})`, missing)
         console.log(line)
+        for (const note of readiness.sandboxTwinsOf(profile, namesOf[place] ?? null, place)) console.log(`${name} (${place}): ${note}`)
         if (missing.length > 0) failures.push(line)
     }
 }

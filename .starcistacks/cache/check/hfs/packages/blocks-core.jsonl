@@ -1,4 +1,5 @@
-{"data":{},"findings":[],"hash":"6eed025fb849843f4625ac02d4ed74c61dbd964e7b9cec6ebc7fcbc2c0694c42","path":"packages/blocks-core/package.json","step":"file-rules"}
+{"data":{},"findings":[],"hash":"67c5bc8a6838b4687f7b625cc3d471dc71fee95dfde861b05f30e8b92a5119df","path":"packages/blocks-core/package.json","step":"file-rules"}
+{"findings":[{"column":0,"line":0,"message":"@starci/common in packages/blocks-core/package.json devDependencies: declared 1.1.0, pinned 1.0.1","path":"packages/blocks-core/package.json","rule":"HFS_CANON_PIN_DRIFT"}],"hash":"2aaff8dfb5bae01074ce7c8804d4f7b8e8b63375fb375c48d331d5525c572de3","path":"packages/blocks-core/package.json","step":"hfs"}
 {"data":{},"findings":[],"hash":"22e6e9b37244dd46cc4a49866f2ca6014f0c0f8185d8441984432b3f88b629f1","path":"packages/blocks-core/src/agents/booking/actions/calendar.actions.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"c4cef96f7f552c865a1482817e0f150f10c885feeebe02b4f9a50b35e514bf21","path":"packages/blocks-core/src/agents/booking/actions/catalogue.actions.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"32d8a36ebbbc79d4ebc30f40a6c10177437e2a40aff7b89079bc0912f90a2c74","path":"packages/blocks-core/src/agents/booking/actions/refusal.ts","step":"file-rules"}
@@ -14,10 +15,10 @@
 {"data":{},"findings":[],"hash":"b980d7ab9091cc767d0c1cfae3ffc5435f76e905c46e0855586b95f930faf307","path":"packages/blocks-core/src/agents/booking/entities/service.entity.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"cf32e75becafc194c13839a5ad329e247e58702fcae31272580643ba0473e998","path":"packages/blocks-core/src/agents/booking/entities/settings.entity.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"b6255dd534202fb1737d732203819d4f6e97f0b093e46439669896aa05744642","path":"packages/blocks-core/src/agents/booking/fixtures/booking.fixtures.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"342009f9ecb17544650ba5d3607ef301aa51525394bff7acb8de04fbceaf70cb","path":"packages/blocks-core/src/agents/booking/graphs/book.graph.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"44730843659f362d64883cd21108b7f34e6b1dd2463b6bdabbd41797cb7e76ad","path":"packages/blocks-core/src/agents/booking/graphs/book.graph.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"4001d5854fb814f3126095cf63385ed90c60ea24d7bc80abf7d719cfa14ba38f","path":"packages/blocks-core/src/agents/booking/graphs/booking.agent.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"07e5ed7b0947ed9bd5d632c8b726abcee712f10a97dccd426614f4310cea52fd","path":"packages/blocks-core/src/agents/booking/graphs/booking.graphs.spec.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"e4c140a0e95905937c9080e569a230934d7520f6d1376b050665bdbb782da3b7","path":"packages/blocks-core/src/agents/booking/graphs/booking.template.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"ed63ebc6e05877c40107be956abff84e066ec4ced4ddd6a4b699048ae18a92fe","path":"packages/blocks-core/src/agents/booking/graphs/booking.graphs.spec.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"cc9d72de7591aff175868a80bfda49d111bf7c8fb8636677abb93b8b86629f03","path":"packages/blocks-core/src/agents/booking/graphs/booking.template.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"4787a20dd59228361076a1690daf497b8bb06b35c1eca66e1ebe60e66810ec3f","path":"packages/blocks-core/src/agents/booking/graphs/copy.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"c8de547e7fc612a524ef722ba471b235577339ce067bd944e277ef00fa878063","path":"packages/blocks-core/src/agents/booking/graphs/messages/en.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"eb02ede0b45f4a024eff5af4f27c9d47edc1e72f4a792dee2ef7ecc099f78fd6","path":"packages/blocks-core/src/agents/booking/graphs/messages/vi.json","step":"file-rules"}
@@ -80,7 +81,7 @@
 {"data":{},"findings":[],"hash":"bf68f3581df7697a8caadf114a23b81a5452476fe245579c765e18fc7539d99c","path":"packages/blocks-core/src/agents/chatbot/fixtures/record-tools.memory.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"7603d4d92f01d90e0eab08f0e9fcbc9cccd0fa202297c654e32fabf332170f3d","path":"packages/blocks-core/src/agents/chatbot/graphs/chatbot.agent.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"0633eb64d4801f1c0e806caa0a1b432d05f3083512749608c3fe4ced2bb7c27d","path":"packages/blocks-core/src/agents/chatbot/graphs/chatbot.agent.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"e95da5f440906aac9c8502f5cec062b1d7370501e52bf8825ef76788a62ad20b","path":"packages/blocks-core/src/agents/chatbot/graphs/chatbot.template.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"641b78ec834b31693b52613a25b1ad1d570033cd74b6a01696e39776aa645237","path":"packages/blocks-core/src/agents/chatbot/graphs/chatbot.template.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"e6a9f3cf24d965627fd8e586a3ba388d7397bc6cfc02581f059ef7824b22b868","path":"packages/blocks-core/src/agents/chatbot/graphs/copy.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"a87e17fe10e1721b021689ed2531a216cbdee8ca0568076ccd6abd9a307ba5c8","path":"packages/blocks-core/src/agents/chatbot/graphs/front-desk.graph.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"f665de1065f0c9972e51d17387d95c5459ca06cecc65402938ed34e1c13a825c","path":"packages/blocks-core/src/agents/chatbot/graphs/messages/en.json","step":"file-rules"}
@@ -98,8 +99,10 @@
 {"data":{},"findings":[],"hash":"d124ea916806e79c1bf96f2475c454a88c869c0d13888d3b658535dc5850a4bb","path":"packages/blocks-core/src/agents/chatbot/nodes/complaint-notify.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"1faecc43595523c2cfeb3e445feb0803f6f72632ff4504945c0b8f372f927437","path":"packages/blocks-core/src/agents/chatbot/nodes/complaint-reply.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"95e06ed24c52f2ebacd06f4fa98fd118ae9e3f6800d5339bb4bfc65096ee882d","path":"packages/blocks-core/src/agents/chatbot/nodes/hear.node.spec.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"cd8fe53c5be154aee751b6d9ec030f5aa5654fb62346d3616336e09ff43efb5c","path":"packages/blocks-core/src/agents/chatbot/nodes/hear.node.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"fdc3d70d8e886eff3c7faacfc28af5c2e90c51144c54b55a1e50194a97044372","path":"packages/blocks-core/src/agents/chatbot/nodes/hear.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"5fca249470a658e2907e28744e0e77979c32b5305207f1a22a8dbb6c0d394a09","path":"packages/blocks-core/src/agents/chatbot/nodes/queued-lines.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"02d700d6d9604af992c6b15c87b607babf6ebcf3e8180bec94ad1dd42c530606","path":"packages/blocks-core/src/agents/chatbot/nodes/stop-keep.node.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"c92a5afdf7d2270ec37ca6c06be41a3535d6ca904e039f982d8c8c5600b163d5","path":"packages/blocks-core/src/agents/chatbot/nodes/stop-reply.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"ea9aacc586c79df959d11da14ebebaff5323089181ab05276166cb67a3c4b08e","path":"packages/blocks-core/src/agents/chatbot/nodes/understand.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"422c3bdc6e4dbd040a1d377e37ca358f6320bce9175aa197d76d7aeb962954b2","path":"packages/blocks-core/src/agents/chatbot/nodes/understand.routes.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"f52c44815a50ab9704fbe8c35f4ad3fdd2996cc26808c2e7797a26491139adcb","path":"packages/blocks-core/src/agents/chatbot/ports.spec.ts","step":"file-rules"}
@@ -114,7 +117,7 @@
 {"data":{},"findings":[],"hash":"0b3e92bfe2eed214e9242387854e9b253df5fb3bd36379641a6bfbb26532b810","path":"packages/blocks-core/src/agents/chatbot/reads/figures.read.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"7c017152464382b43acf98491261d4cc3602927657851edc7e016c252760029c","path":"packages/blocks-core/src/agents/chatbot/reads/last-lines.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"1cdc2c25fbe6817deed595824a2a45e338d8d9332be95115a0a7d5a1578363a8","path":"packages/blocks-core/src/agents/chatbot/reads/messages.read.spec.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"9bd16cf3df3d81444307c0161bd8e1f7984f0306b45c5ce43ce64f2cbd172dd5","path":"packages/blocks-core/src/agents/chatbot/reads/messages.read.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"444b27093311515ccdef380f02f126e06b53da8efd0eb76a9d824e52a39b6813","path":"packages/blocks-core/src/agents/chatbot/reads/messages.read.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"3eab54f42389f9a1ae967618c5e2ec9e0f9e01c8d26af07184c16917ee7806b6","path":"packages/blocks-core/src/agents/chatbot/reads/route-holder.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"e9ac1ea5cb3d55a9adffa21847a96f5ae5f7ca4e01693949372f19e68d1543fe","path":"packages/blocks-core/src/agents/chatbot/reads/settings.read.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"e04becd9aadfd18afc01cdc6be9cd6a270ff79b1446f57723f4b9cda070afdb6","path":"packages/blocks-core/src/agents/chatbot/reads/thread.read.spec.ts","step":"file-rules"}
@@ -199,7 +202,7 @@
 {"data":{},"findings":[],"hash":"f0a837dd359769ac3d59eb07f9b94496a728153aaeb03a1cefb37390e0f49d67","path":"packages/blocks-core/src/agents/content/fixtures/content.fixtures.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"e78673d586d0d6695cb83566c9434c5ca682dc7f3987bb84dc5cfe75b7f8377a","path":"packages/blocks-core/src/agents/content/graphs/content.agent.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"a301815799dc4d64815b287ab945f550d064cfd78a33841f689783bc453affa5","path":"packages/blocks-core/src/agents/content/graphs/content.graphs.spec.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"7d8124050df5717994b167ae78bb44886e4d45ef1b660e6874ca5867e37d41de","path":"packages/blocks-core/src/agents/content/graphs/content.template.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"d66f5c8e1e52cc0e5a7ce563a96516ec028f1bb62855dec60f42c67918cca60c","path":"packages/blocks-core/src/agents/content/graphs/content.template.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"508614386c52c82864ad8cd03204fd96f69870dd2a395bf9b83ee3309156fcba","path":"packages/blocks-core/src/agents/content/graphs/copy.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"2dfcd6dd37824c7325141e3d731d380bff7957130ccd0ee56b1adec9d26d9731","path":"packages/blocks-core/src/agents/content/graphs/draft.graph.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"668c73e7be57f3c1427c3c72d351d12ab212a60cdc0f144333eba15f8dd11c27","path":"packages/blocks-core/src/agents/content/graphs/messages/en.json","step":"file-rules"}
@@ -247,7 +250,7 @@
 {"data":{},"findings":[],"hash":"f40f7462fa13ed253e82bf75bfcb86d103d992bb281a9700e7198323ca302061","path":"packages/blocks-core/src/agents/hiring/graphs/digest.graph.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"3c10489b77294da2c489c4005d3bdc3113cb4825bd07d5e770c616a8a357ddaf","path":"packages/blocks-core/src/agents/hiring/graphs/hiring.agent.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"b7d9f4e66e673e40ff38196f3055820c5f714c74e38135544a51224ff7fb2b58","path":"packages/blocks-core/src/agents/hiring/graphs/hiring.agent.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"76f10e3967f4add1469174f32f44e40d97b8f88c74c2c634f87336b23922868a","path":"packages/blocks-core/src/agents/hiring/graphs/hiring.template.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"10f28159a701880db44635d0a7ccbb1937aa9632552c7467f37aa4fcfd7e429e","path":"packages/blocks-core/src/agents/hiring/graphs/hiring.template.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"9cce9679b5e6136b6db57f03a4c477c592fc325237f38f548b5859e8c38e0498","path":"packages/blocks-core/src/agents/hiring/graphs/messages/en.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"eae833c68002b0958dcc63489bdfb7352b3b943e3f3b2b9e348e46dfb357be3b","path":"packages/blocks-core/src/agents/hiring/graphs/messages/vi.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"8b4fd2ebde52452f8e8e92547ae241e1677f39b1980f13ddd40602c269de77c6","path":"packages/blocks-core/src/agents/hiring/graphs/screen.graph.ts","step":"file-rules"}
@@ -277,7 +280,7 @@
 {"data":{},"findings":[],"hash":"ee8bd7220c457072902937b6c87e93e01f4ed629c353399520b4b4d1d99b41e6","path":"packages/blocks-core/src/agents/lead-gen/craft/mindset/vi.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"8755737698f4a56032f1009e878ad11ce838a79cd0b671fbb3ee12b91e3a69a4","path":"packages/blocks-core/src/agents/lead-gen/graphs/copy.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"c6132cdc673164ab083fe3a6975a24b1b72fb1303437ec52e3e5a77da320e10c","path":"packages/blocks-core/src/agents/lead-gen/graphs/lead-gen-gates.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"defc4acb163a5a5ef71d01929653c036ebb206b9dbdc96b41cae3a1b2809d3c8","path":"packages/blocks-core/src/agents/lead-gen/graphs/lead-gen.template.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"4d09560780487d21a5ebac7d5903e9d0e9ca2f31ade81fd44cb414157d246823","path":"packages/blocks-core/src/agents/lead-gen/graphs/lead-gen.template.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"eb07110aa95ea74eec4f5066a690fe01b0cd2d14e65d4a34cc771b543295aaa4","path":"packages/blocks-core/src/agents/lead-gen/graphs/messages/en.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"c4468c00a95f23a12a19c073671325465731d9c642cfa2f9711fd57da6bec5d2","path":"packages/blocks-core/src/agents/lead-gen/graphs/messages/vi.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"300a80a828233c062df71b112e0f48880d0a394a1d0021480bb77281497f3e7b","path":"packages/blocks-core/src/agents/sales/actions/actions.spec.ts","step":"file-rules"}
@@ -296,11 +299,11 @@
 {"data":{},"findings":[],"hash":"49d1a364a528cc125394396a48d9e8a96f6dcc362dfe5567923d0f5956fa8af6","path":"packages/blocks-core/src/agents/sales/craft/craft.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"851e43d4258f2f6b9e9c119408056e5d42cab21e01474765200996d570bb451d","path":"packages/blocks-core/src/agents/sales/craft/mindset/vi.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"6a87df7735150ef1e1f8320407b8b89a3b191aaab571f64ef05c7005729d9505","path":"packages/blocks-core/src/agents/sales/declaration.spec.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"5d81916ff93d657533d2944e73ac67fa66c701d6c99d5160f0c038c2da507624","path":"packages/blocks-core/src/agents/sales/declaration.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"39b3a98dabe9dfd060724da4d51a8e38c02550b73c9bfa3a95fcf619be085dff","path":"packages/blocks-core/src/agents/sales/declaration.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"d9d9c6036efc9d013691122e775132f584e344d9accd09d7b95943a5b152126b","path":"packages/blocks-core/src/agents/sales/details.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"5ede6199032417b30a6a181282e4a56b521e6fa3c98e2c63857e16bbbbe03414","path":"packages/blocks-core/src/agents/sales/details.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"8ddf1c109c86ad5f70873be05fc5d2a0bb7d7a1a01554f5d38739c57a92dcd60","path":"packages/blocks-core/src/agents/sales/entities/claim.entity.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"14f9895e1ef00f4af39738d4abc5b31219516d1b22dc537d4fcc2681ac178726","path":"packages/blocks-core/src/agents/sales/entities/invoice.entity.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"8d92e20932576f31d845ad36a2686be9043498a70bcde582849585caadbf94ec","path":"packages/blocks-core/src/agents/sales/entities/claim.entity.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"213d7fe3dcd193b65099205d78802ac191b7203219674a4b19c58cb10e275739","path":"packages/blocks-core/src/agents/sales/entities/invoice.entity.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"6c6a976711cdabf160e16ebcce732631994460ed59230a972d150c8ae403c0fd","path":"packages/blocks-core/src/agents/sales/entities/lead.entity.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"ad23a5757506f50dbe3242101a1e2b3173872632276f17ad8fb6e8fdc61bc9e4","path":"packages/blocks-core/src/agents/sales/entities/ledger-adjustment.entity.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"326bb2071b5e5d4414c03826721c293f59bf18f0529d48d2a52e25eb7b61973c","path":"packages/blocks-core/src/agents/sales/entities/ledger-entry.entity.ts","step":"file-rules"}
@@ -312,7 +315,7 @@
 {"data":{},"findings":[],"hash":"d48687686ed05dd4acdb203479e89b2e4e66964ab5431b04db45939b46889007","path":"packages/blocks-core/src/agents/sales/entities/loyalty-member.entity.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"b45c0839f02af60c8683f2336e0824318a6e6dca9e71aab4e95aaad91d4ab076","path":"packages/blocks-core/src/agents/sales/entities/loyalty-program.entity.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"558f947fa6c993d3889d682bec15a0eed01aecbb9ed224f413cc7e4bb81af7b7","path":"packages/blocks-core/src/agents/sales/entities/loyalty-reward.entity.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"7fcd853a9312c502b50ebe3fc6effe651c078f46eb481727eb7f95a3dfce868d","path":"packages/blocks-core/src/agents/sales/entities/order.entity.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"4f119d7b5d6a76b25810ff12db288e959f9748b25b72548fd836364297ca547b","path":"packages/blocks-core/src/agents/sales/entities/order.entity.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"174cee48d87295bf9bca183285e0c67973d6769395c73f92b2668a78eeeba37f","path":"packages/blocks-core/src/agents/sales/entities/settings.entity.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"70eedefa650ae54c8f28af5423fe97bdcd86626e29f572c21f6486784cb9c645","path":"packages/blocks-core/src/agents/sales/entities/transaction.entity.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"7b35d95cd1ddc775b0b1a3a3baefc91178734a2801e9088ff0dbaef2ba5ebdd0","path":"packages/blocks-core/src/agents/sales/fixtures/sales.context.ts","step":"file-rules"}
@@ -321,17 +324,17 @@
 {"data":{},"findings":[],"hash":"2427825b6a232c642f40b01e4f445bc2411559efe55c47f99b9b6a21486ca269","path":"packages/blocks-core/src/agents/sales/fixtures/sales.fixtures.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"7ca44dee2a8e702bb724f204165b33ab11d72b486b96950dd21160fcf2047169","path":"packages/blocks-core/src/agents/sales/graphs/after-sale.graph.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"ca7852cba4d0cb315c4ce1f48fdc2ff6c51a881e1c5fe5e06d5abaa0e1916a9d","path":"packages/blocks-core/src/agents/sales/graphs/care.timer.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"1aa211fac2e727e7368529d6fd0572517f57cd22ea9370320865b3a5dc1a1382","path":"packages/blocks-core/src/agents/sales/graphs/consult.graph.spec.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"90e0ad4cd16e72ad328808a180b26beeecbeba70f4bbd576993ba755d483e60c","path":"packages/blocks-core/src/agents/sales/graphs/consult.graph.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"b1ee034ea37044dcd7026f7dc2196b97d81ba22c3e4050b2f83f4c47f4f03d0b","path":"packages/blocks-core/src/agents/sales/graphs/consult.graph.spec.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"ff7e989c768608f61d61eceabe6993301986b567b8eac281c0955c0c576aecee","path":"packages/blocks-core/src/agents/sales/graphs/consult.graph.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"f57770d170c90b435101aad7c03339b6a30aa639914504939f88b111382d1c89","path":"packages/blocks-core/src/agents/sales/graphs/copy.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"275b2eee338c5c759b783a42acad9f5bd9ceb39d782cb8761d6b4077f6e4cf31","path":"packages/blocks-core/src/agents/sales/graphs/delivery-check.graph.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"207289e3910ce63bc24d2c60e417f338e73b7a61309ddefb2e644064e5b4aff9","path":"packages/blocks-core/src/agents/sales/graphs/messages/en.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"58ef5e4151017ed4ec54661f237366b84e77eafa172c025a92bf6a140c62ed19","path":"packages/blocks-core/src/agents/sales/graphs/messages/vi.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"d6a9a714b229e9e3bf80d033ce64ba3a2d20d4fe6a36efa1c4960dec36d2da86","path":"packages/blocks-core/src/agents/sales/graphs/occasion.graph.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"6055af54a244a714e593b64c3bc3bb40ad123a4fd502b6f0db4ab03a07832c0a","path":"packages/blocks-core/src/agents/sales/graphs/payment.graph.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"17066dafcb3dd8c9d2a2d578001490d2bcdcbeac742ef9b53118661bbafb4c7f","path":"packages/blocks-core/src/agents/sales/graphs/payment.graph.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"a471d3616decb34e3c7b4fe3fb1541ea793b488004ed2aa145d0f04f113d30cb","path":"packages/blocks-core/src/agents/sales/graphs/sales.agent.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"ee91cfadc7f7cae189c47287d100635a8e20ed150da328d76247fb4ca213f9d7","path":"packages/blocks-core/src/agents/sales/graphs/sales.graphs.spec.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"3973629b7706423c07caed02837a5f0f05ff554a5e4cf7c55993192de06e0c4b","path":"packages/blocks-core/src/agents/sales/graphs/sales.template.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"d5d7a8962ec823c71b5fa8d029339004b7d9b252b02672d1c65296db3cf6c134","path":"packages/blocks-core/src/agents/sales/graphs/sales.graphs.spec.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"1954aec6fcba723d7b3bdd2efbd851d6aa4caa650361597116f60eb04e18e62d","path":"packages/blocks-core/src/agents/sales/graphs/sales.template.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"a0294b371419e8d6947a4ba48abbc866080c2de151a8c68d52ca8d85ffd8f853","path":"packages/blocks-core/src/agents/sales/graphs/web-order.graph.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"2de52265e886917dac17bb8418c069c614774cea4ef51b6a64c527572e570bce","path":"packages/blocks-core/src/agents/sales/index.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"6f5cdc2d04a18b75ea9b0507bc24fe8dd9a2c8a783ebd8dfe783876a3d814027","path":"packages/blocks-core/src/agents/sales/ledger/accounting-data.period.spec.ts","step":"file-rules"}
@@ -587,7 +590,7 @@
 {"data":{},"findings":[],"hash":"7f606fa6c8c9afba1048d44072f167879c6833860eb59bf5c8efa3ac79770bb8","path":"packages/blocks-core/src/agents/sales/memory.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"be80e441c3227eeec13ecc69a73cc9766765c6adc2f4823bd48040efc854ad29","path":"packages/blocks-core/src/agents/sales/messages/en.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"87fa97de8136fb0bccfae10e557a8d256bc99c6b8861947e0ea305cba80763d1","path":"packages/blocks-core/src/agents/sales/messages/vi.json","step":"file-rules"}
-{"data":{},"findings":[],"hash":"1da07acd37a024b6c67b17c523435e5233ba56fdcd8783e717f4ee57db2d5f18","path":"packages/blocks-core/src/agents/sales/nodes/awaiting-orders.node.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"5f1d6eb313a3d59391625e42a91b546d7c6dd4fa656af7725969dc68eff2e51f","path":"packages/blocks-core/src/agents/sales/nodes/awaiting-orders.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"490851f3a4fa06b80b356542d0c82ca6ce472194a3ddf184274cd82c16b7a072","path":"packages/blocks-core/src/agents/sales/nodes/cancel-paid-notice.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"d4cfd4b259b9f7158ac0cc9ffc60a88a87f71395b6dd99322a5275a321bdc4d5","path":"packages/blocks-core/src/agents/sales/nodes/care-after-sale.node.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"6ab081b169df88f81224ee39312790e324636fba4aa6bafe0630f0cf92026e28","path":"packages/blocks-core/src/agents/sales/nodes/care-after-sale.node.ts","step":"file-rules"}
@@ -608,7 +611,7 @@
 {"data":{},"findings":[],"hash":"0e64e84a8eebc03423f03c7791ce76a884427611143f87e5827a01bdf11ab59c","path":"packages/blocks-core/src/agents/sales/nodes/care.steps.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"534cb04f243f539017dda2288090d07411f00f26f93d8f1a9cff7427df8e03f4","path":"packages/blocks-core/src/agents/sales/nodes/consult-stage.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"fd6d39425f633a9dadf802239782a22e8acc4bda2a4d984642f03ef4417cf7b1","path":"packages/blocks-core/src/agents/sales/nodes/consult-turn.node.spec.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"c93258de2a63c117d3afdf5ce45d724d64002c53e8b6dbdb3ba94d127ef25ac1","path":"packages/blocks-core/src/agents/sales/nodes/consult-turn.node.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"255c8166c9c8702578531ba2c63583469ffe6f0c7809f9ae3be9a388d7539a13","path":"packages/blocks-core/src/agents/sales/nodes/consult-turn.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"fea0846fe6858b289314d95df4678067483eaacaaeecf0552146a3c02d13e30a","path":"packages/blocks-core/src/agents/sales/nodes/consult.draft.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"aa28b7039ac2b398f65e73440964b89c334473f06844dae9c7ac788e9d52b721","path":"packages/blocks-core/src/agents/sales/nodes/consult.flow.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"143808a6312213ad024bd4c8874d429a043cba7bbc9a71de0776501ba3ffff45","path":"packages/blocks-core/src/agents/sales/nodes/consult.occasion.ts","step":"file-rules"}
@@ -630,20 +633,23 @@
 {"data":{},"findings":[],"hash":"648498ad6e66847ecca7719653ee6730406982218c176a755826123193244500","path":"packages/blocks-core/src/agents/sales/nodes/order-notice.lines.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"555c4c03b74fc8a7b0aa27e36ca4a5751b6e0b180c9c6bea7709efe3ef716c32","path":"packages/blocks-core/src/agents/sales/nodes/order-notice.policy.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"62b7b0d908d616666191235d06407e8ffa9e73fe5319843440312ac4ac340374","path":"packages/blocks-core/src/agents/sales/nodes/order-paid.node.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"b18c7d648ceeb97f8b193c9574fcc5c81a3c1690957eecbea56c8c1925336ff4","path":"packages/blocks-core/src/agents/sales/nodes/order-read.node.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"e7095ee136b1742cdba747b55f1e9f26bc1791aad9b3a51bb40944f8fad5faea","path":"packages/blocks-core/src/agents/sales/nodes/order-talk.node.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"caa21a4764536e0dbdf57fefa069180af9e025e66cb2fc4158e71d26fa4865bb","path":"packages/blocks-core/src/agents/sales/nodes/order-tell.node.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"b378e5ed9725d79cb14a004aea7cf117736246c72d78665e42bb98ad57e152ac","path":"packages/blocks-core/src/agents/sales/nodes/order-read.node.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"b8d0e68444220d38877646ca4f09b618891022ebee0fe4966885659c0cad6803","path":"packages/blocks-core/src/agents/sales/nodes/order-talk.node.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"9c88be879f21628960ab3ab508b70f89bc0766752777c6a0e6b397c5c8cce67c","path":"packages/blocks-core/src/agents/sales/nodes/order-tell.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"8e0bc4b2bfa79f8781deaf605d74bb4d7ca49118b7da32a09e84b76279389c2c","path":"packages/blocks-core/src/agents/sales/nodes/order/order.policy.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"7aa2c4a9874ce575b6cf87ad10a96c7ff2ba5814c266d58db735b79dcc38c88b","path":"packages/blocks-core/src/agents/sales/nodes/order/order.policy.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"3f8bc0cb0af2a0a0944d1fb03671975a99a0aefe09f60185877e2c9c17ceb830","path":"packages/blocks-core/src/agents/sales/nodes/paid-claim-notice.node.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"3973998dc30586155c93cd32fa4cae91ef17e9d0d19446c5e2ce4d834d9d954e","path":"packages/blocks-core/src/agents/sales/nodes/paid-claim-reply.node.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"3751fe56468e5bf2481f33100f66b9d30e8d5f06cf93f8064d4048ffe4f7fcb0","path":"packages/blocks-core/src/agents/sales/nodes/paid-claim-reply.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"b4ac8106bb8e4f2f78771ba0a650dddbf14087b7dc8b0dc5702d59d1ee64a5ec","path":"packages/blocks-core/src/agents/sales/nodes/payment-remind.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"f1912c0f4f1b77edf8d1683ae849151c1b75afd1384f92ccdb4e1dfaf926589b","path":"packages/blocks-core/src/agents/sales/nodes/payment-short.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"e122b233779ecdaf3ee30da090daf852b530856ed8e40d4a74442b28a32a21b6","path":"packages/blocks-core/src/agents/sales/nodes/payment.flow.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"df5f37dd2a7a1a01fd93cb9c5441ca0d0a7616ba194880b7681d56de587b8e27","path":"packages/blocks-core/src/agents/sales/nodes/price-facts.reads.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"f84e13d23471ca36a1d0f2b77bc8c9dec9a57bb74bf3bf9c491d2ccda236cfea","path":"packages/blocks-core/src/agents/sales/nodes/price-facts.reads.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"19f63fefbf9b6d2431dd2fd19d5b4233480901e5809876e5e235c4860b00b260","path":"packages/blocks-core/src/agents/sales/nodes/request-qr.node.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"e74cccef4d69242887e70a8854ae35e1be30ce732728ca569a1770667ec3f3a9","path":"packages/blocks-core/src/agents/sales/nodes/sales-order.ts","step":"file-rules"}
+{"findings":[{"column":0,"line":0,"message":"packages/blocks-core/src/agents/sales/nodes/request-cancel.node.ts is neither tracked nor git-ignored, and no ignored slot owns it","path":"packages/blocks-core/src/agents/sales/nodes/request-cancel.node.ts","rule":"HFS_UNTRACKED_ROOT_ENTRY"}],"hash":"absent","path":"packages/blocks-core/src/agents/sales/nodes/request-cancel.node.ts","step":"hfs"}
+{"data":{},"findings":[],"hash":"2fe1f45e4704d2b5dcc1c889d3b9d6e2d784949bc0a7813b1c9d134e3c2ac8c4","path":"packages/blocks-core/src/agents/sales/nodes/request-pay.node.ts","step":"file-rules"}
+{"findings":[{"column":0,"line":0,"message":"packages/blocks-core/src/agents/sales/nodes/request-read.node.ts is neither tracked nor git-ignored, and no ignored slot owns it","path":"packages/blocks-core/src/agents/sales/nodes/request-read.node.ts","rule":"HFS_UNTRACKED_ROOT_ENTRY"}],"hash":"absent","path":"packages/blocks-core/src/agents/sales/nodes/request-read.node.ts","step":"hfs"}
+{"findings":[{"column":0,"line":0,"message":"packages/blocks-core/src/agents/sales/nodes/request.flow.spec.ts is neither tracked nor git-ignored, and no ignored slot owns it","path":"packages/blocks-core/src/agents/sales/nodes/request.flow.spec.ts","rule":"HFS_UNTRACKED_ROOT_ENTRY"}],"hash":"absent","path":"packages/blocks-core/src/agents/sales/nodes/request.flow.spec.ts","step":"hfs"}
+{"data":{},"findings":[],"hash":"e7a02ab796bbf15355a60a71dc43df48b51303c3b31c81836aa829f90f2e1d2d","path":"packages/blocks-core/src/agents/sales/nodes/sales-order.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"28962c3cfe96d8863052a3f437906c0f2f9e07b17aa575f81277f27ca825f8e8","path":"packages/blocks-core/src/agents/sales/nodes/unread-lines.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"ab10d2a8b23958ffceecbd3a0dc2a36868f70018c1f0ae2720f91d373323cf87","path":"packages/blocks-core/src/agents/sales/nodes/web-order-keep.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"8e9a5557a3ef51ac33d9b195527603fd8fe31b0e1da55621b59607c1200800af","path":"packages/blocks-core/src/agents/sales/nodes/web-order-lead.node.ts","step":"file-rules"}
@@ -760,7 +766,7 @@
 {"data":{},"findings":[],"hash":"49687bf554d9f328138d5893a9d9546a67ef7dbc330c096410e7fcee3509c73b","path":"packages/blocks-core/src/agents/video/graphs/produce.graph.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"9005c028b4f65513271e4c280348561a09276e71961ab6fbdfa1466554be1ed2","path":"packages/blocks-core/src/agents/video/graphs/video.agent.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"f25e2a22c9aa207998985fe283526d48450a53d75a95477cc9767069ff87e50d","path":"packages/blocks-core/src/agents/video/graphs/video.graphs.spec.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"0c4fa0268af76ed1b09332e2edbf49b41c26c77f1f11144bac33abf2a49b8e81","path":"packages/blocks-core/src/agents/video/graphs/video.template.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"8d745854fb36ee646e726d594e8f51ff8d070b38d75daac2a0627a0fa4104efd","path":"packages/blocks-core/src/agents/video/graphs/video.template.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"4466164fec44bc30952615cb4b148be2b4472f3abcf69a3296d9cb2be700a9af","path":"packages/blocks-core/src/agents/video/index.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"8bc142a942cd2ef77dce72528ef7d93547945dc1b44dbbe3e7d93e99bef2c152","path":"packages/blocks-core/src/agents/video/messages/en.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"f173c7ed39777f740a1610dc9c581d18b7ed4824fc9ec7fe88adda9252200da1","path":"packages/blocks-core/src/agents/video/messages/vi.json","step":"file-rules"}
@@ -798,7 +804,7 @@
 {"data":{},"findings":[],"hash":"1454b6ebcd6760734a6b04ff8fc70823264482476b0d9e0993da080dfde1fc77","path":"packages/blocks-core/src/agents/video/video-messages.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"ff6919d63923b80681ff43bfced976d9005cdd2e9c30bf6b28021606ba196e78","path":"packages/blocks-core/src/agents/video/workbench/specs/video.workbench.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"2670f02007355ded165ce1daad3f1f2033d1aec86d272a203da5a3be1a566f8e","path":"packages/blocks-core/src/agents/video/workbench/specs/video.workbench.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"a0e024c7abd469d81f484fe8a07cf89b235d80222075a1a07b12212053ee25a0","path":"packages/blocks-core/src/index.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"25ab6214879984993eda7737639249c789fdcbbc2b2a929aba3d4f78de9b9795","path":"packages/blocks-core/src/index.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"ea44c0320150b09b8ed38bd02a6904f7f0d963ae5bd74aa56eec47f5d2930724","path":"packages/blocks-core/src/plugin.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"7e0488af659c44816232ff759c40bfd25302e8df8db68dbe7c6e64061d91abed","path":"packages/blocks-core/src/plugin.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"a4494954ad96b547a5144e75576d464bf1ffc4cc6c33c2c75dc662044b6c3230","path":"packages/blocks-core/src/shared/agent-message/agent-message-approval.spec.ts","step":"file-rules"}
@@ -952,7 +958,8 @@
 {"data":{},"findings":[],"hash":"4e7821945f856bab5208e657b8f8b43bd218d57e1145c596cc59f4bb84b8ffd1","path":"packages/blocks-core/src/shared/customer-chat/front-desk.copy.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"33494b18bd5f938e66703fd3f692b21439edc071e7c50e4c9ebd1c65d70377d6","path":"packages/blocks-core/src/shared/customer-chat/front-desk.fixtures.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"859200056dbabe5d89eb6f3cdb298f32578a33b2e288e717f3dfbedfffb4907e","path":"packages/blocks-core/src/shared/customer-chat/front-desk.policy.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"78e14517b8befb1cd57a75aa5baf2489d98f7dacd7aa6210252806d05bdac5b9","path":"packages/blocks-core/src/shared/customer-chat/front-desk.reads.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"de192700ab1c5fd1c829b46d881acae7478650f9212d4ddfc5942a1fd93e7bf1","path":"packages/blocks-core/src/shared/customer-chat/front-desk.reads.cursor.spec.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"9214c8eb485ebc99cf8065a068ef48461d3bdd3902d16f777f1fbae1f64f828c","path":"packages/blocks-core/src/shared/customer-chat/front-desk.reads.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"e9e455b3bcef86cb8a31339eca198846d13c07e839b53350e82077a296a92610","path":"packages/blocks-core/src/shared/customer-chat/front-desk.samples.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"e057abdfb3e2a1bd4093ef0ee36fa6a9a95dff9521f9eb1d50eaed5801bb93e8","path":"packages/blocks-core/src/shared/customer-chat/message-line.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"0a7398559c0b6dd43e385fe45efe5200611b4d53bebb96338be1a33e757d195b","path":"packages/blocks-core/src/shared/customer-chat/message-line.ts","step":"file-rules"}
@@ -982,9 +989,9 @@
 {"data":{},"findings":[],"hash":"07584e7e0a279cc0913d780a0a7adc79d54671a5f7fc065280bf1d09819a4ffc","path":"packages/blocks-core/src/shared/graph-cards.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"873130719226f92ad361027d096a7268daba620fd1d3d46780403bf5b51c50d6","path":"packages/blocks-core/src/shared/json.schema.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"3ae9c9de64d2293aedc8192599f4c5a4571f822a34daf2822d15de5caf0df9f4","path":"packages/blocks-core/src/shared/messages/catalog.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"2b0301627e1df382d432ad71438c6464d5b55091bd1f745ce7cb81e590fe846b","path":"packages/blocks-core/src/shared/messages/en.json","step":"file-rules"}
+{"data":{},"findings":[],"hash":"8a907af8c8562a03d284011084aeab332bdfcd807295fedfc786e941a9114f5e","path":"packages/blocks-core/src/shared/messages/en.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"d558d2210f72fc36d95022863cfd525b4bddd151b33ade8b4031e5b182e00b66","path":"packages/blocks-core/src/shared/messages/samples.json","step":"file-rules"}
-{"data":{},"findings":[],"hash":"2eba87c40fdc08da6b142e14d45165d2d44a2778ebc497664ddd3bbac24caa73","path":"packages/blocks-core/src/shared/messages/vi.json","step":"file-rules"}
+{"data":{},"findings":[],"hash":"4798ebb11ffb5d147593355c0480dde79b99aedb990bb77dc8d150ed3a58778b","path":"packages/blocks-core/src/shared/messages/vi.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"7041e030ae4a90880220f3d807faa4279e4e63dcaa1c818a74d4bf62abcfbeb5","path":"packages/blocks-core/src/shared/messages/words.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"d929cb83bdee19d996b1e7fb2cb1de16d0704b62a03d032d60b443b9d4e23266","path":"packages/blocks-core/src/shared/models/embeddings.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"69f06bf8d06405595b0531357532dfd5eb14fafa75a021b6304c94a8f7beb3e6","path":"packages/blocks-core/src/shared/models/index.ts","step":"file-rules"}
@@ -994,6 +1001,7 @@
 {"data":{},"findings":[],"hash":"41856532715b70f4d1e3efcfdf5509470ddee3db5016bf76f97281717c994963","path":"packages/blocks-core/src/shared/modules/agent-abilities.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"f1be1e51b8bc192dadc495a4414a3774a42a73ccd4763ec51831bc0a1124a2d9","path":"packages/blocks-core/src/shared/modules/functional-agents.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"6dd19ba5b66b38de15210717b7b8e0656d1aa27f1b336e47f7a0125cb7049846","path":"packages/blocks-core/src/shared/modules/index.ts","step":"file-rules"}
+{"findings":[{"column":0,"line":0,"message":"packages/blocks-core/src/shared/modules/knowledge-ideas/ is neither tracked nor git-ignored, and no ignored slot owns it","path":"packages/blocks-core/src/shared/modules/knowledge-ideas","rule":"HFS_UNTRACKED_ROOT_ENTRY"}],"hash":"absent","path":"packages/blocks-core/src/shared/modules/knowledge-ideas","step":"hfs"}
 {"data":{},"findings":[],"hash":"3a083169df7dcd7c1825c2adb75076e813f016f43a28c9a1816299c801186828","path":"packages/blocks-core/src/shared/modules/module-declarations.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"fe79c3afc591e18f380f86b34b3581e90ba2974a8ff44a9b6bda6cf34792fe9a","path":"packages/blocks-core/src/shared/modules/module-fixtures.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"0365c908dc3f1a308b953eb59553a69a8db361a0e362f96d0991277de709a217","path":"packages/blocks-core/src/shared/modules/module-jobs.spec.ts","step":"file-rules"}
@@ -1004,24 +1012,25 @@
 {"data":{},"findings":[],"hash":"a56699849a0ff2d4a20f047868673d76f3a6b657f3bd8e3179f80bc6b68d0098","path":"packages/blocks-core/src/shared/modules/passage-tools.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"7ff350e4bd8aa654af3e2b65193fe44207a7537e0e0ec20894e6f015f78b1621","path":"packages/blocks-core/src/shared/modules/read-page-bounds.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"a0fd9d7f84e37db3e771bd6c2a52959456ae3c6a2a57f5a4ac8ac7df567774c3","path":"packages/blocks-core/src/shared/modules/registered-module-keys.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"3fda2d5016b22111d157de0951847e5eda0850fdaddfa96e9cb63c4e5fb96654","path":"packages/blocks-core/src/shared/modules/registry.spec.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"dedc404593fdcb7ae31ad409735b10d459f745c19e39f5d29986a7024ecd7671","path":"packages/blocks-core/src/shared/modules/registry.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"9ffbc620134ba8c31d83c06df58561b48cb149e04e6cd830a4a827002f410b7e","path":"packages/blocks-core/src/shared/modules/webhook-events.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"ed661711c83448b9ae475d44446a58eded3d6f47cd3b05959a63171658828308","path":"packages/blocks-core/src/shared/nodes/core/call-workflow.node.spec.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"2c5221543b3293b9008be87e794fa1ff96f47308d9f6c308775d963259a2e140","path":"packages/blocks-core/src/shared/nodes/core/call-workflow.node.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"6c9ca5978c82fc0ec233d8b171e53f309ccdc46ce1a5308c2e952a65dc531480","path":"packages/blocks-core/src/shared/nodes/core/call-workflow.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"b91a94d0bbc2ef7116ebc70a1d86e323994145ba26fd30d4f4fcb37a8bc0b6f6","path":"packages/blocks-core/src/shared/nodes/core/for-each.node.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"b264bf65be32670fa4e097b911198cc5d92a1964bdbf7024eeaff79aeb8f1dd7","path":"packages/blocks-core/src/shared/nodes/core/for-each.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"2d75105e53b4e477eee7cecaf8e7ffa5d155444c7cf098b02c8a5441afd66c0f","path":"packages/blocks-core/src/shared/nodes/core/if.node.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"32fe91349350020957d15eed70539dedbdd66c883f3e9437c9f52e8127370f41","path":"packages/blocks-core/src/shared/nodes/core/if.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"3a535935ee08b39b687b71be56c77fb60282967fe99b37b674360afa494868b7","path":"packages/blocks-core/src/shared/nodes/core/outcome.node.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"07676b30924b3dc47dd02c77ade44da1ad6d1526d0f22f4258cfa8622b9b21bd","path":"packages/blocks-core/src/shared/nodes/core/outcome.node.ts","step":"file-rules"}
+{"findings":[{"column":0,"line":0,"message":"packages/blocks-core/src/shared/nodes/held-events.spec.ts is neither tracked nor git-ignored, and no ignored slot owns it","path":"packages/blocks-core/src/shared/nodes/held-events.spec.ts","rule":"HFS_UNTRACKED_ROOT_ENTRY"}],"hash":"absent","path":"packages/blocks-core/src/shared/nodes/held-events.spec.ts","step":"hfs"}
 {"data":{},"findings":[],"hash":"1f92d136d9d0ad918e153dd67131632b86d882f100a712ab27640d5c99159ed1","path":"packages/blocks-core/src/shared/nodes/knowledge/claims.policy.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"1504533ab9ae1a7ad65ea979c16f61a5488d174bb5fb6b1cb7a7b785c4d828f0","path":"packages/blocks-core/src/shared/nodes/node-cards.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"5810001ee30b37a641406df314da78983fe1d1a96c6af0458b60044734264f8c","path":"packages/blocks-core/src/shared/nodes/node-lists.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"c30ffedf206a7c65be4387bb866105da74cfb56de4d6935ea957150d845f7f93","path":"packages/blocks-core/src/shared/nodes/node-lists.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"c99e6ac4e544cb54474ab0814756307c7f187420374951b6862a1c2da6e33f2a","path":"packages/blocks-core/src/shared/nodes/node-modes.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"3be36b3bc1ff7558403c40841c3f9527e0554fc8a37c5422183d7aa42b3921e7","path":"packages/blocks-core/src/shared/nodes/node-params.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"5ad674ffb400bea493b5c97b63890baa63953ac6c2916f64012fd88217d2978a","path":"packages/blocks-core/src/shared/nodes/node-schema.types.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"1f09cef66f734cf200e14f121bda90195a1b8dbe6adfe0e3f27c0c3b5dbacc4a","path":"packages/blocks-core/src/shared/nodes/node-ui.spec.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"c97120c66fb05de6e68f17a96733d4fb66254d188539cd79135f727217ac888f","path":"packages/blocks-core/src/shared/nodes/node-ui.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"3625ed0a99dd54b015b27ee97b49db8e6f01985ba9db4ccd54d2ca317d9b5397","path":"packages/blocks-core/src/shared/nodes/node-ui.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"9300fae6ef4690c156f0410f5a713dbe9f4883db28d66325be645d22c8701d76","path":"packages/blocks-core/src/shared/nodes/tool-answers.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"e2aff5bc48633b2d6b29b380b24162fab18ce2ca182ea56e77852d230978b45a","path":"packages/blocks-core/src/shared/platform/actions/approval-decide.action.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"54d880a73c6aee77d02783d85ea4dd36d4106b0f3fa5bd4d336a224d64331e3f","path":"packages/blocks-core/src/shared/platform/actions/resume-run.action.spec.ts","step":"file-rules"}
@@ -1029,7 +1038,7 @@
 {"data":{},"findings":[],"hash":"0ce0d3382bedcb20c9176d4a0d6d1f4dc95d8e54a2a6170cae26aba4e34d76ea","path":"packages/blocks-core/src/shared/platform/agent-desk.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"6f0b88a14d1b9e254420917544445b1fd1b1619920b1dbd08119edd964fa31af","path":"packages/blocks-core/src/shared/platform/agent-runs.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"b37bf092a83293abc0db9bb4a8c41068d0cfeccbee5dabc8d56e9ea1af01fb64","path":"packages/blocks-core/src/shared/platform/agent-runs.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"073466eaa469b8cd8ea43922b8ddc4c2f7e3b2577893b1656290739911417852","path":"packages/blocks-core/src/shared/platform/constants.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"a4a1732bc4bedcc9e68d28b36101ea74e70df2585f84c8873218c56f1d9172d0","path":"packages/blocks-core/src/shared/platform/constants.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"ccc1a64ffba225d3e439964302ae4d7af53e7b8aede4d253c17558a63ef072f4","path":"packages/blocks-core/src/shared/platform/declaration.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"4eb52e0f3f42fdcc4cdf022b00c03eaf1756a19809acdc54081854f8936e07af","path":"packages/blocks-core/src/shared/platform/declaration.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"a3f17066faa0be358f624bd131de99ba5f4f9db910d95e2dc198aa3a27a0862b","path":"packages/blocks-core/src/shared/platform/fixtures/agent-desk.fixtures.ts","step":"file-rules"}
@@ -1101,13 +1110,14 @@
 {"data":{},"findings":[],"hash":"32ade541f07ae6581b375b74322ace336e212e8e56379b549bf4091e47fdf518","path":"packages/blocks-core/src/shared/rows/filter-tabs.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"f0b8eca961d0479b5cc24d80bc425f373cd04ac3d2c10646ebeabb12719f9e92","path":"packages/blocks-core/src/shared/rows/form-values.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"c6f2c8d2d41296c96665673c52ac18203dfc15d662aa38bd7a4cfd8e37cd4634","path":"packages/blocks-core/src/shared/rows/form-values.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"b9533f44552053e48341e72531578b7ad3b07ec28e75eaf945dcc4c3b66973ba","path":"packages/blocks-core/src/shared/rows/graph-labels.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"1b0adb4e0acff9c1d07ea552262a94d73ff64d2795eacf813f4d4510b616e2da","path":"packages/blocks-core/src/shared/rows/graph-layout.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"78300e027f8c2850bbaaa91619502a0e69b1aed68af3ee86f59505886954f942","path":"packages/blocks-core/src/shared/rows/graph-layout.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"90b3b3f0bbd94489d91cf577313eade53d8813ad15f9a6dbfeed491033e9c13b","path":"packages/blocks-core/src/shared/rows/graph-spec-view.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"364f53fa6c4f4f9ccf4093ed6234fad12dea12f5354126468878ca333302c67a","path":"packages/blocks-core/src/shared/rows/graph-spec-view.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"682a3a8d0becfb62e9b914060e8fad7c89e907924045915b1ff8fc6d3e55bb71","path":"packages/blocks-core/src/shared/rows/graph-view.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"6c9ac561cd8d36754caeb8c3e7620f1deac58c7267bfb889be1186b232ee0d75","path":"packages/blocks-core/src/shared/rows/graph-view.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"be34951909c2d48ce0e5fe70ee22a99526cb6775e7aada245bb490eb927efbd9","path":"packages/blocks-core/src/shared/rows/legacy-templates/consult.template.json","step":"file-rules"}
+{"data":{},"findings":[],"hash":"e4dc7a0bbda46c96078332ec7ce9f10059a688d0dbddfad9c52ba404e00fc7f8","path":"packages/blocks-core/src/shared/rows/legacy-templates/consult.template.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"b5c6d2bf16f5b934827f27added4b4f3a3863d4d069f6d66c0cfdb58c55b5e93","path":"packages/blocks-core/src/shared/rows/legacy-templates/front-desk.template.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"3a17ba37f5a8f0d3bcc59bc1a0c09f8836d5ffad37c1e04341dd81c4aedbab98","path":"packages/blocks-core/src/shared/rows/legacy-templates/reconcile.template.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"d122427111e7a523591d7322348219580b1209210ef9b928e0caa18456dcda9f","path":"packages/blocks-core/src/shared/rows/list-card.spec.ts","step":"file-rules"}
@@ -1142,7 +1152,7 @@
 {"data":{},"findings":[],"hash":"15581c4cd8c73d83801675d2f4f8b503b60562b9b7c013e3605a64b4740045db","path":"packages/blocks-core/src/shared/rows/value-labels.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"1205ab1cfaf5d069023f4f0bb9083370e53933f2d103de02a9da9c517f62f87e","path":"packages/blocks-core/src/shared/rows/value-labels.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"e3a2395a417ceeeda0f12d92dfc0dc41af5e7a232f42901eb98460932012338d","path":"packages/blocks-core/src/shared/rows/workflow-contract-view.spec.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"1aa622882bb31444bd290376cbc2e3ece07459a5157cd0f3fa191cf29ea6ef29","path":"packages/blocks-core/src/shared/rows/workflow-contract-view.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"e628ad12cc58a01419513097dfd26e3edc17e65afaa32cccfd142381f96ae637","path":"packages/blocks-core/src/shared/rows/workflow-contract-view.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"a96f06d9d91c007dbb627010f7d18eacf2e53dfd8169bd7f149e785674d91109","path":"packages/blocks-core/src/shared/rules/open-orders.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"ab9c78649773b85c3af8a5d6e45723260a6511ae24a0fc17541166194c49340f","path":"packages/blocks-core/src/shared/rules/open-orders.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"0afe76a6a959f2c5468d8049959464d0014bf3ed1c59eaba92bfa898f5c1513a","path":"packages/blocks-core/src/shared/rules/zone-time.ts","step":"file-rules"}
@@ -1161,7 +1171,7 @@
 {"data":{},"findings":[],"hash":"17f29c1cbe47c05d86956a55a94314be1e270ddfa63969654898241b4dbef38b","path":"packages/blocks-core/src/shared/team-chat/team/team-chat.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"277bca39171dd5ac02bbb7df09b813173eada6c0e89790d30aca39befc6d67ef","path":"packages/blocks-core/src/shared/team-chat/team/team-chat.policy.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"4fcd57316bc10edab9392b8495cfe488a5dc1f28b3ac1516a808ee8cc1877ca8","path":"packages/blocks-core/src/shared/team-chat/team/team-nodes.spec.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"6886deba974e0b1a6fe8ae76cf65fe37b81fd5f78f8e28fb7e60625f129e8087","path":"packages/blocks-core/src/shared/team-chat/team/team-proposal.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"e4061c9db02d0c11ee1909c98b4b8fc242a2954ac506357f26b729ac16a7e2d3","path":"packages/blocks-core/src/shared/team-chat/team/team-proposal.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"2eb05e320e65250902bebe33279b0fe1fa06023f2fe86ec6a759a0b115237c66","path":"packages/blocks-core/src/shared/team-chat/team/truth-propose.node.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"d43cdfd17a50fe8ea167fd973f325a5839b75bf3d6e1cfffdd9069072df47acf","path":"packages/blocks-core/src/shared/views/placeholders.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"74b2bb4aba6908486fe3874dea09e8fa5f333a289da0ea0022821ec64ffbc534","path":"packages/blocks-core/src/shared/views/views.spec.ts","step":"file-rules"}
@@ -1178,10 +1188,11 @@
 {"data":{},"findings":[],"hash":"5425505501737447e40c2b424345e9260b0d94a15b66c39e205a8a5b49530589","path":"packages/blocks-core/src/shared/vocabulary/tool-ids.spec.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"e907a915c045c8f0ac446f47fe35bf2f4da02b664dbdc442daa6580c6d60acac","path":"packages/blocks-core/src/shared/vocabulary/tool-ids.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"8280f8a1caffbb173fb7392d4ce68a1840c6fed1df4dbebebf0004dc86e05cf0","path":"packages/blocks-core/src/shared/vocabulary/tool-labels.spec.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"921892ade43914e8c4743ef51e24d69bc52d969f4fc32569804798ccf2bbd57e","path":"packages/blocks-core/src/shared/vocabulary/tool-labels.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"f72b3917d67d4d356c2183fa5a955c04176965ab8932db932eefde5a6a32e7a5","path":"packages/blocks-core/src/shared/vocabulary/tool-labels.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"932dfee582fe6e88ff247cbb940c1daac107bdf6342ab0b35d2aab6a59aa58ba","path":"packages/blocks-core/src/shared/vocabulary/tools.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"dcbbbeb845c54b018e33f6c0337f9e71a8a440bf8a3c0a56a464578aca30d03e","path":"packages/blocks-core/src/shared/vocabulary/vocabulary.spec.ts","step":"file-rules"}
 {"data":{"bypass-marker":[{"code":"HFS_BYPASS_MARKER","level":"error","line":158,"message":"packages/blocks-core/src/shared/workbench/workbench-spec-problems.spec.ts:158 spells @ts-expect-error (@ts-expect-error a verb no ApiNames key declares is no API read); a check is satisfied, never bypassed: fix the cause and delete the marker","path":"packages/blocks-core/src/shared/workbench/workbench-spec-problems.spec.ts"}]},"findings":[{"column":0,"line":158,"message":"packages/blocks-core/src/shared/workbench/workbench-spec-problems.spec.ts:158 spells @ts-expect-error (@ts-expect-error a verb no ApiNames key declares is no API read); a check is satisfied, never bypassed: fix the cause and delete the marker","path":"packages/blocks-core/src/shared/workbench/workbench-spec-problems.spec.ts","rule":"HFS_BYPASS_MARKER"}],"hash":"cf3542140a537edf55361a1dd392a3c4446d988e712cf8fcdcfde6acdcd99bde","path":"packages/blocks-core/src/shared/workbench/workbench-spec-problems.spec.ts","step":"file-rules"}
+{"findings":[{"column":0,"line":158,"message":"packages/blocks-core/src/shared/workbench/workbench-spec-problems.spec.ts:158 spells @ts-expect-error (@ts-expect-error a verb no ApiNames key declares is no API read); a check is satisfied, never bypassed: fix the cause and delete the marker","path":"packages/blocks-core/src/shared/workbench/workbench-spec-problems.spec.ts","rule":"HFS_BYPASS_MARKER"}],"hash":"b902801a82fc4d13ffe101b1b3b186121a062128141df83f059a111c9fc20228","path":"packages/blocks-core/src/shared/workbench/workbench-spec-problems.spec.ts","step":"hfs"}
 {"data":{},"findings":[],"hash":"6adbc73efa5a79f95e5eede23f929ea0283facc6dda1a4e8c688949e8206dcf8","path":"packages/blocks-core/src/shared/workbench/workbench-spec-problems.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"e073dc144c9177e9691f467a521a506db87ddac1c708fe91198e8f279e1374d3","path":"packages/blocks-core/tsconfig.build.client.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"60f0fde24f8f0426527b69d8c3c601b24eaeec335cd991cd814f5f2847ad6d44","path":"packages/blocks-core/tsconfig.build.json","step":"file-rules"}

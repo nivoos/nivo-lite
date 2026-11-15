@@ -2,7 +2,6 @@ import { createHash } from "node:crypto"
 import { Injectable } from "@nestjs/common"
 import type { ConnectionRecord } from "@modules/domain/connections"
 import {
-    providerCallFailure,
     providerRefusal,
     withProof,
     type DubbingJob,
@@ -17,13 +16,15 @@ import {
     type SpeechVoicePage,
     type SpeechVoiceQuery,
 } from "@modules/domain/provider-registry"
-import { ProviderSandboxService } from "@modules/domain/provider-sandbox"
+import { ProviderSandboxService, type SandboxState } from "@modules/domain/provider-sandbox"
 import {
+    ELEVENLABS_SANDBOX_DEFAULT_DUBBING,
     ELEVENLABS_SANDBOX_DUBBINGS,
     ELEVENLABS_SANDBOX_DUBBING_ERROR,
     ELEVENLABS_SANDBOX_DUBBING_NOT_FOUND_MESSAGE,
     ELEVENLABS_SANDBOX_DUBBING_STATUSES,
     ELEVENLABS_SANDBOX_EXPECTED_SECONDS,
+    ELEVENLABS_SANDBOX_FAULTS,
     ELEVENLABS_SANDBOX_PAGE_TOKEN_MESSAGE,
     ELEVENLABS_SANDBOX_PAGE_TOKEN_PREFIX,
     ELEVENLABS_SANDBOX_PROVIDER,
@@ -32,13 +33,13 @@ import {
     ELEVENLABS_SANDBOX_SOURCE_REFUSED_MESSAGE,
     ELEVENLABS_SANDBOX_SPEECH_MIME,
     ELEVENLABS_SANDBOX_VOICES,
-    ELEVENLABS_SANDBOX_VOICE_IDS,
     ELEVENLABS_SANDBOX_VOICE_NOT_FOUND_MESSAGE,
     elevenLabsSandboxClipOf,
     elevenLabsSandboxDubbedBytesOf,
     elevenLabsSandboxDubbingId,
     type ElevenLabsSandboxDubbingCase,
 } from "./elevenlabs-sandbox.catalogue"
+import { elevenLabsAuthRefused, elevenLabsRateLimited, elevenLabsServerError, elevenLabsUnreachable } from "./elevenlabs-sandbox.failures"
 
 /** The state operation that holds one started dubbing, by its id: its case, its target language and how many reads it has taken. */
 const DUBBING_STATE = "dubbing"
@@ -85,13 +86,38 @@ const offsetOfToken = (token: string): number | null => {
 /** An answered refusal as the live twin throws it: the provider's words, proved `not_sent`. */
 const refusal = (reason: "rejected" | "not_found", detail: string): Error => withProof(providerRefusal(ELEVENLABS_SANDBOX_PROVIDER, reason, detail), "not_sent")
 
+/**
+ * The failure the account's picked case of an operation names (a fault of the catalogue: the key refused, a 429, no answer, a 5xx, a
+ * refusal of the request, a not-found), as the live twin throws it, or null when the operation goes on (no case picked, or its success case).
+ */
+const faultOf = (state: SandboxState, operation: string, words: { readonly refused: string; readonly notFound: string }): Error | null => {
+    const fault = state.nextCase === null ? undefined : ELEVENLABS_SANDBOX_FAULTS[operation]?.[state.nextCase]
+    switch (fault) {
+        case "auth_refused":
+            return elevenLabsAuthRefused()
+        case "rate_limited":
+            return elevenLabsRateLimited()
+        case "timeout":
+            return elevenLabsUnreachable()
+        case "unknown":
+            return elevenLabsServerError()
+        case "refused":
+            return refusal("rejected", words.refused)
+        case "not_found":
+            return refusal("not_found", words.notFound)
+        case undefined:
+            return null
+    }
+}
+
 @Injectable()
 /**
  * ElevenLabs' SANDBOX implementation of its three ports (speech, dubbing and the files it holds; owner rulings R56 / R59 / R60): used
  * when the provider account is a sandbox account, it answers from the hardcoded catalogue (`ELEVENLABS-<n>`) and the account's state
- * through the generic sandbox frame, and never reaches a host. A speech request picks its case by the voice, a dubbing by its source
- * address; a dubbing is read back as a live poll sees it (dubbing, then the end, one step per read), its dubbed languages reopened by
- * their handle with fixed bytes. A refusal is the error the live adapter throws for the same case.
+ * through the generic sandbox frame, and never reaches a host. Every operation is answered by the account's NEXT CASE of that
+ * operation (default: its success case); a dubbing's case chooses its whole life, read back as a live poll sees it (dubbing, then the
+ * end, one step per read, or dubbing for ever), its dubbed languages reopened by their handle with fixed bytes. A failure is the error
+ * the live adapter throws for the same case.
  */
 export class ElevenLabsSandboxMediaService implements SpeechPort, DubbingPort, ProviderFileReader {
     /** The provider key. */
@@ -107,7 +133,9 @@ export class ElevenLabsSandboxMediaService implements SpeechPort, DubbingPort, P
             { query },
             {
                 key: query.search ?? "",
-                answer: (): SpeechVoicePage => {
+                answer: (state): SpeechVoicePage => {
+                    const failed = faultOf(state, "voices", { refused: "", notFound: "" })
+                    if (failed !== null) throw failed
                     const offset = query.pageToken === null ? 0 : offsetOfToken(query.pageToken)
                     if (offset === null) throw refusal("rejected", ELEVENLABS_SANDBOX_PAGE_TOKEN_MESSAGE)
                     const found: ReadonlyArray<SpeechVoice> =
@@ -132,8 +160,9 @@ export class ElevenLabsSandboxMediaService implements SpeechPort, DubbingPort, P
             { request },
             {
                 key: request.voiceId,
-                answer: (): ProviderFile => {
-                    if (request.voiceId === ELEVENLABS_SANDBOX_VOICE_IDS.quota) throw refusal("rejected", ELEVENLABS_SANDBOX_QUOTA_MESSAGE)
+                answer: (state): ProviderFile => {
+                    const failed = faultOf(state, "synthesize", { refused: ELEVENLABS_SANDBOX_QUOTA_MESSAGE, notFound: ELEVENLABS_SANDBOX_VOICE_NOT_FOUND_MESSAGE })
+                    if (failed !== null) throw failed
                     if (!ELEVENLABS_SANDBOX_VOICES.some((voice) => voice.voiceId === request.voiceId)) {
                         throw refusal("not_found", ELEVENLABS_SANDBOX_VOICE_NOT_FOUND_MESSAGE)
                     }
@@ -157,13 +186,26 @@ export class ElevenLabsSandboxMediaService implements SpeechPort, DubbingPort, P
             "create",
             { request },
             {
-                key: request.sourceUrl,
                 answer: async (state): Promise<DubbingStarted> => {
-                    const chosen = ELEVENLABS_SANDBOX_DUBBINGS.find((one) => one.sourceUrl === request.sourceUrl) ?? ELEVENLABS_SANDBOX_DUBBINGS[0]
-                    if (chosen === undefined || chosen.outcome === "refused") throw refusal("rejected", ELEVENLABS_SANDBOX_SOURCE_REFUSED_MESSAGE)
+                    const chosen = ELEVENLABS_SANDBOX_DUBBINGS.find((one) => one.caseId === state.nextCase) ?? ELEVENLABS_SANDBOX_DEFAULT_DUBBING
+                    switch (chosen.outcome) {
+                        case "refused":
+                            throw refusal("rejected", ELEVENLABS_SANDBOX_SOURCE_REFUSED_MESSAGE)
+                        case "auth_refused":
+                            throw elevenLabsAuthRefused()
+                        case "rate_limited":
+                            throw elevenLabsRateLimited()
+                        case "timeout":
+                            throw elevenLabsUnreachable()
+                        case "completes":
+                        case "fails":
+                        case "never":
+                        case "unknown":
+                            break
+                    }
                     const jobId = elevenLabsSandboxDubbingId(state.seq)
                     await state.write(DUBBING_STATE, jobId, { caseId: chosen.caseId, target: request.targetLanguage, reads: 0 })
-                    if (chosen.outcome === "unknown") throw providerCallFailure("unknown")
+                    if (chosen.outcome === "unknown") throw elevenLabsServerError()
                     return { jobId, expectedSeconds: ELEVENLABS_SANDBOX_EXPECTED_SECONDS }
                 },
             },
@@ -179,13 +221,15 @@ export class ElevenLabsSandboxMediaService implements SpeechPort, DubbingPort, P
             {
                 key: jobId,
                 answer: async (state): Promise<DubbingJob> => {
+                    const failed = faultOf(state, "get", { refused: "", notFound: ELEVENLABS_SANDBOX_DUBBING_NOT_FOUND_MESSAGE })
+                    if (failed !== null) throw failed
                     const kept = keptDubbingOf(await state.read(DUBBING_STATE, jobId))
                     const chosen: ElevenLabsSandboxDubbingCase | undefined =
                         kept === null ? undefined : ELEVENLABS_SANDBOX_DUBBINGS.find((one) => one.caseId === kept.caseId)
                     if (kept === null || chosen === undefined) throw refusal("not_found", ELEVENLABS_SANDBOX_DUBBING_NOT_FOUND_MESSAGE)
                     await state.write(DUBBING_STATE, jobId, { ...kept, reads: kept.reads + 1 })
                     const targetLanguages = [kept.target]
-                    if (kept.reads === 0) {
+                    if (kept.reads === 0 || chosen.outcome === "never") {
                         return { jobId, state: "pending", providerStatus: ELEVENLABS_SANDBOX_DUBBING_STATUSES.running, targetLanguages, error: null, files: [] }
                     }
                     if (chosen.outcome === "fails") {
@@ -224,6 +268,8 @@ export class ElevenLabsSandboxMediaService implements SpeechPort, DubbingPort, P
                 {
                     key: handle,
                     answer: async (state): Promise<Buffer> => {
+                        const failed = faultOf(state, "file", { refused: "", notFound: ELEVENLABS_SANDBOX_DUBBING_NOT_FOUND_MESSAGE })
+                        if (failed !== null) throw failed
                         const parts = dubbedPartsOf(handle)
                         if (parts === null) throw refusal("not_found", "handle")
                         const kept = keptDubbingOf(await state.read(DUBBING_STATE, parts.dubbingId))

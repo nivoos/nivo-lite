@@ -26,6 +26,11 @@ export interface IncomingCredit {
      * provider's row id. With the account number and the amount it names the movement whichever feed reports it.
      */
     readonly bankRef?: string
+    /**
+     * The provider's own reference of the payment request this movement pays (payOS: the paid link's order code), when the provider names
+     * one: a request's paid event is matched by it (owner ruling R111), never by the transfer's words.
+     */
+    readonly requestRef?: string
 }
 
 /** A pending movement of a bank door, held by the caller's transaction lock until its consumption and completion commit together. */

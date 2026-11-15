@@ -10,6 +10,7 @@ import type {
     AiRunner,
     OptionalAiChatModel,
     AiCutSpend,
+    AiFailedTry,
     AiFailure,
     AiServed,
     AiStopwatch,
@@ -27,6 +28,7 @@ import { AiLogEvent } from "./ai.log-events"
 import type { AiOptions } from "./ai.options"
 import { cutOf, fieldOf, finishOf, laneOf, modelOf, textOf, usageOf, vectorsOf } from "./reply.policy"
 import { providerOf } from "./routing.policy"
+import { sentOfThrow } from "./try-spend.policy"
 import { embeddingIdentityOf } from "@nivo-lite/agent-sdk/models"
 
 /** The most characters sent per embedded text; a passage is about 800 characters, this only guards a runaway input. */
@@ -146,7 +148,7 @@ export class AiService implements OnModuleInit {
      * failure of its own (`length`), never an answer: what was written is half a text or half a JSON object.
      */
     async attempt(request: AiChatRequest): Promise<AiChatAttempt> {
-        if (this.runner === null) return { ok: false, failure: "unconfigured" }
+        if (this.runner === null) return { ok: false, failure: "unconfigured", sent: false }
         const elapsed = this.stopwatch()
         try {
             const runner = await this.runnerOf(this.runner, request)
@@ -206,7 +208,7 @@ export class AiService implements OnModuleInit {
                 },
             }
         } catch (cause) {
-            return { ok: false, failure: this.failureOfThrow(cause) }
+            return this.failedTryOf(cause)
         }
     }
 
@@ -288,6 +290,15 @@ export class AiService implements OnModuleInit {
     stopwatch(): AiStopwatch {
         const started = this.clock.now().getTime()
         return () => Math.max(0, this.clock.now().getTime() - started)
+    }
+
+    /**
+     * The failed try of a model call that THREW: what it failed as (`failureOfThrow`) and, when the runner failed it before any request
+     * left (`sentOfThrow`), `sent: false`, so no meter books it.
+     */
+    failedTryOf(cause: unknown): AiFailedTry {
+        const failure = this.failureOfThrow(cause)
+        return sentOfThrow(cause) ? { ok: false, failure } : { ok: false, failure, sent: false }
     }
 
     /** What a model call that threw failed as: the deadline, or the endpoint or provider. Logged by class and status, never by message. */

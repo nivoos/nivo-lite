@@ -181,7 +181,7 @@ export const IMAP_MAIL_TRIGGER: TriggerDeclaration<ImapMailRow, MailReceivedData
     raw: IMAP_MAIL_ROW_SCHEMA,
     data: MAIL_RECEIVED_DATA_SCHEMA,
     translate: translateImapMailRow,
-    line: mailLineOf,
+    feeds: { stream: "lines", line: mailLineOf },
     key: { by: "subject" },
     settle: LINE_SETTLE,
     // The person's mails append to the route's stream: held mails are ONE marker the workflow reads the stream from (rule Q-4).

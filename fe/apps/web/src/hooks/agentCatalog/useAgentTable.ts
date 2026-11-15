@@ -1,5 +1,6 @@
 "use client"
 
+import { useModuleCatalog } from "@/hooks/moduleCatalog"
 import { useState } from "react"
 import { useTranslations } from "next-intl"
 import type { InstalledAgent } from "@/hooks/installations"
@@ -40,12 +41,13 @@ export const useAgentTable = (agents: ReadonlyArray<InstalledAgent>, filters: Ca
     const workspaceId = useWorkspaceId()
     const [filter, setFilter] = useState(FILTER_ALL)
     const canAdd = isManager(useMember())
+    const { modules } = useModuleCatalog()
     const dashboard = useQueryWorkspaceDashboardSwr(workspaceId, "last_7_days").data
     const countsOf = (agentId: string | null): AgentCounts | undefined => {
         const found = agentId === null ? undefined : dashboard?.agents.find((entry) => entry.agentId === agentId)
         return found === undefined ? undefined : { tasks: found.tasksDone, waiting: found.waiting }
     }
-    const all = agents.map((agent) => catalogRowOf(agent, t, countsOf(agent.agentId), canAdd))
+    const all = agents.map((agent) => catalogRowOf(agent, t, countsOf(agent.agentId), canAdd, modules[agent.moduleKey]))
     const hasFilters = all.length > TEAM_FILTER_FROM
     const rows = waitingFirst(hasFilters ? filterRows(all, filter, filters.query) : all)
     return {

@@ -33,6 +33,12 @@ export type BankTransactionData = {
     readonly account?: string | undefined
     /** The bank's own reference, when the feed gives one. */
     readonly bankRef?: string | undefined
+    /**
+     * What the provider identifies the payment by, as its feed declares it (owner ruling R111): the payment request's own reference when the
+     * provider names the request a movement pays (payOS: the order code), else the transfer content the payer wrote (a bank-transfer
+     * instruction keeps no request). A payment request answers the same `payKey`, so a wait matches the two.
+     */
+    readonly payKey: string
 }
 
 /** The `<provider>.transaction` row value (bank-feed.data-types.ts `transactionOf`). The translate's raw. */
@@ -51,15 +57,24 @@ export interface BankTransactionRow {
     readonly payer?: string | undefined
     /** The bank's own reference, when the feed gives one. */
     readonly bankRef?: string | undefined
+    /** The provider's own reference of the payment request the movement pays, when the feed names one. */
+    readonly requestRef?: string | undefined
     /** When the bank booked it (ISO 8601), when the feed says. */
     readonly at?: string | undefined
     /** The feed that reported the movement (its provider name). */
     readonly source: string
 }
 
-/** The translate: the movement of one stored row; null for a row with no id. */
-export const translateBankTransactionRow = (row: BankTransactionRow): OptionalCanonicalEvent<BankTransactionData> => {
+/** Which member of a stored movement a feed identifies the payment by (`BankTransactionData.payKey`). */
+type PayKeyMember = "content" | "requestRef"
+
+/**
+ * The translate of a feed: the movement of one stored row; null for a row with no id. `payKey` is the member the feed declares; a row that
+ * lacks it (a payOS movement of no named request) carries none, so it matches no request.
+ */
+export const translateBankTransactionRow = (row: BankTransactionRow, payKeyBy: PayKeyMember = "content"): OptionalCanonicalEvent<BankTransactionData> => {
     if (row.transactionId === "") return null
+    const payKey = row[payKeyBy] ?? ""
     return {
         id: row.transactionId,
         data: {
@@ -70,6 +85,7 @@ export const translateBankTransactionRow = (row: BankTransactionRow): OptionalCa
             ...(row.at === undefined ? {} : { at: row.at }),
             ...(row.account === undefined ? {} : { account: row.account }),
             ...(row.bankRef === undefined ? {} : { bankRef: row.bankRef }),
+            payKey,
         },
     }
 }
@@ -93,6 +109,7 @@ const BANK_TRANSACTION_DATA: z.ZodType<BankTransactionData> = z.object({
     at: z.string().max(AT_MAX).optional(),
     account: z.string().max(ACCOUNT_MAX).optional(),
     bankRef: z.string().max(ID_MAX).optional(),
+    payKey: z.string().max(CONTENT_MAX),
 })
 
 /** The raw schema: the stored transaction row value. */
@@ -104,6 +121,7 @@ const BANK_TRANSACTION_ROW: z.ZodType<BankTransactionRow> = z.object({
     account: z.string().max(ACCOUNT_MAX).optional(),
     payer: z.string().max(PAYER_MAX).optional(),
     bankRef: z.string().max(ID_MAX).optional(),
+    requestRef: z.string().max(ID_MAX).optional(),
     at: z.string().max(AT_MAX).optional(),
     source: z.string().max(SOURCE_MAX),
 })
@@ -125,13 +143,15 @@ interface BankFeed {
     readonly door: BankFeedProvider
     readonly via: TriggerDeclaration["via"]
     readonly withoutPoll?: TriggerDeclaration["withoutPoll"]
+    /** What the provider identifies a payment by (`payKey`): its payment request's reference, or the transfer content. */
+    readonly payKey: PayKeyMember
 }
 
 /** The bank feeds that report a movement as this trigger: SePay by its webhook and its transactions list; Casso and payOS by their webhook only. */
 const FEEDS: Readonly<Record<string, BankFeed>> = {
-    [PROVIDER.sepay]: { door: "sepay-feed", via: ["webhook", "poll"] },
-    [PROVIDER.casso]: { door: "casso", via: ["webhook"], withoutPoll: CASSO_WITHOUT_POLL },
-    [PROVIDER.payos]: { door: "payos", via: ["webhook"], withoutPoll: PAYOS_WITHOUT_POLL },
+    [PROVIDER.sepay]: { door: "sepay-feed", via: ["webhook", "poll"], payKey: "content" },
+    [PROVIDER.casso]: { door: "casso", via: ["webhook"], withoutPoll: CASSO_WITHOUT_POLL, payKey: "content" },
+    [PROVIDER.payos]: { door: "payos", via: ["webhook"], withoutPoll: PAYOS_WITHOUT_POLL, payKey: "requestRef" },
 }
 
 /** The bank feeds that report a movement as this trigger. */
@@ -163,7 +183,7 @@ const bankTransactionTriggerOf = (provider: string, feed: BankFeed): TriggerDecl
     dataType: transactionTypeOf(feed.door),
     raw: BANK_TRANSACTION_ROW,
     data: BANK_TRANSACTION_DATA,
-    translate: translateBankTransactionRow,
+    translate: (row) => translateBankTransactionRow(row, feed.payKey),
     factKey: bankTransactionFactKey,
     key: { by: "data", member: "transactionId" },
     settle: null,

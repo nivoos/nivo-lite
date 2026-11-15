@@ -237,6 +237,9 @@ function contentProblemOf(schema: SchemaNode, value: unknown, at: string): Optio
  */
 export function violationOf(schema: SchemaNode, value: unknown, at?: string): OptionalText {
     const place = at ?? ""
+    // A schema that admits null (`nullable: true`, or `null` among its types) admits it whole: the parts of its `allOf` describe the
+    // value when it is one (OpenAPI 3.0 `nullable` applies to the schema it sits on, `allOf` included).
+    if (value === null && typesOf(schema)?.includes("null") === true) return null
     return partProblemOf(schema, value, place) ?? kindProblemOf(schema, value, place) ?? contentProblemOf(schema, value, place)
 }
 

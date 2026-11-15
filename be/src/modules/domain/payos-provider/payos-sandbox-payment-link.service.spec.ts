@@ -130,13 +130,56 @@ describe("PayosSandboxPaymentLinkService", () => {
         expect(await thrownOf(new PayosSandboxPaymentLinkService(off.sandbox).create(CONNECTION, REQUEST))).toMatchObject({ code: ProviderSandboxErrorCode.Off })
     })
 
+    it("PAYOS-11/-13/-15 answer 429 (proof not_sent) and PAYOS-12/-14/-16 no answer (proof unknown), on create, get and cancel", async () => {
+        const { sandbox, service } = setup()
+        const run: Record<string, () => Promise<unknown>> = {
+            create: () => service.create(CONNECTION, REQUEST),
+            get: () => service.get(CONNECTION, { orderCode: 1780000000001 }),
+            cancel: () => service.cancel(CONNECTION, { orderCode: 1780000000001 }, undefined),
+        }
+        for (const [operation, transient, timeout] of [["create", "PAYOS-11", "PAYOS-12"], ["get", "PAYOS-13", "PAYOS-14"], ["cancel", "PAYOS-15", "PAYOS-16"]] as const) {
+            await sandbox.setNextCase(ACCOUNT, operation, transient)
+            expect(proofOf(await thrownOf(run[operation]?.() ?? Promise.resolve()))).toBe("not_sent")
+            await sandbox.setNextCase(ACCOUNT, operation, timeout)
+            expect(proofOf(await thrownOf(run[operation]?.() ?? Promise.resolve()))).toBe("unknown")
+        }
+    })
+
+    it("PAYOS-19 / -20: no answer, but the effect WAS applied: a read finds the link PENDING, then CANCELLED", async () => {
+        const { sandbox, service } = setup()
+        await sandbox.setNextCase(ACCOUNT, "create", "PAYOS-19")
+        expect(proofOf(await thrownOf(service.create(CONNECTION, REQUEST)))).toBe("unknown")
+        await expect(service.get(CONNECTION, { orderCode: 1780000000001 })).resolves.toMatchObject({ status: "PENDING" })
+        await sandbox.setNextCase(ACCOUNT, "cancel", "PAYOS-20")
+        expect(proofOf(await thrownOf(service.cancel(CONNECTION, { orderCode: 1780000000001 }, "x")))).toBe("unknown")
+        await expect(service.get(CONNECTION, { orderCode: 1780000000001 })).resolves.toMatchObject({ status: "CANCELLED" })
+    })
+
+    it("PAYOS-9 / -10 move a pending link out of PENDING with no webhook (cancelled by the customer, expired); PAYOS-8 pays an order nobody issued; PAYOS-17 / -18 book nothing", async () => {
+        const { sandbox, service } = setup()
+        const at = new Date("2026-11-14T03:00:00.000Z")
+        const inbound = (id: string) => PAYOS_SANDBOX_CATALOGUE.cases.find((one) => one.id === id)?.inbound
+        await service.create(CONNECTION, REQUEST)
+        await service.create(CONNECTION, REQUEST)
+        expect(await sandbox.inbound(ACCOUNT, "PAYOS-9", inbound("PAYOS-9")!, { orderCode: 1780000000001 }, at)).toEqual([])
+        expect(await sandbox.inbound(ACCOUNT, "PAYOS-10", inbound("PAYOS-10")!, { orderCode: 1780000000002 }, at)).toEqual([])
+        await expect(service.get(CONNECTION, { orderCode: 1780000000001 })).resolves.toMatchObject({ status: "CANCELLED" })
+        await expect(service.get(CONNECTION, { orderCode: 1780000000002 })).resolves.toMatchObject({ status: "EXPIRED" })
+        const [unknown] = await sandbox.inbound(ACCOUNT, "PAYOS-8", inbound("PAYOS-8")!, { orderCode: 1789999999999 }, at)
+        expect(unknown?.body).toMatchObject({ code: "00", data: { orderCode: 1789999999999 } })
+        const [sample] = await sandbox.inbound(ACCOUNT, "PAYOS-17", inbound("PAYOS-17")!, {}, at)
+        expect(sample?.body).toMatchObject({ code: "00", data: { orderCode: 123 } })
+        const [notPaid] = await sandbox.inbound(ACCOUNT, "PAYOS-18", inbound("PAYOS-18")!, {}, at)
+        expect(notPaid?.body).toMatchObject({ code: "01", success: false })
+    })
+
     it("has a catalogue of unique PAYOS-<n> ids; the paid case is payOS's webhook on its real route with its real body shape", async () => {
         const ids = PAYOS_SANDBOX_CATALOGUE.cases.map((one) => one.id)
         expect(new Set(ids).size).toBe(ids.length)
         expect(ids.every((id) => /^PAYOS-\d+$/.test(id))).toBe(true)
         expect(PAYOS_SANDBOX_CATALOGUE.provider).toBe("payos")
         const inbound = PAYOS_SANDBOX_CATALOGUE.cases.flatMap((one) => (one.inbound === undefined ? [] : [one.inbound]))
-        expect(inbound).toHaveLength(1)
+        expect(inbound).toHaveLength(6)
         expect(inbound[0]?.path("conn-p")).toBe("api/connections/payos/conn-p")
         const { sandbox } = setup()
         const at = new Date("2026-11-14T03:00:00.000Z")

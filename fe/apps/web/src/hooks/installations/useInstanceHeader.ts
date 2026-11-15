@@ -4,7 +4,7 @@ import { useLocale, useTranslations } from "next-intl"
 import { useModuleCatalog } from "@/hooks/moduleCatalog"
 import { loadingSlot, slotOfReads } from "@/hooks/slot"
 import { useWorkspaceId } from "@/hooks/workspaces"
-import { MODULE_REGISTRY, pickCopy, type ModuleKey } from "@/modules/catalog"
+import { pickCopy } from "@/modules/catalog"
 import {
     agentLifecycleOf,
     agentLifecycleTone,
@@ -54,13 +54,15 @@ export interface InstanceHeaderViewShape {
     counts: InstanceCounts
     connectionNeeds: readonly InstallationConnectionNeed[]
     profileHref: string | null
+    /** The glyph the module template declares (the mark of a kind with no emblem file); empty until the catalogue is read. */
+    glyph: string
 }
 
 /**
  * The header of one agent instance: the person (name, handle), the role, the lifecycle, the accounts it was granted and the counts of the tabs; skeleton
  * data until the instance is known. If the installed agents cannot be read the header stops waiting and names the role.
  */
-export const useInstanceHeader = (module: ModuleKey, installationId: string): InstanceHeaderViewShape => {
+export const useInstanceHeader = (module: string, installationId: string): InstanceHeaderViewShape => {
     const t = useTranslations("modulesCore")
     const locale = useLocale() === "en" ? "en" : "vi"
     const guard = useInstanceGuard(module, installationId)
@@ -68,7 +70,6 @@ export const useInstanceHeader = (module: ModuleKey, installationId: string): In
     const { read } = useInstallations()
     const isFailed = read.data === undefined && read.error !== undefined
     const installation = guard.installation
-    const def = MODULE_REGISTRY[module]
     const catalog = useModuleCatalog()
     const copy = catalog.modules[module]
     const counts = useInstanceCounts(installation?.agentId ?? null)
@@ -87,7 +88,8 @@ export const useInstanceHeader = (module: ModuleKey, installationId: string): In
             roleName: typeName,
             channels: accountsOf(counts.grants, t("headerNoGrants"), (count) => t("headerAccounts", { count })),
         }),
-        isEarly: def.status === "early",
+        isEarly: copy?.status === "early",
+        glyph: copy?.glyph ?? "",
         lifecycle,
         statusTone: agentLifecycleTone(lifecycle),
         counts,

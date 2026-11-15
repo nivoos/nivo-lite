@@ -3,7 +3,6 @@
 import { useEffect } from "react"
 import { isManager, useMember } from "@/hooks/member"
 import { useWorkspaceId } from "@/hooks/workspaces"
-import type { ModuleKey } from "@/modules/catalog"
 import { navigation } from "@/modules/i18n"
 import { agentHref, isSetupPending, type AgentTab } from "@/modules/installations"
 import { workspaceHref } from "@/modules/routes"
@@ -16,7 +15,7 @@ const landingTabOf = (isPending: boolean, canSetUp: boolean): AgentTab => (isPen
  * Sends the bare url of an agent instance to the tab it opens on: a new or unpublished agent opens on Setup, a running one on the
  * workbench. An unknown instance is left to the frame's guard. It waits for the installed agents and the member before leaving.
  */
-export const useAgentLanding = (module: ModuleKey, installationId: string): void => {
+export const useAgentLanding = (module: string, installationId: string): void => {
     const router = navigation.useRouter()
     const workspaceId = useWorkspaceId()
     const member = useMember()

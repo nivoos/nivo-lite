@@ -24,6 +24,9 @@ export interface CallableWorkflow {
     readonly versions: ReadonlyMap<number, GraphSpec>
 }
 
+/** Whether an installed package ships the workflow `<module>.<key>` (a template of that module), whatever the workspace has installed. */
+export type InstalledWorkflowTest = (moduleKey: string, workflowKey: string) => boolean
+
 /** The workflow that saves a graph: its agent and module, and its key (absent for a workflow not made yet). */
 export interface SavingWorkflow {
     readonly agentId: string
@@ -48,15 +51,16 @@ const targetOf = (
 const contractOf = (graph: GraphSpec): WorkflowContract => graph.contract ?? { inputs: [] }
 
 /**
- * The problems of the end hand-offs of a graph against the workflows they call: the target exists (same module, same key), the pinned
+ * The problems of the end hand-offs of a graph against the workflows they call: the target exists (same module, same key; a workflow of a module the workspace does not run, which an installed package ships, is a closed route and passes), the pinned
  * version exists, its entry lets this caller in (a workflow open to its own agent only refuses another agent), and the mapping covers
- * its input contract with fitting types and nothing more. The candidates of a module are every agent of it; the one whose agent is the
+ * its input contract with fitting types and nothing more (a target in a module the workspace does not run is a closed route, see below). The candidates of a module are every agent of it; the one whose agent is the
  * saver's comes first, else the first.
  */
 export const callContractProblems = (
     saver: SavingWorkflow,
     graph: GraphSpec,
     callable: ReadonlyArray<CallableWorkflow>,
+    installedWorkflow: InstalledWorkflowTest = () => false,
 ): ReadonlyArray<ContractProblem> =>
     graph.nodes.flatMap((node): ReadonlyArray<ContractProblem> => {
         const target = targetOf(node)
@@ -65,7 +69,14 @@ export const callContractProblems = (
             .filter((entry) => entry.moduleKey === target.agent && entry.key === target.workflow)
             .toSorted((left, right) => Number(right.agentId === saver.agentId) - Number(left.agentId === saver.agentId))
         const found = candidates.at(0)
-        if (found === undefined) return [{ code: "CALL_TARGET_UNKNOWN", at: node.key }]
+        if (found === undefined) {
+            // A package template is written once for every workspace and a workspace installs only some modules (engine-core rule 21): a call
+            // into a module the workspace has no agent of, to a workflow some installed package ships, is a CLOSED route (the engine names it
+            // unreachable at run time), never a reason to refuse the save. A workflow no installed package ships stays unknown.
+            const moduleInstalled = callable.some((entry) => entry.moduleKey === target.agent)
+            if (!moduleInstalled && installedWorkflow(target.agent, target.workflow)) return []
+            return [{ code: "CALL_TARGET_UNKNOWN", at: node.key }]
+        }
         const called = target.version === LATEST_VERSION ? found.running : found.versions.get(target.version)
         if (called === undefined) return [{ code: "CALL_VERSION_UNKNOWN", at: node.key }]
         if ((called.entry ?? DEFAULT_ENTRY).openTo === "agent" && found.agentId !== saver.agentId) {

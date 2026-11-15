@@ -4,7 +4,6 @@ import type { TelegramFileAddress } from "./telegram-inbox.contracts"
 import type { TelegramMessageFile } from "./telegram-message.trigger"
 import { InjectTelegram, type TelegramClient } from "@modules/integrations/telegram"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
-import { classifyFailure } from "@modules/platform/queue"
 import { TelegramInboxLogEvent } from "./telegram-inbox.log-events"
 
 /** The largest file a bot may download (Bot API `getFile`: "bots can download files of up to 20MB in size"). */
@@ -15,7 +14,7 @@ export const TELEGRAM_DOWNLOAD_MAX_BYTES: number = 20 * 1024 * 1024
  * Turns the file ids of a Telegram message into the addresses the shop reads them from once (Bot API `getFile`, with the bot of the
  * connection the update came in on). A file Telegram will not give for good (a refusal), one too large for a bot, or a connection whose bot
  * cannot be opened stays on the line without an address, so a step is told a picture came that nobody saw. A call that failed on the way or
- * on a busy Telegram THROWS (the delivery job runner retries it on its ladder, then dead-letters it with one item). The address carries the bot
+ * on a busy Telegram does the same: it never fails the delivery job. The address carries the bot
  * token and only goes to the guarded file fetch, which keeps the bytes under the shop's own path.
  */
 export class TelegramFilesService {
@@ -42,6 +41,9 @@ export class TelegramFilesService {
         token: string,
         attachment: TelegramMessageFile,
     ): Promise<TelegramFileAddress> {
+        // A part with no file (a location, a contact) is handed on as its typed part: there is nothing to ask Telegram for.
+        if (attachment.contentType !== undefined)
+            return { kind: attachment.kind, url: "", name: attachment.name, contentType: attachment.contentType }
         const unaddressed = { kind: attachment.kind, url: "", name: attachment.name }
         if (token === "") return unaddressed
         if (attachment.size !== null && attachment.size > TELEGRAM_DOWNLOAD_MAX_BYTES) {
@@ -54,7 +56,8 @@ export class TelegramFilesService {
                 this.logger.warn(TelegramInboxLogEvent.FileNotAddressed, { connectionId, reason: "no_file_path" })
             return { ...unaddressed, url }
         } catch (cause) {
-            if (classifyFailure(cause) === "transient") throw cause
+            // A Telegram that fails or is busy is no reason to lose the customer's message: the file stays on the line without an address
+            // (customer files records it as a typed, reported not-kept entry), R72 DEF-7.
             this.logger.warn(TelegramInboxLogEvent.FileNotAddressed, {
                 connectionId,
                 reason: cause instanceof Error ? cause.name : "unknown",

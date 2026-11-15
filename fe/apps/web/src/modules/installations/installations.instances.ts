@@ -1,4 +1,3 @@
-import type { ModuleKey } from "@/modules/catalog"
 import type { Installation } from "./installations.types"
 
 const NAME_MAX = 80
@@ -30,7 +29,7 @@ export const cleanInstanceName = (name: string): string | null => {
 /** The instances of one type, oldest first (the first is what type-level callers mean by "the" installation). */
 export const instancesOf = <T extends Pick<Installation, "moduleKey" | "createdAt">>(
     installations: ReadonlyArray<T>,
-    moduleKey: ModuleKey,
+    moduleKey: string,
 ): Array<T> =>
     installations.filter((i) => i.moduleKey === moduleKey).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 

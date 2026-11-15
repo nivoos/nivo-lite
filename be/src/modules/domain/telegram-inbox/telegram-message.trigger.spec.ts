@@ -163,7 +163,7 @@ describe("TELEGRAM_MESSAGE_WEBHOOK: the person's line (owner ruling R26)", () =>
             text: "Shop c\u00f2n hoa kh\u00f4ng?",
             at: "2026-11-14T02:00:00.000Z",
         })
-        expect(realWebhook.line).toBe(telegramLineOf)
+        expect(realWebhook.feeds).toEqual({ stream: "lines", line: telegramLineOf })
     })
 
     it("gives no line for the release door's resume (no key)", () => {

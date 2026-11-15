@@ -175,11 +175,11 @@ describe("MisaMeinvoiceSandboxInvoiceService", () => {
     it("has a catalogue of unique MISA-<n> ids that all answer issue, exactly one of them the default", () => {
         const ids = MISA_MEINVOICE_SANDBOX_CATALOGUE.cases.map((one) => one.id)
         expect(new Set(ids).size).toBe(ids.length)
-        expect(ids).toEqual(["MISA-1", "MISA-2", "MISA-3", "MISA-4", "MISA-5", "MISA-6"])
+        expect(ids).toEqual(["MISA-1", "MISA-2", "MISA-3", "MISA-4", "MISA-5", "MISA-6", "MISA-7"])
         expect(ids.every((id) => /^MISA-\d+$/.test(id))).toBe(true)
         expect(MISA_MEINVOICE_SANDBOX_CATALOGUE.cases.filter((one) => one.default === true).map((one) => one.id)).toEqual(["MISA-1"])
         expect(MISA_MEINVOICE_SANDBOX_CATALOGUE.provider).toBe("misa_meinvoice")
-        expect(MISA_MEINVOICE_SANDBOX_CATALOGUE.cases.every((one) => one.operation === "issue" && one.inbound === undefined)).toBe(true)
+        expect(MISA_MEINVOICE_SANDBOX_CATALOGUE.cases.every((one) => one.operation === "issue" && one.inbound === undefined && one.outcome !== undefined)).toBe(true)
     })
 
     it("reaches no network: one constructor argument, no integration import, no web address in the source", () => {

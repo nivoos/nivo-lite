@@ -40,7 +40,7 @@
 --      A line the owner reads and accepts as a narrowing he wants is cleared, with his yes, by
 --        DELETE FROM public.node_policy_shadow_tallies WHERE id = '<id>';   (the tallies are an audit of the move; this file drops them)
 --   5. No tick is left that no node row and no "Cổng MCP" row carries (the operation of a tick, from PROVIDER_CATALOGUE as read on
---      2026-11-12: customer.send -> nivo.tool.customer.message.send; qr.create -> nivo.tool.payment.transfer.create; credit.rematch ->
+--      2026-11-12: customer.send -> nivo.tool.customer.message.send; qr.create -> nivo.tool.payment.request.create; credit.rematch ->
 --      nivo.tool.payment.credit.rematch; transactions.read -> nivo.tool.bank.transaction.list, nivo.tool.payment.credit.list, nivo.tool.payment.debit.list,
 --      nivo.tool.connection.status.get; mail.read -> nivo.tool.mail.message.list, nivo.tool.mail.message.get; ledger.read -> nivo.tool.ledger.status.get;
 --      ledger.write -> nivo.tool.ledger.entry.append, nivo.tool.ledger.entry.void; drive.read -> nivo.tool.drive.status.get,
@@ -114,7 +114,7 @@ BEGIN
     ),
     operations (ability, operation) AS (
         VALUES ('customer.send', 'nivo.tool.customer.message.send'),
-               ('qr.create', 'nivo.tool.payment.transfer.create'),
+               ('qr.create', 'nivo.tool.payment.request.create'),
                ('credit.rematch', 'nivo.tool.payment.credit.rematch'),
                ('transactions.read', 'nivo.tool.bank.transaction.list'),
                ('transactions.read', 'nivo.tool.payment.credit.list'),

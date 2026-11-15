@@ -112,7 +112,7 @@ describe("NodeToolDoorService who calls", () => {
         const account = { provider: "payos", connectionId: "payos-2", attempt: 2, chosenBy: "fallback" as const }
         const asking = await build(CLAIMS, { ok: false, code: "approval_required", reason: "ask_mode" })
 
-        const ask = await asking.door.call(callOf({ tool: "nivo.tool.payment.link.create", account })).catch((cause: unknown) => cause)
+        const ask = await asking.door.call(callOf({ tool: "nivo.tool.payment.request.create", account })).catch((cause: unknown) => cause)
 
         expect(asking.gateway.call.mock.calls[0]?.[0]).toMatchObject({
             connectionId: "payos-2",
@@ -123,13 +123,13 @@ describe("NodeToolDoorService who calls", () => {
         expect(ask).toMatchObject({
             code: GraphNodesErrorCode.ToolApprovalRequired,
             params: {
-                fingerprint: toolFingerprintOf("nivo.tool.payment.link.create", ARGS, "payos-2"),
+                fingerprint: toolFingerprintOf("nivo.tool.payment.request.create", ARGS, "payos-2"),
                 connectionId: "payos-2",
                 provider: "payos",
             },
         })
-        expect(toolFingerprintOf("nivo.tool.payment.link.create", ARGS, "payos-2")).not.toBe(
-            toolFingerprintOf("nivo.tool.payment.link.create", ARGS),
+        expect(toolFingerprintOf("nivo.tool.payment.request.create", ARGS, "payos-2")).not.toBe(
+            toolFingerprintOf("nivo.tool.payment.request.create", ARGS),
         )
 
         const failing = await build(CLAIMS, { ok: false, code: "unavailable", detail: "x" })
@@ -157,7 +157,7 @@ describe("NodeToolDoorService who calls", () => {
             { mode: "auto", accounts: [{ kind: "payment", provider: "payos", connectionId: null }] },
         )
         await expect(
-            effects.door.effectRight({ token: "token-1", effect: TOOL.paymentLinkCreate, payload: { orderId: "o-1" }, approval: null }),
+            effects.door.effectRight({ token: "token-1", effect: TOOL.paymentRequestCreate, payload: { orderId: "o-1" }, approval: null }),
         ).resolves.toBeNull()
         expect(effects.requests.requestOf).toHaveBeenCalledWith(CLAIMS.workspaceId, CLAIMS.agentId, step)
     })
@@ -282,11 +282,11 @@ describe("NodeToolDoorService approvals", () => {
     it("asks for a person with the fingerprint of the exact tool and arguments", async () => {
         const { door } = await build(CLAIMS, { ok: false, code: "approval_required", reason: "ask_mode" })
 
-        await expect(door.call(callOf({ tool: "nivo.tool.payment.link.create" }))).rejects.toMatchObject({
+        await expect(door.call(callOf({ tool: "nivo.tool.payment.request.create" }))).rejects.toMatchObject({
             code: GraphNodesErrorCode.ToolApprovalRequired,
             params: {
-                tool: "nivo.tool.payment.link.create",
-                fingerprint: toolFingerprintOf("nivo.tool.payment.link.create", ARGS),
+                tool: "nivo.tool.payment.request.create",
+                fingerprint: toolFingerprintOf("nivo.tool.payment.request.create", ARGS),
                 reason: "ask_mode",
                 args: JSON.stringify({ orderNo: "DH-7", amountVnd: "5000", transferContent: "DH7 thanh toan" }),
             },
@@ -296,17 +296,17 @@ describe("NodeToolDoorService approvals", () => {
     // FX4 (D-P11-5): the engine runs the approved call itself, once, through this door under the same key: the error carries it exactly.
     it("carries the exact call on the ask (its arguments as the host passed them and its key), so the engine can run that call", async () => {
         const { door, gateway } = await build(CLAIMS, { ok: false, code: "approval_required", reason: "outside_write" })
-        const asked = await door.call(callOf({ tool: "nivo.tool.payment.link.create", key: "run-1:answer:tool:abc" })).catch((cause: unknown) => cause)
+        const asked = await door.call(callOf({ tool: "nivo.tool.payment.request.create", key: "run-1:answer:tool:abc" })).catch((cause: unknown) => cause)
 
         expect(asked).toMatchObject({
             code: GraphNodesErrorCode.ToolApprovalRequired,
             params: { call: JSON.stringify(ARGS), key: "run-1:answer:tool:abc" },
         })
-        const again = { by: "member-owner", fingerprint: toolFingerprintOf("nivo.tool.payment.link.create", ARGS) }
+        const again = { by: "member-owner", fingerprint: toolFingerprintOf("nivo.tool.payment.request.create", ARGS) }
         gateway.call.mockResolvedValue({ ok: true, value: { id: "entry-1" } })
 
         await expect(
-            door.call(callOf({ tool: "nivo.tool.payment.link.create", args: ARGS, key: "run-1:answer:tool:abc", approval: again })),
+            door.call(callOf({ tool: "nivo.tool.payment.request.create", args: ARGS, key: "run-1:answer:tool:abc", approval: again })),
         ).resolves.toEqual({ id: "entry-1" })
         expect(gateway.call.mock.calls.at(-1)?.[0]).toMatchObject({ approvedBy: "member-owner", opKey: "run-1:answer:tool:abc" })
     })
@@ -563,7 +563,7 @@ const buildWithAccounts = async (
     return { door: moduleRef.get(NodeToolDoorService), accounts, requests, tokens, logger }
 }
 
-const QR = { token: "token-1", effect: TOOL.paymentLinkCreate, payload: { orderId: "o-1" }, approval: null }
+const QR = { token: "token-1", effect: TOOL.paymentRequestCreate, payload: { orderId: "o-1" }, approval: null }
 
 /** The agent's attached SMTP account, and the refusal of an agent attached to none. */
 const ON_PAYOS = { kind: "allow", provider: "payos", connectionId: "conn-mb" } as const
@@ -577,14 +577,14 @@ const mailNode = (mode: "auto" | "ask"): OptionalNodeRequest => ({
 })
 
 describe("NodeToolDoorService effect rights: the context.effect road (attached? → mode)", () => {
-    it("judges nivo.tool.payment.link.create and nivo.tool.ledger.entry.append on the run agent's attachment, as the gateway road does", async () => {
+    it("judges nivo.tool.payment.request.create and nivo.tool.ledger.entry.append on the run agent's attachment, as the gateway road does", async () => {
         const { door, accounts, requests } = await buildWithAccounts(ON_PAYOS)
 
         await expect(door.effectRight(QR)).resolves.toBeNull()
         await expect(door.effectRight({ ...QR, effect: TOOL.ledgerEntryAppend })).resolves.toBeNull()
         // A token that signs no step is the engine's own call: it runs once attached, and no node is read.
         expect(accounts.attachmentOf.mock.calls).toEqual([
-            [CLAIMS.workspaceId, CLAIMS.agentId, TOOL.paymentLinkCreate, {}],
+            [CLAIMS.workspaceId, CLAIMS.agentId, TOOL.paymentRequestCreate, {}],
             [CLAIMS.workspaceId, CLAIMS.agentId, TOOL.ledgerEntryAppend, {}],
         ])
         expect(requests.requestOf).not.toHaveBeenCalled()
@@ -595,7 +595,7 @@ describe("NodeToolDoorService effect rights: the context.effect road (attached? 
         const account = { provider: "payos", connectionId: "conn-mb", attempt: 1, chosenBy: "order" as const }
 
         await expect(door.effectRight({ ...QR, account })).resolves.toBeNull()
-        expect(accounts.attachmentOf).toHaveBeenCalledWith(CLAIMS.workspaceId, CLAIMS.agentId, TOOL.paymentLinkCreate, {
+        expect(accounts.attachmentOf).toHaveBeenCalledWith(CLAIMS.workspaceId, CLAIMS.agentId, TOOL.paymentRequestCreate, {
             provider: "payos",
             connectionId: "conn-mb",
         })
@@ -607,7 +607,7 @@ describe("NodeToolDoorService effect rights: the context.effect road (attached? 
         await expect(detached.door.effectRight(QR)).resolves.toEqual({
             kind: "refused",
             id: "not_attached",
-            facts: { tool: TOOL.paymentLinkCreate, providers: ["payos"] },
+            facts: { tool: TOOL.paymentRequestCreate, providers: ["payos"] },
         })
         // The kill switch is read before the node: a detached agent's node is never asked.
         expect(detached.requests.requestOf).not.toHaveBeenCalled()
@@ -623,8 +623,8 @@ describe("NodeToolDoorService effect rights: the context.effect road (attached? 
                 line.runId,
             ]),
         ).toEqual([
-            [TOOL.paymentLinkCreate, "refuse", CLAIMS.runId],
-            [TOOL.paymentLinkCreate, "refuse", CLAIMS.runId],
+            [TOOL.paymentRequestCreate, "refuse", CLAIMS.runId],
+            [TOOL.paymentRequestCreate, "refuse", CLAIMS.runId],
         ])
     })
 
@@ -638,7 +638,7 @@ describe("NodeToolDoorService effect rights: the context.effect road (attached? 
 
             await expect(door.effectRight({ ...QR, refusals: "answer" })).rejects.toMatchObject({
                 code: GraphNodesErrorCode.ToolNotGranted,
-                params: { tool: TOOL.paymentLinkCreate, reason },
+                params: { tool: TOOL.paymentRequestCreate, reason },
             })
             expect(logger.warn).toHaveBeenCalled()
         },
@@ -648,12 +648,12 @@ describe("NodeToolDoorService effect rights: the context.effect road (attached? 
 describe("NodeToolDoorService effect rights: the ask and the effects that are no provider right", () => {
     it("an `ask` node on an attached account: waits for a person with the fingerprint of the effect and its payload, and runs the call that replays it", async () => {
         const { door } = await buildWithAccounts(ON_PAYOS, { ...CLAIMS, step: MAIL_STEP }, mailNode("ask"))
-        const fingerprint = toolFingerprintOf(TOOL.paymentLinkCreate, QR.payload)
+        const fingerprint = toolFingerprintOf(TOOL.paymentRequestCreate, QR.payload)
 
         await expect(door.effectRight(QR)).rejects.toMatchObject({
             code: GraphNodesErrorCode.ToolApprovalRequired,
             params: {
-                tool: TOOL.paymentLinkCreate,
+                tool: TOOL.paymentRequestCreate,
                 fingerprint,
                 reason: "ask_mode",
                 args: JSON.stringify({ orderId: "o-1" }),

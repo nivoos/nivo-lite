@@ -163,6 +163,16 @@ export const lineKeyOf = (callKey: string): string => {
         : `${KEY_PREFIX}${createHash("sha256").update(callKey).digest("hex").slice(0, DIGEST_HEX)}`
 }
 
+/**
+ * The SUBJECT of a team chat turn (concept triggers rule 13: the source declares it): the room of the person's message, read at the
+ * call's data member `roomId`. The turn's run holds that room, and its answer is posted only in the room the run is about.
+ */
+export const ROOM_SUBJECT_KEY = "data.roomId"
+
+/** True when the run a turn belongs to is about this room (its subject is the room key with this room's id). */
+export const aboutRoom = (subject: { readonly kind: string; readonly id: string } | null, roomId: string): boolean =>
+    subject?.kind === ROOM_SUBJECT_KEY && subject.id === roomId
+
 /** The longest module name a module room holds: the column's CHECK (chat_rooms_purpose_check) holds 1 to 64 characters. */
 export const PURPOSE_MODULE_MAX = 64
 

@@ -17,6 +17,8 @@ interface DocsCommandsInput {
     readonly doc: {
         readonly reindex: () => void
         readonly remove: () => Promise<void>
+        /** Moves the open document to the other area; the area it stands in is read from the document at the time. */
+        readonly area: () => Promise<void>
         readonly row: (sourceId: string, actionId: string) => void
     }
     readonly ideas: Pick<KnowledgeDocsView["on"], "idea" | "moreIdeas">
@@ -24,6 +26,7 @@ interface DocsCommandsInput {
     readonly overlays: {
         readonly openRemove: () => void
         readonly setRemoveOpen: (isOpen: boolean) => void
+        readonly setAreaOpen: (isOpen: boolean) => void
     }
     readonly hideAside: () => void
 }
@@ -77,6 +80,8 @@ export const useKnowledgeDocsCommands = (input: DocsCommandsInput): KnowledgeDoc
         },
         removeOpenChange: input.overlays.setRemoveOpen,
         remove: input.doc.remove,
+        areaOpenChange: input.overlays.setAreaOpen,
+        area: input.doc.area,
         closeAside: input.hideAside,
         idea: input.ideas.idea,
         moreIdeas: input.ideas.moreIdeas,

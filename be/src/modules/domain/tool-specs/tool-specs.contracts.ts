@@ -81,6 +81,13 @@ export interface ToolSpec {
      */
     readonly confirmBy?: ToolConfirmBy | undefined
     /**
+     * The refusals that are FINAL for the subject (a subset of `refusals`): the act must not or cannot be made by anyone through this tool
+     * (the subject withdrew consent, there is no address at all, the thing already exists). A final refusal is a BUSINESS answer: the
+     * step's `unsuccessful` declaration applies (the engine's notice, go on / end), no stop. Every other refusal of a write outside is a
+     * failed act a person can resolve (or time does): a stop (E-FIX12 rules A-1 / A-5). DECLARED by the tool; absent = none final.
+     */
+    readonly finalRefusals?: ReadonlyArray<string> | undefined
+    /**
      * The members of the arguments that are the CONTENT a person approves (the customer send: its `text` and its `images`): the approval
      * card carries them in full, read by shape (a string is words, a list of `{ url }` is addresses), beyond the short facts. Absent or
      * empty: the card shows the call's facts only.

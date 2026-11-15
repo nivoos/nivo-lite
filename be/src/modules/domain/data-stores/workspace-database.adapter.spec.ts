@@ -2,6 +2,7 @@ import { blobEntry, recordEntry, type DataEntry, type JsonValue } from "@modules
 import {
     MemorySetDoor,
     MemoryWorkspaceDirectory,
+    WorkspaceSetDoor,
     collectEntries,
     entriesFrom,
     storeContract,
@@ -68,11 +69,9 @@ describe("WorkspaceDatabaseStore: what it holds and how it is scoped", () => {
         ])
     })
 
-    it("refuses a call that names no workspace, and one that names a workspace nobody holds", async () => {
+    it("refuses a call that names a workspace nobody holds; a call that names none is the whole deployment", async () => {
         const unbound = new WorkspaceDatabaseStore(DIRECTORY, [new MemorySetDoor("workspace")], [])
-        await expect(collectEntries(unbound.export({}))).rejects.toMatchObject({
-            code: DataStoresErrorCode.ScopeRequired,
-        })
+        expect(await collectEntries(unbound.export({}))).toEqual([])
         await expect(collectEntries(unbound.export({ scope: { workspace: "nobody" } }))).rejects.toMatchObject({
             code: DataStoresErrorCode.ScopeUnknown,
         })
@@ -209,5 +208,103 @@ describe("WorkspaceDatabaseStore: mirror", () => {
             DataRefusalCode.NotRemovable,
         ])
         expect(await collectEntries(store.export({ sets: ["knowledge"] }))).toHaveLength(4)
+    })
+})
+
+const WS_A = "0a000000-0000-4000-8000-00000000000a"
+const WS_B = "0b000000-0000-4000-8000-00000000000b"
+const ALL = new MemoryWorkspaceDirectory({
+    "ws-a": { id: WS_A, ownerId: "owner-a" },
+    "ws-b": { id: WS_B, ownerId: "owner-b" },
+})
+/** The record a knowledge row of the all-workspaces specs holds. */
+const note = (content: string): JsonValue => ({ content, module: null, topic: "", visibility: "internal" })
+
+const deploymentOf = (seed: boolean): WorkspaceDatabaseStore =>
+    new WorkspaceDatabaseStore(
+        ALL,
+        [
+            new WorkspaceSetDoor(
+                "knowledge",
+                seed ? { [WS_B]: { "o/two": note("b") }, [WS_A]: { "o/one": note("a"), "o/0": note("z") } } : {},
+            ),
+            new WorkspaceSetDoor(
+                "workspace",
+                seed ? { [WS_A]: { settings: { name: "A" } }, [WS_B]: { settings: { name: "B" } } } : {},
+            ),
+        ],
+        [],
+    )
+
+describe("WorkspaceDatabaseStore: a call that names no workspace is every workspace", () => {
+    it("exports every live workspace's sets, each key prefixed with the workspace id, in (set, key) byte order", async () => {
+        const keys = (await collectEntries(deploymentOf(true).export({}))).map((item) => `${item.set}|${item.key}`)
+        expect(keys).toEqual([
+            `knowledge|${WS_A}/o/0`,
+            `knowledge|${WS_A}/o/one`,
+            `knowledge|${WS_B}/o/two`,
+            `workspace|${WS_A}/settings`,
+            `workspace|${WS_B}/settings`,
+        ])
+    })
+
+    it("a deployment with no workspace, or workspaces with no rows, exports an empty set: a valid export, never a failure", async () => {
+        const none = new WorkspaceDatabaseStore(
+            new MemoryWorkspaceDirectory({}),
+            [new WorkspaceSetDoor("workspace")],
+            [],
+        )
+        expect(await collectEntries(none.export({}))).toEqual([])
+        expect(await collectEntries(deploymentOf(false).export({}))).toEqual([])
+    })
+
+    it("a scoped call still exports one workspace with plain keys", async () => {
+        const keys = (await collectEntries(deploymentOf(true).export({ scope: { workspace: "ws-b" } }))).map(
+            (item) => `${item.set}|${item.key}`,
+        )
+        expect(keys).toEqual(["knowledge|o/two", "workspace|settings"])
+    })
+
+    it("round trip: an import without a scope writes each entry into the workspace its prefix names and keeps the row identities", async () => {
+        const copy = await collectEntries(deploymentOf(true).export({}))
+        const target = deploymentOf(false)
+
+        const report = await target.import(entriesFrom(copy), { dryRun: false, mode: "merge" })
+
+        expect(report.outcome).toBe("applied")
+        expect(report.sets.map((item) => [item.set, item.created])).toEqual([
+            ["knowledge", 3],
+            ["workspace", 2],
+        ])
+        expect((await collectEntries(target.export({}))).map((item) => item.sha256)).toEqual(
+            copy.map((item) => item.sha256),
+        )
+        expect(await target.identityOf("knowledge", `${WS_B}/o/two`)).toMatch(/^row-/u)
+        expect(await target.identityOf("knowledge", `${WS_A}/o/two`)).toBeNull()
+        const again = await target.import(entriesFrom(copy), { dryRun: false, mode: "merge" })
+        expect(again.sets.map((item) => [item.set, item.created, item.updated, item.unchanged])).toEqual([
+            ["knowledge", 0, 0, 3],
+            ["workspace", 0, 0, 2],
+        ])
+    })
+
+    it("a key whose prefix names no live workspace, or no workspace at all, is a refused key with its code, not a throw", async () => {
+        const stranger = "0c000000-0000-4000-8000-00000000000c"
+        const report = await deploymentOf(false).import(
+            entriesFrom([
+                recordEntry("knowledge", `${stranger}/o/x`, note("x")),
+                recordEntry("knowledge", "no-prefix", note("y")),
+                recordEntry("knowledge", `${WS_A}/o/ok`, note("ok")),
+            ]),
+            { dryRun: false, mode: "merge" },
+        )
+        expect(report.outcome).toBe("partial")
+        expect(report.sets[0]).toMatchObject({
+            created: 1,
+            refused: [
+                { key: `${stranger}/o/x`, code: DataRefusalCode.WorkspaceUnknown },
+                { key: "no-prefix", code: DataRefusalCode.WorkspaceUnknown },
+            ],
+        })
     })
 })

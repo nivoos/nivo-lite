@@ -1,5 +1,8 @@
-import { Injectable } from "@nestjs/common"
+import { Injectable, Optional } from "@nestjs/common"
 import { AgentRunsService, type RunSubject, type SubjectHolder } from "@modules/domain/agent-runs"
+import type { AgentWakeContext } from "@modules/domain/agent-work"
+// The service file, not the barrel: the barrel loads contacts-page.service, which reaches agent-work while it is half loaded (R37).
+import { ContactsService } from "@modules/domain/contacts/contacts.service"
 
 /** The person an event is about, as the engine met it: their contact and the route they came in on (either may be absent). */
 export interface HeldPerson {
@@ -29,7 +32,15 @@ export interface FlowWaiting {
 export interface SubjectStopsPort {
     /** The OPEN stops about the person (their contact and the ids merged into it, or their route), oldest first. */
     openAbout(workspaceId: string, person: HeldPerson): Promise<ReadonlyArray<PersonStop>>
+    /**
+     * ENGINE-FIN (a): an event of the run's subject was just held behind the run (`waiting:<run>`; `held` = the wake's ids-only context,
+     * which says how many events it stands for): the open stops of that run show how many events now wait. Never throws.
+     */
+    eventHeld(workspaceId: string, runId: string, held: AgentWakeContext): Promise<void>
 }
+
+/** The subject kind of a person (the scope member `contactId`): the one kind whose ids a merge joins. */
+const PERSON_SUBJECT = "contactId"
 
 /** A run that holds an event's subject: its id and its workflow. */
 export type HoldingRun = Pick<SubjectHolder, "id" | "workflowId">
@@ -45,7 +56,11 @@ export type HoldingRun = Pick<SubjectHolder, "id" | "workflowId">
 export class AgentGraphSubjectHoldsService {
     private stops: SubjectStopsPort | undefined = undefined
 
-    constructor(private readonly runs: AgentRunsService) {}
+    constructor(
+        private readonly runs: AgentRunsService,
+        // A person's subject covers every id merged into them (concept agent-data, contact operations); absent in an app with no contacts.
+        @Optional() private readonly contacts?: ContactsService,
+    ) {}
 
     /** Registers the open stops of the thread runs: one capability keeps them, the last registration is the one asked. */
     setStops(port: SubjectStopsPort): void {
@@ -63,7 +78,8 @@ export class AgentGraphSubjectHoldsService {
         skipped: ReadonlySet<string>,
     ): Promise<HoldingRun | null> {
         const bySubject: Array<SubjectHolder> = []
-        for (const subject of subjects) bySubject.push(...(await this.runs.inFlightOfSubject(workspaceId, subject)))
+        for (const subject of await this.mergedOf(workspaceId, subjects))
+            bySubject.push(...(await this.runs.inFlightOfSubject(workspaceId, subject)))
         const [oldest] = bySubject
             .filter((run) => !skipped.has(run.id))
             .sort((left, right) => left.startedAt.localeCompare(right.startedAt) || left.id.localeCompare(right.id))
@@ -79,9 +95,32 @@ export class AgentGraphSubjectHoldsService {
         return null
     }
 
+    /**
+     * The subjects with every PERSON subject widened to the person and every id merged into them (concept agent-data, "Contact and subject":
+     * a merge joins two ids into one person, and a run keyed by either id holds an event keyed by the other, whatever the data source of the
+     * event: a person's line, a call, a record keyed by a contact field). Any other subject stays as it is; each subject once.
+     */
+    private async mergedOf(workspaceId: string, subjects: ReadonlyArray<RunSubject>): Promise<ReadonlyArray<RunSubject>> {
+        const widened: Array<RunSubject> = []
+        for (const subject of subjects) {
+            const ids =
+                subject.kind === PERSON_SUBJECT && this.contacts !== undefined
+                    ? await this.contacts.aliasesOf(workspaceId, subject.id)
+                    : [subject.id]
+            for (const id of ids)
+                if (!widened.some((one) => one.kind === subject.kind && one.id === id)) widened.push({ kind: subject.kind, id })
+        }
+        return widened
+    }
+
     /** What waits for a person of the shop about the person: the steps of the open stops about them, oldest first. */
     async waitingOf(workspaceId: string, person: HeldPerson): Promise<ReadonlyArray<FlowWaiting>> {
         return (await this.openAbout(workspaceId, person)).map((stop) => ({ step: stop.stepKey, since: stop.since }))
+    }
+
+    /** An event was held behind `runId` (rule Q-1): told to the open stops of the run (ENGINE-FIN (a)); nothing in an app with no stops. */
+    async eventHeld(workspaceId: string, runId: string, held: AgentWakeContext): Promise<void> {
+        await this.stops?.eventHeld(workspaceId, runId, held)
     }
 
     private openAbout(workspaceId: string, person: HeldPerson): Promise<ReadonlyArray<PersonStop>> {

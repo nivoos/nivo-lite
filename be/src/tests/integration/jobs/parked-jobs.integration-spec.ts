@@ -1,8 +1,8 @@
 import assert from "node:assert/strict"
-import { mock } from "@starci/jest-preset"
+import { FakeClock, mock } from "@starci/jest-preset"
 import type { Logger } from "@modules/platform/logging"
 import { QueueOutboxService } from "@modules/platform/queue"
-import { jobsEntities, ParkedJobCloseService, ParkedJobResumerService } from "@modules/platform/jobs"
+import { jobsEntities, JobProgressService, ParkedJobCloseService, ParkedJobResumerService } from "@modules/platform/jobs"
 import { jobsBuilder } from "../../fixtures/builders/jobs.builder"
 import { cleanupJobs, jobSnapshot } from "../../world/proof-database.service"
 import { JOBS_MODULES } from "../../world/test-capabilities.options"
@@ -49,6 +49,8 @@ describe("parked jobs (lite integration)", () => {
             new QueueOutboxService(),
             mock<Logger>(),
             new ParkedJobCloseService(mock<Logger>()),
+            mock<JobProgressService>(),
+            new FakeClock(new Date("2026-11-15T10:00:00.000Z")),
         )
         await expect(resumer.sweep({ build: "build-2" })).resolves.toBe(1)
 

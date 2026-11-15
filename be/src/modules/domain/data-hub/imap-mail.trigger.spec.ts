@@ -11,6 +11,10 @@ const buildSubject = async (): Promise<typeof realTrigger> => {
 
 const ORIGIN = { connectionId: "mailbox-1" }
 
+/** The person's line the trigger feeds to the route's stream (`feeds.line`), or undefined when it feeds no lines. */
+const lineOf = (trigger: typeof realTrigger, data: ReturnType<typeof realTrigger.data.parse>) =>
+    trigger.feeds?.stream === "lines" ? trigger.feeds.line(data) : undefined
+
 const row = {
     externalId: "INBOX:7:42",
     folder: "INBOX",
@@ -65,7 +69,7 @@ describe("the mailbox's trigger (MAIL-IN rule MI-4)", () => {
             },
         })
         expect(trigger.data.safeParse(event?.data).success).toBe(true)
-        expect(trigger.line?.(event?.data ?? trigger.data.parse({}))).toEqual({
+        expect(lineOf(trigger, event?.data ?? trigger.data.parse({}))).toEqual({
             key: "email:<m1@b.test>",
             text: "Hoa don\n\nGui shop hoa don thang 10.",
             at: "2026-11-14T01:00:00.000Z",
@@ -78,7 +82,7 @@ describe("the mailbox's trigger (MAIL-IN rule MI-4)", () => {
 
         expect(event?.data).toMatchObject({ messageKey: "email:INBOX:7:42", at: null })
         expect(event?.data.messageId).toBeUndefined()
-        expect(trigger.line?.({ ...(event?.data ?? trigger.data.parse({})), messageKey: "" })).toBeNull()
+        expect(lineOf(trigger, { ...(event?.data ?? trigger.data.parse({})), messageKey: "" })).toBeNull()
     })
 
     it("drops a row with no id, and a mail that names no sender (no person to meet)", async () => {

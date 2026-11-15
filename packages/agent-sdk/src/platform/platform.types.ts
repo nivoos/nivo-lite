@@ -291,8 +291,10 @@ export type CustomerLineDirection = "from_person" | "to_person"
 
 /** One file of a line, by address. */
 export interface CustomerLineFile {
-    /** Where the file is served from. */
-    readonly url: string
+    /** Where the file is served from; null for a file the shop could not keep (`notKept` says why). */
+    readonly url: string | null
+    /** Why the shop could not keep the file (a typed reason: `fetch_failed`, `refused_<status>`, `no_address`, `no_store`, `store_failed`); absent for a kept file. */
+    readonly notKept?: string | undefined
     /** The name of the file, or empty. */
     readonly name: string
     /** The media type, or empty when the sender did not say. */

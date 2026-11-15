@@ -1,7 +1,7 @@
 import type { JobProgressFrame } from "./jobProgress.frame"
 
 /** Where a chain of jobs stands: no frame yet (`none`), or the state of the job that matters most. */
-type JobProgressKind = "none" | "running" | "retry" | "done" | "dead_letter"
+type JobProgressKind = "none" | "running" | "retry" | "done" | "dead_letter" | "closed"
 
 /** The typed state of one chain of jobs, as the hook gives it. Keys and numbers only: the words come from `jobProgress.words`. */
 export interface JobProgressView {
@@ -46,7 +46,7 @@ export const NO_JOB_PROGRESS: JobProgressView = {
 }
 
 /** How much a state matters when a chain holds several jobs: a job that needs a person first, then one that waits to retry, then one that runs. */
-const WEIGHT: Readonly<Record<JobProgressFrame["state"], number>> = { dead_letter: 4, retry: 3, running: 2, done: 1 }
+const WEIGHT: Readonly<Record<JobProgressFrame["state"], number>> = { dead_letter: 4, retry: 3, running: 2, done: 1, closed: 0 }
 
 /** The frames with this one kept when it is newer than the one held for its job (a repeat or an older frame changes nothing). */
 export const withFrame = (frames: JobFrames, frame: JobProgressFrame): JobFrames => {

@@ -1,14 +1,15 @@
 import { Injectable } from "@nestjs/common"
 import type { ConnectionRecord } from "@modules/domain/connections"
-import type {
-    InstructionAccount,
+import {
+    providerRefusal,
+    type InstructionAccount,
     PaymentInstructionPort,
     PaymentInstructionRequest,
     TransferInstruction,
     TransferInstructionRequest,
 } from "@modules/domain/provider-registry"
 import { ProviderSandboxService } from "@modules/domain/provider-sandbox"
-import { SEPAY_SANDBOX_ACCOUNT } from "./sepay-sandbox.catalogue"
+import { SEPAY_SANDBOX_ACCOUNT, SEPAY_SANDBOX_TRANSFER_OPERATION } from "./sepay-sandbox.catalogue"
 import { vietQrUrl } from "./viet-qr.policy"
 
 @Injectable()
@@ -32,16 +33,20 @@ export class SepaySandboxPaymentInstructionService implements PaymentInstruction
 
     /** The fixed instruction of the catalogue for any amount and content. */
     transfer(connection: ConnectionRecord, request: TransferInstructionRequest): Promise<TransferInstruction> {
-        return this.sandbox.call(connection, "transfer", request, {
+        return this.sandbox.call(connection, SEPAY_SANDBOX_TRANSFER_OPERATION, request, {
             key: request.content,
-            answer: () => ({
-                qrImageUrl: vietQrUrl(SEPAY_SANDBOX_ACCOUNT, request.amountVnd, request.content),
-                bankCode: SEPAY_SANDBOX_ACCOUNT.bankCode,
-                accountNumber: SEPAY_SANDBOX_ACCOUNT.accountNumber,
-                accountHolder: SEPAY_SANDBOX_ACCOUNT.accountHolder,
-                content: request.content,
-                amountVnd: request.amountVnd,
-            }),
+            answer: (state) => {
+                // As live: an account without its receiving details gives no instruction. Nothing is called live, so no other failure exists.
+                if (state.nextCase === "SEPAY-9") throw providerRefusal(this.provider, "no_credential")
+                return {
+                    qrImageUrl: vietQrUrl(SEPAY_SANDBOX_ACCOUNT, request.amountVnd, request.content),
+                    bankCode: SEPAY_SANDBOX_ACCOUNT.bankCode,
+                    accountNumber: SEPAY_SANDBOX_ACCOUNT.accountNumber,
+                    accountHolder: SEPAY_SANDBOX_ACCOUNT.accountHolder,
+                    content: request.content,
+                    amountVnd: request.amountVnd,
+                }
+            },
         })
     }
 }

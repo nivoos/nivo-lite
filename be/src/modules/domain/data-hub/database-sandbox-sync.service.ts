@@ -22,6 +22,7 @@ const NOTE_MAX = 400
 const asOfOf = (nextCase: string | null): number => {
     if (nextCase === DATABASE_CASE.newOrders) return DATABASE_AS_OF.newOrders
     if (nextCase === DATABASE_CASE.changedRow) return DATABASE_AS_OF.changedRow
+    if (nextCase === DATABASE_CASE.bigTable) return DATABASE_AS_OF.bigTable
     return DATABASE_AS_OF.first
 }
 
@@ -31,13 +32,13 @@ const refuses = (nextCase: string | null, table: SandboxTable): boolean =>
 
 @Injectable()
 /**
- * The sandbox twin of the owner's database pull (`DATABASE-1` .. `7`): the normal poll of a sandbox database account hands the sandbox
+ * The sandbox twin of the owner's database pull (`DATABASE-1` .. `8`): the normal poll of a sandbox database account hands the sandbox
  * shop's rows (customers, orders, products: a fixed history) to the SAME keep path the live pull uses (`context.upsert`, which the sync
  * service answers with the hub's rows) and never opens a database connection or reads a credential. It reads the table cursors from the
  * connection's public meta exactly as the live sync does (`cursor:<schema>.<table>`) and answers the rows changed after them as of the
  * moment the account's next case names: `DATABASE-1` (default) the first state, `-2` with two new orders, `-3` with one order changed
  * (the same row again, new status). `-4` refuses the orders table (the others are brought, the note names it), `-5` refuses every table
- * (the run fails as the live pull does when no table was read), `-6` the login, `-7` the connection. A pull is a read: no outcome is
+ * (the run fails as the live pull does when no table was read), `-6` the login, `-7` the connection, `-8` a big table (5,205 orders: one pull takes the live bound of 5,000 and moves the cursor, the next takes the rest). A pull is a read: no outcome is
  * unknown. One logged call per pull. UNVERIFIED against live: the words of a table's refusal (the live ones come from the message
  * catalogue of the reader's error).
  */
@@ -58,6 +59,9 @@ export class DatabaseSandboxSyncService implements DataConnector {
         }
         return this.sandbox.call(account, DATABASE_PULL_OPERATION, { tables: DATABASE_SANDBOX_TABLES.map(databaseTableKey) }, {
             key: "",
+            // The pull writes what it brings through the caller's own store (`context.upsert`, its own connections) and only reads the
+            // account's next case: it runs outside the account's lock (a connection holding a lock never waits for another of the pool).
+            lock: "outside",
             answer: async (state): Promise<DataSyncResult> => {
                 if (state.nextCase === DATABASE_CASE.loginRefused) throw databaseLoginRefused()
                 if (state.nextCase === DATABASE_CASE.unreachable) throw databaseUnreachable()

@@ -220,7 +220,10 @@ export class JobClaimService implements JobClaims {
         }))
     }
 
-    /** Holds the live fence across domain effects; no job-row writes may be attempted inside the callback. */
+    /**
+     * Holds the live fence (the job row's lock) while `work` writes on the fence's OWN transaction, handed to it: no job-row writes, and
+     * nothing on another connection of the pool, no outside call (concept outbox-job rule 12).
+     */
     withFence<T>(job: ClaimedJob, work: JobEffect<T>): Promise<T> {
         return this.writer().transaction(async (manager) => {
             const fence = await manager
@@ -240,11 +243,14 @@ export class JobClaimService implements JobClaims {
                     params: { jobId: job.jobId, token: job.fencingToken },
                 })
             }
-            return work()
+            return work(manager)
         })
     }
 
-    /** Runs a terminal delivery effect under its latest failed claim, so it cannot overwrite a live successor. */
+    /**
+     * Runs a terminal delivery effect under its latest failed claim, so it cannot overwrite a live successor; on the fence's own
+     * transaction, handed to it (concept outbox-job rule 12).
+     */
     withFailedFence(jobKey: string, work: FailedJobEffect): Promise<void> {
         return this.writer().transaction(async (manager) => {
             const row = await manager
@@ -255,7 +261,7 @@ export class JobClaimService implements JobClaims {
                 .setLock("pessimistic_write")
                 .getOne()
             if (row === null) return
-            await work({ jobId: row.id, expectedFencingToken: row.fencingToken })
+            await work({ jobId: row.id, expectedFencingToken: row.fencingToken }, manager)
         })
     }
 

@@ -1,10 +1,9 @@
 import { AgentKnowledge } from "@/components/blocks/AgentKnowledge"
-import type { ModuleKey } from "@/modules/catalog"
 
 /** What the tab hands the knowledge block: the workspace, the type and the instance of the url. */
 export interface AgentKnowledgeProps {
     readonly workspaceId: string | undefined
-    readonly module: ModuleKey | undefined
+    readonly module: string | undefined
     readonly installationId: string | undefined
 }
 

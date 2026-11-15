@@ -1,3 +1,4 @@
+import { TRIGGER_COMBINE_MODES } from "../graph/trigger-event"
 import type { FilterExpr } from "../query/query.types"
 import { isNamespaced } from "../schema/namespaced"
 import type { AnyEntityDefinition } from "./entity-any.types"
@@ -221,6 +222,35 @@ const checkStates = (entity: AnyEntityDefinition, report: Report): void => {
     if (values.size === 0 || named.some((state) => !values.has(state))) report("ENTITY_STATES_INVALID", "states")
 }
 
+/** The field kinds a write event or a stream may be keyed by: one scalar value per record. */
+const SUBJECT_KINDS: ReadonlySet<string> = new Set(["uuid", "text", "enum", "int", "bigint", "contact"])
+
+/** The subject a type's write events are about: `id` (the record itself), or a declared field of a scalar kind. */
+const subjectFits = (entity: AnyEntityDefinition, subject: string): boolean => {
+    if (subject === "id") return true
+    const field = hasOwn(entity.fields, subject) ? entity.fields[subject] : undefined
+    return field !== undefined && SUBJECT_KINDS.has(field.kind)
+}
+
+/**
+ * The write events and the stream (concept agent-data rules 2, 3, 5): the subject is `id` or a declared scalar field; the combine is one of
+ * the three modes; every member is a declared `enum` field, each once; `stream` only on a type declared `append`; an `append` type declares
+ * its `events` (its subject splits the stream) and no `states` (its rows never change). Needs no other entity.
+ */
+const checkEvents = (entity: AnyEntityDefinition, report: Report): void => {
+    const { events } = entity
+    if (entity.append !== undefined && (events === undefined || entity.states !== undefined)) report("ENTITY_APPEND_INVALID", "append")
+    if (events === undefined) return
+    if (!subjectFits(entity, events.subject)) report("ENTITY_EVENTS_SUBJECT_INVALID", "events.subject")
+    if (!(TRIGGER_COMBINE_MODES as ReadonlyArray<string>).includes(events.combine)) report("ENTITY_EVENTS_COMBINE_INVALID", "events.combine")
+    const members = events.members ?? []
+    members.forEach((member, index) => {
+        const field = hasOwn(entity.fields, member) ? entity.fields[member] : undefined
+        if (field?.kind !== "enum" || members.indexOf(member) !== index) report("ENTITY_EVENTS_MEMBER_INVALID", `events.members.${member}`)
+    })
+    if (events.combine === "stream" && entity.append === undefined) report("ENTITY_EVENTS_STREAM_NOT_APPEND", "events.combine")
+}
+
 /**
  * The refs: a target the catalog holds, and of the SAME agent (`RECORD_REF_OTHER_AGENT`): agents never reach each other's records, so
  * a ref to another agent's type is a definition-time problem. Cross-agent data goes through `callWorkflow`.
@@ -288,6 +318,7 @@ export const entityLocalProblems = (entity: AnyEntityDefinition): ReadonlyArray<
         (report) => checkIndexes(entity, report),
         (report) => checkConstraintsAndKeys(entity, report),
         (report) => checkStates(entity, report),
+        (report) => checkEvents(entity, report),
     ])
 
 /**

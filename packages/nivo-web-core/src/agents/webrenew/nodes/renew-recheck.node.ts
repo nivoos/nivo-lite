@@ -52,7 +52,7 @@ const readAnswer = (outcome: "renewed" | "pending", expiresOn: string) =>
  * `webrenew.renew-recheck` (Re-check a pending renewal, R57 / E-R57): ONE registrar READ, no AI, the body of the graph's `settle` loop.
  * A renewal the registrar took but did not prove (`pending`) is read again with `nivo.tool.domain.renewal.get` `{ name, expiresBefore,
  * reference }` (the proof is the registrar's own end date, as the renewal's): `renewed` returns the renewal as renewed with the new end
- * date; still `pending` returns it unchanged (the loop waits and reads again, up to its bound). Any other renewal (renewed, refused, not
+ * date; still `pending` returns it unchanged (the loop waits and reads again, up to its bound). Any other renewal (renewed, not
  * renewable) is returned as it is with no call, so the loop ends in its first round. A read the registrar refuses proves nothing: the
  * renewal stays as it was. An answer that names no known outcome stops the run (the engine reports it). Mode `auto`: it only reads.
  */

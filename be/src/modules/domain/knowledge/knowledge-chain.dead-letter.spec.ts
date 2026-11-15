@@ -2,7 +2,7 @@ import { Test } from "@nestjs/testing"
 import { FakeClock, fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
 import { INDEXING_WS, sourceOf } from "@tests/fixtures/builders/knowledge-indexing.builder"
 import { DOC_WS } from "@tests/fixtures/builders/document-facts.builder"
-import { scriptStageDoubles, stagePassageOf, stageSource, STAGES_RULE, STAGES_STATE } from "@tests/fixtures/builders/brain-document.builder"
+import { existingSourcesProvider, scriptStageDoubles, stagePassageOf, stageSource, STAGES_RULE, STAGES_STATE } from "@tests/fixtures/builders/brain-document.builder"
 import { chainProviders } from "@tests/fixtures/builders/knowledge-chain.builder"
 import { FakeEmbedder, FakeRowSource, FakeVectorIndex, vectorRowOf } from "@tests/fixtures/builders/vector-sync.builder"
 import { WorkspaceTimeZoneService } from "@modules/domain/workspace-settings"
@@ -116,6 +116,7 @@ describe("knowledge chain: a failure ends as a bounded retry (transient only), t
             const chunks = mock<KnowledgeChunksService>()
             let current = status
             sources.sourceOf.mockImplementation(() => Promise.resolve(sourceOf({ kind: "file", status: current })))
+            sources.exists.mockResolvedValue(true)
             sources.fail.mockImplementation(() => {
                 current = "failed"
                 return Promise.resolve()
@@ -125,6 +126,7 @@ describe("knowledge chain: a failure ends as a bounded retry (transient only), t
             embeddings.model.mockReturnValue("m1")
             embeddings.embed.mockImplementation((request) => Promise.resolve(request.texts.map(() => [1])))
             chunks.embeddedOf.mockResolvedValue([])
+            chunks.replace.mockResolvedValue(true)
             chunks.keep.mockImplementation((write) => Promise.resolve(write.drafts.map((draft) => ({ order: draft.order, id: `c${String(draft.order)}` }))))
             usage.blockedBy.mockResolvedValue(false)
             const moduleRef = await Test.createTestingModule({
@@ -202,6 +204,7 @@ describe("knowledge chain: a failure ends as a bounded retry (transient only), t
                     { provide: CLOCK, useValue: new FakeClock(new Date("2026-11-11T15:00:00.000Z")) },
                     { provide: BrainFactsService, useValue: mock<BrainFactsService>() },
                     { provide: BrainExtractionsService, useValue: mock<BrainExtractionsService>() },
+                    existingSourcesProvider(),
                     { provide: KnowledgeChunksService, useValue: mock<KnowledgeChunksService>() },
                     { provide: UsageMeterService, useValue: usage },
                     { provide: FactEmbeddingsService, useValue: vectors },

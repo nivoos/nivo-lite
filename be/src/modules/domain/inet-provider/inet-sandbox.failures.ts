@@ -1,5 +1,6 @@
 import { InetError, InetErrorCode } from "@modules/integrations/inet"
 import { inetFailureOf } from "./inet-domain-registrar.service"
+import type { InetCaseEffect } from "./inet-sandbox.catalogue"
 
 /** What the sandbox says when a call times out (the cause the live client wraps from its transport). */
 const NO_ANSWER = "sandbox: no answer in time"
@@ -34,3 +35,22 @@ export const inetAuthRefused = (): Error => failureOf(InetErrorCode.AuthFailed, 
 
 /** iNET asked the caller to slow down (429): nothing was sent (proof `not_sent`). */
 export const inetRateLimited = (): Error => failureOf(InetErrorCode.RateLimited, { retryAfterSeconds: RETRY_AFTER_SECONDS })
+
+/**
+ * The failure a case's effect throws BEFORE anything is applied (a refusal at the gateway, a rate refusal, a server error, no answer), or
+ * null for an effect that is not one of them (the service handles `refused`, `final`, `not_found`, `applied_timeout` and `empty` itself).
+ */
+export const inetFailureOfEffect = (effect: InetCaseEffect | undefined): Error | null => {
+    switch (effect) {
+        case "auth":
+            return inetAuthRefused()
+        case "rate":
+            return inetRateLimited()
+        case "server":
+            return inetServerError()
+        case "timeout":
+            return inetUnreachable()
+        default:
+            return null
+    }
+}

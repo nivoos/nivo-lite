@@ -1,13 +1,11 @@
 "use client"
 
 import { useEnabledModules } from "@nivo-lite/agent-sdk/client"
+import { PLATFORM_MODULE_KEY } from "@nivo-lite/agent-sdk/module"
 import type { StoredSpec } from "@nivo-lite/agent-sdk/spec"
 import { useProviderReads, useWorkbenchDeclaration } from "@/hooks/workbenchSpec"
 import { useWorkbenchTabsSink } from "@/hooks/workbenchTabs"
 import { SpecWorkbenchFrameBase } from "./component"
-
-/** The module every installation has: its reads (the runs it parked) and actions (resume one) a spec of any module may bind. */
-const PLATFORM_MODULE_KEY = "platform"
 
 /** What the route hands the frame: the module, the installation of the url, its spec and the view the route opens. */
 type SpecWorkbenchFrameProps = {

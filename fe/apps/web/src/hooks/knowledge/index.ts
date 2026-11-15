@@ -1,7 +1,6 @@
 export {
     DOCUMENT_STATUS_TONE,
     DOCUMENT_STATUS_KEYS,
-    isAgentModule,
     isDuplicateNote,
     isFinalFailure,
     isReadyNote,

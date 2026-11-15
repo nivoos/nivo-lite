@@ -12,7 +12,7 @@ import {
     useSetupChatView,
     startOf,
 } from "@/hooks/agentSetup"
-import { agentHref, useModuleName, type ModuleKey, useAgentRoute } from "@/hooks/installations"
+import { agentHref, useModuleName, useAgentRoute } from "@/hooks/installations"
 import { useSetupSide } from "@/hooks/setupSide"
 import { useSetupWriteWords } from "@/hooks/setupCards"
 import { mapSlot, useSlotLabels } from "@/hooks/slot"
@@ -26,7 +26,7 @@ import { AgentSetupPanesBase } from "./component"
 /** What the Setup page hands the panes: the instance and catalogue key of the url. */
 type AgentSetupPanesProps = {
     readonly installationId?: string | undefined
-    readonly module?: ModuleKey | undefined
+    readonly module?: string | undefined
 }
 
 const NO_VERSIONS: ReadonlyArray<never> = []

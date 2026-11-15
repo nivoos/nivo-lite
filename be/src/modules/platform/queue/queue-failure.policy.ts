@@ -1,3 +1,4 @@
+import { isTransientDatabaseFailure } from "@modules/platform/database"
 import { DomainError } from "@modules/platform/errors"
 import { QueueError, QueueErrorCode } from "./errors/queue.error"
 
@@ -6,7 +7,7 @@ export type FailureClass = "transient" | "input" | "code" | "config"
 
 const CLASSES: ReadonlyArray<FailureClass> = ["transient", "input", "code", "config"]
 
-/** Socket and operating-system codes of a call that failed on the way and may work a moment later. */
+/** Socket and operating-system codes of a call that failed on the way and may work a moment later (the database's own are `isTransientDatabaseFailure`'s). */
 const TRANSIENT_SYSTEM_CODES: ReadonlySet<string> = new Set([
     "ECONNRESET",
     "ECONNREFUSED",
@@ -18,8 +19,6 @@ const TRANSIENT_SYSTEM_CODES: ReadonlySet<string> = new Set([
     "EHOSTUNREACH",
     "UND_ERR_CONNECT_TIMEOUT",
     "UND_ERR_SOCKET",
-    "40001",
-    "40P01",
 ])
 
 /** The words in a capability error code that say the other side was busy or away, not that the request was wrong (HTTP_TIMEOUT, QUEUE_REDIS_DEADLINE, X_UNAVAILABLE). */
@@ -65,14 +64,14 @@ const classOfDomainError = (cause: unknown): FailureClass | undefined => {
 }
 
 /**
- * The class of a thrown failure. A failure that carries a class decides its own. The network, a deadline, a server that failed and a lost
- * transaction race are `transient`. A capability error is `input`, or `config` when its code contains `_CONFIG_` or `_CONNECTION_`. Anything
+ * The class of a thrown failure. A failure that carries a class decides its own. The network, a deadline, a server that failed and a transient database failure (a lost
+ * transaction race, a lock or idle-transaction timeout, an ended connection) are `transient`. A capability error is `input`, or `config` when its code contains `_CONFIG_` or `_CONNECTION_`. Anything
  * else is `code`.
  */
 export const classifyFailure = (cause: unknown): FailureClass => {
     const chain = chainOf(cause)
     const named = chain.map((link) => namedClassOf(link)).find((candidate) => candidate !== undefined)
     if (named !== undefined) return named
-    if (chain.some((link) => isTransientLink(link))) return "transient"
+    if (chain.some((link) => isTransientLink(link)) || isTransientDatabaseFailure(cause)) return "transient"
     return classOfDomainError(cause) ?? "code"
 }

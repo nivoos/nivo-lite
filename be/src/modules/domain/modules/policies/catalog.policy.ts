@@ -47,9 +47,19 @@ const gateProblems = (module: ModuleDefinition): ReadonlyArray<string> => {
     ]
 }
 
+const ideaProblems = (module: ModuleDefinition): ReadonlyArray<string> => {
+    const ideas = module.knowledgeIdeas ?? []
+    return [
+        ...(ideas.some((idea) => blank(idea.key) || blankBilingual(idea.topic) || blankBilingual(idea.hint))
+            ? [`${module.key}: every knowledge idea needs a key, a topic and a hint in both languages`]
+            : []),
+        ...duplicates(ideas.map((idea) => idea.key)).map((key) => `${module.key}: duplicate knowledge idea ${key}`),
+    ]
+}
+
 /**
  * Judges the catalogue against its own rules and answers every problem found (empty when it is sound): module keys and categories are
- * unique and known, every text exists in both languages and every gate is whole.
+ * unique and known, every text exists in both languages, every gate is whole and every knowledge idea is whole and unique in its module.
  */
 export const checkCatalog = (
     catalog: ReadonlyArray<ModuleDefinition>,
@@ -61,6 +71,6 @@ export const checkCatalog = (
         ...catalog
             .filter((module) => !categoryKeys.has(module.category))
             .map((module) => `${module.key}: unknown category ${module.category}`),
-        ...catalog.flatMap((module) => [...copyProblems(module), ...gateProblems(module)]),
+        ...catalog.flatMap((module) => [...copyProblems(module), ...gateProblems(module), ...ideaProblems(module)]),
     ]
 }

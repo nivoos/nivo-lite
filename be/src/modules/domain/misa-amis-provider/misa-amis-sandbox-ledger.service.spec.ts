@@ -144,7 +144,9 @@ describe("MisaAmisSandboxLedgerService", () => {
     it("has a catalogue of unique MISA-AMIS-<n> ids, exactly one default per operation, and no inbound case", () => {
         const ids = AMIS_SANDBOX_CATALOGUE.cases.map((one) => one.id)
         expect(new Set(ids).size).toBe(ids.length)
-        expect(ids).toEqual(["MISA-AMIS-1", "MISA-AMIS-2", "MISA-AMIS-3", "MISA-AMIS-4", "MISA-AMIS-5", "MISA-AMIS-6"])
+        expect(ids).toEqual(Array.from({ length: 15 }, (_, index) => `MISA-AMIS-${String(index + 1)}`).toSorted((left, right) => ids.indexOf(left) - ids.indexOf(right)))
+        expect(ids.toSorted()).toEqual(Array.from({ length: 15 }, (_, index) => `MISA-AMIS-${String(index + 1)}`).toSorted())
+        expect(AMIS_SANDBOX_CATALOGUE.cases.every((one) => one.outcome !== undefined)).toBe(true)
         expect(ids.every((id) => /^MISA-AMIS-\d+$/.test(id))).toBe(true)
         expect(AMIS_SANDBOX_CATALOGUE.provider).toBe("misa_amis")
         expect(AMIS_SANDBOX_CATALOGUE.cases.every((one) => one.inbound === undefined)).toBe(true)

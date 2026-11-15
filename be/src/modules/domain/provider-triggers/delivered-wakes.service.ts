@@ -34,14 +34,17 @@ export class DeliveredWakesService {
         return this.wakes.pendingOfScope(manager, workspaceId, agentId, scopeKey, limit)
     }
 
+    /**
+     * The wakes held behind a run (`waiting:<run>`), oldest first, at most `limit`: what a step whose node DECLARES it reads the run's held
+     * events (`readsHeldEvents`) takes into its queue snapshot (its claim then closes them `queued:<run>`).
+     */
+    heldBehind(manager: EntityManager, workspaceId: string, runId: string, limit: number): Promise<ReadonlyArray<PendingScopeWake>> {
+        return this.wakes.heldBehind(manager, workspaceId, runId, limit)
+    }
+
     /** Claims the wakes a step of a run took into its queue snapshot; how many it closed. */
     claimQueued(manager: EntityManager, workspaceId: string, wakeIds: ReadonlyArray<string>, runId: string): Promise<number> {
         return this.wakes.claimQueued(manager, workspaceId, wakeIds, runId)
-    }
-
-    /** The wakes held behind the run (`waiting:<run>`), oldest first, at most `limit`. */
-    heldBehind(manager: EntityManager, workspaceId: string, runId: string, limit: number): Promise<ReadonlyArray<PendingScopeWake>> {
-        return this.wakes.heldBehind(manager, workspaceId, runId, limit)
     }
 
     /** The runs wakes are held behind in the workspace, at most `limit` (the sweep's backstop). */

@@ -20,6 +20,7 @@ import { JobsLogEvent } from "./jobs.log-events"
 import type { JobsOptions } from "./jobs.options"
 import type { JobClaims, JobProcessorRegistry } from "./jobs.port"
 import { JobDeadLettersService } from "./job-dead-letters.service"
+import { failureReasonOf } from "./job-failure-reason.policy"
 import { isPastLadder, JOB_LADDERS, ladderVerdictOf, type JobLadder } from "./job-ladders.policy"
 import { JobRenewalService } from "./job-renewal.service"
 import { JobStateEventsService } from "./job-state-events.service"
@@ -42,17 +43,6 @@ const SCHEDULED_LADDER: JobLadder = { starts: SCHEDULE_ATTEMPTS, pausesSeconds: 
 
 /** The ladder of a processor: the one its job's declaration names, else the background ladder. */
 const ladderOf = (processor: FencedProcessor): JobLadder => JOB_LADDERS[processor.definition?.ladder ?? "background"]
-
-/** The reason a dead letter keeps: the failure code when the cause carries one, else its message, bounded. */
-const reasonOf = (cause: unknown): string => {
-    if (cause instanceof QueueError && cause.code === QueueErrorCode.FlowFailure) {
-        const named = cause.params.reason
-        if (typeof named === "string" && named !== "") return named.slice(0, 200)
-    }
-    const code = typeof cause === "object" && cause !== null && "code" in cause ? cause.code : undefined
-    if (typeof code === "string" && code !== "") return code.slice(0, 200)
-    return (cause instanceof Error ? cause.message : String(cause)).slice(0, 200)
-}
 
 /** A refusal of the payload by the job's declaration: the input is wrong, so it is a dead letter at once. */
 const payloadRefused = (job: string): QueueError =>
@@ -158,8 +148,9 @@ export class JobRunnerService implements JobProcessorRegistry {
         const scheduled = processor.scheduled === true
         const verdict = ladderVerdictOf(scheduled ? SCHEDULED_LADDER : ladder, delivery.attempt, failureClass === "transient")
         if (verdict.kind === "dead-letter") {
-            this.logger.error(JobsLogEvent.DeadLettered, cause, { jobId: job.jobId, failureClass, why: verdict.why })
-            await this.deadLetter(processor, delivery, job, failureClass, reasonOf(cause), cause)
+            const reason = failureReasonOf(cause)
+            this.logger.error(JobsLogEvent.DeadLettered, cause, { jobId: job.jobId, failureClass, why: verdict.why, reason })
+            await this.deadLetter(processor, delivery, job, failureClass, reason, cause)
             return "settled"
         }
         const afterSeconds = scheduled ? 0 : verdict.afterSeconds
@@ -168,7 +159,7 @@ export class JobRunnerService implements JobProcessorRegistry {
         if (afterSeconds <= 0) return "rethrow"
         return new QueueError({
             code: QueueErrorCode.RetryAfter,
-            params: { seconds: afterSeconds, reason: reasonOf(cause) },
+            params: { seconds: afterSeconds, reason: failureReasonOf(cause) },
             cause,
         })
     }
@@ -238,7 +229,7 @@ export class JobRunnerService implements JobProcessorRegistry {
     }
 
     private async recordFailure(job: ClaimedJob, cause: unknown): Promise<void> {
-        const reason = cause instanceof Error ? cause.message : String(cause)
+        const reason = failureReasonOf(cause)
         this.logger.error(JobsLogEvent.DeliveryFailed, cause, { jobId: job.jobId })
         await this.claims
             .fail({ jobId: job.jobId, expectedFencingToken: job.fencingToken, reason })

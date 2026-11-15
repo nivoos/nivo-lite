@@ -239,19 +239,27 @@
     "on": [
      {
       "key": "zalo",
-      "verb": "nivo.trigger.zalo.message.received"
+      "verbs": [
+       "nivo.trigger.zalo.message.received"
+      ]
      },
      {
       "key": "telegram",
-      "verb": "nivo.trigger.telegram.message.received"
+      "verbs": [
+       "nivo.trigger.telegram.message.received"
+      ]
      },
      {
       "key": "facebook",
-      "verb": "nivo.trigger.facebook.message.received"
+      "verbs": [
+       "nivo.trigger.facebook.message.received"
+      ]
      },
      {
       "key": "instagram",
-      "verb": "nivo.trigger.instagram.message.received"
+      "verbs": [
+       "nivo.trigger.instagram.message.received"
+      ]
      }
     ],
     "timeout": {
@@ -651,7 +659,9 @@
     "on": [
      {
       "key": "credit",
-      "verb": "nivo.trigger.payment.credit.received",
+      "verbs": [
+       "nivo.trigger.payment.credit.received"
+      ],
       "where": [
        {
         "param": "data.direction",
@@ -672,19 +682,27 @@
      },
      {
       "key": "zalo",
-      "verb": "nivo.trigger.zalo.message.received"
+      "verbs": [
+       "nivo.trigger.zalo.message.received"
+      ]
      },
      {
       "key": "telegram",
-      "verb": "nivo.trigger.telegram.message.received"
+      "verbs": [
+       "nivo.trigger.telegram.message.received"
+      ]
      },
      {
       "key": "facebook",
-      "verb": "nivo.trigger.facebook.message.received"
+      "verbs": [
+       "nivo.trigger.facebook.message.received"
+      ]
      },
      {
       "key": "instagram",
-      "verb": "nivo.trigger.instagram.message.received"
+      "verbs": [
+       "nivo.trigger.instagram.message.received"
+      ]
      }
     ],
     "timeout": {

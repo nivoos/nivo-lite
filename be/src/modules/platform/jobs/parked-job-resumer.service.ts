@@ -1,5 +1,6 @@
 import { Injectable, type OnApplicationBootstrap } from "@nestjs/common"
 import { LessThan, Not, type EntityManager, type FindOptionsWhere } from "typeorm"
+import { InjectClock, type Clock } from "@modules/platform/clock"
 import { callDbFunction } from "@modules/platform/database"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { InjectQueueOutbox, type QueueOutbox } from "@modules/platform/queue"
@@ -10,7 +11,8 @@ import { InjectJobsManagers, InjectJobsOptions } from "./jobs.decorators"
 import { JobsLogEvent } from "./jobs.log-events"
 import type { JobsOptions } from "./jobs.options"
 import { ParkedJobCloseService } from "./parked-job-close.service"
-import { resumeKeyOf } from "./parked-job-resume.policy"
+import { isClosedError, resumeKeyOf } from "./parked-job-resume.policy"
+import { JobProgressService } from "./job-progress.service"
 import { JobEntity } from "./persistence/entities"
 
 /** The most parked jobs one resume pass hands back; the next sweep takes the rest. */
@@ -21,6 +23,9 @@ export const AUTO_RESUMES = 3
 
 /** Who hands a job back: the machine (sweep, new build) keeps the episode and its item; a person opens a new episode. */
 type ResumedBy = "machine" | "person"
+
+/** What a person's door finds at a job id of a workspace. */
+export type ParkedJobState = "parked" | "closed" | "other" | "missing"
 
 /** The workspace a payload names, so the resumed delivery counts against the same workspace limit; null when it names none. */
 const workspaceOf = (payload: object): string | null =>
@@ -41,6 +46,8 @@ export class ParkedJobResumerService implements OnApplicationBootstrap {
         @InjectQueueOutbox() private readonly outbox: QueueOutbox,
         @InjectLogger() private readonly logger: Logger,
         private readonly closer: ParkedJobCloseService,
+        private readonly progress: JobProgressService,
+        @InjectClock() private readonly clock: Clock,
     ) {}
 
     /**
@@ -90,11 +97,48 @@ export class ParkedJobResumerService implements OnApplicationBootstrap {
     }
 
     /**
-     * Closes one parked job for good with a reason (the opposite of `resume`): it becomes `failed`, which no sweep hands back, and its
-     * remaining steps never run. False for an id that is not parked: nothing is changed.
+     * What a person's door finds at a job id of a workspace: `parked` (it can be resumed or closed), `closed` (a person closed it for
+     * good), `other` (it exists in the workspace and is not stopped: running, queued, done or handed back) or `missing` (no such job of
+     * this workspace: another workspace's job answers exactly like an id that never existed).
      */
-    close(jobId: string, reason: string): Promise<boolean> {
-        return this.closer.close(this.writer(), jobId, reason)
+    async stateOf(workspaceId: string, jobId: string): Promise<ParkedJobState> {
+        const row = await this.writer()
+            .createQueryBuilder(JobEntity, "job")
+            .select(["job.id", "job.status", "job.error"])
+            .where("job.id = :jobId AND job.payload ->> 'workspaceId' = :workspaceId", { jobId, workspaceId })
+            .getOne()
+        if (row === null) return "missing"
+        if (row.status === "failed_awaiting_fix") return "parked"
+        return row.status === "failed" && isClosedError(row.error) ? "closed" : "other"
+    }
+
+    /**
+     * Closes one parked job for good with a reason (the opposite of `resume`): it becomes `failed`, which no sweep hands back, and its
+     * remaining steps never run. False for an id that is not parked: nothing is changed. A closed job tells the chain's progress stream
+     * its end (a `closed` frame), so a subscriber that last saw it parked or waiting does not keep showing that.
+     */
+    async close(jobId: string, reason: string): Promise<boolean> {
+        if (!(await this.closer.close(this.writer(), jobId, reason))) return false
+        await this.tellClosed(jobId)
+        return true
+    }
+
+    /** Publishes the `closed` frame of the job to the chain its row recorded; a job with no recorded chain tells nothing. Never throws (a view of the row). */
+    private async tellClosed(jobId: string): Promise<void> {
+        try {
+            const row = await this.writer().findOne(JobEntity, { select: { id: true, kind: true, progressTopic: true }, where: { id: jobId } })
+            if (row === null || row.progressTopic === null) return
+            await this.progress.publishTo({
+                topicName: row.progressTopic,
+                job: { jobId },
+                jobName: row.kind,
+                state: "closed",
+                change: {},
+                at: this.clock.now(),
+            })
+        } catch (cause) {
+            this.logger.error(JobsLogEvent.ProgressNotTold, cause, { jobId })
+        }
     }
 
     private async resumeWhere(where: FindOptionsWhere<JobEntity>, by: ResumedBy): Promise<number> {

@@ -70,6 +70,7 @@ export const jobStateOf = (view: JobProgressView, words: JobProgressWords): JobS
         }
         case "done":
             return { label: words.say("done"), tone: "success", isDot: false, detail: null }
+        case "closed":
         case "none":
             return null
     }

@@ -48,13 +48,11 @@ const input = z.object({
 /** The language of the team notices. */
 const LOCALE = "vi"
 
-/** The customer message verbs the booking's wait listens for: the person writes on any of the front desk's channels. */
-const SAID = {
-    zalo: waitFor(TRIGGER.zaloMessageReceived),
-    telegram: waitFor(TRIGGER.telegramMessageReceived),
-    facebook: waitFor(TRIGGER.facebookMessageReceived),
-    instagram: waitFor(TRIGGER.instagramMessageReceived),
-} as const
+/**
+ * ONE meaning, "the person said something", whichever of the front desk's channels it came on: one key listing the four channel verbs
+ * (concept templates rule 12, v9; before, four keys of one verb each, all routed alike).
+ */
+const SAID = waitFor([TRIGGER.zaloMessageReceived, TRIGGER.telegramMessageReceived, TRIGGER.facebookMessageReceived, TRIGGER.instagramMessageReceived])
 
 /** The rounds of the talk: one per customer message (a body that parks at a wait may run 30, R9). */
 const TALK_ROUNDS = 30
@@ -66,16 +64,16 @@ const lastOf = (member: string) => ref(`steps.talk.output.last.${member}`, { def
 const CATALOGUE: TemplateCatalogue = {
     name: bilingualOf("graphBookingBookName"),
     summary: bilingualOf("graphBookingBookSummary"),
-    version: 8,
-    publishedAt: "2026-11-14T10:30:00.000Z",
+    version: 9,
+    publishedAt: "2026-11-15T09:00:00.000Z",
     notes: {
-        vi: "Mỗi lượt bắt đầu bằng việc chờ tin nhắn của khách (lượt đầu dùng tin nhắn được chuyển sang); tin nhắn không nói về việc đặt lịch được trả lại lễ tân",
-        en: "Each round starts by taking the customer's message (round 1 uses the handed-on one); a message not about booking goes back to the front desk",
+        vi: "Bản 9: tin nhắn của khách trên kênh nào cũng là một loại sự kiện của bước chờ (không đổi cách chạy). Mỗi lượt bắt đầu bằng việc chờ tin nhắn của khách (lượt đầu dùng tin nhắn được chuyển sang); tin nhắn không nói về việc đặt lịch được trả lại lễ tân",
+        en: "Version 9: the customer's message on any channel is one kind of event of the wait (the run is unchanged). Each round starts by taking the customer's message (round 1 uses the handed-on one); a message not about booking goes back to the front desk",
     },
 }
 
 /**
- * `booking.book` version 8: THE BOOKING AS ONE RUN (owner's final rule 8, the same shape as the sale, ruling R33). The caller's params
+ * `booking.book` version 9 (v8 with the wait's four channel keys made ONE key `said`, concept templates rule 12): THE BOOKING AS ONE RUN (owner's final rule 8, the same shape as the sale, ruling R33). The caller's params
  * arrive in the event's data (`trigger.data`).
  * - TALK LOOP (`talk`, until the booking is recorded or declined, at most 30 rounds): round 1 has no event and goes straight to `slots`
  *   with the hand-off's words; every later round first parks at `hear` for the person's next message (a day at most). `slots` offers the
@@ -109,9 +107,9 @@ export const bookingBookGraph: TemplateGraph = defineTemplateGraph({
                     // Round 1 has no event: its message is the hand-off's words. Every later round takes the person's next message first.
                     opening: ifNode({ when: equals(round(), 1), yes: "slots", no: "hear" }),
                     hear: wait({
-                        for: SAID,
+                        for: { said: SAID },
                         timeout: "1d",
-                        next: { zalo: "slots", telegram: "slots", facebook: "slots", instagram: "slots", timeout: endRound },
+                        next: { said: "slots", timeout: endRound },
                     }),
                     slots: node(bookingFindSlotsNode, { input: { days: OFFER_DAYS }, next: "book" }),
                     book: node(bookingBookNode, {

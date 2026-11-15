@@ -2,6 +2,7 @@
 {"data":{},"findings":[],"hash":"392486aa2c1f78f2fb13004317b0b1122ea8e9a4d38357f4285c1b53aaad2aca","path":"ext/support/crm-names-rules.mjs","step":"file-rules"}
 {"data":{},"findings":[],"hash":"92f1c188b76db9b7e9b3714fb675f4087763eb4f97494112e1c59b85081c7954","path":"ext/support/engine-business-contracts-rules.mjs","step":"file-rules"}
 {"data":{},"findings":[],"hash":"3f27ac511d3abf6903b0c0e12355e63c0e3422ce135dd82977c42428b96eaf12","path":"ext/support/engine-imports-rules.mjs","step":"file-rules"}
+{"findings":[{"column":0,"line":0,"message":"ext/support/fe-module-keys-rules.mjs is neither tracked nor git-ignored, and no ignored slot owns it","path":"ext/support/fe-module-keys-rules.mjs","rule":"HFS_UNTRACKED_ROOT_ENTRY"}],"hash":"absent","path":"ext/support/fe-module-keys-rules.mjs","step":"hfs"}
 {"data":{},"findings":[],"hash":"ebe5d01b0407ee2c42c32c193dc0e36e44616e7ed981d2326b46c60d7e3dcba9","path":"ext/support/lint-config.mjs","step":"file-rules"}
 {"data":{},"findings":[],"hash":"e757f5c7eb0f7b778e1c578fcfd0ef9a8d24abc00fbce2ecb90d356e04a25688","path":"ext/support/lint-shared.mjs","step":"file-rules"}
 {"data":{},"findings":[],"hash":"26000b94b1750ce952af4aa28059429f516ac12f9a2a8d193f78d07ac3c242cc","path":"ext/support/mcp-tools-rules.mjs","step":"file-rules"}

@@ -711,15 +711,22 @@ const waitEventSchema = (verb: TriggerVerb, context: TemplateGraphContext): Json
     }
 }
 
+/** The event schema of one key: its one verb's, or the union of its verbs' (whichever of them came). */
+const waitKeyEventSchema = (verbs: ReadonlyArray<TriggerVerb>, context: TemplateGraphContext): Json => {
+    const [only, ...more] = verbs
+    if (only === undefined) return { type: "object" }
+    return more.length === 0 ? waitEventSchema(only, context) : { anyOf: verbs.map((verb) => waitEventSchema(verb, context)) }
+}
+
 /**
- * The schema a wait answers: `{ trigger: <key>, event: <the members its verb supplies> }` for each trigger, `{ trigger: "timeout" }`
+ * The schema a wait answers: `{ trigger: <key>, event: <the members its verbs supply> }` for each key, `{ trigger: "timeout" }`
  * when the time ran out. A step reached only along a key's route reads `event` as that key's (the union narrows on `trigger`).
  */
 const waitOutputSchema = (step: GraphV2WaitStep, context: TemplateGraphContext): Json => ({
     anyOf: [
         ...step.params.on.map((on) => ({
             type: "object",
-            properties: { [WAIT_ROUTE_MEMBER]: { const: on.key }, event: waitEventSchema(on.verb, context) },
+            properties: { [WAIT_ROUTE_MEMBER]: { const: on.key }, event: waitKeyEventSchema(on.verbs, context) },
             required: [WAIT_ROUTE_MEMBER, "event"],
             additionalProperties: false,
         })),
@@ -748,12 +755,28 @@ const waitServed = (verb: TriggerVerb, context: TemplateGraphContext): boolean =
     return agent.some((provider) => lookup.supplies(verb, provider).kind !== "unknown")
 }
 
+/** The verbs of a wait listed a second time, each with the key that lists it again (written order: the first listing stands). */
+const verbsListedAgain = (on: ReadonlyArray<GraphV2WaitOn>): ReadonlyArray<{ readonly key: string; readonly verb: TriggerVerb }> => {
+    const seen = new Set<TriggerVerb>()
+    return on.flatMap((entry) =>
+        entry.verbs.flatMap((verb) => {
+            if (!seen.has(verb)) {
+                seen.add(verb)
+                return []
+            }
+            return [{ key: entry.key, verb }]
+        }),
+    )
+}
+
 /**
- * The problems of the waits: no trigger, or more than `WAIT_TRIGGERS_MAX` (`WAIT_TRIGGERS_EMPTY`, `WAIT_TRIGGERS_TOO_MANY`), a key
- * written twice, not a word, or `timeout` (`WAIT_KEY_DUPLICATE`, `WAIT_KEY_INVALID`), a key or `timeout` with no route and a route of
+ * The problems of the waits (concept templates rule 12: a key is ONE meaning with one route, listing the verbs that bring it): no key,
+ * or more than `WAIT_TRIGGERS_MAX` keys (`WAIT_TRIGGERS_EMPTY`, `WAIT_TRIGGERS_TOO_MANY`), a key written twice, not a word, or `timeout`
+ * (`WAIT_KEY_DUPLICATE`, `WAIT_KEY_INVALID`), a key that lists no verb (`WAIT_VERBS_EMPTY`), a verb listed twice in one wait, under two
+ * keys or twice under one (`WAIT_VERB_DUPLICATE`: an event of it would have two meanings), a key or `timeout` with no route and a route of
  * no key (`WAIT_ROUTE_MISSING`, `WAIT_ROUTE_UNKNOWN`), a timeout out of bounds (`WAIT_TIMEOUT_INVALID`: one unit, a whole number,
- * minutes 1-1440, hours 1-720, days 1-30: the bounds of `loop` `every`), and a verb the agent's accounts cannot serve
- * (`WAIT_TRIGGER_UNSERVED`).
+ * minutes 1-1440, hours 1-720, days 1-30: the bounds of `loop` `every`), and a listed verb the agent's accounts cannot serve
+ * (`WAIT_TRIGGER_UNSERVED`, at the key and the verb).
  */
 const waitProblems = (spec: GraphSpecV2, context: TemplateGraphContext): ReadonlyArray<Problem> =>
     spec.nodes.flatMap((step): ReadonlyArray<Problem> => {
@@ -784,8 +807,16 @@ const waitProblems = (spec: GraphSpecV2, context: TemplateGraphContext): Readonl
                 ? []
                 : [{ code: "WAIT_TIMEOUT_INVALID" as const, at: `${at}.params.timeout` }]),
             ...on
-                .filter((entry) => !waitServed(entry.verb, context))
-                .map((entry): Problem => ({ code: "WAIT_TRIGGER_UNSERVED", at: `${at}.params.on.${entry.key}` })),
+                .filter((entry) => entry.verbs.length === 0)
+                .map((entry): Problem => ({ code: "WAIT_VERBS_EMPTY", at: `${at}.params.on.${entry.key}` })),
+            ...verbsListedAgain(on).map(
+                (again): Problem => ({ code: "WAIT_VERB_DUPLICATE", at: `${at}.params.on.${again.key}.${again.verb}` }),
+            ),
+            ...on.flatMap((entry) =>
+                entry.verbs
+                    .filter((verb) => !waitServed(verb, context))
+                    .map((verb): Problem => ({ code: "WAIT_TRIGGER_UNSERVED", at: `${at}.params.on.${entry.key}.${verb}` })),
+            ),
         ]
     })
 

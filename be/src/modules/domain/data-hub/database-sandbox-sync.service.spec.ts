@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { ProviderSandboxErrorCode } from "@modules/domain/provider-sandbox"
 import type { DataEntity, DataRecordInput } from "@modules/domain/data-records"
-import { DataSourcesErrorCode } from "@modules/integrations/data-sources"
+import { DATABASE_MAX_ROWS, DataSourcesErrorCode } from "@modules/integrations/data-sources"
 import { sandboxAccount, sandboxServiceOf, sandboxServiceOff } from "@tests/fixtures/builders/provider-sandbox.builder"
 import { DataConnectorRegistryService } from "./data-connector-registry.service"
 import type { DataConnection, DataSyncContext, DataSyncResult } from "./data-hub.contracts"
@@ -10,6 +10,7 @@ import {
     DATABASE_CASE,
     DATABASE_SANDBOX_CASES,
     DATABASE_SANDBOX_CATALOGUE,
+    DATABASE_SANDBOX_PAGE_ROWS,
     DATABASE_SANDBOX_TABLES,
     databasePullOf,
 } from "./database-sandbox.catalogue"
@@ -162,6 +163,42 @@ describe("DatabaseSandboxSyncService", () => {
         expect(kept).toEqual([])
     })
 
+    it("DATABASE-8: a big orders table gives one pull of 5,000 (the live bound), the cursor moves to the newest taken and the next pull brings the other 205; then nothing", async () => {
+        expect(DATABASE_SANDBOX_PAGE_ROWS).toBe(DATABASE_MAX_ROWS)
+        const { sandbox, pull, keptOf } = setup()
+        await sandbox.setNextCase(ACCOUNT, "pull", DATABASE_CASE.bigTable)
+
+        const first = await pull()
+        const orders = keptOf("order")
+
+        // 5 shop orders + 4,995 of the big table = 5,000 of the orders table, oldest change first; customers and products (3 + 3) come whole.
+        expect(orders).toHaveLength(DATABASE_MAX_ROWS)
+        expect(first.rows).toBe(DATABASE_MAX_ROWS + 6)
+        expect(orders.at(0)).toBe("1001:paid")
+        const cursor = first.meta?.["cursor:public.orders"]
+        expect(cursor).toBeDefined()
+
+        const second = await pull()
+        expect(second.rows).toBe(205)
+        expect(keptOf("order")).toHaveLength(5205)
+        expect(new Set(keptOf("order")).size).toBe(5205)
+        expect((second.meta?.["cursor:public.orders"] ?? "") > (cursor ?? "")).toBe(true)
+        await expect(pull()).resolves.toEqual({ rows: 0 })
+    })
+
+    it("every case is tagged with the outcome of the situation it makes: login and every-table refusals refused, the unreachable database transient, the rest ok", () => {
+        expect(Object.fromEntries(DATABASE_SANDBOX_CASES.map((one) => [one.id, one.outcome]))).toEqual({
+            "DATABASE-1": "ok",
+            "DATABASE-2": "ok",
+            "DATABASE-3": "ok",
+            "DATABASE-4": "ok",
+            "DATABASE-5": "refused",
+            "DATABASE-6": "refused",
+            "DATABASE-7": "transient",
+            "DATABASE-8": "ok",
+        })
+    })
+
     it("stops early when the run's time budget is spent, keeping what was read", async () => {
         const { service, contextOf, kept } = setup()
         let reads = 0
@@ -215,8 +252,8 @@ describe("DatabaseSandboxSyncService", () => {
         expect(registry.portFor({ provider: "database", sandbox: false })).toBe(live)
     })
 
-    it("has unique DATABASE-<n> ids 1..7, exactly one default case, all for the pull operation", () => {
-        expect(DATABASE_SANDBOX_CASES.map((one) => one.id)).toEqual(Array.from({ length: 7 }, (_, index) => `DATABASE-${String(index + 1)}`))
+    it("has unique DATABASE-<n> ids 1..8, exactly one default case, all for the pull operation", () => {
+        expect(DATABASE_SANDBOX_CASES.map((one) => one.id)).toEqual(Array.from({ length: 8 }, (_, index) => `DATABASE-${String(index + 1)}`))
         expect(DATABASE_SANDBOX_CASES.filter((one) => one.default === true).map((one) => one.id)).toEqual(["DATABASE-1"])
         expect(DATABASE_SANDBOX_CASES.every((one) => one.operation === "pull" && one.inbound === undefined && one.label.length > 0)).toBe(true)
         expect(DATABASE_SANDBOX_CATALOGUE.provider).toBe("database")

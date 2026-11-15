@@ -142,8 +142,12 @@ export type OptionalStoredLinkToken = StoredLinkToken | null
 
 /** The contacts store: runs work in one transaction. */
 export interface ContactsStore {
-    /** Runs the work in one transaction; a throw rolls every write back. */
-    transaction<T>(work: ContactsWork<T>): Promise<T>
+    /**
+     * Runs the work in one transaction; a throw rolls every write back. With `manager` (a caller's open transaction) the work runs ON it,
+     * the caller's one connection: a read the caller makes while it holds its own locks never waits for a second connection of the pool
+     * (concept outbox-job rule 12).
+     */
+    transaction<T>(work: ContactsWork<T>, manager?: EntityManager): Promise<T>
 }
 
 /** The injection token of the contacts store. */

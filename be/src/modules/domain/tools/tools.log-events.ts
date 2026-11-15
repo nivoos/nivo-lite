@@ -18,4 +18,6 @@ export enum ToolsLogEvent {
     NodeRightRowsFailed = "tools.node-rights.rows-failed",
     /** The audit line of an effect's rights verdict could not be written; the verdict stands and is acted on. */
     EffectRightAuditFailed = "tools.effect-right.audit-failed",
+    /** A stored node setting names an account the agent is not attached to: the entry names nothing at the pick (logged once per process). */
+    NodeSettingAccountSkipped = "tools.node-setting.account-skipped",
 }

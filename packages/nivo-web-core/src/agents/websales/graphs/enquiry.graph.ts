@@ -98,13 +98,13 @@ const CATALOGUE: TemplateCatalogue = {
         vi: "Khách hỏi mua dịch vụ mới (Hỗ trợ chuyển sang): ghi nhận yêu cầu trong CRM, hỏi nhu cầu hoặc báo giá từ bảng giá; khách đồng ý hay báo đã chuyển khoản thì nhắn khách, báo đội rồi dừng để người trong đội làm tiếp",
         en: "A customer asks to buy something new (handed on by Support): records the enquiry in the CRM, asks the need or quotes from the price list; on a yes or a 'money sent' it tells the customer and the team and stops for a person to take over",
     },
-    version: 9,
+    version: 10,
     // The old JSON template had `seedActive: true`: the seed makes an ACTIVE workflow from it.
     seedActive: true,
     publishedAt: "2026-11-14T22:00:00.000Z",
     notes: {
-        vi: "R68: bước bị từ chối duyệt (hay lời gửi khách bị chặn) thì hệ thống tự báo đội kèm mã đơn mua; trong cuộc trò chuyện thì cuộc trò chuyện dừng, sau cuộc trò chuyện thì dừng ở kết quả Bị từ chối",
-        en: "R68: a declined step (or a refused customer send) is told to the team by the engine with the purchase code; inside the talk the talk ends, after it the run ends declined",
+        vi: "Bản 10: bước chờ lưu mỗi khóa với danh sách sự kiện của nó (một ý nghĩa, một đường đi); cách chạy không đổi. R68: bước bị từ chối duyệt (hay lời gửi khách bị chặn) thì hệ thống tự báo đội kèm mã đơn mua; trong cuộc trò chuyện thì cuộc trò chuyện dừng, sau cuộc trò chuyện thì dừng ở kết quả Bị từ chối",
+        en: "Version 10: the wait keeps each key with its list of events (one meaning, one route); the run is unchanged. R68: a declined step (or a refused customer send) is told to the team by the engine with the purchase code; inside the talk the talk ends, after it the run ends declined",
     },
 }
 

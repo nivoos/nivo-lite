@@ -191,8 +191,9 @@ export class AgentWorkSweepService {
             await this.tasks.moveWake(taskId, at, timerWakeAtOf(due, now))
             return false
         }
+        const prepared = await this.clockTicks.prepareTimer(item, taskId, timer, press)
         const tagged = await this.entityManager.transaction(async (tx) => {
-            const delivered = await this.clockTicks.deliverTimer(tx, item, taskId, timer, press)
+            const delivered = await this.clockTicks.commit(tx, prepared)
             await this.tasks.markFired(tx, taskId, at)
             return delivered === "woken"
         })
@@ -208,8 +209,9 @@ export class AgentWorkSweepService {
         const now = this.clock.now()
         if (next === null || trigger.preset === null || item.at === null || !isMissed(item.at, now)) return "triggers"
         const slot = latestMissedSlot(item.at, next, { ...trigger, preset: trigger.preset }, item.agentId)
+        const prepared = await this.clockTicks.prepareSlot(item.workspaceId, trigger, String(slot.getTime()), null)
         await this.entityManager.transaction(async (tx) => {
-            await this.clockTicks.deliverSlot(tx, item.workspaceId, trigger, String(slot.getTime()), null)
+            await this.clockTicks.commit(tx, prepared)
             await this.triggers.recordFire(tx, trigger.id, slot, next)
         })
         return "missed"

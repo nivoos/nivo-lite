@@ -173,7 +173,7 @@
                         "nivo.tool.lead.stage.update",
                         "nivo.tool.order.create",
                         "nivo.tool.order.confirm",
-                        "nivo.tool.payment.transfer.create",
+                        "nivo.tool.payment.request.create",
                         "nivo.tool.team.message.post"
                     ]
                 },
@@ -437,7 +437,7 @@
                         "nivo.tool.order.create",
                         "nivo.tool.order.confirm",
                         "nivo.tool.order.cancel",
-                        "nivo.tool.payment.transfer.create",
+                        "nivo.tool.payment.request.create",
                         "nivo.tool.team.message.post"
                     ]
                 },
@@ -701,7 +701,7 @@
                         "nivo.tool.order.create",
                         "nivo.tool.order.confirm",
                         "nivo.tool.order.cancel",
-                        "nivo.tool.payment.transfer.create",
+                        "nivo.tool.payment.request.create",
                         "nivo.tool.team.message.post"
                     ]
                 },
@@ -805,7 +805,7 @@
                                 "provider": null,
                                 "connectionId": null,
                                 "operations": {
-                                    "nivo.tool.payment.transfer.create": "auto"
+                                    "nivo.tool.payment.request.create": "auto"
                                 }
                             },
                             {
@@ -1003,7 +1003,7 @@
                         "nivo.tool.order.create",
                         "nivo.tool.order.confirm",
                         "nivo.tool.order.cancel",
-                        "nivo.tool.payment.transfer.create",
+                        "nivo.tool.payment.request.create",
                         "nivo.tool.team.message.post"
                     ]
                 },
@@ -1107,7 +1107,7 @@
                                 "provider": null,
                                 "connectionId": null,
                                 "operations": {
-                                    "nivo.tool.payment.transfer.create": "auto"
+                                    "nivo.tool.payment.request.create": "auto"
                                 }
                             },
                             {

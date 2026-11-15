@@ -23,9 +23,13 @@ export type {
     AccountDataTypeView,
     AccountOwner,
     AccountWrite,
+    PendingPhases,
+    PendingRowKey,
     PendingRow,
     AdmittedRow,
     AccountAdmission,
+    ArrivingRow,
+    PreparedAccountAdmission,
     StoredRow,
 } from "./account-data.contracts"
 export { accountDataEntities } from "./persistence/entities"

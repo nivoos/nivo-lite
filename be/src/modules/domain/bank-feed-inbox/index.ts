@@ -10,6 +10,7 @@ export {
 export type { BankFeedProvider, IncomingCredit, PendingBankMovement } from "./bank-feed-inbox.contracts"
 export {
     BANK_TRANSACTION_PROVIDERS,
+    BANK_TRANSACTION_TRIGGERS,
     bankDoorOf,
     bankTransactionFactKey,
     bankTransactionTriggerFor,

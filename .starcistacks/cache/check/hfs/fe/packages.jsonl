@@ -1,4 +1,5 @@
 {"data":{},"findings":[],"hash":"560a186ae0bba7ed8da9d0baba922be4e02a2a93ea3ef30628690b2b4f626c94","path":"fe/packages/nivo-api/package.json","step":"file-rules"}
+{"findings":[{"column":0,"line":0,"message":"fe/packages/nivo-api/package.json belongs to fe.package.api, an opt-in slot hfs.json neither lists in optionalSlots nor implies through an app kind","path":"fe/packages/nivo-api/package.json","rule":"HFS_SLOT_NOT_ENABLED"}],"hash":"63e35bb7510da6526facd2568575a8e8730108d477191a9cd19cf386b9f4a202","path":"fe/packages/nivo-api/package.json","step":"hfs"}
 {"data":{},"findings":[],"hash":"144a6be3ca808b517b9138a586df1ee6a282676cde27c8fe205ffa174f031a43","path":"fe/packages/nivo-api/src/graphql/clients/auth.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"a190b88733cbd1c801cef66fc30bf8135b66806443147de68a5a3c29c99355ab","path":"fe/packages/nivo-api/src/graphql/clients/index.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"7c1c8449c7696e3f1d06223339ad8c3439432b25d1efdd114989f0620d874c11","path":"fe/packages/nivo-api/src/graphql/clients/links/access-token.ts","step":"file-rules"}
@@ -18,7 +19,9 @@
 {"data":{},"findings":[],"hash":"78e04f5ab39ad7f19057489a70f852064a09bdccacecd2df11a758b224e0e998","path":"fe/packages/nivo-api/src/graphql/wire.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"b731ec651bc7f590e3677d436b8cf177d0b985c91b9e80c3050ca009e0dfc534","path":"fe/packages/nivo-api/src/index.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"f28ba0af1502e4fc2ff8fb674ee3b6b79efe12c7fdb3af9f41cfd3e17bf1f71e","path":"fe/packages/nivo-api/tsconfig.build.json","step":"file-rules"}
+{"findings":[{"column":0,"line":0,"message":"fe/packages/nivo-api/tsconfig.build.json belongs to fe.package.api, an opt-in slot hfs.json neither lists in optionalSlots nor implies through an app kind","path":"fe/packages/nivo-api/tsconfig.build.json","rule":"HFS_SLOT_NOT_ENABLED"}],"hash":"2931539bb0f1e29080054fe0a2717352e15285662241480a7358a3ef40b7174e","path":"fe/packages/nivo-api/tsconfig.build.json","step":"hfs"}
 {"data":{},"findings":[],"hash":"f2388b528bf9cddb2e94bd8a76066f56cfc4ce7ad712e76d8ac8f4c0156ceb43","path":"fe/packages/nivo-api/tsconfig.json","step":"file-rules"}
+{"findings":[{"column":0,"line":0,"message":"fe/packages/nivo-api/tsconfig.json belongs to fe.package.api, an opt-in slot hfs.json neither lists in optionalSlots nor implies through an app kind","path":"fe/packages/nivo-api/tsconfig.json","rule":"HFS_SLOT_NOT_ENABLED"}],"hash":"73109e2a7ccde906d948dca16e015cf3bd6f6c99b3aff7fcd5ab2fd12fde5069","path":"fe/packages/nivo-api/tsconfig.json","step":"hfs"}
 {"data":{},"findings":[],"hash":"6df4473448e1e6f9a73ab4990c6e63eee981d788029b8ba36d7ff4a9a85533da","path":"fe/packages/nivo-i18n/package.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"2d91ae6e195c3ff3c238443e94bd29d3bef6c147d4e591ba93d1fb9eeec73eeb","path":"fe/packages/nivo-i18n/src/index.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"c2fc50758242e04886ac605f1c576077690f40897a6a61d94c78860cc957662f","path":"fe/packages/nivo-i18n/src/layout.tsx","step":"file-rules"}
@@ -30,7 +33,8 @@
 {"data":{},"findings":[],"hash":"6bdbd011861b821516c17dd726c3322eb05cfb48264b9169647a349b9e423320","path":"fe/packages/nivo-offer/src/index.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"f28ba0af1502e4fc2ff8fb674ee3b6b79efe12c7fdb3af9f41cfd3e17bf1f71e","path":"fe/packages/nivo-offer/tsconfig.build.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"f2388b528bf9cddb2e94bd8a76066f56cfc4ce7ad712e76d8ac8f4c0156ceb43","path":"fe/packages/nivo-offer/tsconfig.json","step":"file-rules"}
-{"data":{},"findings":[],"hash":"be5751449a592a39806d0cc7ff9ee399109a711006b1ec164e2461f4446fdfa2","path":"fe/packages/shared/package.json","step":"file-rules"}
+{"data":{},"findings":[],"hash":"ab67d58c6bddd883a36abeaa4e295f9219430ae781571644c36a30dc030b1214","path":"fe/packages/shared/package.json","step":"file-rules"}
+{"findings":[{"column":0,"line":0,"message":"fe/packages/shared/package.json dependencies declares @nivo-lite/agent-sdk, absent from knowledge/hfs/fe-stack.yaml; add a canonical concern or declare sides.fe.extraPackages with its name and a nonempty reason in hfs.json","path":"fe/packages/shared/package.json","rule":"FE_STACK_UNLISTED"}],"hash":"f9aa0bd559a24c2bdb5c64da50165838f720c0e1cca22a41d7a1ea0e8a25fd09","path":"fe/packages/shared/package.json","step":"hfs"}
 {"data":{},"findings":[],"hash":"923c14d90c82a3f3bf99ba6983129df0f490a4f2fc9835b64b4a1bb45f745737","path":"fe/packages/shared/src/app-error-page-base.tsx","step":"file-rules"}
 {"data":{},"findings":[],"hash":"5207771adc11d5c623e356255ad33c83a37534b335ebc2f768c35ffffccea6ce","path":"fe/packages/shared/src/app-error-page.tsx","step":"file-rules"}
 {"data":{},"findings":[],"hash":"06df6e7ec411f33d165712ade4021d9fc8cdc96e1b6d4790fc9a415346a6f614","path":"fe/packages/shared/src/app-global-error-page-base.tsx","step":"file-rules"}

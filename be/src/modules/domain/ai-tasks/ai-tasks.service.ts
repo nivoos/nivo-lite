@@ -270,7 +270,7 @@ export class AiTasksService {
             (message) => ({ message, read: this.ai.readTurn(message, limits, elapsed()) }),
             (cause: unknown) => ({
                 message: undefined,
-                read: { ok: false as const, failure: this.ai.failureOfThrow(cause), spent: undefined },
+                read: this.ai.failedTryOf(cause),
             }),
         )
         if (tried.read.ok && tried.message !== undefined) {
@@ -299,12 +299,10 @@ export class AiTasksService {
             })
             return tried.message
         }
-        const failure = tried.read.ok ? "empty" : tried.read.failure
-        const spent = tried.read.ok ? undefined : tried.read.spent
+        const failed = tried.read.ok ? { failure: "empty" as const } : tried.read
+        const failure = failed.failure
         tries.failures.push(failure)
-        await this.bookFailed(
-            failedTryEntryOf(request, failure, tries.made, choice, { tokens: turns.lastPromptTokens }, spent),
-        )
+        await this.bookFailed(failedTryEntryOf(request, failed, tries.made, choice, { tokens: turns.lastPromptTokens }))
         this.logger.warn(AiTasksLogEvent.Retried, {
             workspaceId: request.workspaceId,
             module: request.module,
@@ -464,14 +462,7 @@ export class AiTasksService {
         if (tried.ok) return { answer: tried.answer, choice }
         tries.failures.push(tried.failure)
         await this.bookFailed(
-            failedTryEntryOf(
-                request,
-                tried.failure,
-                tries.made,
-                choice,
-                { chars: promptCharsOf(call.messages) },
-                tried.spent,
-            ),
+            failedTryEntryOf(request, tried, tries.made, choice, { chars: promptCharsOf(call.messages) }),
         )
         this.logger.warn(AiTasksLogEvent.Retried, {
             workspaceId: request.workspaceId,

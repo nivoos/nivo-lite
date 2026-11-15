@@ -10,6 +10,7 @@ import {
     ifNode,
     loop,
     memberContains,
+    memberEquals,
     node,
     or,
     outcome,
@@ -25,6 +26,7 @@ import {
 } from "@nivo-lite/agent-sdk/template"
 import { z } from "zod"
 import { MAX_BODY, MAX_ID } from "../../../shared/bounds"
+import { SALES_ORDER_ENTITY } from "../../../shared/entities/sales-entity-names"
 import { salesConsultTurnNode } from "../nodes/consult-turn.node"
 import { salesCreditNoticeNode } from "../nodes/credit-notice.node"
 import { salesCreditReadNode } from "../nodes/credit-read.node"
@@ -36,11 +38,14 @@ import { salesOrderTalkNode } from "../nodes/order-talk.node"
 import { salesOrderTellNode } from "../nodes/order-tell.node"
 import { salesPaymentRemindNode } from "../nodes/payment-remind.node"
 import { salesPaymentShortNode } from "../nodes/payment-short.node"
-import { salesRequestQrNode } from "../nodes/request-qr.node"
+import { salesRequestPayNode } from "../nodes/request-pay.node"
+import { salesRequestReadNode } from "../nodes/request-read.node"
+import { salesRequestCancelNode } from "../nodes/request-cancel.node"
 import { salesOrderCancelTellNode } from "../nodes/order-cancel-tell.node"
 import { salesCancelPaidNoticeNode } from "../nodes/cancel-paid-notice.node"
 import { salesOrderCancelNode } from "../nodes/order-cancel.node"
 import { salesOrderReadNode } from "../nodes/order-read.node"
+import { AWAITING_PAYMENT_STATUSES, ORDER_STATUSES } from "../rules/order-status"
 
 /**
  * The sale's contract: what the front desk hands on (owner's final rule 7: no `recentLines`): the person's route (the callee input keeps its
@@ -58,19 +63,50 @@ const input = z.object({
 
 const LOCALE = "vi"
 
-/** The customer message verbs the sale's waits listen for: the person writes on any of the front desk's channels. */
-const SAID = {
-    zalo: waitFor(TRIGGER.zaloMessageReceived),
-    telegram: waitFor(TRIGGER.telegramMessageReceived),
-    facebook: waitFor(TRIGGER.facebookMessageReceived),
-    instagram: waitFor(TRIGGER.instagramMessageReceived),
-} as const
+/**
+ * ONE meaning, "the person said something", whichever of the front desk's channels it came on: one key listing the four channel verbs
+ * (concept templates rule 12, v33; before, four keys of one verb each, all routed alike).
+ */
+const SAID = waitFor([TRIGGER.zaloMessageReceived, TRIGGER.telegramMessageReceived, TRIGGER.facebookMessageReceived, TRIGGER.instagramMessageReceived])
+
+/**
+ * ONE meaning, "the order's record was written" (v33): a write of THIS order (`blocks-core.sales.order` declares its writes as events keyed
+ * by the order itself), whoever wrote it but this run (the engine never offers a run its own write): a person cancelling or settling it on
+ * the workbench wakes the parked sale at once.
+ */
+const ORDERED = waitFor(TRIGGER.recordWritten, {
+    where: [{ param: "data.type", op: "equals", value: SALES_ORDER_ENTITY }],
+    match: [memberEquals("data.recordId", ref("steps.create-order.output.orderId"))],
+})
 
 /** The rounds of the talk loop: one per customer message (R9: a body that parks at a wait may run 30). */
 const TALK_ROUNDS = 30
 
 /** The rounds of the payment loop: reminders and order talks, then `unpaid` (R9). */
 const PAY_ROUNDS = 6
+
+/** The order as the payment round read it right after its wake: its record's status, never what the run saw when the order was made. */
+const ORDER_NOW_STATUS = ref("steps.order-now.output.status", { default: null })
+
+/**
+ * The order's record no longer waits for money: its status is one the sales rules do not count as awaiting payment (`confirmed` and `invoiced`
+ * are the only ones that do). A credit settles only an order that still waits; the list is the rules' own, never retyped here.
+ */
+const NO_LONGER_AWAITING = or(
+    ...ORDER_STATUSES.filter((status) => !AWAITING_PAYMENT_STATUSES.includes(status)).map((status) => equals(ORDER_NOW_STATUS, status)) as [
+        ReturnType<typeof equals>,
+        ...Array<ReturnType<typeof equals>>,
+    ],
+)
+
+/** The order's payment request as the round read it after its wake (`request-now`): `open`, `paid`, `cancelled`, `expired`, or null with none. */
+const REQUEST_NOW_STATUS = ref("steps.request-now.output.status", { default: null })
+
+/** The payment request can no longer be paid (the payer cancelled it at checkout, it lapsed): the order no longer waits for that money. */
+const REQUEST_ENDED = or(equals(REQUEST_NOW_STATUS, "cancelled"), equals(REQUEST_NOW_STATUS, "expired"))
+
+/** What woke the payment round, by the route the wait took: `credit`, `said`, `ordered`, or `timeout`. */
+const WOKE_BY = ref("steps.await.output.trigger")
 
 /** The consult's last word, read after the talk loop through its `last` (the consult that ended the final round). */
 const CONSULT = {
@@ -94,19 +130,21 @@ const DECLINED_ENDS = { then: "end", outcome: "declined" } as const
 const CATALOGUE: TemplateCatalogue = {
     name: { vi: "Bán hàng", en: "Sale" },
     summary: {
-        vi: "Một lượt chạy cho cả việc bán: tư vấn từng tin nhắn của khách, ghi đơn, gửi mã QR, chờ tiền về hoặc tin nhắn về đơn, nhắc khi quá hạn",
-        en: "One run for the whole sale: consults on each of the customer's messages, records the order, sends the QR, waits for the money or a message about the order, reminds when it is late",
+        vi: "Một lượt chạy cho cả việc bán: tư vấn từng tin nhắn của khách, ghi đơn, yêu cầu khách thanh toán, chờ tiền về hoặc tin nhắn về đơn, nhắc khi quá hạn",
+        en: "One run for the whole sale: consults on each of the customer's messages, records the order, asks the customer to pay, waits for the money or a message about the order, reminds when it is late",
     },
-    version: 30,
-    publishedAt: "2026-11-14T18:00:00.000Z",
+    version: 33,
+    publishedAt: "2026-11-15T09:00:00.000Z",
     notes: {
-        vi: "Quy trình chỉ còn các bước bán hàng: bước bị từ chối hoặc không tới được khách thì hệ thống tự báo đội (kèm mã đơn, tổng tiền) rồi đi tiếp hoặc kết thúc như trước; hết lượt nhắc mà đơn chưa trả thì hệ thống báo đội",
-        en: "The workflow keeps only the sale's steps: a step declined or not delivered to the customer is told to the team by the engine (with the order's code and total), then the run goes on or ends as before; an order still unpaid after every reminder is told to the team by the engine",
+        vi: "Bản 33: khi chờ tiền, việc ghi lại đơn (người của tiệm hủy hoặc chốt đơn ở bàn làm việc) đánh thức quy trình ngay: quy trình đọc lại đơn, đơn không còn chờ tiền thì kết thúc `đã đóng`, không nhắc, không cảm ơn; đơn vẫn chờ tiền thì chờ tiếp, không nhắc; tin nhắn của khách trên kênh nào cũng là một loại sự kiện. Bản 32: yêu cầu thanh toán qua tài khoản nhận tiền của tiệm (link thanh toán, mã QR hoặc thông tin chuyển khoản, tùy nhà cung cấp); khoản tiền về được nhận theo mã yêu cầu của nhà cung cấp (hoặc nội dung chuyển khoản khi nhà cung cấp không giữ yêu cầu); mỗi lần chờ tiền được đánh thức, quy trình đọc lại cả yêu cầu thanh toán: khách đã hủy ở trang thanh toán hoặc yêu cầu hết hạn thì kết thúc `đã đóng`; hủy đơn thì rút lại yêu cầu còn mở. Bản 31: quy trình chỉ còn các bước bán hàng: bước bị từ chối hoặc không tới được khách thì hệ thống tự báo đội (kèm mã đơn, tổng tiền) rồi đi tiếp hoặc kết thúc như trước; hết lượt nhắc mà đơn chưa trả thì hệ thống báo đội; mỗi lần chờ tiền được đánh thức, quy trình đọc lại đơn: khoản tiền về cho đơn đã hủy hoặc đã trả không được ghi, chỉ báo đội như khoản tiền lạ, rồi kết thúc `đã đóng`",
+        en: "Version 33: while waiting for the money, a write of the order (the shop cancelling or settling it on the workbench) wakes the run at once: it re-reads the order and, when the order no longer waits for money, ends `closed` with no reminder and no thank-you; an order still waiting waits on, with no reminder; the customer's message on any channel is one kind of event. Version 32: asks the customer to pay through the shop's money account (a pay link, a QR or the transfer details, as the provider gives); the money is recognised by the provider's request reference (or the transfer content when the provider keeps no request); every wake of the payment wait also reads the payment request: cancelled at checkout or expired ends the run `closed`; cancelling the order withdraws a request still open. Version 31: the workflow keeps only the sale's steps: a step declined or not delivered to the customer is told to the team by the engine (with the order's code and total), then the run goes on or ends as before; an order still unpaid after every reminder is told to the team by the engine; a bank credit or the timeout of the payment wait first reads the order as it stands now: a credit for an order that no longer waits for money (cancelled, already paid) is told to the team as a stranger credit and never recorded, the run then ends `closed`",
     },
 }
 
 /**
- * `sales.consult` version 30 (R68: pure business; every "was it declined / not delivered -> team notice" pair is gone: the step declares
+ * `sales.consult` version 33 (v32 + the order's own write wakes the payment wait, `ordered`; the four channel keys are ONE key `said`)
+ * (v32: v31 + the ONE payment request, owner ruling R111: see ORDER, PAYMENT LOOP and CANCEL) (v31: the payment wait
+ * re-reads the order on every wake) (R68: pure business; every "was it declined / not delivered -> team notice" pair is gone: the step declares
  * its `unsuccessful` ending and the ENGINE tells the team, then goes on or ends `declined`): THE SALE AS ONE RUN (owner's final rule 7;
  * coordinator rulings R8, R9, R13, R32, R33, R41, R45, R47, R68). The key stays `sales.consult` so the front desk's hand-off and the
  * agent's primary keep their name.
@@ -119,9 +157,12 @@ const CATALOGUE: TemplateCatalogue = {
  *   on its card: the engine tells the team and the run ends `declined`. Every later step reads the draft from the loop's `last`.
  * - The dates the customer mentioned are kept (`keep-occasions`, a side step: with none the node keeps nothing; declined: the engine tells
  *   the team and the sale goes on).
- * - ORDER: `create-order` -> `request-qr` -> `tell-order` (declined: the engine tells the team, the run ends `declined`).
- * - PAYMENT LOOP (`pay`, until the order is recorded paid, at most 6 rounds, then `unpaid`): `await` parks for the bank credit whose transfer
- *   content holds the order's code (`memberContains` on the event's `data.content`) and that is money IN (`data.direction` = `in`, R32),
+ * - ORDER: `create-order` -> `request-pay` (v32: the payment request of the account the pick order chose; the node holds no provider
+ *   branch; the order keeps the request's reference when the provider keeps one) -> `tell-order` (what the payer needs, as the provider
+ *   gave it; declined: the engine tells the team, the run ends `declined`).
+ * - PAYMENT LOOP (`pay`, until the order is recorded paid, at most 6 rounds, then `unpaid`): `await` parks for the bank credit whose `payKey`
+ *   holds the request's `payKey` (v32: the provider's request reference when it keeps a request, else the transfer content the payer
+ *   writes, as the provider's feed and its request declare it; never a text the graph chooses) and that is money IN (`data.direction` = `in`, R32),
  *   or a message of the person, 24 h at most. A credit: read it, the exact total records the order paid, another total tells the customer
  *   the difference and the team (`short-notice`, R32 money facts). A credit naming no waiting sale is the registered `sales.payment`
  *   graph's. A message: `order-talk` (the model decides by meaning whether it is about the order: `about` answers it; `off` hands the
@@ -129,8 +170,18 @@ const CATALOGUE: TemplateCatalogue = {
  *   `route_held`): the engine tells the team and the wait goes on. A person declining the paid record: the engine tells the team which
  *   order and the run ends `declined`. Paid: the after-sale is called, then `paid`. Out of rounds: the engine tells the team the order and
  *   its total, then `unpaid`. The talk loop running out ends `quiet` with no notice (a customer going quiet is normal).
+ * - THE ORDER AT EVERY WAKE (v31, U-04; v32 the request too): the wait wakes on a credit, a message or its timeout; a credit and the
+ *   timeout first read the order's record (`order-now`) and its payment request at the provider (`request-now`, nothing called when the
+ *   order keeps no request) and go on only while the order is `confirmed` or `invoiced` AND the request is not `cancelled` / `expired`
+ *   (PAYOS-9 the payer cancelled at checkout, PAYOS-10 it lapsed: no event tells NIVO, only this read). A credit settles only an order still waiting for money. Else the
+ *   credit is a STRANGER credit (the registered payment graph's road): `stranger-notice` tells the team, the order is not touched, no
+ *   thank-you; the timeout sends no reminder; the loop leaves and the run ends `closed` (`settled`). A message is the customer's words about
+ *   the order and goes to `order-talk` as before (it cannot go through the read: a hand-back may sit only on a message's own road).
+ *   v33: a write of the order by anyone but this run (a person cancelling or settling it on the workbench) wakes the wait at once under
+ *   `ordered` and takes the same read: an order that no longer waits ends `closed` (no reminder, no thank-you); one still waiting waits again.
  * - CANCEL: the order's status as its record keeps it; a paid order is not cancelled by the flow (`cancel-paid-notice` tells the team the
- *   order, the reason and the words); else `cancel-order` -> `tell-cancelled` (declined: the engine tells the team, `declined`).
+ *   order, the reason and the words); else `cancel-order` -> `cancel-request` (v32: the order's payment request is withdrawn while still
+ *   open; none kept: nothing called) -> `tell-cancelled` (declined: the engine tells the team, `declined`).
  * Every customer-facing step reads the conversation right before it speaks through the read tools (R16).
  */
 export const salesConsultGraph: TemplateGraph = defineTemplateGraph({
@@ -163,9 +214,9 @@ export const salesConsultGraph: TemplateGraph = defineTemplateGraph({
                     opening: ifNode({ label: { vi: "Vòng đầu?", en: "First round?" }, when: equals(round(), 1), yes: "consult", no: "hear" }),
                     hear: wait({
                         label: { vi: "Chờ khách nhắn", en: "Wait for the customer's message" },
-                        for: SAID,
+                        for: { said: SAID },
                         timeout: "1d",
-                        next: { zalo: "consult", telegram: "consult", facebook: "consult", instagram: "consult", timeout: endRound },
+                        next: { said: "consult", timeout: endRound },
                     }),
                     consult: node(salesConsultTurnNode, {
                         input: {
@@ -234,12 +285,16 @@ export const salesConsultGraph: TemplateGraph = defineTemplateGraph({
                 recipientPhone: draftRef("recipientPhone"),
                 deliveryAt: draftRef("deliveryAt"),
             },
-            next: "request-qr",
+            next: "request-pay",
             // Declined: no order exists, the customer is left without its code. The engine tells the team, the run ends `declined`.
             unsuccessful: DECLINED_ENDS,
         }),
-        "request-qr": node(salesRequestQrNode, {
-            input: { orderNo: ref("steps.create-order.output.orderNo"), amountVnd: ref("steps.create-order.output.amountVnd") },
+        "request-pay": node(salesRequestPayNode, {
+            input: {
+                orderId: ref("steps.create-order.output.orderId"),
+                orderNo: ref("steps.create-order.output.orderNo"),
+                amountVnd: ref("steps.create-order.output.amountVnd"),
+            },
             next: "tell-order",
         }),
         "tell-order": node(salesOrderTellNode, {
@@ -248,7 +303,7 @@ export const salesConsultGraph: TemplateGraph = defineTemplateGraph({
                 orderNo: ref("steps.create-order.output.orderNo"),
                 amountVnd: ref("steps.create-order.output.amountVnd"),
                 lines: ref("steps.create-order.output.lines"),
-                qr: ref("steps.request-qr.output"),
+                request: ref("steps.request-pay.output"),
                 locale: LOCALE,
             },
             next: "pay",
@@ -256,9 +311,11 @@ export const salesConsultGraph: TemplateGraph = defineTemplateGraph({
         }),
         pay: loop({
             label: { vi: "Thanh toán", en: "Payment" },
-            until: present(ref("steps.paid-order.output.orderNo", { default: null })),
+            // The order is recorded paid, or its record no longer waits for money (the owner cancelled it, a person settled it), or its payment
+            // request can no longer be paid: the run does not wait on, `settled` tells the two apart.
+            until: or(present(ref("steps.paid-order.output.orderNo", { default: null })), NO_LONGER_AWAITING, REQUEST_ENDED),
             exits: {
-                until: { vi: "Thoát khi đơn đã trả", en: "Leaves when the order is paid" },
+                until: { vi: "Thoát khi đơn đã trả hoặc không còn chờ tiền", en: "Leaves when the order is paid or no longer waits for money" },
                 exhausted: { vi: "Hết 6 vòng mà chưa trả", en: "6 rounds and still unpaid" },
             },
             max: PAY_ROUNDS,
@@ -266,25 +323,73 @@ export const salesConsultGraph: TemplateGraph = defineTemplateGraph({
                 start: "await",
                 nodes: {
                     await: wait({
-                        label: { vi: "Chờ tiền về hoặc tin khách", en: "Wait for the money or a message" },
+                        label: { vi: "Chờ tiền về, tin khách hoặc đơn đổi", en: "Wait for the money, a message or a change of the order" },
                         for: {
                             // Money IN only (R32): a feed carries both directions and only a registration is narrowed by the engine, so
                             // the wait states it as the old payment graph's registration had it; a debit naming the order is no payment.
                             credit: waitFor(TRIGGER.paymentCreditReceived, {
                                 where: [{ param: "data.direction", op: "equals", value: "in" }],
-                                match: [memberContains("data.content", ref("steps.create-order.output.orderNo"))],
+                                // The request's own key (R111): the provider's request reference, or the transfer content for a provider that
+                                // keeps no request; a request that names none (null) takes nothing.
+                                match: [memberContains("data.payKey", ref("steps.request-pay.output.payKey"))],
                             }),
-                            ...SAID,
+                            said: SAID,
+                            ordered: ORDERED,
                         },
                         timeout: "1d",
-                        next: {
-                            credit: "credit",
-                            zalo: "order-talk",
-                            telegram: "order-talk",
-                            facebook: "order-talk",
-                            instagram: "order-talk",
-                            timeout: "remind",
+                        // A credit, a write of the order and the timeout first read the order's record as it stands NOW; a message is the
+                        // customer's words about it (`order-talk` decides by meaning, and hands the event back when it is not about the order).
+                        next: { credit: "order-now", said: "order-talk", ordered: "order-now", timeout: "order-now" },
+                    }),
+                    "order-now": node(salesOrderReadNode, {
+                        input: { orderId: ref("steps.create-order.output.orderId") },
+                        next: "request-now",
+                    }),
+                    // The order's payment request as it stands at the provider NOW (some of its states change with no event).
+                    "request-now": node(salesRequestReadNode, {
+                        input: { requestRef: ref("steps.order-now.output.paymentRequestRef", { default: null }) },
+                        next: "awaiting",
+                    }),
+                    awaiting: ifNode({
+                        label: { vi: "Đơn còn chờ tiền?", en: "Order still waiting for money?" },
+                        when: or(NO_LONGER_AWAITING, REQUEST_ENDED),
+                        yes: "closed-credit",
+                        no: "credit-woke",
+                    }),
+                    "credit-woke": ifNode({
+                        label: { vi: "Tiền về?", en: "A credit?" },
+                        when: equals(WOKE_BY, "credit"),
+                        yes: "credit",
+                        no: "late-woke",
+                    }),
+                    // v33: only the timeout reminds; a write of an order that still waits for money (`ordered`) just waits again.
+                    "late-woke": ifNode({
+                        label: { vi: "Hết giờ chờ?", en: "The wait timed out?" },
+                        when: equals(WOKE_BY, "timeout"),
+                        yes: "remind",
+                        no: endRound,
+                    }),
+                    // The order no longer waits for money. A credit that names it is never recorded: it is a stranger credit, the team is told
+                    // (the same notice as any credit the sale cannot settle); the timeout and a write of the order send nothing. Then the loop
+                    // leaves and the run ends `closed`.
+                    "closed-credit": ifNode({
+                        label: { vi: "Tiền về?", en: "A credit?" },
+                        when: equals(WOKE_BY, "credit"),
+                        yes: "stranger-read",
+                        no: endRound,
+                    }),
+                    "stranger-read": node(salesCreditReadNode, {
+                        input: { transactionId: ref("steps.await.output.event.data.transactionId") },
+                        next: "stranger-notice",
+                    }),
+                    "stranger-notice": node(salesCreditNoticeNode, {
+                        input: {
+                            transactionId: ref("steps.stranger-read.output.transactionId"),
+                            amountVnd: ref("steps.stranger-read.output.amountVnd"),
+                            content: ref("steps.stranger-read.output.content"),
+                            locale: LOCALE,
                         },
+                        next: endRound,
                     }),
                     credit: node(salesCreditReadNode, {
                         input: { transactionId: ref("steps.await.output.event.data.transactionId") },
@@ -349,10 +454,22 @@ export const salesConsultGraph: TemplateGraph = defineTemplateGraph({
                     }),
                 },
             },
-            next: "to-after-sale",
+            next: "settled",
             // Out of rounds: the engine tells the team the order and its total (R45), the run ends `unpaid`.
             exhausted: "unpaid",
             unsuccessful: { facts: [ORDER, TOTAL] },
+        }),
+        // The loop left: either the order was recorded paid (its last round ended on `paid-order`) or its record stopped waiting for money.
+        settled: ifNode({
+            label: { vi: "Đã ghi đơn trả?", en: "Recorded paid?" },
+            when: present(ref("steps.pay.output.last.orderNo", { default: null })),
+            yes: "to-after-sale",
+            no: "closed",
+        }),
+        closed: outcome({
+            name: "closed",
+            label: { vi: "Đơn đã đóng", en: "Order closed" },
+            output: { contactId: ref("trigger.data.contactId", { default: null }), orderId: ref("steps.create-order.output.orderId"), orderNo: ref("steps.create-order.output.orderNo") },
         }),
         "to-after-sale": callWorkflow({
             agent: "sales",
@@ -395,8 +512,14 @@ export const salesConsultGraph: TemplateGraph = defineTemplateGraph({
         }),
         "cancel-order": node(salesOrderCancelNode, {
             input: { orderId: ref("steps.cancel-read.output.orderId"), reason: draftRef("cancelReason") },
-            next: "tell-cancelled",
+            next: "cancel-request",
             unsuccessful: { ...DECLINED_ENDS, facts: [{ label: ORDER_LABEL, value: ref("steps.cancel-read.output.orderNo") }] },
+        }),
+        // The cancelled order's payment request is withdrawn while it can still be paid (none kept: nothing is called). A refused withdrawal
+        // is a failed act: the engine stops the run for a person.
+        "cancel-request": node(salesRequestCancelNode, {
+            input: { requestRef: ref("steps.cancel-read.output.paymentRequestRef", { default: null }), reason: draftRef("cancelReason") },
+            next: "tell-cancelled",
         }),
         "tell-cancelled": node(salesOrderCancelTellNode, {
             input: {

@@ -1,7 +1,7 @@
 import { OBJECT_STORAGE, type ObjectStorage } from "@starci/object-storage"
 import { injector, type TypedParameterDecorator } from "@modules/platform/composition"
 import type { ObjectStorageOptions } from "./object-storage.options"
-import type { StorageAssetsPort, StorageFilesPort, StorageObjectsPort } from "./object-storage.port"
+import type { StorageAssetsPort, StorageBucketsPort, StorageFilesPort, StorageObjectsPort } from "./object-storage.port"
 
 export { OBJECT_STORAGE }
 
@@ -14,6 +14,9 @@ export const STORAGE_ASSETS: unique symbol = Symbol("integrations.object-storage
 
 /** Token of the one file store of the records (`StorageFilesPort`). */
 export const STORAGE_FILES: unique symbol = Symbol("integrations.object-storage.files")
+
+/** Token of the owned buckets as whole sets of objects (`StorageBucketsPort`). */
+export const STORAGE_BUCKETS_PORT: unique symbol = Symbol("integrations.object-storage.buckets")
 
 /** Injects the options of the storage integration. Parameter type: ObjectStorageOptions. */
 export const InjectStorageOptions = (): TypedParameterDecorator<ObjectStorageOptions> =>
@@ -32,3 +35,7 @@ export const InjectStorageFiles = (): TypedParameterDecorator<StorageFilesPort> 
 /** Injects the file store. Parameter type: StorageAssetsPort. */
 export const InjectStorageAssets = (): TypedParameterDecorator<StorageAssetsPort> =>
     injector<StorageAssetsPort>(STORAGE_ASSETS)
+
+/** Injects the owned buckets. Parameter type: StorageBucketsPort. */
+export const InjectStorageBuckets = (): TypedParameterDecorator<StorageBucketsPort> =>
+    injector<StorageBucketsPort>(STORAGE_BUCKETS_PORT)

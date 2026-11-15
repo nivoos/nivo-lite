@@ -2,7 +2,7 @@ import { z } from "zod"
 import { graphSpecV2Schema, graphSpecV2WrittenSchema } from "../../graph/graph-spec-v2.schema"
 import type { GraphSpecV2, GraphV2Step } from "../../graph/graph-spec-v2.types"
 import { PROVIDER, TRIGGER } from "../../names"
-import { endRound, equals, handBack, ifNode, loop, memberContains, node, outcome, ref, round, trigger, wait, waitFor } from "./graph-builder"
+import { endRound, equals, handBack, ifNode, loop, memberContains, memberEquals, node, outcome, ref, round, trigger, wait, waitFor } from "./graph-builder"
 import type { GraphStep, TemplateGraphConfig } from "./graph-builder.types"
 import { compileTemplateGraph, waitTimeoutOf } from "./graph-compile"
 import { templateGraphProblems } from "./graph-problems"
@@ -75,12 +75,12 @@ describe("wait: the builder and the stored form", () => {
                 on: [
                     {
                         key: "replied",
-                        verb: TRIGGER.zaloMessageReceived,
+                        verbs: [TRIGGER.zaloMessageReceived],
                         match: [
                             { member: "text", op: "contains", value: { $ref: "trigger.code", default: null } },
                         ],
                     },
-                    { key: "ticked", verb: TRIGGER.clockTick },
+                    { key: "ticked", verbs: [TRIGGER.clockTick] },
                 ],
                 timeout: { hours: 2 },
             },
@@ -108,28 +108,116 @@ describe("wait: the builder and the stored form", () => {
     })
 })
 
+// Concept templates rule 12 (S7-WAIT): a KEY is ONE meaning with one route; it lists the verbs that bring that meaning. A person's line on
+// any channel is one meaning (the case); the second kind is a record-keyed meaning (a record write of a type, no person) beside a clock.
+describe("wait: a key is one meaning listing its verbs", () => {
+    // The compile already runs the save checks, and `problemsOf` runs them again: each problem is counted once.
+    const waitCodes = (config: TemplateGraphConfig): ReadonlyArray<string> => [...new Set(problemsOf(config).filter((code) => code.startsWith("WAIT_")))]
+    const said = waitFor([TRIGGER.zaloMessageReceived, TRIGGER.telegramMessageReceived, TRIGGER.facebookMessageReceived, TRIGGER.instagramMessageReceived])
+    const chat = wait({ for: { said, ticked: waitFor(TRIGGER.clockTick) }, timeout: "1d", next: { said: "read", ticked: "tick", timeout: "late" } })
+
+    it("one key, four channel verbs, one route: stored as the key's verb list in written order", () => {
+        const step = waitStepOf(compileTemplateGraph(waitConfig(chat)).graph.spec)
+        expect(step).toMatchObject({
+            params: {
+                on: [
+                    {
+                        key: "said",
+                        verbs: [TRIGGER.zaloMessageReceived, TRIGGER.telegramMessageReceived, TRIGGER.facebookMessageReceived, TRIGGER.instagramMessageReceived],
+                    },
+                    { key: "ticked", verbs: [TRIGGER.clockTick] },
+                ],
+            },
+            routes: { said: "read", ticked: "tick", timeout: "late" },
+        })
+        const spec = compileTemplateGraph(waitConfig(chat)).graph.spec
+        expect(graphSpecV2Schema.parse(spec)).toEqual(spec)
+        // The step on the key's route reads the key's event: the union of its verbs' events (the Zalo line supplies `text`).
+        expect(problemsOf(waitConfig(chat))).toEqual([])
+    })
+
+    it("the second kind: a record write of a type (matched on the record's id), a person's line and the clock: three meanings, three keys", () => {
+        const record = wait({
+            for: {
+                ordered: waitFor(TRIGGER.recordWritten, {
+                    where: [{ param: "data.type", op: "equals", value: "fixture.renewal-request" }],
+                    match: [memberEquals("data.recordId", ref("trigger.code"))],
+                }),
+                said: waitFor([TRIGGER.zaloMessageReceived, TRIGGER.telegramMessageReceived]),
+                ticked: waitFor(TRIGGER.clockTick),
+            },
+            timeout: "1d",
+            next: { ordered: "tick", said: "read", ticked: "tick", timeout: "late" },
+        })
+        const step = waitStepOf(compileTemplateGraph(waitConfig(record)).graph.spec)
+        expect(step).toMatchObject({
+            params: {
+                on: [
+                    {
+                        key: "ordered",
+                        verbs: [TRIGGER.recordWritten],
+                        where: [{ param: "data.type", op: "equals", value: "fixture.renewal-request" }],
+                        match: [{ member: "data.recordId", op: "eq", value: { $ref: "trigger.code", default: null } }],
+                    },
+                    { key: "said", verbs: [TRIGGER.zaloMessageReceived, TRIGGER.telegramMessageReceived] },
+                    { key: "ticked", verbs: [TRIGGER.clockTick] },
+                ],
+            },
+        })
+        expect(waitCodes(waitConfig(record))).toEqual([])
+    })
+
+    it("a verb listed under two keys (or twice under one) is refused: an event of it would have two meanings", () => {
+        const twice = wait({
+            for: { said, again: waitFor([TRIGGER.clockTick, TRIGGER.telegramMessageReceived]) },
+            timeout: "1h",
+            next: { said: "read", again: "tick", timeout: "late" },
+        })
+        expect(waitCodes(waitConfig(twice))).toEqual([
+            `WAIT_VERB_DUPLICATE@nodes.hold.params.on.again.${TRIGGER.telegramMessageReceived}`,
+        ])
+        const inOne = wait({ for: { ticked: waitFor([TRIGGER.clockTick, TRIGGER.clockTick]) }, timeout: "1h", next: { ticked: "tick", timeout: "late" } })
+        expect(waitCodes(waitConfig(inOne))).toEqual([`WAIT_VERB_DUPLICATE@nodes.hold.params.on.ticked.${TRIGGER.clockTick}`])
+    })
+
+    it("a key that lists no verb is refused (a raw document; the builder takes a non-empty list)", () => {
+        const spec = compileTemplateGraph(waitConfig(twoWay)).graph.spec
+        const nodes = spec.nodes.map((step): GraphV2Step =>
+            step.kind === "wait" ? { ...step, params: { ...step.params, on: [step.params.on[0], { key: "ticked", verbs: [] }] } } : step,
+        )
+        expect(codesOf(templateGraphProblems({ ...spec, nodes }, context)).filter((code) => code.startsWith("WAIT_"))).toEqual([
+            "WAIT_VERBS_EMPTY@nodes.hold.params.on.ticked",
+        ])
+    })
+
+    it("the bound of 5 counts KEYS (meanings), never verbs: one key of four channels and four more keys save; a sixth key does not", () => {
+        const five = wait({
+            for: {
+                said,
+                ticked: waitFor(TRIGGER.clockTick),
+                paid: waitFor(TRIGGER.paymentCreditReceived),
+                mailed: waitFor(TRIGGER.mailMessageReceived),
+                ordered: waitFor(TRIGGER.recordWritten),
+            },
+            timeout: "1h",
+            next: { said: "read", ticked: "tick", paid: "tick", mailed: "tick", ordered: "tick", timeout: "late" },
+        })
+        expect(waitCodes(waitConfig(five))).toEqual([])
+        const six = wait({
+            for: { ...five.on, called: waitFor(TRIGGER.workflowCalled) },
+            timeout: "1h",
+            next: { ...five.next, called: "tick" },
+        })
+        expect(waitCodes(waitConfig(six))).toEqual(["WAIT_TRIGGERS_TOO_MANY@nodes.hold.params.on"])
+    })
+})
+
 describe("wait: the save problems", () => {
     it.each<readonly [string, GraphStep, ReadonlyArray<string>]>([
         [
             "no trigger",
             wait({ for: {}, timeout: "1h", next: { timeout: "late" } }),
             ["WAIT_TRIGGERS_EMPTY@nodes.hold.params.on"],
-        ],
-        [
-            "more than five triggers",
-            wait({
-                for: {
-                    a: waitFor(TRIGGER.clockTick),
-                    b: waitFor(TRIGGER.clockTick),
-                    c: waitFor(TRIGGER.clockTick),
-                    d: waitFor(TRIGGER.clockTick),
-                    e: waitFor(TRIGGER.clockTick),
-                    f: waitFor(TRIGGER.clockTick),
-                },
-                timeout: "1h",
-                next: { a: "tick", b: "tick", c: "tick", d: "tick", e: "tick", f: "tick", timeout: "late" },
-            }),
-            ["WAIT_TRIGGERS_TOO_MANY@nodes.hold.params.on"],
         ],
         [
             "a key named timeout",
@@ -144,7 +232,7 @@ describe("wait: the save problems", () => {
         [
             "a verb the agent's accounts cannot serve",
             wait({ for: { paid: waitFor(TRIGGER.paymentCreditReceived) }, timeout: "1h", next: { paid: "tick", timeout: "late" } }),
-            ["WAIT_TRIGGER_UNSERVED@nodes.hold.params.on.paid"],
+            [`WAIT_TRIGGER_UNSERVED@nodes.hold.params.on.paid.${TRIGGER.paymentCreditReceived}`],
         ],
     ])("%s", (_name, step, codes) => {
         const config = { ...waitConfig(step), nodes: { ...waitConfig(step).nodes, read: node(remindNote, { input: { orderId: "o" }, next: "done" }) } }
@@ -161,7 +249,7 @@ describe("wait: the save problems", () => {
             step.kind === "wait"
                 ? {
                       ...step,
-                      params: { ...step.params, on: [step.params.on[0], { key: "replied", verb: TRIGGER.clockTick }] },
+                      params: { ...step.params, on: [step.params.on[0], { key: "replied", verbs: [TRIGGER.clockTick] }] },
                       routes: { replied: "read", stray: "tick" },
                   }
                 : step,

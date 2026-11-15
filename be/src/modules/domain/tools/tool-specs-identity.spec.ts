@@ -68,17 +68,14 @@ const NEW_PURPOSES: ReadonlySet<string> = new Set([
     TOOL.tiktokVideoPublish,
     TOOL.tiktokVideoStatusGet,
     TOOL.tiktokCreatorInfoGet,
-    // The bank-transfer instruction (registered with the payment tools, 2026-11-13; a read of the `sepay` catalogue, `transfer.instruction`):
-    // no "before" either; the registry's `account: "any"` is its only rule.
-    TOOL.paymentTransferCreate,
     // One bank move of ONE bound bank account (`nivo.tool.payment.credit.get`, 2026-11-13; a read on `transactions.read` of sepay, casso and
     // payos): no "before" either; the registry's `account: "any"` is its only rule.
     TOOL.paymentCreditGet,
-    // The payment-link purpose (2026-11-13; its own purpose beside the transfer instruction, served by payos): no "before" either; the
-    // registry's `account: "any"` is its only rule.
-    TOOL.paymentLinkCreate,
-    TOOL.paymentLinkGet,
-    TOOL.paymentLinkCancel,
+    // The payment-request purpose (R111; ONE family served by sepay and payos): no "before" either; the registry's `account: "any"` is its
+    // only rule.
+    TOOL.paymentRequestCreate,
+    TOOL.paymentRequestGet,
+    TOOL.paymentRequestCancel,
 ])
 
 describe("the runner and the bound accounts read the tool specs, with the same answers as before", () => {
@@ -133,14 +130,12 @@ describe("the runner and the bound accounts read the tool specs, with the same a
                 TOOL.tiktokVideoPublish,
                 TOOL.tiktokVideoStatusGet,
                 TOOL.tiktokCreatorInfoGet,
-                // The transfer instruction reads ONE bound SePay account (`any`): the QR is composed from that account's public fields.
-                TOOL.paymentTransferCreate,
                 // One bank move reads ONE bound bank account (`any`): the row must be that account's.
                 TOOL.paymentCreditGet,
-                // The payment link is made, read and cancelled on ONE bound payOS account (`any`).
-                TOOL.paymentLinkCreate,
-                TOOL.paymentLinkGet,
-                TOOL.paymentLinkCancel,
+                // The payment request is made, read and cancelled on ONE bound account of sepay or payos (`any`).
+                TOOL.paymentRequestCreate,
+                TOOL.paymentRequestGet,
+                TOOL.paymentRequestCancel,
             ].sort(),
         )
     })

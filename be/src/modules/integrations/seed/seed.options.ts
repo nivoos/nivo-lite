@@ -8,6 +8,12 @@ export interface DataSeedOptions {
     readonly identity: Secret | undefined
     /** Extra environment for git (author name and email). */
     readonly gitEnv: Readonly<Record<string, string>>
+    /**
+     * The connection URL of the database OWNER role of this environment (`DATABASE_OWNER_URL`, mounted as `DATABASE_OWNER_URL_FILE`): the whole-database
+     * store reads every table without row-level filtering and writes with `session_replication_role`, which the app's own role never has. Absent
+     * means the store `database-all` does not exist. Never logged.
+     */
+    readonly backupDatabase: Secret | undefined
 }
 
 /** One key the git author is read from and what the environment declared for it. */
@@ -26,4 +32,6 @@ export interface SeedValues {
     readonly identity: string | undefined
     /** The git author keys. */
     readonly git: ReadonlyArray<SeedGitValue>
+    /** `DATABASE_OWNER_URL` (a mounted `DATABASE_OWNER_URL_FILE` is read into it). */
+    readonly backupDatabase: string | undefined
 }

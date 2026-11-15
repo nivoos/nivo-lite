@@ -191,7 +191,7 @@ describe("StopLearningService settled: what is kept", () => {
     it("the engine's own text (a tool id) is no person's answer and is not kept", async () => {
         const world = await worldOf([])
 
-        await expect(answered(world, ["refused by nivo.tool.payment.transfer.create"])).resolves.toEqual([
+        await expect(answered(world, ["refused by nivo.tool.payment.request.create"])).resolves.toEqual([
             { kept: 0, posted: 0 },
         ])
         expect(world.store.rows).toEqual([])

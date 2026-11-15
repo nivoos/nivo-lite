@@ -36,6 +36,7 @@ import { DeliverGenericWebhookQueueModule } from "@features/jobs/deliver-generic
 import { DeliverTeamChatTagQueueModule } from "@features/jobs/deliver-team-chat-tag"
 import { RouteTeamChatMessageQueueModule } from "@features/jobs/route-team-chat-message"
 import { DeliverWebsiteFormQueueModule } from "@features/jobs/deliver-website-form"
+import { DeliverRecordEventQueueModule } from "@features/jobs/deliver-record-event"
 import { DeliverWorkflowStartQueueModule } from "@features/jobs/deliver-workflow-start"
 import { DeliverVideoRenderQueueModule } from "@features/jobs/deliver-video-render"
 import { FireThreadDeadlineQueueModule } from "@features/jobs/fire-thread-deadline"
@@ -89,6 +90,9 @@ export const API_JOB_QUEUES: Array<DynamicModule> = [
     RouteTeamChatMessageQueueModule.register({}),
     // A stored website submission is queued by the form door in the transaction that stores it; only the api delivers it through the one event pipeline.
     DeliverWebsiteFormQueueModule.register({}),
+    // A record write of a type that declares `events` is queued by the write door in the write's own transaction (any app that writes
+    // records); only the api delivers it through the one event pipeline (concept agent-data rule 2).
+    DeliverRecordEventQueueModule.register({}),
     // A person's start of a workflow (through the api or the mcp gateway) is queued; only the api delivers it (R24).
     DeliverWorkflowStartQueueModule.register({}),
     // A finished render the render door kept is queued; only the api delivers it through the one event pipeline.

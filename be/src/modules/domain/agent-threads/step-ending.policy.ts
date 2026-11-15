@@ -6,9 +6,11 @@ import type { StepMiss } from "@modules/domain/graph-nodes"
 
 /*
  * R68 (owner 2026-11-14, "cook luôn"): graphs hold pure business; an UNSUCCESSFUL step is reported to the team by the ENGINE. A step that
- * declares `unsuccessful` and ends in a TYPED non-success (a customer send refused other than `route_held`, an approval declined, the
- * node's `cannot`), or an `until` loop that declares it and runs out of rounds, gets ONE team notice (the engine's own `report.facts`
- * card) and the run follows the step's one policy word. A failure (a throw, a confused AI, an outcome-unknown call, an engine stop) is NOT
+ * declares `unsuccessful` and ends in a TYPED BUSINESS non-success (an approval declined, a refusal its tool declares FINAL for the
+ * subject, the node's `cannot`), or an `until` loop that
+ * declares it and runs out of rounds, gets ONE team notice (the engine's own `report.facts`
+ * card) and the run follows the step's one policy word. A failure (a throw, a confused AI, an outcome-unknown call, a write outside that the
+ * outside refused (E-FIX12 rule A-1: whatever the step declares), an engine stop) is NOT
  * this: it keeps the stop card and the stop that holds its subject. Pure: the words come from the catalogue, the values from the step's own refs.
  */
 
@@ -69,8 +71,8 @@ export const endingNoticeKeyOf = (runId: string, stepKey: string, attempt: numbe
 /** The catalogue key of the notice's sentence for a reason. */
 export const endingSentenceKeyOf = (reason: StepEndingReason): string => {
     switch (reason.kind) {
-        case "send_refused":
-            return "agentGraphs.stepEnding.sendRefused"
+        case "refused":
+            return "agentGraphs.stepEnding.refused"
         case "declined":
             return "agentGraphs.stepEnding.declined"
         case "cannot":
@@ -83,8 +85,8 @@ export const endingSentenceKeyOf = (reason: StepEndingReason): string => {
 /** The typed reason as the notice's technical fact: the refusal code, `declined` with the tool, the node's code and words, the rounds. */
 export const reasonValueOf = (reason: StepEndingReason): string => {
     switch (reason.kind) {
-        case "send_refused":
-            return reason.refusal
+        case "refused":
+            return `${reason.refusal} (${reason.tool})`
         case "declined":
             return `declined (${reason.tool})`
         case "cannot":

@@ -24,14 +24,14 @@ export class AgentRunsService {
         return this.store.inFlightOf(workspaceId, workflowId, subject)
     }
 
-    /** Ends, in `tx`, every thread run of any agent parked on one of these subjects, with the typed reason `code`; the runs it ended. */
-    endParkedOfSubjects(
+    /** Ends, in `tx`, every thread run of any agent in flight on one of these subjects, whatever its state, with the typed reason `code`; the runs it ended. */
+    endInFlightOfSubjects(
         tx: EntityManager,
         workspaceId: string,
         subjects: ReadonlyArray<RunSubject>,
         code: string,
     ): Promise<ReadonlyArray<RunView>> {
-        return this.store.endParkedOfSubjects(tx, workspaceId, subjects, code)
+        return this.store.endInFlightOfSubjects(tx, workspaceId, subjects, code)
     }
 
     /** The agent's runs parked (waiting) for one subject, oldest first: where the waits of that subject are looked for first. */
@@ -44,9 +44,9 @@ export class AgentRunsService {
         return this.store.parkedOfSubject(workspaceId, agentId, subject)
     }
 
-    /** The workspace's thread runs parked at a `wait`, newest start first, at most `limit` (the dev Sandbox page's list, R66). */
-    parkedAtWait(workspaceId: string, limit: number): Promise<ReadonlyArray<RunView>> {
-        return this.store.parkedAtWait(workspaceId, limit)
+    /** The workspace's thread runs in flight, newest start first, at most `limit` (the dev time levers' list reads their parked deadlines). */
+    inFlightThreads(workspaceId: string, limit: number): Promise<ReadonlyArray<RunView>> {
+        return this.store.inFlightThreads(workspaceId, limit)
     }
 
     /** Marks the wait a run parks on with the keys an event finds it by; an empty list clears the mark (the wait has what came). */

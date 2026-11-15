@@ -68,8 +68,9 @@ describe("rights per connected account on a thread", () => {
         const runId = (await customerWrites(process, "Shop mo cua may gio?")).runId ?? ""
 
         expect(db.lines).toEqual([])
-        // What the call came to rides in the next turn's appended part (`turns`), never in the input, which stays the same every turn.
-        expect(JSON.stringify(db.model.askedOf(ANSWER).at(1)?.request.turns)).toContain("channel_no_access")
+        // E-FIX12 rule A-1: a refused write outside is a failed act: the step stops at it, its model is asked no further turn (SO-4).
+        expect(db.model.askedOf(ANSWER)).toHaveLength(1)
+        expect(refusalOf(await stopsOf(process, runId))).toBe("channel_no_access")
         expect((await process.threads.stateOf(refOf(runId)))?.status).toBe("stopped")
         expect((await stopsOf(process, runId)).map((stop) => [stop.stepKey, stop.kind, stop.state])).toEqual([
             ["answer", "ai_report", "open"],
@@ -78,15 +79,14 @@ describe("rights per connected account on a thread", () => {
     })
 })
 
-/** The messages an agent turn of the world's model was sent, as kind and text. */
-const isMessages = (input: unknown): input is { readonly messages: ReadonlyArray<readonly [string, string]> } =>
-    typeof input === "object" && input !== null && Array.isArray(Reflect.get(input, "messages"))
+/** The refusal the open stop of a run names (E-FIX12 rule A-1: `outsideRefusal`). */
+const refusalOf = (stops: Awaited<ReturnType<typeof stopsOf>>): string | undefined =>
+    stops[0]?.detail.facts.find((fact) => fact.name === "outsideRefusal")?.value
 
-// L2-5 (package P8): the same refusal on the host's own agent loop (`AGENT_LOOP=prebuilt:chatbot.answer`). The door's refusal is no
-// throw: it reaches the model as the content of the tool message of its call (`{ ok: false, refused: { code, data } }`), the model's
-// next turn is sent it, and the step that cannot do what it requires stops for the founder.
+// L2-5 (package P8), changed by E-FIX12 rule A-1: the same refusal on the host's own agent loop (`AGENT_LOOP=prebuilt:chatbot.answer`): a
+// refused write outside is a failed act, so the loop asks the model no next turn (SO-4) and the step stops for the founder.
 describe("rights per connected account on the prebuilt agent loop", () => {
-    it("a refused send reaches the model as a readable tool result on its next turn; nothing delivered; the step stops", async () => {
+    it("a refused send stops the step at once (E-FIX12 A-1): the model is asked no next turn, nothing delivered, the stop names the refusal", async () => {
         const db = threadDbOf()
         db.rights.accounts.push({ id: "zalo-2", provider: "zalo_oa" })
         // The default customer is met first (the world's first contact), then the other person.
@@ -104,11 +104,8 @@ describe("rights per connected account on the prebuilt agent loop", () => {
         const runId = (await customerWrites(process, "Shop mo cua may gio?")).runId ?? ""
 
         expect(db.lines).toEqual([])
-        const second = db.model.askedOf(ANSWER).at(1)?.request.input
-        const [kind, content] = (isMessages(second) ? second.messages.at(-1) : undefined) ?? ["", ""]
-        expect(kind).toBe("tool")
-        expect(content).toContain('"ok":false')
-        expect(content).toContain("channel_no_access")
+        expect(db.model.askedOf(ANSWER)).toHaveLength(1)
+        expect(refusalOf(await stopsOf(process, runId))).toBe("channel_no_access")
         expect((await stopsOf(process, runId)).map((stop) => [stop.stepKey, stop.kind, stop.state])).toEqual([
             ["answer", "ai_report", "open"],
         ])

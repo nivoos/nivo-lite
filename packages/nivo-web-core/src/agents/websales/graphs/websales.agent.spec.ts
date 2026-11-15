@@ -97,11 +97,12 @@ describe("the Sales agent template", () => {
         },
     )
 
-    it("attaches the CRM, the messaging accounts and the sending mailbox; the round is primary", () => {
+    it("attaches the CRM, the money account, the messaging accounts and the sending mailbox; the round is primary", () => {
         expect(websalesAgent.key).toBe("websales")
         expect(websalesAgent.accounts).toEqual(WEBSALES_PROVIDERS)
         expect(WEBSALES_PROVIDERS).toEqual([
             CRM_NIVOWEB_PROVIDER,
+            PROVIDER.sepay,
             PROVIDER.zaloOa,
             PROVIDER.telegram,
             PROVIDER.meta,
@@ -138,7 +139,8 @@ describe("the Sales agent template", () => {
                 "websales.link": 8,
                 "websales.round": 8,
                 // 2026-11-14 (R53, the conversation as one run): the enquiry is a talk loop, version 8.
-                "websales.enquiry": 9,
+                // 2026-11-15 (S7-WAIT, templates rule 12): the wait keeps each key with its verbs: enquiry 10.
+                "websales.enquiry": 10,
                 "websales.mail-enquiries": 9,
                 "websales.won": 10,
             }

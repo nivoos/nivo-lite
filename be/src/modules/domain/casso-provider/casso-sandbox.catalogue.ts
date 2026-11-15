@@ -130,6 +130,82 @@ const caseOf = (plan: (input: { readonly content: string; readonly amount: numbe
 })
 
 /**
+ * A delivery Casso reports as an ERROR (`error` other than 0): the door acknowledges and ignores it (`isCassoError`, casso.policy.ts: the
+ * body is read for `error` alone), so nothing is kept. CASSO-8.
+ */
+const errorNoticeCase: SandboxInboundCase = {
+    trigger: "transaction.received",
+    path: cassoRoute,
+    inputs: [],
+    eventsOf: (): Promise<ReadonlyArray<SandboxWebhookEvent>> => Promise.resolve([{ body: { error: 1 } }]),
+}
+
+/**
+ * A body that is no JSON object (an array): the door refuses it before anything is kept, with its typed refusal BILLING_WEBHOOK_INVALID
+ * (`parseJsonObject`, billing/webhook-body.policy.ts: "anything that is not a JSON object is an invalid delivery"). CASSO-9.
+ */
+const malformedCase: SandboxInboundCase = {
+    trigger: "transaction.received",
+    path: cassoRoute,
+    inputs: [],
+    eventsOf: (): Promise<ReadonlyArray<SandboxWebhookEvent>> => Promise.resolve([{ body: [] }]),
+}
+
+/**
+ * Money with NO transaction id and no reference: `cassoCredits` keeps only a row with an id (`id ?? tid ?? reference`), so the door
+ * acknowledges the delivery and keeps nothing (unlike SePay, whose door refuses a money delivery with no id: SEPAY-12). CASSO-10.
+ */
+const noIdCase: SandboxInboundCase = {
+    trigger: "transaction.received",
+    path: cassoRoute,
+    inputs: INPUTS,
+    eventsOf: (input: SandboxInput, context: SandboxInboundContext): Promise<ReadonlyArray<SandboxWebhookEvent>> => {
+        const { content, amount } = readInput(input)
+        return Promise.resolve([
+            {
+                body: {
+                    error: 0,
+                    data: { description: content, amount, transactionDateTime: cassoTimeOf(context.at), accountNumber: CASSO_SANDBOX_ACCOUNT.accountNumber },
+                },
+            },
+        ])
+    },
+}
+
+/**
+ * Webhook V1: `data` is an ARRAY of rows (`cassoCredits`: `Array.isArray(body.data)`), each read with V1's members `id`, `tid` (the bank's
+ * reference), `description`, `amount`, `bankName`, `bank_sub_acc_id` (the account number) and `when` (casso.policy.ts `CassoTransaction`). One row,
+ * the exact amount. CASSO-11. Not kept in state: V1 has no poll.
+ */
+const v1Case: SandboxInboundCase = {
+    trigger: "transaction.received",
+    path: cassoRoute,
+    inputs: INPUTS,
+    eventsOf: (input: SandboxInput, context: SandboxInboundContext): Promise<ReadonlyArray<SandboxWebhookEvent>> => {
+        const { content, amount } = readInput(input)
+        const id = CASSO_SANDBOX_FIRST_ID + context.state.seq
+        return Promise.resolve([
+            {
+                body: {
+                    error: 0,
+                    data: [
+                        {
+                            id,
+                            tid: `FT26${String(id)}`,
+                            description: content,
+                            amount,
+                            bankName: CASSO_SANDBOX_ACCOUNT.bankName,
+                            bank_sub_acc_id: CASSO_SANDBOX_ACCOUNT.accountNumber,
+                            when: cassoTimeOf(context.at),
+                        },
+                    ],
+                },
+            },
+        ])
+    },
+}
+
+/**
  * Casso's hardcoded sandbox cases (owner ruling R62): each a named TRANSFORMATION of `{ content, amount }` into the webhook V2 body
  * Casso posts on `api/connections/casso/<connectionId>`, with the SAME seven meanings as SePay's so the two feeds are interchangeable
  * in a test. The sandbox knows bank words only (content, amount), never an order. The deviation of a short or an over payment is a FIXED
@@ -172,6 +248,26 @@ export const CASSO_SANDBOX_CATALOGUE: SandboxCatalogue = {
             id: "CASSO-7",
             label: "A reference naming nothing asked: the exact amount, the content's digits turned to 0",
             inbound: caseOf(({ content, amount }) => ({ amount, content: unknownCassoReferenceOf(content), deliveries: 1 })),
+        },
+        {
+            id: "CASSO-8",
+            label: "A delivery Casso reports as an error (error 1): the door acknowledges and ignores it, nothing is kept",
+            inbound: errorNoticeCase,
+        },
+        {
+            id: "CASSO-9",
+            label: "A body that is no JSON object: the door refuses it with BILLING_WEBHOOK_INVALID before anything is kept",
+            inbound: malformedCase,
+        },
+        {
+            id: "CASSO-10",
+            label: "Money with no transaction id and no reference: the door acknowledges the delivery and keeps nothing (the row has no id to key it by)",
+            inbound: noIdCase,
+        },
+        {
+            id: "CASSO-11",
+            label: "Webhook V1: data is an array of one row (id, tid, description, amount, bank_sub_acc_id, when), paid in full",
+            inbound: v1Case,
         },
     ] satisfies ReadonlyArray<SandboxCase>,
 }

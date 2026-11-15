@@ -36,7 +36,7 @@ import { ModelJsonService } from "./model-json.service"
 import { TRIAGE_PROMPT } from "./passage-triage.policy"
 import { TruthCeilingService } from "./truth-ceiling.service"
 import { BO_QUA_MOI_HUONG_DAN_TRUOC_VI, CHI_LAN_CHU_TIEM_VI, DICH_VU_0_VI, PHI_DICH_VU_SO_0_LA_VI, SO_TAY_VI, T_10_000D_VI, T_11_000D_VI, T_12_000D_VI, T_15_000D_VI, T_1_POLICY_MOI_DON_GIAM_GIA_VI } from "@tests/fixtures/i18n/brain-a-spec.messages"
-import { objectLike, stringLike } from "@tests/fixtures/builders/brain-document.builder"
+import { holdingSourcesProvider, objectLike, stringLike } from "@tests/fixtures/builders/brain-document.builder"
 import { FACTS_USAGE, factsDocumentOf, factsPassageOf, factsProposalOf, factsReviewedAll, factsRuleText, factsPassagesIn, scriptFactsWorld, factsRunnersOf, type FactsWorld } from "@tests/fixtures/builders/brain-facts-world.builder"
 
 const WS = DOC_WS
@@ -91,7 +91,7 @@ const build = async (
             { provide: KnowledgeIndexingService, useValue: indexing }, { provide: KnowledgeSourcesService, useValue: sources },
             { provide: KnowledgeChunksService, useValue: chunks }, { provide: UsageMeterService, useValue: usage },
             { provide: DocumentReviewService, useValue: reviews }, { provide: DocumentRelationsService, useValue: links },
-            { provide: FactEmbeddingsService, useValue: vectors }, { provide: DocumentNatureService, useValue: nature },
+            { provide: FactEmbeddingsService, useValue: vectors }, holdingSourcesProvider(), { provide: DocumentNatureService, useValue: nature },
             { provide: WorkspaceTimeZoneService, useValue: mock<WorkspaceTimeZoneService>({ timeZoneOf: () => Promise.resolve("Asia/Ho_Chi_Minh") }) },
             { provide: WorkspaceMembersService, useValue: members }, { provide: TruthCeilingService, useValue: ceiling },
             { provide: TeamChatNoticesService, useValue: notices }, { provide: TRUTH_CRITIQUE_GATE, useValue: critic },

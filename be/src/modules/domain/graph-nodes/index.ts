@@ -21,13 +21,18 @@ export { GraphNodesModule } from "./graph-nodes.module"
 export { parseAgentLoopConfig } from "./graph-nodes.config"
 export { GraphNodeHostService } from "./graph-node-host.service"
 export {
+    ACTS_MADE,
     GraphNodeEffectsService,
     INTENT_KIND,
     OUTCOME_UNKNOWN_KIND,
     actsOutside,
+    callOfLedgerKey,
     ledgerKeyOf,
     placeOf as callPlaceOf,
 } from "./graph-node-effects.service"
+export type { OpenAct } from "./graph-node-effects.service"
+export { actRefusalOf } from "./act-refusals.policy"
+export { finalRefusalOf } from "./final-refusal.policy"
 export { NODE_EFFECT_STORE } from "./node-effect-store.port"
 export type { NodeEffectStore, StoredEffect } from "./node-effect-store.port"
 

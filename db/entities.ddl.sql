@@ -1623,6 +1623,10 @@ ALTER TABLE public."records_blocks_core_sales_order" VALIDATE CONSTRAINT "record
 ALTER TABLE public."records_blocks_core_sales_order" ADD CONSTRAINT "records_blocks_core_sales_order_qr_connection_id_chk" CHECK ((data->>'qrConnectionId') IS NULL OR ((data->>'qrConnectionId') ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')) NOT VALID;
 ALTER TABLE public."records_blocks_core_sales_order" VALIDATE CONSTRAINT "records_blocks_core_sales_order_qr_connection_id_chk";
 
+-- add_check public.records_blocks_core_sales_order:constraint:records_blocks_core_sales_order_payment_request_ref_chk: added NOT VALID, then validated
+ALTER TABLE public."records_blocks_core_sales_order" ADD CONSTRAINT "records_blocks_core_sales_order_payment_request_ref_chk" CHECK ((data->>'paymentRequestRef') IS NULL OR (jsonb_typeof(data->'paymentRequestRef') = 'string' AND char_length((data->>'paymentRequestRef')) <= 100)) NOT VALID;
+ALTER TABLE public."records_blocks_core_sales_order" VALIDATE CONSTRAINT "records_blocks_core_sales_order_payment_request_ref_chk";
+
 -- add_check public.records_blocks_core_sales_order:constraint:records_blocks_core_sales_order_paid_connection_id_chk: added NOT VALID, then validated
 ALTER TABLE public."records_blocks_core_sales_order" ADD CONSTRAINT "records_blocks_core_sales_order_paid_connection_id_chk" CHECK ((data->>'paidConnectionId') IS NULL OR ((data->>'paidConnectionId') ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')) NOT VALID;
 ALTER TABLE public."records_blocks_core_sales_order" VALIDATE CONSTRAINT "records_blocks_core_sales_order_paid_connection_id_chk";

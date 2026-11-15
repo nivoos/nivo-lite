@@ -3,7 +3,6 @@
 import { useFormatter, useTranslations } from "next-intl"
 import { useMemo, useState } from "react"
 import { useQueryContactMessagesSwr } from "@/hooks/swr"
-import { isModuleKey } from "@/modules/catalog"
 import {
     HISTORY_ALL_KEY,
     historyLinesOf,
@@ -111,7 +110,7 @@ const threadSlotOf = (
 /** The workbench of the agent that spoke last on a route (`/agents/<module>/<installation>/workbench`); null when no agent has spoken there. */
 const workbenchHrefOf = (workspaceId: string, route: ContactRouteWire | undefined): string | null => {
     const workbench = route?.workbench
-    if (workbench === undefined || workbench === null || !isModuleKey(workbench.moduleKey)) return null
+    if (workbench === undefined || workbench === null) return null
     return workspaceHref(workspaceId, agentHref(workbench.moduleKey, workbench.installationId, "workbench"))
 }
 

@@ -68,7 +68,7 @@ export const choiceSrcOf = (choice: PictureChoiceKey, moduleKey: string): string
 /** The image a preset stands for, for an agent of a role; null for the initials. */
 const presetSrcOf = (preset: AgentAvatarPreset, moduleKey: string): string | null => {
     if (preset === "initials") return null
-    if (preset === "role") return `/agents/${moduleKey}.webp`
+    if (preset === "role") return moduleKey === "" ? null : `/agents/${moduleKey}.webp`
     return FIXED_PICTURES[preset]
 }
 

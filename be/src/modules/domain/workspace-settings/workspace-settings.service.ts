@@ -5,7 +5,7 @@ import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { WorkspaceEntity, WorkspacesError, WorkspacesErrorCode } from "@modules/domain/workspaces"
 import type { WorkspaceSettings, WorkspaceSettingsChange, WorkspaceTheme } from "./workspace-settings.contracts"
 import { validWorkspaceTheme } from "./workspace-theme.policy"
-import { isKnownTimeZone, timeZoneOrDefault } from "./workspace-time-zone.policy"
+import { isKnownTimeZone, storedTimeZoneOf, timeZoneOrDefault } from "./workspace-time-zone.policy"
 
 /** The workspace columns a settings change writes. */
 type SettingsColumns = Partial<Pick<WorkspaceEntity, "name" | "timeZone" | "logoUrl">>
@@ -80,7 +80,7 @@ export class WorkspaceSettingsService {
         if (change.timeZone !== undefined) {
             if (!isKnownTimeZone(change.timeZone))
                 throw new WorkspacesError({ code: WorkspacesErrorCode.TimeZoneInvalid })
-            columns.timeZone = change.timeZone
+            columns.timeZone = storedTimeZoneOf(change.timeZone)
         }
         if (change.logoUrl !== undefined) columns.logoUrl = change.logoUrl
         return columns

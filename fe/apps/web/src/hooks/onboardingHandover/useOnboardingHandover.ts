@@ -1,6 +1,7 @@
 "use client"
 
 import { useInstallations } from "@/hooks/installations"
+import { useModuleCatalog } from "@/hooks/moduleCatalog"
 import { useAgentNodeRights } from "@/hooks/nodeRights"
 import { useQueryAuthUserSwr, useQueryWorkspaceMembersSwr } from "@/hooks/swr"
 import { useOpenWorkspaceId } from "@/hooks/workspaceKey"
@@ -18,8 +19,6 @@ export interface OnboardingHandoverState {
     readonly approval: OnboardingApproval
 }
 
-/** The agent that answers customers. */
-const REPLY_MODULE = "chatbot"
 /** The one tool that writes to a customer, as the be names it in the node-rights rows (data from the be, so the literal id, never `TOOL`). */
 const SEND_TOOL = "nivo.tool.customer.message.send"
 
@@ -36,7 +35,9 @@ export const useOnboardingHandover = (): OnboardingHandoverState => {
     const user = useQueryAuthUserSwr()
     const members = useQueryWorkspaceMembersSwr(workspaceId)
     const { installations } = useInstallations()
-    const chatbot = installations?.find((entry) => entry.moduleKey === REPLY_MODULE && entry.agentId !== null)
+    const { modules } = useModuleCatalog()
+    /** The agent that answers customers: the oldest installed agent whose type the catalogue marks as talking to customers. */
+    const chatbot = installations?.find((entry) => modules[entry.moduleKey]?.audience === "customer" && entry.agentId !== null)
     const nodeRights = useAgentNodeRights(chatbot?.agentId ?? null)
     const sendRows = "items" in nodeRights.slot ? nodeRights.slot.items.rows.filter((row) => row.operation.id === SEND_TOOL) : []
     const approval = approvalOf("items" in nodeRights.slot, sendRows.map((row) => row.mode))

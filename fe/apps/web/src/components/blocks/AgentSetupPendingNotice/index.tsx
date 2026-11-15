@@ -5,13 +5,12 @@ import { useLocale, useTranslations } from "next-intl"
 import { useSetupState } from "@/hooks/agentSetup"
 import { useInstallations } from "@/hooks/installations"
 import { useModuleCatalog } from "@/hooks/moduleCatalog"
-import type { ModuleKey } from "@/modules/catalog"
 import { navigation } from "@/modules/i18n"
 import { gateEntry, gateLabel, isSetupPending } from "@/modules/installations"
 
 /** The agent whose notice this is, and the setup page its one action opens. */
 interface AgentSetupPendingNoticeProps {
-    readonly module: ModuleKey
+    readonly module: string
     readonly installationId: string
     readonly setupHref: string
 }

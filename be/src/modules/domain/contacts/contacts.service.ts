@@ -26,6 +26,7 @@ import type {
 import { CONTACT_MEMORY, type ContactMemoryPort, type ContactMemoryReader, type ContactMemoryView } from "./contact-memory.port"
 import { CONTACT_RECORDS, type ContactRecordsPort } from "./contact-records.port"
 import { CONTACT_RUNS, type ContactRunsPort } from "./contact-runs.port"
+import { CONTACT_SUBJECTS, type ContactSubjectsPort } from "./contact-subjects.port"
 import { CONTACTS_STORE, type ContactsStore, type ContactsTx } from "./contacts-store.port"
 import { identityKeyText, keyOf, normalIdentityOf, normaliseEmail, normalisePhone } from "./contact-identity.policy"
 import { mergeReasonOf, resolveContact } from "./contact-resolve.policy"
@@ -163,6 +164,8 @@ export class ContactsService {
         @Optional() @Inject(CONTACT_MEMORY) private readonly memory?: ContactMemoryPort,
         @Optional() @Inject(CONTACT_RECORDS) private readonly records?: ContactRecordsPort,
         @Optional() @Inject(CONTACT_RUNS) private readonly runs?: ContactRunsPort,
+        // A merge joins the engine data keyed by the id that goes (the stream positions: concept agent-data rule 8).
+        @Optional() @Inject(CONTACT_SUBJECTS) private readonly subjects?: ContactSubjectsPort,
     ) {}
 
     /**
@@ -500,7 +503,10 @@ export class ContactsService {
             const all = [contact.id, ...(await tx.aliasesOf(workspaceId, contact.id))]
             // The runs parked on the person end FIRST, in this same transaction (R37): their subjects (the ids and the person's routes)
             // are read while the contacts are still live; after the mark every read leaves them out.
-            if (this.runs !== undefined && tx.manager !== undefined) await this.runs.erasing(tx.manager, workspaceId, all)
+            const ended =
+                this.runs !== undefined && tx.manager !== undefined
+                    ? await this.runs.erasing(tx.manager, workspaceId, all, records.hidden ?? [])
+                    : []
             const identities = await tx.eraseContacts(workspaceId, all, this.clock.now())
             await tx.insertEvent(workspaceId, {
                 contactId: contact.id,
@@ -508,9 +514,11 @@ export class ContactsService {
                 detail: { identities, aliases: all.length - 1, records: records.records, cleared: records.cleared },
                 by,
             })
-            return { identities }
+            return { identities, ended }
         })
         if (erased === null) return { kind: "refused", reason: "contact_missing" }
+        // The stops of the ended runs close with them once the erasure committed (D3-W3-9; the thread sweep closes any a crash left).
+        if (this.runs !== undefined && erased.ended.length > 0) await this.runs.stopsClosed(workspaceId, erased.ended)
         return { kind: "erased", identities: erased.identities, records: records.records, cleared: records.cleared }
     }
 
@@ -595,6 +603,7 @@ export class ContactsService {
             await tx.insertEvent(workspaceId, { contactId: survivor.id, action: "merged", detail: { from: loser.id, reason }, by })
         })
         await this.memory?.rekey(workspaceId, from, into)
+        await this.subjects?.merged(workspaceId, from, into)
         return { kind: "merged", contactId: into, reason }
     }
 

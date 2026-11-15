@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common"
 import { TRIGGER_SOURCE_KINDS } from "@nivo-lite/agent-sdk/graph"
 import type { EntityManager } from "typeorm"
 import { CustomerRoutesService } from "@modules/domain/customer-routes"
-import { ProviderTriggersService, triggerDeclarations } from "@modules/domain/provider-triggers"
+import { ProviderTriggersService, triggerDeclarations, type OptionalPreparedDelivery, type PreparedDelivery } from "@modules/domain/provider-triggers"
 import { verbOfSource } from "@modules/domain/trigger-specs"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
@@ -38,16 +38,27 @@ export class HeldLinesService {
     ) {}
 
     /**
-     * Delivers the hand-back's event once; answers how many wakes it wrote (0 when the id names no route, its entrance has no account, its
-     * channel has no registered declaration, or no registration takes it). In the caller's transaction when it hands one (the hand-back's
-     * one transaction, ruling R51 item 3), else in its own.
+     * Delivers the hand-back's event once, prepared and committed in a transaction of its own; answers how many wakes it wrote (0 when the
+     * id names no route, its entrance has no account, its channel has no registered declaration, or no registration takes it).
      */
-    async answerHeld(workspaceId: string, conversationId: string, manager?: EntityManager): Promise<number> {
+    async answerHeld(workspaceId: string, conversationId: string): Promise<number> {
+        const prepared = await this.prepareHeld(workspaceId, conversationId)
+        if (prepared === null) return 0
+        return this.entityManager.transaction((tx) => this.commitHeld(prepared, tx))
+    }
+
+    /**
+     * PREPARE of the hand-back's event, with NO transaction open (concept outbox-job rule 12): the route read, its channel's declaration
+     * found, the one delivery function's PREPARE (the agents attached to the account matched). Null when there is nothing to hand back
+     * (the id names no route, its entrance has no account, its channel has no registered declaration). The hand-back prepares it BEFORE
+     * its one transaction and commits it there (`commitHeld`), so the hold it clears in that transaction is read by the commit.
+     */
+    async prepareHeld(workspaceId: string, conversationId: string): Promise<OptionalPreparedDelivery> {
         const route = await this.routes.get(workspaceId, conversationId)
         if (route === null || route.accountId === null) {
             // A route not found (its contact erased, owner ruling R31) or of no account: nothing to hand back, said once (R37).
             this.logger.info(ConversationsLogEvent.ResumeNoRoute, { workspaceId, routeId: conversationId, found: route !== null })
-            return 0
+            return null
         }
         const { accountId } = route
         const kind = TRIGGER_SOURCE_KINDS.find((one) => one === route.channel)
@@ -55,26 +66,26 @@ export class HeldLinesService {
         const declaration = verb === null ? undefined : triggerDeclarations.ofVerb(verb)[0]
         if (declaration === undefined) {
             this.logger.warn(ConversationsLogEvent.ResumeUndeclared, { workspaceId, channel: route.channel })
-            return 0
+            return null
         }
-        const delivered = (tx: EntityManager) =>
-            this.triggers.deliver(
+        return this.triggers.prepare({
+            workspaceId,
+            declaration,
+            connectionId: accountId,
+            agentId: null,
+            events: [
                 {
-                    workspaceId,
-                    declaration,
-                    connectionId: accountId,
-                    agentId: null,
-                    events: [
-                        {
-                            event: { id: `resume:${route.id}:${this.clock.now().getTime()}`, data: RESUME_DATA },
-                            contactId: route.contactId,
-                            routeId: route.id,
-                        },
-                    ],
+                    event: { id: `resume:${route.id}:${this.clock.now().getTime()}`, data: RESUME_DATA },
+                    contactId: route.contactId,
+                    routeId: route.id,
                 },
-                tx,
-            )
-        const result = manager === undefined ? await this.entityManager.transaction(delivered) : await delivered(manager)
+            ],
+        })
+    }
+
+    /** COMMIT of a prepared hand-back event in the caller's transaction (the hand-back's one transaction, ruling R51 item 3); answers how many wakes it wrote. */
+    async commitHeld(prepared: PreparedDelivery, tx: EntityManager): Promise<number> {
+        const result = await this.triggers.deliver(prepared, tx)
         return result.status === "delivered" ? result.woken.length : 0
     }
 }

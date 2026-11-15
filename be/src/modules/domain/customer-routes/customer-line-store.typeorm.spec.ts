@@ -1,5 +1,6 @@
 import { Test } from "@nestjs/testing"
 import { mockEntityManager } from "@starci/jest-preset"
+import { HASH_STATEMENT, LOCK_STATEMENT, advisoryLockAnswers } from "@tests/fixtures/builders/advisory-lock.builder"
 import { queueQueryBuilders } from "@tests/fixtures/builders/entity-query-builder-fake.builder"
 import { ContactEntity } from "@modules/domain/contacts/persistence/entities"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
@@ -65,12 +66,16 @@ const build = async () => {
 describe("TypeormCustomerLineStore.insertHeard", () => {
     it("writes a heard line through an insert-or-nothing in the CALLER's transaction, with no sender, state or order", async () => {
         const { store, em } = await build()
-        const tx = mockEntityManager()
+        const tx = mockEntityManager({ query: advisoryLockAnswers })
         const [fake] = queueQueryBuilders(tx, [{ execute: { raw: [{ id: "l1" }] } }])
 
         await expect(store.insertHeard(tx, WS, HEARD)).resolves.toEqual({ id: "l1", written: true })
 
         expect(em.createQueryBuilder).not.toHaveBeenCalled()
+        // The route's stream lock comes first, in the caller's transaction (concept agent-data rule 12).
+        expect(tx.query).toHaveBeenNthCalledWith(1, HASH_STATEMENT, [`stream:${WS}:lines:r1`, 0])
+        expect(tx.query.mock.calls.map(([statement]) => statement)).toEqual([HASH_STATEMENT, LOCK_STATEMENT])
+        expect(tx.query.mock.invocationCallOrder[1] ?? Infinity).toBeLessThan(tx.createQueryBuilder.mock.invocationCallOrder[0] ?? 0)
         expect(tx.createQueryBuilder).toHaveBeenCalledWith(CustomerMessageEntity, "line")
         expect(fake?.callsOf("orIgnore")).toHaveLength(1)
         expect(fake?.callsOf("values")[0]).toEqual([
@@ -94,7 +99,7 @@ describe("TypeormCustomerLineStore.insertHeard", () => {
 
     it("answers the line kept before when the same message is heard again (the webhook and the poll): nothing is written twice", async () => {
         const { store } = await build()
-        const tx = mockEntityManager()
+        const tx = mockEntityManager({ query: advisoryLockAnswers })
         queueQueryBuilders(tx, [{ execute: { raw: [] } }])
         tx.findOne.mockResolvedValue(rowOf(1, { id: "l-kept" }))
 
@@ -106,7 +111,7 @@ describe("TypeormCustomerLineStore.insertHeard", () => {
 
     it("fails loudly when the key held no row to read back", async () => {
         const { store } = await build()
-        const tx = mockEntityManager()
+        const tx = mockEntityManager({ query: advisoryLockAnswers })
         queueQueryBuilders(tx, [{ execute: { raw: [] } }])
         tx.findOne.mockResolvedValue(null)
 

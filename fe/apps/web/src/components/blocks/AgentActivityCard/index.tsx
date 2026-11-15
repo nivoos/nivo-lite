@@ -11,8 +11,6 @@ import { AgentActivityCardBase, type ActivityRowView } from "./component"
 type AgentActivityCardProps = {
     readonly installationId?: string | undefined
     readonly module?: string | undefined
-    /** The type answers customers: the live row shows. */
-    readonly answersCustomers?: boolean | undefined
 }
 
 /** The connected activity card: the work switch and (for a type that talks to customers) the live switch, each acting at once. */
@@ -40,7 +38,7 @@ export const AgentActivityCard = (props: AgentActivityCardProps) => {
             blocker: workView?.canChange === false ? tw("switchOwnerOnly") : "",
         },
     ]
-    if (props.answersCustomers ?? route.answersCustomers) {
+    if (route.answersCustomers) {
         rows.push({
             id: "live",
             title: tg("rowLive"),

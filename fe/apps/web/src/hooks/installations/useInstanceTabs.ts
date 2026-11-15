@@ -1,6 +1,5 @@
 import { isManager, useMember } from "@/hooks/member"
 import { useWorkspaceId } from "@/hooks/workspaces"
-import type { ModuleKey } from "@/modules/catalog"
 import { navigation } from "@/modules/i18n"
 import { agentHref, type AgentTab } from "@/modules/installations"
 import { workspaceHref } from "@/modules/routes"
@@ -29,7 +28,7 @@ export interface InstanceTabsView {
 }
 
 /** The tabs of one agent instance (Setup only for owners and managers): the one the path names, and the way to open another. */
-export const useInstanceTabs = (module: ModuleKey, installationId: string): InstanceTabsView => {
+export const useInstanceTabs = (module: string, installationId: string): InstanceTabsView => {
     const member = useMember()
     const router = navigation.useRouter()
     const workspaceId = useWorkspaceId()

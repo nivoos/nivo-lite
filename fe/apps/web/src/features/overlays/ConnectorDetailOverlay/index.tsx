@@ -1,9 +1,10 @@
 "use client"
 
-import { useTranslations } from "next-intl"
+import { useLocale, useTranslations } from "next-intl"
+import { useModuleCatalog } from "@/hooks/moduleCatalog"
 import { useSearchParams } from "next/navigation"
 import type { ReactNode } from "react"
-import { catalogKey, entryById } from "@/hooks/connection-catalog"
+import { audienceNamesOf, catalogKey, entryById } from "@/hooks/connection-catalog"
 import { PROVIDER_LOGO } from "@/hooks/connection-providers"
 import {
     isLocalOnly,
@@ -48,6 +49,8 @@ export const ConnectionsOverlayHost = (props: ConnectionsOverlayHostProps) => {
 /** The connector detail drawer; the URL says which connector is open. */
 export const ConnectorDetailOverlay = (props: ConnectorDetailOverlayProps) => {
     const t = useTranslations("connections")
+    const { list: modules } = useModuleCatalog()
+    const locale = useLocale() === "en" ? "en" : "vi"
     const params = useSearchParams()
     const overlays = useConnectionOverlays()
     const data = useConnectionsData()
@@ -69,7 +72,7 @@ export const ConnectorDetailOverlay = (props: ConnectorDetailOverlayProps) => {
                   blurb: t(catalogKey(found, "blurb")),
                   brings: t(catalogKey(found, "brings")),
                   needs: provider === undefined ? "" : t(catalogKey(found, "needs")),
-                  audience: found.audience.map((audience) => t(`aud_${audience}`)).join(", "),
+                  audience: audienceNamesOf(found, modules, locale).join(", ") || t("aud_any"),
                   statusLabel: t(STATUS_KEYS[found.status]),
                   isOfficial: found.status === "official",
                   glyph: found.glyph,

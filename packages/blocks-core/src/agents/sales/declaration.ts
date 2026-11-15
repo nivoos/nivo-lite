@@ -31,9 +31,11 @@ const OWN_AGENT_TOOLS: ReadonlyArray<string> = [
     TOOL.leadOrderList,
     TOOL.orderGet,
     TOOL.teamMessagePost,
-    // The money in: the one bank movement the trigger names (any of the three feeds), and the transfer QR of an order.
+    // The money in: the one bank movement the trigger names (any of the three feeds), and the payment request of an order (R111).
     TOOL.paymentCreditGet,
-    TOOL.paymentTransferCreate,
+    TOOL.paymentRequestCreate,
+    TOOL.paymentRequestGet,
+    TOOL.paymentRequestCancel,
     TOOL.brainChangePropose,
 ]
 

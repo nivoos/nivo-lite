@@ -114,7 +114,7 @@ describe("JobRunnerService", () => {
                 jobId: "j-1",
                 expectedFencingToken: 2,
                 failureClass: "transient",
-                reason: "ECONNRESET",
+                reason: "Error ECONNRESET: provider down",
                 build: "unknown",
                 queue: "mail",
             })
@@ -123,7 +123,7 @@ describe("JobRunnerService", () => {
                 last,
                 expect.objectContaining({
                     code: QueueErrorCode.FlowFailure,
-                    params: { failureClass: "transient", reason: "ECONNRESET" },
+                    params: { failureClass: "transient", reason: "Error ECONNRESET: provider down" },
                 }),
             )
             expect(deadLetters.raise).toHaveBeenCalledWith({
@@ -132,7 +132,7 @@ describe("JobRunnerService", () => {
                 workspaceId: undefined,
                 flowKind: "mail",
                 failureClass: "transient",
-                reason: "ECONNRESET",
+                reason: "Error ECONNRESET: provider down",
                 episode: 0,
                 correlationId: "k-1",
                 build: "unknown",
@@ -147,6 +147,7 @@ describe("JobRunnerService", () => {
                 jobId: "j-1",
                 failureClass: "transient",
                 why: "exhausted",
+                reason: "Error ECONNRESET: provider down",
             })
         })
 
@@ -195,6 +196,24 @@ describe("JobRunnerService", () => {
             expect(claims.park).toHaveBeenCalledWith(
                 expect.objectContaining({ failureClass: "code", reason: "plain text" }),
             )
+        })
+
+        it("names the uncoded throw a coded failure wraps on the parked row AND on its one item: class, code, message (a person can act)", async () => {
+            const { runner, claims, deadLetters, processor } = await build()
+            claims.claim.mockResolvedValue(job)
+            // A store adapter's driver error, wrapped by a package's coded refusal (built by another copy of the error base).
+            const driver = Object.assign(new Error("permission denied for table records"), { name: "QueryFailedError", code: "42501" })
+            const refusal = Object.assign(new Error("DATA_STORE_FAILED", { cause: driver }), {
+                code: "DATA_STORE_FAILED",
+                params: { store: "database" },
+            })
+            processor.process.mockRejectedValue(refusal)
+
+            await expect(runner.run(processor, { ...delivery, attempt: 4 })).resolves.toBeUndefined()
+
+            const reason = "DATA_STORE_FAILED (QueryFailedError 42501: permission denied for table records)"
+            expect(claims.park).toHaveBeenCalledWith(expect.objectContaining({ reason }))
+            expect(deadLetters.raise).toHaveBeenCalledWith(expect.objectContaining({ reason }))
         })
 
         it("parks a delivery started past its ladder without running it: every earlier start died without settling", async () => {

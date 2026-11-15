@@ -1,4 +1,4 @@
-import { DomainError } from "@modules/platform/errors"
+import { DomainError, type ErrorParams } from "@modules/platform/errors"
 import { QueueError, QueueErrorCode } from "@modules/platform/queue"
 
 /** The queue name: the contract between the producer, the ticks `data-backup-tick` and `data-verify-tick` of platform/jobs and the processors of the data copy jobs (the durable queue name). */
@@ -55,15 +55,17 @@ const REASON_MAX = 300
 
 /**
  * A flow failure of a data copy job with its class named, so the ONE judge (`classifyFailure` in the job runner) retries a transient one on
- * the ladder and dead-letters any other with one item for a person. The reason names codes and ids only, never a value.
+ * the ladder and dead-letters any other with one item for a person. The reason names codes and ids only, never a value; `facts` are the
+ * named codes and counts (the store, its cause, a driver, the bytes) that travel beside the class and the reason.
  */
 export const dataCopyFailure = (
     failureClass: DataCopyFailureClass,
     reason: string,
     cause?: unknown,
+    facts: ErrorParams = {},
 ): DomainError<string> =>
     new QueueError({
         code: QueueErrorCode.FlowFailure,
-        params: { failureClass, reason: reason.slice(0, REASON_MAX) },
+        params: { ...facts, failureClass, reason: reason.slice(0, REASON_MAX) },
         ...(cause === undefined ? {} : { cause }),
     })

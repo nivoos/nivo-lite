@@ -46,7 +46,9 @@ import { salesOrderPaidNode } from "../../agents/sales/nodes/order-paid.node"
 import { salesPaymentShortNode } from "../../agents/sales/nodes/payment-short.node"
 import { salesCreditTallyNode } from "../../agents/sales/nodes/credit-tally.node"
 import { salesOrderTellNode } from "../../agents/sales/nodes/order-tell.node"
-import { salesRequestQrNode } from "../../agents/sales/nodes/request-qr.node"
+import { salesRequestPayNode } from "../../agents/sales/nodes/request-pay.node"
+import { salesRequestReadNode } from "../../agents/sales/nodes/request-read.node"
+import { salesRequestCancelNode } from "../../agents/sales/nodes/request-cancel.node"
 import { salesOrderTalkNode } from "../../agents/sales/nodes/order-talk.node"
 import { salesOrderReadNode } from "../../agents/sales/nodes/order-read.node"
 import { salesPaymentRemindNode } from "../../agents/sales/nodes/payment-remind.node"
@@ -113,7 +115,9 @@ export const coreTemplateNodes: ReadonlyArray<AnyTemplateNode> = [
     salesCancelPaidNoticeNode,
     salesOrderCreateNode,
     salesOrderTellNode,
-    salesRequestQrNode,
+    salesRequestPayNode,
+    salesRequestReadNode,
+    salesRequestCancelNode,
     salesOrderTalkNode,
     salesOrderReadNode,
     salesPaymentRemindNode,

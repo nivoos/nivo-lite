@@ -1,0 +1,9 @@
+{"findings":[],"hash":"542865db086e9cc6460f2f104b3f8b72be8adeb187abc691951827f11c566f7f","path":"be/apps/cli/Dockerfile","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"be/apps/cli/src/app.module.spec.ts is not formatted by prettier; run `npm run format`","path":"be/apps/cli/src/app.module.spec.ts","rule":"HFS_FORMAT"}],"hash":"0e24bcea2d65c4e4e9c6e15692a3fc9ed918909d5e910ab52d883806cfbadc29","path":"be/apps/cli/src/app.module.spec.ts","step":"prettier"}
+{"findings":[],"hash":"9f4b6aa4e8ebc5bd24fe50cb992ccdc82a21125a5de8f8a56cfe8e15ce3afb4a","path":"be/apps/cli/src/app.module.ts","step":"prettier"}
+{"findings":[],"hash":"58c450c5759ca94d2770a612d2c7192bb307b85c1479b0c3f8ed653260673eba","path":"be/apps/cli/src/cli.env.ts","step":"prettier"}
+{"findings":[],"hash":"a734ea1fb7eb86549692644f53b25f6afdf7fe1d32e4bdddbf19fc76e7aef1a9","path":"be/apps/cli/src/cli.options.ts","step":"prettier"}
+{"findings":[],"hash":"3ad6c6b8f801524ca169366fb2b5a5254f04a0d9f2d2a07834166da691068821","path":"be/apps/cli/src/compose/entity-engine.ts","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"be/apps/cli/src/compose/modules.ts is not formatted by prettier; run `npm run format`","path":"be/apps/cli/src/compose/modules.ts","rule":"HFS_FORMAT"}],"hash":"8b9610f5c8ef6bf12affc8487e275833d1a0c7c5a8b04edcf7152c492a9219a5","path":"be/apps/cli/src/compose/modules.ts","step":"prettier"}
+{"findings":[],"hash":"d56faf223cc89306b11697f60e6d514b51425ecc547910357dcf6c78c26bf74e","path":"be/apps/cli/src/compose/setup.ts","step":"prettier"}
+{"findings":[],"hash":"0af9acdb10d37a63b4457797e4b87dda0685d39d3fd9dcee586235ad208c3fc9","path":"be/apps/cli/src/main.ts","step":"prettier"}

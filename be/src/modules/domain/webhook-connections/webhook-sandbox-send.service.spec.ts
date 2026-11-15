@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 import { mock } from "@starci/jest-preset"
-import { SandboxCatalogueRegistryService, ProviderSandboxErrorCode } from "@modules/domain/provider-sandbox"
+import { normalizeGenericWebhook } from "@modules/domain/agent-inbound/generic-webhook.adapter"
+import { SandboxCatalogueRegistryService, ProviderSandboxErrorCode, type SandboxState } from "@modules/domain/provider-sandbox"
 import { connectionRecord } from "@tests/fixtures/builders/connection-records.builder"
 import { sandboxAccount, sandboxServiceOf, sandboxServiceOff } from "@tests/fixtures/builders/provider-sandbox.builder"
 import { WebhookLiveSendService } from "./webhook-live-send.service"
@@ -13,6 +14,7 @@ import {
     WEBHOOK_CASE,
     WEBHOOK_DELIVER_OPERATION,
     WEBHOOK_SANDBOX_CATALOGUE,
+    WEBHOOK_SANDBOX_RECEIVED_STATE,
     webhookSandboxEventId,
 } from "./webhook-sandbox.catalogue"
 
@@ -29,7 +31,14 @@ const setup = () => {
     return { sandbox, store, service: new WebhookSandboxSendService(sandbox) }
 }
 
-describe("WebhookSandboxSendService (outgoing cases WEBHOOK-7 .. 12)", () => {
+/** The webhook calls an inbound case makes for the inputs `invoice.paid` / `INV-1001`, on a fresh account (the running number is 0). */
+const casesOf = async (caseId: string) => {
+    const one = WEBHOOK_SANDBOX_CATALOGUE.cases.find((candidate) => candidate.id === caseId)
+    const state: SandboxState = { seq: 0, nextCase: null, read: () => Promise.resolve(null), write: () => Promise.resolve() }
+    return (await one?.inbound?.eventsOf({ type: "invoice.paid", reference: "INV-1001" }, { connectionId: "c1", at: new Date(0), state })) ?? []
+}
+
+describe("WebhookSandboxSendService (outgoing cases WEBHOOK-7 .. 12, 14 .. 16)", () => {
     it("WEBHOOK-7 is the default: the receiver accepts with HTTP 200, and exactly one deliver call is logged with the body and headers", async () => {
         const { sandbox, service } = setup()
 
@@ -46,6 +55,9 @@ describe("WebhookSandboxSendService (outgoing cases WEBHOOK-7 .. 12)", () => {
         [WEBHOOK_CASE.serverError, { status: 503, failure: null }, "retry"],
         [WEBHOOK_CASE.noAnswer, { status: null, failure: "timeout" }, "retry"],
         [WEBHOOK_CASE.unreachable, { status: null, failure: "unreachable" }, "retry"],
+        [WEBHOOK_CASE.signatureRefused, { status: 401, failure: null }, "refused"],
+        [WEBHOOK_CASE.endpointGone, { status: 410, failure: null }, "refused"],
+        [WEBHOOK_CASE.noAnswerButReceived, { status: null, failure: "timeout" }, "retry"],
     ] as const)("%s answers %j and the SAME verdict function reads it as %s", async (caseId, answer, verdict) => {
         const { sandbox, service } = setup()
         await sandbox.setNextCase(ACCOUNT, WEBHOOK_DELIVER_OPERATION, caseId)
@@ -54,6 +66,47 @@ describe("WebhookSandboxSendService (outgoing cases WEBHOOK-7 .. 12)", () => {
 
         expect(result).toMatchObject(answer)
         expect(deliveryVerdict(result.status)).toBe(verdict)
+    })
+
+    it("WEBHOOK-16: the receiver IS kept as having taken the delivery (state received, by the delivery id) while the answer is a timeout; WEBHOOK-11 keeps none", async () => {
+        const { sandbox, store, service } = setup()
+        await sandbox.setNextCase(ACCOUNT, WEBHOOK_DELIVER_OPERATION, WEBHOOK_CASE.noAnswer)
+        await service.post(CONNECTION, REQUEST)
+        expect(await store.stateOf(ACCOUNT, WEBHOOK_SANDBOX_RECEIVED_STATE, "c1:evt-1")).toBeNull()
+
+        await sandbox.setNextCase(ACCOUNT, WEBHOOK_DELIVER_OPERATION, WEBHOOK_CASE.noAnswerButReceived)
+        await service.post(CONNECTION, REQUEST)
+
+        expect(await store.stateOf(ACCOUNT, WEBHOOK_SANDBOX_RECEIVED_STATE, "c1:evt-1")).toEqual({ value: true })
+    })
+
+    it("every outgoing case carries the outcome tag of the situation it makes; the outcome picker (first case with the tag) lands on the live-meaningful one", () => {
+        const outgoing = WEBHOOK_SANDBOX_CATALOGUE.cases.filter((one) => one.operation === WEBHOOK_DELIVER_OPERATION)
+        const first = (outcome: string): string | undefined => outgoing.find((one) => one.outcome === outcome)?.id
+
+        expect(Object.fromEntries(outgoing.map((one) => [one.id, one.outcome]))).toEqual({
+            "WEBHOOK-7": "ok",
+            "WEBHOOK-8": "refused",
+            "WEBHOOK-9": "transient",
+            "WEBHOOK-10": "transient",
+            "WEBHOOK-11": "timeout",
+            "WEBHOOK-12": "transient",
+            "WEBHOOK-14": "refused",
+            "WEBHOOK-15": "refused",
+            "WEBHOOK-16": "timeout",
+        })
+        expect([first("ok"), first("refused"), first("transient"), first("timeout")]).toEqual(["WEBHOOK-7", "WEBHOOK-8", "WEBHOOK-9", "WEBHOOK-11"])
+    })
+
+    it("WEBHOOK-13: the event is named `event` and the generic door reads it (type, delivery id) like a body naming `type`: the second kind through the consuming door", async () => {
+        const events = await casesOf(WEBHOOK_CASE.eventNamed)
+        const typed = await casesOf(WEBHOOK_CASE.event)
+        const doorOf = (body: unknown) =>
+            normalizeGenericWebhook({ connectionId: "c1", workspaceId: "ws-1", rawBody: Buffer.from(JSON.stringify(body)), eventType: undefined, deliveryKey: undefined })
+
+        expect(events[0]?.body).toEqual({ event: "invoice.paid", id: "sbx-evt-000001", data: { reference: "INV-1001" } })
+        expect(doorOf(events[0]?.body)).toMatchObject({ eventType: "invoice.paid", idempotencyKey: "c1:sbx-evt-000001" })
+        expect(doorOf(typed[0]?.body)).toMatchObject({ eventType: "invoice.paid", idempotencyKey: "c1:sbx-evt-000001" })
     })
 
     it("WEBHOOK-7 reads as delivered by the same verdict function", async () => {
@@ -141,17 +194,19 @@ describe("WebhookSandboxSendService (outgoing cases WEBHOOK-7 .. 12)", () => {
 describe("the webhook catalogue", () => {
     const cases = WEBHOOK_SANDBOX_CATALOGUE.cases
 
-    it("has unique WEBHOOK-<n> ids 1..12, each with a label, for the provider webhook", () => {
-        expect(cases.map((one) => one.id)).toEqual(Array.from({ length: 12 }, (_, index) => `WEBHOOK-${String(index + 1)}`))
+    it("has unique WEBHOOK-<n> ids 1..16, each with a label, for the provider webhook", () => {
+        expect(cases.map((one) => one.id)).toEqual(Array.from({ length: 16 }, (_, index) => `WEBHOOK-${String(index + 1)}`))
         expect(cases.every((one) => one.label.length > 0)).toBe(true)
         expect(WEBHOOK_SANDBOX_CATALOGUE.provider).toBe("webhook")
         expect(Object.values(WEBHOOK_CASE)).toEqual(cases.map((one) => one.id))
     })
 
-    it("has six inbound cases (1..6) on the generic door's real route and six outgoing cases (7..12) of `deliver`, exactly one default", () => {
-        expect(cases.filter((one) => one.inbound !== undefined).map((one) => one.id)).toEqual(cases.slice(0, 6).map((one) => one.id))
-        expect(cases.slice(0, 6).every((one) => one.inbound?.path("abc") === "api/inbound/abc")).toBe(true)
-        expect(cases.slice(6).every((one) => one.operation === "deliver" && one.inbound === undefined)).toBe(true)
+    it("has seven inbound cases (1..6 and 13) on the generic door's real route and nine outgoing cases (7..12, 14..16) of `deliver`, exactly one default", () => {
+        const inbound = cases.filter((one) => one.inbound !== undefined)
+        expect(inbound.map((one) => one.id)).toEqual(["WEBHOOK-1", "WEBHOOK-2", "WEBHOOK-3", "WEBHOOK-4", "WEBHOOK-5", "WEBHOOK-6", "WEBHOOK-13"])
+        expect(inbound.every((one) => one.inbound?.path("abc") === "api/inbound/abc")).toBe(true)
+        expect(cases.filter((one) => one.inbound === undefined).every((one) => one.operation === "deliver")).toBe(true)
+        expect(cases.filter((one) => one.inbound === undefined)).toHaveLength(9)
         expect(cases.filter((one) => one.default === true).map((one) => one.id)).toEqual(["WEBHOOK-7"])
     })
 

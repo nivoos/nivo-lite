@@ -272,17 +272,13 @@ const refusalOf = async (work: Promise<unknown>): Promise<Record<string, string>
 }
 
 describe("AgentWorkflowsService: publishing a hand-off", () => {
-    it("refuses a version whose hand-off calls a workflow the workspace does not have", async () => {
+    it("saves a version whose hand-off calls a workflow of a module the workspace does not run: a closed route (engine-core rule 21)", async () => {
         const world = await buildWorld()
         const desk = await madeFrom(world, "chatbot.front-desk")
 
-        const refusal = await refusalOf(
-            world.workflows.publish("ws-1", desk.id, templateGraph("chatbot.front-desk"), OWNER, 1, ""),
-        )
+        const saved = await refusalOf(world.workflows.publish("ws-1", desk.id, templateGraph("chatbot.front-desk"), OWNER, 1, ""))
 
-        expect(refusal?.code).toBe(AgentGraphsErrorCode.ContractRefused)
-        expect(refusal?.problems).toContain("CALL_TARGET_UNKNOWN")
-        expect(versionsOf(world).filter((version) => version.workflowId === desk.id)).toHaveLength(1)
+        expect(saved).toBeNull()
     })
 
     it("publishes it once the workflow it calls is there", async () => {

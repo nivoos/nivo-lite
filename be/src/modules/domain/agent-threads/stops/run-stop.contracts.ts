@@ -10,6 +10,18 @@ import type {
 /** Why a step stopped: the AI core reported it, the AI itself failed (the engine's static words stand in), or a call waits for approval. */
 export type StopKind = "ai_report" | "ai_error" | "approval" | "engine"
 
+/**
+ * The fact a stop carries when its step's act outside has an outcome nobody knows and its tool declares neither `repeatable` nor
+ * `confirmBy` (E-FIX12 rule A-4): a Retry would make the act again blind, so the card offers no Retry until a person took the stop over
+ * (and checked by hand what happened). Name and value of the stop's fact.
+ */
+export const RETRY_FACT = "retry"
+export const RETRY_AFTER_TAKE_OVER = "after_take_over"
+
+/** True when the stop's facts say a Retry needs a person's take-over first (`RETRY_FACT`). */
+export const retryNeedsTakeOver = (facts: ReadonlyArray<{ readonly name: string; readonly value: string }>): boolean =>
+    facts.some((fact) => fact.name === RETRY_FACT && fact.value === RETRY_AFTER_TAKE_OVER)
+
 /** Where a stop stands. */
 export type StopState = "open" | "resolved"
 

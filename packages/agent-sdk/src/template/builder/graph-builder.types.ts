@@ -387,10 +387,13 @@ export interface WaitMatch {
     readonly caseFold?: true | undefined
 }
 
-/** One trigger a wait listens for, as `waitFor` builds it: a graph trigger's verb and `where`, and the match against the run's data. */
+/**
+ * One key a wait listens for, as `waitFor` builds it: ONE meaning, the verbs that bring it, a graph trigger's `where` and the match against
+ * the run's data (both read on whichever listed verb came).
+ */
 export interface WaitTrigger {
-    /** The trigger verb whose events are waited for. */
-    readonly verb: TriggerVerb
+    /** The trigger verbs whose events bring this meaning. */
+    readonly verbs: ReadonlyArray<TriggerVerb>
     /** Conditions on the event's params that must all hold. */
     readonly where?: ReadonlyArray<TriggerCondition> | undefined
     /** Tests of the event's members against the run's data. */

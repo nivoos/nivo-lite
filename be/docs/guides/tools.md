@@ -7,7 +7,7 @@ reaches its tools directly, and the mcp app is a thin surface over this same mod
 ## Pieces
 
 - `be/src/modules/domain/tools` (`ToolsModule`): the registry of the tool families in code (`ToolRegistryService`), the node tool
-  door (`NodeToolDoorService`), the tool runner (`ToolRunnerService`: the account choice and its fallback), the provider rights
+  door (`NodeToolDoorService`), the tool runner (`ToolRunnerService`: the account choice, once per attempt: a candidate is skipped only when it cannot take the call at all), the provider rights
   (`ProviderAbilitiesService`: attachments, display-only abilities), the data rights, the console (`ToolsConsoleService`: the rights
   board, the grant rows of a road outside every node, the audit log) and the built-in families (`sepay`, `einvoice`, the effect tools).
 - A **tool family** is one piece of engine or provider-adapter code serving a set of tools: `NativeToolFamily` (its `ToolManifest`

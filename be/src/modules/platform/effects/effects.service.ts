@@ -122,7 +122,8 @@ export class EffectLedgerRules {
         call: Call<T>,
         row: EffectLedgerRow,
     ): Promise<T | undefined> {
-        if (effect.settle === "repeatable") return this.again(key, effect, call)
+        // `repeatable` is the tool's own word; a PERSON's decision (`call.decided`) is the settle of a `person` effect.
+        if (effect.settle === "repeatable" || (effect.settle === "person" && call.decided === true)) return this.again(key, effect, call)
         if (effect.settle === "confirm") {
             const found = await this.confirmed(effect, call)
             if (found.happened) {

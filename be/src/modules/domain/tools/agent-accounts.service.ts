@@ -1,13 +1,16 @@
 import { Injectable, Optional } from "@nestjs/common"
 import { AgentDirectoryService } from "@modules/domain/agents"
 import { AgentRunsService } from "@modules/domain/agent-runs"
+import { callerRunIdOf } from "@modules/domain/agent-work"
 import { ConnectionBindingsReadService } from "@modules/domain/connections"
+import { CustomerRoutesService } from "@modules/domain/customer-routes"
 import type { NodeStepRef } from "@modules/domain/graph-nodes"
 import { INSTALLED } from "@modules/domain/installed-plugins"
 import { ToolCallLogService } from "@modules/domain/tool-call-log"
 import { AccountAttachmentsService, type ProviderAttachmentView } from "@modules/domain/tool-grants"
 import { OPENAPI_PROVIDER } from "@modules/domain/openapi-tools"
 import { ownersOfTool, toolSpecOf } from "@modules/domain/tool-specs"
+import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { eachInOrder } from "@modules/platform/primitives"
 import { EffectRightAuditService, type EffectRightLine } from "./effect-right-audit.service"
 import { accountLabelOf } from "./account-label.policy"
@@ -22,7 +25,9 @@ import {
     providersOfDeclaration,
     servesTool,
     unpickedOf,
+    worldOfAccount,
     type AccountTarget,
+    type AccountWorld,
     type AttachmentVerdict,
     type OptionalRightVerdict,
     type PickNeeded,
@@ -44,6 +49,7 @@ import type { RightSeen } from "./right-origin.contracts"
 import { InjectNodeRequestsGate } from "./node-requests.decorators"
 import { seenAtStep, type StepSeen } from "./node-rule.policy"
 import { workflowStepOf, type NodeRequestsGate, type OptionalNodeRequest } from "./node-mode.policy"
+import { ToolsLogEvent } from "./tools.log-events"
 
 /** The most connections of one provider a workspace is read for. */
 const CONNECTIONS_MAX = 20
@@ -53,6 +59,12 @@ const RUN_CALLS_MAX = 200
 
 /** The most agents of a workspace looked through for a template. */
 const AGENTS_MAX = 200
+
+/** The most runs a world is looked for along a chain of workflow calls (the run, its caller, the caller's caller, ...). */
+const CALL_CHAIN_MAX = 8
+
+/** The most stored node settings naming an unattached account this process reports (each once). */
+const SKIPS_REPORTED_MAX = 1000
 
 /** One account a call may act on: its provider and its connection. */
 export interface BoundAccount {
@@ -77,6 +89,12 @@ interface ServingAccount extends BoundAccount {
 /** The account a call is handed: its provider and its connection only. */
 const plainOf = ({ provider, connectionId }: BoundAccount): BoundAccount => ({ provider, connectionId })
 
+/** The bound accounts with the run's own account (when one of them) first, the rest in their order. */
+const ownFirst = (bound: ReadonlyArray<BoundAccount>, own: string | null): ReadonlyArray<BoundAccount> =>
+    own === null
+        ? bound
+        : [...bound.filter((account) => account.connectionId === own), ...bound.filter((account) => account.connectionId !== own)]
+
 /** The accounts a step's node settings chose, by provider, in the node's order (the entries a choice bound, `node-settings.policy`). */
 const chosenOfRequest =
     (accounts: ReadonlyArray<{ readonly provider: string; readonly connectionId: string | null }>) =>
@@ -89,7 +107,29 @@ interface NodeBinding {
     readonly bound: ReadonlyArray<BoundAccount>
     /** The first listed provider still to pick, or null. */
     readonly unpicked: PickNeeded | null
+    /** Why the run's world binds nothing a listed provider serves the call with, or null (rule 19). */
+    readonly world: WorldRefusal | null
 }
+
+/**
+ * Why ONE WORLD PER RUN (lane concept provider-sandbox rule 19) leaves a call without an account: the run's world is fixed and every
+ * attached account serving it is of the other world (`other_world`, with the first such provider), or nothing fixes the run's world and
+ * the accounts serving it are of both (`undecided`). What the typed refusals `TOOLS_ACCOUNT_OTHER_WORLD` / `TOOLS_RUN_WORLD_UNDECIDED` name.
+ */
+export type WorldRefusal =
+    | { readonly kind: "other_world"; readonly provider: string; readonly world: AccountWorld }
+    | { readonly kind: "undecided"; readonly provider: string }
+
+/** The agent's attachments as the world rule reads them: each attached account's world, and the world its default accounts agree on. */
+interface AgentWorlds {
+    /** The sandbox flag of each attached account, by connection. */
+    readonly flags: ReadonlyMap<string, boolean>
+    /** The world every default account of the agent is of, else the world of every attached account, else null (both, no agreement). */
+    readonly fallback: AccountWorld | null
+}
+
+/** The world a run acts in: fixed (`sandbox` / `live`), or nothing fixes it (`null`). */
+type RunWorld = AccountWorld | null
 
 /**
  * True for a tool no registry places on a provider: no core spec, no owner (a source key) and no catalogue provider (a plugin's own tool
@@ -199,7 +239,12 @@ export class AgentAccountsService {
         @Optional() private readonly effectAudit?: EffectRightAuditService,
         @Optional() private readonly callLog?: ToolCallLogService,
         @Optional() private readonly runs?: AgentRunsService,
+        @Optional() @InjectLogger() private readonly logger?: Logger,
+        @Optional() private readonly routes?: CustomerRoutesService,
     ) {}
+
+    /** The stored node settings naming an unattached account this process has reported (each once). */
+    private readonly skipsReported = new Set<string>()
 
     /**
      * Files the verdict of an EFFECT in the audit (`EffectRightAuditService`): called where such a verdict is produced, by the channel
@@ -298,8 +343,27 @@ export class AgentAccountsService {
         const placed = isNodePlacedTool(tool)
         if (placed && step === null) return []
         const named = await this.servingOf(workspaceId, agentId, tool, placed)
-        if (step === null) return named.map(plainOf)
+        if (step === null) return (await this.inRunWorld(workspaceId, agentId, named, run)).map((account) => plainOf(account))
         return (await this.bindingOf(workspaceId, agentId, step, named, run)).bound
+    }
+
+    /**
+     * Why ONE WORLD PER RUN binds no account for a call at a workflow step (rule 19): every attached account a listed provider serves it
+     * with is of the other world, or nothing fixes the run's world and they are of both. Null when something binds, outside a step,
+     * without a run, and when the node's request cannot be read. What the typed `TOOLS_ACCOUNT_OTHER_WORLD` / `TOOLS_RUN_WORLD_UNDECIDED`
+     * refusals name: never a fall through to the other world.
+     */
+    async worldRefusalOf(
+        workspaceId: string,
+        agentId: string,
+        tool: string,
+        seen?: RightSeen,
+        run?: RunRef,
+    ): Promise<WorldRefusal | null> {
+        const step = workflowStepOf(seen)
+        if (step === null || run === undefined) return null
+        const named = await this.servingOf(workspaceId, agentId, tool, isNodePlacedTool(tool))
+        return (await this.bindingOf(workspaceId, agentId, step, named, run)).world
     }
 
     /**
@@ -361,7 +425,12 @@ export class AgentAccountsService {
      * request cannot be read, and for a step with no choice (the default pick). What a send that picks its own account (the customer
      * send's channel identity) prefers after the account the run was woken on.
      */
-    async chosenAccountsOf(workspaceId: string, agentId: string, seen?: RightSeen): Promise<ReadonlyArray<BoundAccount>> {
+    async chosenAccountsOf(
+        workspaceId: string,
+        agentId: string,
+        seen?: RightSeen,
+        run?: RunRef,
+    ): Promise<ReadonlyArray<BoundAccount>> {
         const step = workflowStepOf(seen)
         if (step === null) return []
         const request = await this.readRequest(workspaceId, agentId)(step)
@@ -370,14 +439,19 @@ export class AgentAccountsService {
         )
         if (chosen.length === 0) return []
         const attached = new Set((await this.rows.listOfAgent(workspaceId, agentId)).map((row) => row.connectionId))
-        return chosen.filter((account) => attached.has(account.connectionId))
+        this.reportUnattached(workspaceId, step, chosen, attached)
+        return this.inRunWorld(workspaceId, agentId, chosen.filter((account) => attached.has(account.connectionId)), run)
     }
 
     /**
      * The attached accounts a step's node binds, in the node's order of providers (none when its request cannot be read), and the first
      * listed provider still to pick. Of several attached accounts of one provider the order `pickAccountOf` names one (never a guess):
-     * the run's trigger, the run's earlier calls, the step's chosen accounts (its node settings), the agent's default account of the provider. The run's facts are read only when a
-     * listed provider has several accounts, so the single-account path reads nothing more than before.
+     * the run's trigger, the run's earlier calls, the step's chosen accounts (its node settings), the agent's default account of the
+     * provider. ONE WORLD PER RUN (lane concept provider-sandbox rule 19): whenever a run is named and an attached account serves the call,
+     * the run's world (`runWorldOf`) narrows EVERY rung to that world's accounts BEFORE the order picks, so no rung (the event, the run's
+     * earlier calls, a node setting, the default) can name an account of the other world; a listed provider with none of that world binds
+     * nothing and the call is refused typed (`world`), never sent in the other world. A stored node setting naming an account the agent is
+     * not attached to names nothing (it is skipped, and reported once).
      */
     private async bindingOf(
         workspaceId: string,
@@ -387,17 +461,96 @@ export class AgentAccountsService {
         run: RunRef | undefined,
     ): Promise<NodeBinding> {
         const request = await this.readRequest(workspaceId, agentId)(step)
-        if (request === null) return { bound: [], unpicked: null }
+        if (request === null) return { bound: [], unpicked: null, world: null }
         const providers = request.accounts.map((account) => account.provider)
-        const several = providers.some((provider) => named.filter((account) => account.provider === provider).length > 1)
-        const facts = several && run !== undefined ? await this.runFactsOf(workspaceId, run) : undefined
+        const listed = named.filter((account) => providers.includes(account.provider))
+        const agent = await this.worldsOfAgent(workspaceId, agentId)
+        this.reportUnattached(workspaceId, step, request.accounts, agent.flags)
+        const flagged = named.map((account) => ({ ...account, sandbox: agent.flags.get(account.connectionId) === true }))
+        if (run === undefined || listed.length === 0) return this.picked(providers, flagged, request.accounts, undefined)
+        const facts = await this.runFactsOf(workspaceId, run)
+        const world = await this.runWorldOf(workspaceId, run, facts, agent)
+        if (world !== null) return this.picked(providers, flagged, request.accounts, { ...facts, world })
+        // Nothing fixes the run's world: the one world the serving accounts are of is the only one there is; two are never guessed between.
+        const [only, ...other] = [...new Set(flagged.filter((account) => providers.includes(account.provider)).map((account) => worldOfAccount(account)))]
+        if (only !== undefined && other.length === 0) return this.picked(providers, flagged, request.accounts, { ...facts, world: only })
+        const [first] = listed
+        return { bound: [], unpicked: null, world: first === undefined ? null : { kind: "undecided", provider: first.provider } }
+    }
+
+    /** The binding of a node under the run's facts (its world, when fixed, narrows every rung): the bound, the pick to make, the world refusal. */
+    private picked(
+        providers: ReadonlyArray<string>,
+        flagged: ReadonlyArray<ServingAccount & { readonly sandbox: boolean }>,
+        chosen: ReadonlyArray<{ readonly provider: string; readonly connectionId: string | null }>,
+        facts: RunAccountFacts | undefined,
+    ): NodeBinding {
         const defaultOf = (provider: string): string | null =>
-            named.find((account) => account.provider === provider && account.isDefault)?.connectionId ?? null
-        const chosenOf = chosenOfRequest(request.accounts)
+            flagged.find((account) => account.provider === provider && account.isDefault)?.connectionId ?? null
+        const chosenOf = chosenOfRequest(chosen)
+        // The run's OWN account (the one its event came in on, else its person's route's) goes first when the node binds it: a send to a
+        // person goes out on the channel the person writes on, before the node's provider order (FIX-C2).
+        const bound = ownFirst(
+            bindNodeProviders(providers, flagged, defaultOf, facts, chosenOf).map((account) => plainOf(account)),
+            facts?.triggerConnectionId ?? null,
+        )
+        const world = facts?.world
+        // The run's world binds nothing a listed provider serves the call with, though the other world would: the typed refusal names it.
+        const other =
+            world === undefined || bound.length > 0
+                ? undefined
+                : flagged.find((account) => providers.includes(account.provider) && worldOfAccount(account) !== world)
         return {
-            bound: bindNodeProviders(providers, named, defaultOf, facts, chosenOf).map(plainOf),
-            unpicked: unpickedOf(providers, named, defaultOf, facts, chosenOf)[0] ?? null,
+            bound,
+            unpicked: unpickedOf(providers, flagged, defaultOf, facts, chosenOf)[0] ?? null,
+            world: other === undefined || world === undefined ? null : { kind: "other_world", provider: other.provider, world },
         }
+    }
+
+    /**
+     * The accounts of a list a call made in a run may use (rule 19): only those of the run's world; every one without a run (a caller that
+     * names none); and none when nothing fixes the run's world while the list holds both worlds (never a guess between them).
+     */
+    private async inRunWorld<A extends BoundAccount>(
+        workspaceId: string,
+        agentId: string,
+        accounts: ReadonlyArray<A>,
+        run: RunRef | undefined,
+    ): Promise<ReadonlyArray<A>> {
+        if (run === undefined || accounts.length === 0) return accounts
+        const agent = await this.worldsOfAgent(workspaceId, agentId)
+        const worlds = await Promise.all(
+            accounts.map(async (account) =>
+                worldOfAccount({ sandbox: agent.flags.get(account.connectionId) ?? (await this.sandboxOf(account.connectionId)) }),
+            ),
+        )
+        const fixed = await this.runWorldOf(workspaceId, run, await this.runFactsOf(workspaceId, run), agent)
+        const [only, ...other] = [...new Set(worlds)]
+        const world = fixed ?? (other.length === 0 ? only : undefined)
+        return world === undefined ? [] : accounts.filter((_account, at) => worlds[at] === world)
+    }
+
+    /**
+     * The agent's attachments as the world rule reads them: the sandbox flag of each attached account (read fresh from the connections on
+     * every call, never cached), and the world its default accounts agree on, else the world of every attached account (one world held),
+     * else null. Empty flags when no reader of connections is bound.
+     */
+    private async worldsOfAgent(workspaceId: string, agentId: string): Promise<AgentWorlds> {
+        const rows = await this.rows.listOfAgent(workspaceId, agentId)
+        if (this.connections === undefined) return { flags: new Map(), fallback: null }
+        const ids = [...new Set(rows.map((row) => row.connectionId))]
+        const facts = (await this.connections.factsOf(ids, ids.length)) ?? []
+        const flags = new Map(facts.map((fact) => [fact.id, fact.sandbox === true]))
+        const agreed = (held: ReadonlyArray<{ readonly connectionId: string }>): AccountWorld | null => {
+            const [only, ...other] = [...new Set(held.map((row) => worldOfAccount({ sandbox: flags.get(row.connectionId) })))]
+            return only !== undefined && other.length === 0 ? only : null
+        }
+        return { flags, fallback: agreed(rows.filter((row) => row.isDefault === true)) ?? agreed(rows) }
+    }
+
+    /** The sandbox flag of one connection (an account the agent is not attached to: a trigger's), or undefined when it cannot be read. */
+    private async sandboxOf(connectionId: string): Promise<boolean | undefined> {
+        return (await this.connections?.factsOf([connectionId], 1))?.find((fact) => fact.id === connectionId)?.sandbox
     }
 
     /**
@@ -411,26 +564,99 @@ export class AgentAccountsService {
             this.callLog?.connectionsUsedByRun(workspaceId, run.runId, RUN_CALLS_MAX) ?? Promise.resolve([]),
         ])
         const trigger = started?.context.connectionId
-        return { triggerConnectionId: typeof trigger === "string" && trigger !== "" ? trigger : null, usedConnectionIds: used }
+        const own = typeof trigger === "string" && trigger !== "" ? trigger : await this.routeAccountOf(workspaceId, started?.context.conversationId)
+        return { triggerConnectionId: own, usedConnectionIds: used }
+    }
+
+    /**
+     * The account of the person's ROUTE a run serves (its context's `conversationId`: the route the subject of a called or scheduled run
+     * carries from its caller): the channel the person writes on. Null for a run that serves no route, or in an app with no routes.
+     */
+    private async routeAccountOf(workspaceId: string, routeId: unknown): Promise<string | null> {
+        if (typeof routeId !== "string" || routeId === "" || this.routes === undefined) return null
+        return (await this.routes.get(workspaceId, routeId))?.accountId ?? null
+    }
+
+    /**
+     * THE RUN'S WORLD (lane concept provider-sandbox rule 19, ONE WORLD PER RUN), the first of these that names one: (1) the account of the
+     * event that started the run (its trigger's account); (2) the world of the run that CALLED it: a workflow call or a hand-off inherits
+     * its caller's world, along the chain of calls (at most `CALL_CHAIN_MAX` runs); (3) the account the run's own calls first bound; (4) the
+     * world the agent's default accounts agree on, else the world of every account the agent holds (a clock round, a start by hand). Null:
+     * nothing fixes it (the agent holds both worlds and its defaults do not agree on one).
+     */
+    private async runWorldOf(workspaceId: string, run: RunRef, facts: RunAccountFacts, agent: AgentWorlds): Promise<RunWorld> {
+        return (await this.chainWorldOf(workspaceId, run.runId, facts, agent, new Set([run.runId]))) ?? agent.fallback
+    }
+
+    /** The world one run of a chain of calls names: its trigger's account, else its caller's world, else its own first bound account; else null. */
+    private async chainWorldOf(
+        workspaceId: string,
+        runId: string,
+        facts: RunAccountFacts,
+        agent: AgentWorlds,
+        seen: ReadonlySet<string>,
+    ): Promise<RunWorld> {
+        const worldOf = async (connectionId: string | null | undefined): Promise<RunWorld> => {
+            if (connectionId === null || connectionId === undefined) return null
+            const sandbox = agent.flags.get(connectionId) ?? (await this.sandboxOf(connectionId))
+            return sandbox === undefined ? null : worldOfAccount({ sandbox })
+        }
+        const byTrigger = await worldOf(facts.triggerConnectionId)
+        if (byTrigger !== null) return byTrigger
+        const started = await (this.runs?.runOf(workspaceId, runId) ?? Promise.resolve(null))
+        const caller = started === null ? null : callerRunIdOf(started.context)
+        if (caller !== null && !seen.has(caller) && seen.size < CALL_CHAIN_MAX) {
+            const callerFacts = await this.runFactsOf(workspaceId, { runId: caller })
+            const byCaller = await this.chainWorldOf(workspaceId, caller, callerFacts, agent, new Set([...seen, caller]))
+            if (byCaller !== null) return byCaller
+        }
+        const used = facts.usedConnectionIds ?? []
+        return worldOf(used.at(-1))
+    }
+
+    /**
+     * Reports, once per process for each (workspace, workflow version, node, account), a stored node setting that names an account the
+     * agent is not attached to: such an entry names nothing at the pick (it is skipped), and the owner is told through the log.
+     */
+    private reportUnattached(
+        workspaceId: string,
+        step: NodeStepRef,
+        chosen: ReadonlyArray<{ readonly provider: string; readonly connectionId: string | null }>,
+        attached: ReadonlyMap<string, boolean> | ReadonlySet<string>,
+    ): void {
+        for (const entry of chosen) {
+            if (entry.connectionId === null || attached.has(entry.connectionId)) continue
+            const key = `${workspaceId}:${step.versionId}:${step.nodeKey}:${entry.connectionId}`
+            if (this.skipsReported.has(key) || this.skipsReported.size >= SKIPS_REPORTED_MAX) continue
+            this.skipsReported.add(key)
+            this.logger?.warn(ToolsLogEvent.NodeSettingAccountSkipped, {
+                workspaceId,
+                workflowVersionId: step.versionId,
+                nodeKey: step.nodeKey,
+                provider: entry.provider,
+                connectionId: entry.connectionId,
+            })
+        }
     }
 
     /**
      * The accounts a read over several accounts may cover: the agent's attached accounts serving the tool, narrowed at a workflow step to
-     * the providers its node lists (in its order).
+     * the providers its node lists (in its order), and in a run to the run's world (rule 19).
      */
     async accountsOfAgent(
         workspaceId: string,
         agentId: string,
         tool: string,
         seen?: RightSeen,
+        run?: RunRef,
     ): Promise<ReadonlyArray<string>> {
         const step = workflowStepOf(seen)
         const placed = isNodePlacedTool(tool)
         if (placed && step === null) return []
-        const named = await this.servingOf(workspaceId, agentId, tool, placed)
+        const named = await this.inRunWorld(workspaceId, agentId, await this.servingOf(workspaceId, agentId, tool, placed), run)
         if (step === null) return named.map((row) => row.connectionId)
         const request = await this.readRequest(workspaceId, agentId)(step)
-        const listed = request?.accounts.map((account) => account.provider) ?? []
+        const listed = [...new Set(request?.accounts.map((account) => account.provider) ?? [])]
         return listed.flatMap((provider) => named.filter((row) => row.provider === provider).map((row) => row.connectionId))
     }
 

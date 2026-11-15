@@ -2,9 +2,11 @@ import type {
     OpenedSandbox,
     SandboxCall,
     SandboxCase,
+    SandboxDeliveryMode,
     SandboxInput,
     SandboxLatestRequest,
     SandboxNextCase,
+    SandboxOutcome,
     SandboxPayLinkView,
     SandboxSendResult,
 } from "@modules/domain/provider-sandbox"
@@ -21,6 +23,7 @@ import type {
     SandboxWorkspaceRequest,
     SendSandboxCaseRequest,
     SetSandboxNextCaseRequest,
+    SetSandboxNextOutcomeRequest,
 } from "../../application/provider-sandbox.contracts"
 import type {
     ExpireSandboxWaitInput,
@@ -28,6 +31,7 @@ import type {
     SandboxAccountAgentInput,
     SendSandboxCaseInput,
     SetSandboxNextCaseInput,
+    SetSandboxNextOutcomeInput,
 } from "./dto/provider-sandbox.inputs"
 import type {
     OpenedSandboxAccountType,
@@ -90,7 +94,21 @@ export const toSendSandboxCaseRequest = (workspaceId: string, input: SendSandbox
     connectionId: input.connectionId,
     caseId: input.caseId,
     inputs: (input.inputs ?? []).map((one) => ({ name: one.name, value: one.value })),
-    dropWebhook: input.dropWebhook === true,
+    // `dropWebhook` is the page's old flag: the same as `mode: withheld` (to go once fe sends `mode`).
+    ...(input.mode !== undefined && input.mode !== null
+        ? { mode: input.mode as SandboxDeliveryMode }
+        : input.dropWebhook === true
+          ? { mode: "withheld" as const }
+          : {}),
+    ...(input.lateBySeconds === undefined || input.lateBySeconds === null ? {} : { lateBySeconds: input.lateBySeconds }),
+})
+
+/** Maps the input of setSandboxNextOutcome. */
+export const toSetSandboxNextOutcomeRequest = (workspaceId: string, input: SetSandboxNextOutcomeInput): SetSandboxNextOutcomeRequest => ({
+    workspaceId,
+    connectionId: input.connectionId,
+    operation: input.operation,
+    outcome: input.outcome as SandboxOutcome,
 })
 
 /** Maps the input of setSandboxNextCase. */
@@ -124,6 +142,9 @@ export const toSandboxCaseType = (one: SandboxCase): SandboxCaseType => ({
     direction: one.inbound === undefined ? "outbound" : "inbound",
     operation: one.operation ?? null,
     isDefault: one.default === true,
+    outcome: one.outcome ?? null,
+    polled: one.inbound?.polled === true,
+    delivery: one.inbound?.delivery?.mode ?? null,
     trigger: one.inbound?.trigger ?? null,
     inputs: (one.inbound?.inputs ?? []).map((field) => ({
         name: field.name,
@@ -170,6 +191,8 @@ export const toSandboxSendResultType = (result: SandboxSendResult): SandboxSendR
         bodyJson: delivery.body === undefined || delivery.body === null ? null : jsonOf(delivery.body),
     })),
     webhookDropped: result.webhookDropped,
+    mode: result.mode,
+    lateBySeconds: result.lateBySeconds,
 })
 
 /** The account just opened. */

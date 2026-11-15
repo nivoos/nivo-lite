@@ -73,6 +73,8 @@ const NATIVE: ToolManifest = {
 const CONNECTIONS = {
     recordOf: () => Promise.resolve({ meta: {} }),
     ofProvider: () => Promise.resolve([]),
+    // The facts the world rule reads (rule 19): every account here is a live one.
+    factsOf: (ids: ReadonlyArray<string>) => Promise.resolve(ids.map((id) => ({ id, sandbox: false }))),
 }
 
 const nodeOf = (key: string, extra: Partial<GraphNode>): GraphNode => ({

@@ -7,18 +7,34 @@ import { LOGGER, type Logger } from "@modules/platform/logging"
 import { handBackEventOf } from "./thread-hand-back.policy"
 import { ThreadHandBacksService } from "./thread-hand-backs.service"
 
-/** The triggers of the sale's payment wait, as its params hold them. */
+/** The keys of the sale's payment wait, as its params hold them (each key one meaning listing its verbs: templates rule 12). */
 const ON = [
-    { key: "paid", verb: TRIGGER.paymentCreditReceived },
-    { key: "said", verb: TRIGGER.zaloMessageReceived },
+    { key: "paid", verbs: [TRIGGER.paymentCreditReceived] },
+    { key: "said", verbs: [TRIGGER.zaloMessageReceived, TRIGGER.telegramMessageReceived] },
+    { key: "ordered", verbs: [TRIGGER.recordWritten] },
 ]
 
 /** What the wait answered when the person's line came. */
-const SAID = { trigger: "said", event: { eventId: "m-9", accountId: "acc-zalo", routeId: "route-1", data: { text: "hoi chut" } } }
+const SAID = { trigger: "said", event: { eventId: "m-9", verb: TRIGGER.zaloMessageReceived, accountId: "acc-zalo", routeId: "route-1", data: { text: "hoi chut" } } }
 
 describe("handBackEventOf: which event a hand-back gives back (the wait's own output)", () => {
     it("the event of the key that came, with the verb that key listens for", () => {
         expect(handBackEventOf(SAID, ON)).toEqual({ verb: TRIGGER.zaloMessageReceived, eventId: "m-9", accountId: "acc-zalo" })
+    })
+
+    it("a key of several verbs (one meaning on several channels): the event's own verb, when the key lists it", () => {
+        const onTelegram = { trigger: "said", event: { ...SAID.event, verb: TRIGGER.telegramMessageReceived, accountId: "acc-tg" } }
+        expect(handBackEventOf(onTelegram, ON)).toEqual({ verb: TRIGGER.telegramMessageReceived, eventId: "m-9", accountId: "acc-tg" })
+        const onZalo = { trigger: "said", event: { ...SAID.event, verb: TRIGGER.zaloMessageReceived } }
+        expect(handBackEventOf(onZalo, ON)).toEqual({ verb: TRIGGER.zaloMessageReceived, eventId: "m-9", accountId: "acc-zalo" })
+        // A verb the key does not list, or none named, is no event of it.
+        expect(handBackEventOf({ trigger: "said", event: { ...SAID.event, verb: TRIGGER.facebookMessageReceived } }, ON)).toBeNull()
+        expect(handBackEventOf({ trigger: "said", event: { eventId: "m-9", data: {} } }, ON)).toBeNull()
+    })
+
+    it("the second kind: a record write the wait took (no account, no person) is given back by its one verb", () => {
+        const written = { trigger: "ordered", event: { eventId: "blocks-core.sales.order:order-1:v3", data: { type: "blocks-core.sales.order", recordId: "order-1" } } }
+        expect(handBackEventOf(written, ON)).toEqual({ verb: TRIGGER.recordWritten, eventId: "blocks-core.sales.order:order-1:v3", accountId: null })
     })
 
     it("nothing for the timeout, an unknown key, or an event with no id", () => {
@@ -64,7 +80,7 @@ describe("ThreadHandBacksService: the event goes back to the next waiter, then t
         const { handBacks, wakes } = await build()
         const due = { trigger: "due", event: { eventId: "task-1:2026" } }
 
-        await handBacks.handBack({ workspaceId: "ws-1", runId: "run-1", agentId: "agent-1" }, due, [{ key: "due", verb: TRIGGER.timerDue }])
+        await handBacks.handBack({ workspaceId: "ws-1", runId: "run-1", agentId: "agent-1" }, due, [{ key: "due", verbs: [TRIGGER.timerDue] }])
         expect(wakes.reoffer.mock.calls[0]?.[2]).toMatchObject({ eventKey: `${TRIGGER.timerDue}:agent-1:task-1:2026` })
     })
 

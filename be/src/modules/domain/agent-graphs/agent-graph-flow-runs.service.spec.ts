@@ -87,7 +87,7 @@ const installedNodes = () => {
 }
 
 /** Where the seed keeps its graph files, from this folder. */
-const SEEDS_DIR = "../../../../../.starcistacks/dev/seeds/data/graphs"
+const SEEDS_DIR = "../../../tests/fixtures/graphs"
 
 /** The graph of a module as the seed ships it, parsed by the SDK's own schema. */
 const seededGraphOf = (name: ModuleName): GraphSpec =>

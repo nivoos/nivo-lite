@@ -32,8 +32,8 @@ export type JobProgressChange = Partial<
 export interface JobProgressPublication {
     /** The recorded chain name of the job (`job-progress:<workspace>:<root>`): its workspace is the topic the frame goes to, its root is carried in the frame. */
     readonly topicName: string
-    /** The claimed job the frame tells. */
-    readonly job: ClaimedJob
+    /** The job the frame tells (a claimed job, or the row of a job a person closed). */
+    readonly job: Pick<ClaimedJob, "jobId">
     /** The job name (the kind of the job row). */
     readonly jobName: string
     /** The state the job is in. */

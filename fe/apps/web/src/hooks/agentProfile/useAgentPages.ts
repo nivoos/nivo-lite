@@ -2,7 +2,6 @@
 
 import { useInstallations } from "@/hooks/installations"
 import { useWorkspaceId } from "@/hooks/workspaces"
-import { isModuleKey } from "@/modules/catalog"
 import { agentHref } from "@/modules/installations"
 import { workspaceHref } from "@/modules/routes"
 
@@ -19,7 +18,7 @@ export const useAgentPages = (agentId: string): AgentPages | null => {
     const workspaceId = useWorkspaceId()
     const { installations } = useInstallations()
     const installation = installations?.find((entry) => entry.agentId === agentId)
-    if (installation === undefined || !isModuleKey(installation.moduleKey)) return null
+    if (installation === undefined) return null
     return {
         home: workspaceHref(workspaceId, agentHref(installation.moduleKey, installation.id)),
         work: workspaceHref(workspaceId, agentHref(installation.moduleKey, installation.id, "work")),

@@ -74,6 +74,7 @@ export class NativeRunnerService {
             ...(caller.byMember === undefined ? {} : { byMember: caller.byMember }),
             ...(caller.approvedBy === undefined ? {} : { approvedBy: caller.approvedBy }),
             ...(caller.run === undefined ? {} : { run: caller.run }),
+            ...(caller.subject === undefined ? {} : { subject: caller.subject }),
             ...(caller.graphStep === true ? { graphStep: true as const } : {}),
             ...(caller.engine === true ? { engine: true as const } : {}),
             ...(caller.origin === undefined ? {} : { origin: caller.origin }),

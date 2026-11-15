@@ -7,7 +7,7 @@ import {
     useMutateRequeueStoppedEventSwr,
     useMutateResumeStoppedWorkSwr,
 } from "@/hooks/swr"
-import { isRefusedByBackend } from "@/modules/failure"
+import { graphQLErrorCode, isNotFoundFailure, isRefusedByBackend } from "@/modules/failure"
 import { eventOfJobId } from "@/modules/teamChat"
 import { toast } from "@/modules/toast"
 import type { TeamChatJobParkedAction } from "@/modules/types"
@@ -18,6 +18,9 @@ export interface TeamChatJobsView {
     readonly pendingId: string | null
     readonly act: (jobId: string, action: TeamChatJobParkedAction) => Promise<void>
 }
+
+/** The backend codes that say the job is no longer waiting for a person (a second close, a resume of a closed or handed-back job): a notice, not an error. */
+const NOTHING_WAITING: ReadonlySet<string> = new Set(["JOB_OPS_STOPPED_WORK_ALREADY_CLOSED", "JOB_OPS_STOPPED_WORK_NOT_STOPPED"])
 
 /**
  * What is done with the "job stopped" cards of the open room: "Run again" goes to `resumeStoppedWork` (a buried event's card, whose id is
@@ -34,6 +37,7 @@ export const useTeamChatJobs = (onChanged: () => void): TeamChatJobsView => {
     const done = (doneKey: "jobParked.toastResumed" | "jobParked.toastClosed"): void => void toast.success(t(doneKey))
     const gone = (): void => void toast.info(t("jobParked.toastGone"))
     const failed = (error: unknown): void => {
+        if (isNotFoundFailure(error) || NOTHING_WAITING.has(graphQLErrorCode(error) ?? "")) return gone()
         const description = isRefusedByBackend(error) && error instanceof Error ? error.message : t("jobParked.failedText")
         toast.danger(t("jobParked.failedTitle"), { description })
     }

@@ -3,7 +3,7 @@ import { ChannelsError, ChannelsErrorCode } from "@modules/domain/channels"
 import type { ChannelTarget, CustomerSendPort, CustomerSendRequest, DeliveryResult, PersonMessage } from "@modules/domain/channels"
 import type { ConnectionRecord } from "@modules/domain/connections"
 import { ProviderSandboxService } from "@modules/domain/provider-sandbox"
-import { TELEGRAM_SEND_OPERATION, TELEGRAM_STAFF_OPERATION, TELEGRAM_TYPING_OPERATION } from "./telegram-sandbox-send.catalogue"
+import { TELEGRAM_SANDBOX_DELIVERED_STATE, TELEGRAM_SEND_OPERATION, TELEGRAM_STAFF_OPERATION, TELEGRAM_TYPING_OPERATION } from "./telegram-sandbox-send.catalogue"
 
 /** Delivered as the live bot route answers it. */
 const DELIVERED: DeliveryResult = { delivered: true, failure: null, outcome: "acknowledged" }
@@ -44,8 +44,14 @@ export class TelegramSandboxSendService implements CustomerSendPort {
             { userId, text: request.text, images: request.images ?? [] },
             {
                 key: userId ?? "",
-                answer: (state) => {
+                answer: async (state) => {
                     if (userId === null || state.nextCase === "TELEGRAM-SEND-2") return NOT_DELIVERED
+                    if (state.nextCase === "TELEGRAM-SEND-5") {
+                        // No answer, but it went out: the person is kept as reached (the tester's proof of a duplicate).
+                        const reached = await state.read(TELEGRAM_SANDBOX_DELIVERED_STATE, userId)
+                        await state.write(TELEGRAM_SANDBOX_DELIVERED_STATE, userId, (typeof reached === "number" ? reached : 0) + 1)
+                        return UNKNOWN
+                    }
                     if (state.nextCase === "TELEGRAM-SEND-3") return UNKNOWN
                     if (state.nextCase === "TELEGRAM-SEND-4") throw RATE_LIMITED()
                     return DELIVERED
@@ -64,6 +70,8 @@ export class TelegramSandboxSendService implements CustomerSendPort {
                 key: request.recipientId,
                 answer: (state) => {
                     if (state.nextCase === "TELEGRAM-STAFF-2") throw new ChannelsError({ code: ChannelsErrorCode.ConnectionNotFound })
+                    if (state.nextCase === "TELEGRAM-STAFF-3") throw RATE_LIMITED()
+                    if (state.nextCase === "TELEGRAM-STAFF-4") throw new Error("sandbox: no answer in time")
                     return Promise.resolve()
                 },
             },

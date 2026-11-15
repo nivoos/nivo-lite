@@ -2,7 +2,7 @@ import { Test } from "@nestjs/testing"
 import { FakeClock, fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
 import { INDEXING_WS, MANY, sourceOf, stored } from "@tests/fixtures/builders/knowledge-indexing.builder"
 import { DOC_SOURCE, DOC_WS } from "@tests/fixtures/builders/document-facts.builder"
-import { filedAs, scriptStageDoubles, stageRulesOf, stageReply, stageSource, STAGES_STATE } from "@tests/fixtures/builders/brain-document.builder"
+import { existingSourcesProvider, filedAs, scriptStageDoubles, stageRulesOf, stageReply, stageSource, STAGES_STATE } from "@tests/fixtures/builders/brain-document.builder"
 import { chainProviders, claimedJob } from "@tests/fixtures/builders/knowledge-chain.builder"
 import { FakeEmbedder, FakeRowSource, FakeVectorIndex, vectorRowOf } from "@tests/fixtures/builders/vector-sync.builder"
 import { WorkspaceTimeZoneService } from "@modules/domain/workspace-settings"
@@ -48,11 +48,13 @@ describe("knowledge chain: the job is run twice, the second run repeats no finis
             const vectorSync = mock<VectorSyncService>()
             const source = sourceOf({ content: MANY })
             sources.sourceOf.mockResolvedValue(source)
+            sources.exists.mockResolvedValue(true)
             reader.read.mockResolvedValue({ kind: "ok", value: { text: MANY, title: null } })
             embeddings.configured.mockReturnValue(true)
             embeddings.model.mockReturnValue("m1")
             embeddings.embed.mockImplementation((request) => Promise.resolve(request.texts.map(() => [1])))
             chunks.embeddedOf.mockResolvedValue([])
+            chunks.replace.mockResolvedValue(true)
             chunks.keep.mockImplementation(async (write, within) => {
                 await within?.({} as never)
                 return write.drafts.map((draft) => ({ order: draft.order, id: `c${String(draft.order)}` }))
@@ -132,6 +134,7 @@ describe("knowledge chain: the job is run twice, the second run repeats no finis
                     { provide: CLOCK, useValue: new FakeClock(new Date("2026-11-11T15:00:00.000Z")) },
                     { provide: BrainFactsService, useValue: facts },
                     { provide: BrainExtractionsService, useValue: mock<BrainExtractionsService>() },
+                    existingSourcesProvider(),
                     { provide: KnowledgeChunksService, useValue: chunks },
                     { provide: UsageMeterService, useValue: usage },
                     { provide: FactEmbeddingsService, useValue: vectors },

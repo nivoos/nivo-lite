@@ -19,6 +19,7 @@ import {
     fileOfKept,
     isCustomerFilePath,
     keptFileOf,
+    partFileOf,
     unreadFileOf,
     type CustomerFile,
     type FileNotKept,
@@ -70,8 +71,9 @@ export class CustomerFilesService {
     /**
      * The files of one customer message as its line keeps them, in the order sent; at most `CUSTOMER_FILES_MAX`. Each file is one outside
      * effect keyed by the delivery job and the file's place (`<jobId>:file:<index>`): a retried or resumed delivery gets the entry kept the
-     * first time without reading the channel again. A read that failed on the way or on a busy channel THROWS (the job runner retries it on
-     * its ladder, then dead-letters it with one item); a file the channel or the store refuses for good is a typed not-kept entry.
+     * first time without reading the channel again. A read that failed on the way or on a busy channel is a typed not-kept entry (the line is
+     * stored and the pipeline goes on, R72 DEF-7: the customer's file host failing never fails the delivery job); only the shop's OWN
+     * store being down THROWS (the job runner retries it on its ladder, then dead-letters it with one item).
      */
     keep(
         job: FileKeepJob,
@@ -103,6 +105,8 @@ export class CustomerFilesService {
         index: number,
         attachment: CustomerAttachment,
     ): Promise<CustomerFile> {
+        // A part that carries no file (a link, a contact, a location) is kept as its typed part: nothing to fetch, nothing failed.
+        if (attachment.contentType !== undefined) return Promise.resolve(partFileOf(index, attachment.contentType, attachment.name))
         const at: NotKeptAt = { workspaceId, channelEventId, index, kind: attachment.kind, name: attachment.name }
         if (attachment.url === "") return this.notKept(at, "no_address", null)
         const { assets } = this
@@ -114,7 +118,7 @@ export class CustomerFilesService {
         })
     }
 
-    /** Reads the channel's address once and writes the checked copy; a transient failure of the read or of the store throws, a refusal is a typed not-kept entry. */
+    /** Reads the channel's address once and writes the checked copy; any failure of the read or a refusal is a typed not-kept entry, only a transient failure of the shop's own store throws. */
     private async readAndStore(assets: StorageAssetsPort, at: NotKeptAt, attachment: CustomerAttachment): Promise<CustomerFile> {
         const read = await this.read(attachment)
         if (read.kind === "refused") return this.notKept(at, "fetch_failed", read.cause)
@@ -122,9 +126,7 @@ export class CustomerFilesService {
         const bytes = answer.bytes
         const contentType = bytes === null ? null : sniffChatFile(bytes)
         if (bytes === null || contentType === null) {
-            if (classifyFailure({ status: answer.status }) === "transient") {
-                throw new RemoteFilesError({ code: RemoteFilesErrorCode.Unavailable, params: { status: answer.status } })
-            }
+            // A channel that answers busy or failing is no reason to lose the customer's message: the file is a typed not-kept entry too.
             return this.notKept(at, `refused_${answer.status}`, null)
         }
         const path = customerObjectPathOf(at.workspaceId, at.channelEventId, at.index, contentType)
@@ -138,7 +140,7 @@ export class CustomerFilesService {
         return { id: path, url: `${CUSTOMER_FILE_REF}${path}`, name: chatFileNameOf(at.name, path), contentType }
     }
 
-    /** What the channel's address answered, or the failure of a read no later try fixes (to be recorded as not kept); a transient failure throws. */
+    /** What the channel's address answered, or the failure of the read (network, timeout, an unreadable answer): the customer's file host failing never fails the delivery, it is recorded as not kept. */
     private async read(attachment: CustomerAttachment): Promise<ChannelRead> {
         try {
             const answer = await this.remote.read({
@@ -149,7 +151,6 @@ export class CustomerFilesService {
             })
             return { kind: "answer", answer }
         } catch (cause) {
-            if (classifyFailure(cause) === "transient") throw cause
             return { kind: "refused", cause }
         }
     }

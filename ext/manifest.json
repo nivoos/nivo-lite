@@ -117,7 +117,7 @@
     {
       "id": "seed-graphs",
       "run": "ext/checks/seed-graphs.mjs",
-      "why": "Each dev seed graph equals the installed primary graph of its template agent (.starciwork/concepts/seeds-and-data.md: the running tier is the installed template, never a hand-edited copy)."
+      "why": "Each generated primary graph (be/src/tests/fixtures/graphs, read by specs and reset-workflows) equals the installed primary graph of its template agent (.starciwork/concepts/seeds-and-data.md: the running tier is the installed template, never a hand-edited copy)."
     },
     {
       "id": "tool-names",
@@ -160,6 +160,11 @@
       "why": "The engine (be/**) and the front end (fe/apps/*/src, fe/packages/*/src) import neither blocks-core nor nivo-web-core, and the plugin registry only at the composition roots listed in COMPOSITION_ROOTS; agent-sdk imports none of the three (.starciwork/concepts/layers.md: the engine holds no business)."
     },
     {
+      "id": "fe-module-keys",
+      "run": "ext/checks/fe-module-keys.mjs",
+      "why": "The web app and the front-end packages name no module, agent or template key of an installed plugin as a literal: the keys are read from the installed plugins at check time (TypeScript AST over the fe source), never from a list; what exists comes from the plugin registry, what a workspace sees is what the api serves it (.starciwork/concepts/layers.md rules 6 and 11)."
+    },
+    {
       "id": "engine-business-contracts",
       "run": "ext/checks/engine-business-contracts.mjs",
       "why": "The engine and agent-sdk name only the service contracts listed as generic in layers.md (no contract of one module's business, no domain module wrapping one), and a provider module (one that registers itself in a provider registry at boot) imports among the domain pieces only the table of providers.md (.starciwork/concepts/layers.md rule 14, providers.md rule 13)."
@@ -173,6 +178,11 @@
       "id": "template-tools",
       "run": "ext/checks/template-tools.mjs",
       "why": "A template lists only tools that act outside or on other people: the default record, file, timer and read-context tools are never listed, except an AI read a node's own code calls or requires (.starciwork/concepts/nivo-toolset.md: two default sets, one declaration each)."
+    },
+    {
+      "id": "stored-graph-documents",
+      "run": "ext/checks/stored-graph-documents.mjs",
+      "why": "Every place a graph document is stored (jsonb document / draft columns) is declared, and a migration after the wait-shape change converts its waits at the path its nodes live under (.starciwork/concepts/templates.md rule 12; migration 000400 missed agent_graph_versions)."
     }
   ],
   "packages": {
@@ -428,5 +438,35 @@
         }
       ]
     }
-  }
+  },
+  "secretTargets": [
+    {
+      "id": "blocks-core",
+      "why": "Credentials of the blocks-core seed standard (the demo flower shop): accounts.<account>/<member>, sealed per environment (seeds-and-data rules 9-12).",
+      "root": "../../Repositories/blocks-core-seed-standard",
+      "environments": {
+        "dev": "secrets.dev.enc.yaml",
+        "production": "secrets.prod.enc.yaml"
+      },
+      "recipients": ".sops.yaml",
+      "under": [
+        "accounts"
+      ],
+      "depth": 2
+    },
+    {
+      "id": "nivo-web-core",
+      "why": "Credentials of the nivo-web-core seed standard (NIVO Web): accounts.<account>/<member>, sealed per environment (seeds-and-data rules 9-12).",
+      "root": "../../Repositories/nivo-web-core-seed-standard",
+      "environments": {
+        "dev": "secrets.dev.enc.yaml",
+        "production": "secrets.prod.enc.yaml"
+      },
+      "recipients": ".sops.yaml",
+      "under": [
+        "accounts"
+      ],
+      "depth": 2
+    }
+  ]
 }

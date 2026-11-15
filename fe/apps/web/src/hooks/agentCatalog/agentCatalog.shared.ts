@@ -2,7 +2,7 @@ import type { useTranslations } from "next-intl"
 import { PROVIDERS, PROVIDER_LOGO, isProvider } from "@/hooks/connection-providers"
 import type { InstalledAgent } from "@/hooks/installations"
 import type { AgentCatalogEntry, AgentCatalogRow, CatalogGrantChip } from "@/modules/agentCatalog"
-import { MODULE_REGISTRY } from "@/modules/catalog"
+import type { ModuleCopy } from "@/modules/catalog"
 import { agentLifecycleTone, foldText } from "@/modules/installations"
 
 /** The translator of the catalogue copy. */
@@ -48,11 +48,12 @@ export const catalogRowOf = (
     t: CatalogCopy,
     counts: AgentCounts | undefined,
     canAdd: boolean,
+    copy: ModuleCopy | undefined,
 ): AgentCatalogRow => {
     const grants = (agent.catalog?.grants ?? []).map((grant, index) => grantChipOf(grant, index))
     /** A connection the agent has whose provider is not connected (an error, pending or disconnected): it cannot act through it. */
     const missingLabels = [...new Set((agent.catalog?.grants ?? []).filter((grant) => grant.status !== "connected").map((grant) => grantChipOf(grant, 0).brand))].map((brand) => t("cardMissing", { brand }))
-    const needsConnection = MODULE_REGISTRY[agent.moduleKey].connectionProviders.length > 0
+    const needsConnection = (copy?.connectionProviders.length ?? 0) > 0
     const subtitle = agent.handle === "" ? agent.roleName : `@${agent.handle}`
     return {
         key: agent.id,
@@ -74,7 +75,7 @@ export const catalogRowOf = (
         missingLabels,
         tasks7d: counts?.tasks ?? null,
         waiting: counts?.waiting ?? null,
-        canAddSame: canAdd && MODULE_REGISTRY[agent.moduleKey].multiInstance,
+        canAddSame: canAdd && (copy?.multiInstance ?? false),
         liveAction: liveActionOf(agent.lifecycle),
     }
 }

@@ -9,6 +9,7 @@
   "errors.MODULES_INSTANCE_NAME_INVALID": "The agent name needs 1 to 80 characters.",
   "errors.MODULES_INSTANCE_NAME_TAKEN": "Another agent of this type already has this name.",
   "errors.MODULES_SINGLE_INSTANCE_ONLY": "This agent type allows one agent per workspace.",
+  "errors.MODULES_NOT_AVAILABLE": "This agent type cannot be added from the catalogue.",
   "errors.MODULES_INSTALLATION_NOT_FOUND": "The installed agent was not found.",
   "errors.MODULES_AGENT_MISSING": "This agent has no AI employee yet.",
   "errors.MODULES_AGENT_NAME_INVALID": "The display name needs {{min}} to {{max}} characters.",

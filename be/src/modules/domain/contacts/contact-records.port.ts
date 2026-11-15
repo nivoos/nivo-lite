@@ -8,7 +8,13 @@ export interface ContactRecordRef {
 
 /** What erasing the records of a contact came to: how many records went (cascades included) and were cleared, or the ref that refused. */
 export type ContactRecordsErasure =
-    | { readonly kind: "erased"; readonly records: number; readonly cleared: number }
+    | {
+          readonly kind: "erased"
+          readonly records: number
+          readonly cleared: number
+          /** The records the erase soft-deleted (absent: none): a record that was a subject of its own ends with the person (agent-data). */
+          readonly hidden?: ReadonlyArray<ContactRecordRef> | undefined
+      }
     | { readonly kind: "blocked"; readonly relation: string }
 
 /**

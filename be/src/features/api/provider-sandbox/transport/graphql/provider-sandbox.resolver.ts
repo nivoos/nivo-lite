@@ -10,6 +10,7 @@ import {
     OpenSandboxAccountCommand,
     ResetSandboxAccountCommand,
     SendSandboxCaseCommand,
+    SetSandboxNextOutcomeCommand,
     SetSandboxNextCaseCommand,
 } from "../../application/provider-sandbox.commands"
 import {
@@ -29,6 +30,7 @@ import {
     OpenSandboxAccountInput,
     SandboxAccountAgentInput,
     SendSandboxCaseInput,
+    SetSandboxNextOutcomeInput,
     SetSandboxNextCaseInput,
 } from "./dto/provider-sandbox.inputs"
 import {
@@ -63,6 +65,7 @@ import {
     toSandboxWaitingRunsRequest,
     toSandboxWorkspaceRequest,
     toSendSandboxCaseRequest,
+    toSetSandboxNextOutcomeRequest,
     toSetSandboxNextCaseRequest,
 } from "./provider-sandbox.mapper"
 
@@ -262,6 +265,19 @@ export class ProviderSandboxResolver {
     ): Promise<SandboxNextCaseType> {
         const next = await this.commandBus.execute(
             new SetSandboxNextCaseCommand({ request: toSetSandboxNextCaseRequest(workspaceId, input), principal }),
+        )
+        return toSandboxNextCaseType(next)
+    }
+
+    /** Picks the account's next answer of an outbound operation by the generic outcome (sticky until changed). */
+    @Mutation(() => SandboxNextCaseType, { name: "setSandboxNextOutcome" })
+    async setSandboxNextOutcome(
+        @CurrentPrincipal() principal: Principal,
+        @WorkspaceId() workspaceId: string,
+        @Args("input") input: SetSandboxNextOutcomeInput,
+    ): Promise<SandboxNextCaseType> {
+        const next = await this.commandBus.execute(
+            new SetSandboxNextOutcomeCommand({ request: toSetSandboxNextOutcomeRequest(workspaceId, input), principal }),
         )
         return toSandboxNextCaseType(next)
     }

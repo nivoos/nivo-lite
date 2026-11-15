@@ -180,12 +180,10 @@ const OWN_ACCOUNT: Readonly<Partial<Record<CoreToolId, string>>> = {
     [TOOL.videoGenerationGet]: "any",
     // A render's status at the compose account the node's order picks, as a Veo generation's.
     [TOOL.videoRenderGet]: "any",
-    // The generic transfer instruction: ONE bound bank account (`any`), a read by what its adapters do.
-    [TOOL.paymentTransferCreate]: "any",
     // One bank move of ONE bound bank account (`any`; a read that asks one account, it merges none).
     [TOOL.paymentCreditGet]: "any",
-    // The payment link read: ONE bound payOS account (`any`; a read that asks one account, it merges none).
-    [TOOL.paymentLinkGet]: "any",
+    // The payment request read: ONE bound money account (`any`; a read that asks one account, it merges none).
+    [TOOL.paymentRequestGet]: "any",
     // The calendar and the destinations: a read asks ONE bound account of its owner provider (it merges none), as every media call does.
     [TOOL.calendarSlotFreeList]: "any",
     [TOOL.instagramMediaStatusGet]: "any",
@@ -272,14 +270,21 @@ describe("the engine's tool specs: one total record, agreeing tool by tool with 
         expect(specOf(TOOL.domainRenewalGet)).toMatchObject({ mutates: false, owners: ["inet", "tino"], account: "owner", repeatable: true })
     })
 
-    it("declares every tool's repeatability (R74): every read repeatable, of the writes only the customer send", () => {
+    it("declares every tool's repeatability (R74): every read repeatable, of the writes only the customer send and the payment request (R111)", () => {
         expect(CORE_TOOL_IDS.filter((tool) => !specOf(tool).mutates && !specOf(tool).repeatable)).toEqual([])
-        expect(CORE_TOOL_IDS.filter((tool) => specOf(tool).mutates && specOf(tool).repeatable)).toEqual([TOOL.customerMessageSend])
+        // The payment request: an ask whose answer was lost was shown to no payer, so making it again is safe (PAY-REQ S1).
+        expect(CORE_TOOL_IDS.filter((tool) => specOf(tool).mutates && specOf(tool).repeatable).toSorted()).toEqual([TOOL.customerMessageSend, TOOL.paymentRequestCreate].toSorted())
+        expect(repeatableBySpec(TOOL.paymentRequestCancel)).toBe(false)
         expect(repeatableBySpec(TOOL.domainRenewalCreate)).toBe(false)
         expect(repeatableBySpec(TOOL.invoiceCreate)).toBe(false)
         expect(repeatableBySpec(TOOL.customerMessageSend)).toBe(true)
         expect(repeatableBySpec(TOOL.domainGet)).toBe(true)
-        expect(repeatableBySpec("nivo.api.crm.nivoweb.get.prices")).toBeNull()
+        // A pinned document's operation: as the document declares it (a read; a write that takes the replay key), never guessed.
+        expect(repeatableBySpec("nivo.api.crm.nivoweb.get.prices")).toBe(true)
+        expect(repeatableBySpec("nivo.api.crm.nivoweb.post.tickets")).toBe(true)
+        expect(repeatableBySpec("nivo.api.crm.nivoweb.post.renewals.id.outcome")).toBe(false)
+        expect(repeatableBySpec("nivo.api.crm.nivoweb.post.nothing")).toBeNull()
+        expect(repeatableBySpec("plugin.tool.unknown")).toBeNull()
     })
 
     it("owns a CRM's generated operation by the CRM's provider key (`crm.<id>`), never by `openapi` or another CRM", () => {
@@ -299,8 +304,14 @@ describe("the engine's tool specs: one total record, agreeing tool by tool with 
 })
 
 describe("confirmBy: how a write's unknown outcome is confirmed (R81-3, QB-P3 rules I-3/I-4)", () => {
-    it("declares the renewal confirmed by the renewal check against the expiry read before it; no other tool declares one yet", () => {
-        expect(CORE_TOOL_IDS.filter((tool) => confirmByOf(tool) !== null)).toEqual([TOOL.domainRenewalCreate])
+    it("declares the renewal confirmed by the renewal check against the expiry read before it, and the payment request's cancel by its read (R111)", () => {
+        expect(CORE_TOOL_IDS.filter((tool) => confirmByOf(tool) !== null).toSorted()).toEqual([TOOL.domainRenewalCreate, TOOL.paymentRequestCancel].toSorted())
+        expect(confirmByOf(TOOL.paymentRequestCancel)).toEqual({
+            tool: TOOL.paymentRequestGet,
+            args: { requestRef: { from: "args", member: "requestRef" } },
+            happened: { member: "status", equals: "cancelled" },
+        })
+        expect(confirmReadsOf(TOOL.paymentRequestCancel)).toEqual([TOOL.paymentRequestGet])
         expect(confirmByOf(TOOL.domainRenewalCreate)).toEqual({
             before: { tool: TOOL.domainGet, args: { name: { from: "args", member: "name" } } },
             tool: TOOL.domainRenewalGet,
@@ -480,5 +491,14 @@ describe("the refusals of each tool, per adapter family", () => {
             expect(specOf(tool).refusals.codes.filter((code) => !genericBusiness.includes(code))).toEqual([])
         }
         expect(specOf(TOOL.contactIdentityLink).refusals.codes).not.toContain("internal_only")
+    })
+})
+
+// E-FIX12 rule A-5: a tool's FINAL refusals are a subset of its own refusals, declared only on a write (a read is never a failed act).
+describe("finalRefusals", () => {
+    it.each(Object.entries(TOOL_SPECS))("%s declares only its own refusals as final, and only on a write", (_id, spec) => {
+        const finals: ReadonlyArray<string> = spec.finalRefusals ?? []
+        for (const code of finals) expect(spec.refusals.codes).toContain(code)
+        if (finals.length > 0) expect(spec.mutates).toBe(true)
     })
 })

@@ -9,20 +9,20 @@ import { answered, refused, sentAnswer } from "../../../shared/nodes/tool-answer
 import { careMessageSchema } from "./care.steps"
 import { DRAFT_LINES_MAX, draftLineSchema, type DraftLine } from "./consult.draft"
 import { draftLineJsonOf } from "./sales-order"
-import type { TransferQr } from "./request-qr.node"
+import type { PaymentRequest } from "./request-pay.node"
 
 /** The order the step before recorded, and the conversation to tell the customer in. */
 export interface OrderTellInput {
     /** The customer's conversation. */
     readonly conversationId: string
-    /** The order's code: what the customer writes as the transfer content. */
+    /** The order's code. */
     readonly orderNo: string
     /** The order's exact total, VND. */
     readonly amountVnd: number
     /** The order's lines. */
     readonly lines: ReadonlyArray<DraftLine>
-    /** The bank-transfer instruction of the order (`sales.request-qr`): the QR picture and the receiving account. */
-    readonly qr: TransferQr
+    /** The payment request of the order (`sales.request-pay`): what the payer needs, as the money provider gave it. */
+    readonly request: PaymentRequest
     /** The language the shop writes in. */
     readonly locale: NodeLocale
 }
@@ -30,21 +30,34 @@ export interface OrderTellInput {
 /** The id of the step. */
 const ID = "sales.order-tell"
 
-/** The longest address of a QR picture. */
+/** The longest address of a pay page or a QR picture. */
 const MAX_URL = 2048
+
+/** The longest QR payload. */
+const MAX_PAYLOAD = 1024
 
 const input: NodeSchema<OrderTellInput> = z.object({
     conversationId: z.string().min(1).max(MAX_ID),
     orderNo: z.string().min(1).max(MAX_ID),
     amountVnd: z.number().int().min(0),
     lines: z.array(draftLineSchema).min(1).max(DRAFT_LINES_MAX),
-    qr: z.object({
-        qrImageUrl: z.string().min(1).max(MAX_URL).nullable(),
-        bankCode: z.string().min(1).max(MAX_ID).nullable(),
-        accountNumber: z.string().min(1).max(MAX_ID),
-        accountHolder: z.string().min(1).max(MAX_LINE).nullable(),
-        content: z.string().min(1).max(MAX_ID),
+    request: z.object({
         amountVnd: z.number().int().positive(),
+        reference: z.string().min(1).max(MAX_ID),
+        payUrl: z.string().min(1).max(MAX_URL).nullable(),
+        qrImageUrl: z.string().min(1).max(MAX_URL).nullable(),
+        qrPayload: z.string().min(1).max(MAX_PAYLOAD).nullable(),
+        transferContent: z.string().min(1).max(MAX_ID).nullable(),
+        bank: z
+            .object({
+                accountNumber: z.string().min(1).max(MAX_ID),
+                code: z.string().min(1).max(MAX_ID).nullable(),
+                name: z.string().min(1).max(MAX_LINE).nullable(),
+                holder: z.string().min(1).max(MAX_LINE).nullable(),
+            })
+            .nullable(),
+        requestRef: z.string().min(1).max(MAX_ID).nullable(),
+        payKey: z.string().min(1).max(MAX_ID),
     }),
     locale: z.enum(["vi", "en"]),
 })
@@ -71,9 +84,10 @@ const MAX_TURNS = 4
 /** How the agent of the step behaves: the guidance of the goal, never a line it must say. */
 const GUIDANCE = [
     "Write ONE short message for the customer, in `locale`: the order is recorded, its code `orderNo`, its lines and the total `amountVnd` " +
-        "exactly as given (never compute, round or change an amount), and that the transfer content is the order code.",
-    "The account to pay into is `transfer` (bank, account number, holder, content), as the shop's payment tool composed it: say it " +
-        "exactly as given, and that the QR picture sent with the message holds the same. Never invent an account, a bank or a deadline.",
+        "exactly as given (never compute, round or change an amount).",
+    "How to pay is `pay`, as the shop's money provider gave it; say only what it holds, exactly as given: a `payUrl` is the page " +
+        "where the customer pays (give the address); a `bank` is the account to transfer into, with `transferContent` the words to write " +
+        "on the transfer; `qrPicture` true means the QR picture is sent with the message. Never invent an address, an account, a bank or a deadline.",
     `Anything else about paying (a deadline, a note) is the shop's truth: call ${TOOL.brainSearch} (and ${TOOL.brainPassageSearch} / ` +
         `${TOOL.brainPassageRead} when no truth answers) and say it only as they state it.`,
     "Never confirm a payment, a refund or a delivery time. The step sends the message.",
@@ -88,13 +102,16 @@ const ORDER: OrderTellInput = {
         { name: "small basket", quantity: 2, unitVnd: 2000 },
         { name: "card", quantity: 1, unitVnd: 500 },
     ],
-    qr: {
-        qrImageUrl: "https://vietqr.app/img?acc=123456&bank=ACB&amount=4500&des=DH-20261113-0001",
-        bankCode: "ACB",
-        accountNumber: "123456",
-        accountHolder: "HOA SHOP",
-        content: "DH-20261113-0001",
+    request: {
         amountVnd: 4500,
+        reference: "DH-20261113-0001",
+        payUrl: null,
+        qrImageUrl: "https://vietqr.app/img?acc=123456&bank=ACB&amount=4500&des=DH-20261113-0001",
+        qrPayload: null,
+        transferContent: "DH-20261113-0001",
+        bank: { accountNumber: "123456", code: "ACB", name: null, holder: "HOA SHOP" },
+        requestRef: null,
+        payKey: "DH-20261113-0001",
     },
     locale: "en",
 }
@@ -118,18 +135,36 @@ const PAYMENT_TRUTH: ReadonlyArray<ScriptedToolCall> = [
 const TOLD =
     "Your order DH-20261113-0001 is recorded: 2 small baskets and 1 card, 4,500 VND in total. Please transfer to ACB 123456 (HOA SHOP) with DH-20261113-0001 as the content within 24 hours; the QR above holds the same."
 
+/** A pay link as `sales.request-pay` hands it on for a provider that keeps the request (payOS). */
+const LINK_REQUEST: OrderTellInput["request"] = {
+    amountVnd: 4500,
+    reference: "DH-20261113-0001",
+    payUrl: "https://pay.payos.vn/web/124c33293c43417ab7879e14c8d9eb18",
+    qrImageUrl: null,
+    qrPayload: "00020101021238570010A000000727",
+    transferContent: null,
+    bank: null,
+    requestRef: "1789000000001",
+    payKey: "1789000000001",
+}
+
+/** The message of the link example. */
+const TOLD_LINK =
+    "Your order DH-20261113-0001 is recorded: 2 small baskets and 1 card, 4,500 VND in total. Please pay within 24 hours here: https://pay.payos.vn/web/124c33293c43417ab7879e14c8d9eb18"
+
 /**
  * `sales.order-tell` (Bao khach don va cach tra): tells the customer, in their conversation, the order the step before recorded: its code,
  * its lines and its exact total as the order keeps them, and how the shop takes payment as the shop's truths state it (the agent reads
- * them; the account is the one `sales.request-qr` composed; no account, bank or wording is coded). The agent writes, the step sends
- * once (`nivo.tool.customer.message.send`) with the QR picture as an image. A person declining the send
+ * them). How to pay is the payment request `sales.request-pay` made, presented as the provider gave it: a pay page address, the bank
+ * details and the words to write, a QR PICTURE sent as an image (a QR payload is never sent as one); no provider is named, no account,
+ * bank or wording is coded. The agent writes, the step sends once (`nivo.tool.customer.message.send`). A person declining the send
  * on its card is a business outcome (`declined: true`, the order stays recorded, the graph tells the team); any other refused send
  * stops the run with the refusal.
  */
 export const salesOrderTellNode: TemplateNode<typeof input, typeof output> = defineTemplateNode({
     id: ID,
     title: bilingualOf("nodeSalesOrderTellTitle"),
-    description: { vi: "B\u00e1o kh\u00e1ch \u0111\u01a1n v\u1eeba ghi c\u00f9ng c\u00e1ch thanh to\u00e1n, k\u00e8m m\u00e3 QR chuy\u1ec3n kho\u1ea3n.", en: "Tells the customer the order just recorded and how to pay, with the bank-transfer QR." },
+    description: { vi: "B\u00e1o kh\u00e1ch \u0111\u01a1n v\u1eeba ghi c\u00f9ng c\u00e1ch thanh to\u00e1n, nh\u01b0 nh\u00e0 cung c\u1ea5p \u0111\u01b0a: link thanh to\u00e1n, m\u00e3 QR ho\u1eb7c th\u00f4ng tin chuy\u1ec3n kho\u1ea3n.", en: "Tells the customer the order just recorded and how to pay, as the money provider gave it: a pay link, a QR or the transfer details." },
     tools: [TOOL.customerMessageSend],
     mode: "auto",
     accounts: [PROVIDER.zaloOa, PROVIDER.telegram, PROVIDER.meta],
@@ -143,11 +178,11 @@ export const salesOrderTellNode: TemplateNode<typeof input, typeof output> = def
                 orderNo: given.orderNo,
                 amountVnd: given.amountVnd,
                 lines: given.lines.map((line) => draftLineJsonOf(line)),
-                transfer: {
-                    bankCode: given.qr.bankCode,
-                    accountNumber: given.qr.accountNumber,
-                    accountHolder: given.qr.accountHolder,
-                    content: given.qr.content,
+                pay: {
+                    payUrl: given.request.payUrl,
+                    bank: given.request.bank,
+                    transferContent: given.request.transferContent,
+                    qrPicture: given.request.qrImageUrl !== null,
                 },
                 locale: given.locale,
             },
@@ -158,7 +193,8 @@ export const salesOrderTellNode: TemplateNode<typeof input, typeof output> = def
         })
         const said = await sayToCustomer(context, {
             text: message.text,
-            ...(given.qr.qrImageUrl === null ? {} : { images: [{ url: given.qr.qrImageUrl, caption: "" }] }),
+            // Only a QR PICTURE is sent as an image; a QR payload is text a provider's page draws, never an image address.
+            ...(given.request.qrImageUrl === null ? {} : { images: [{ url: given.request.qrImageUrl, caption: "" }] }),
         })
         if (!said.ok && said.declined) return { text: null, declined: true }
         saidOrCannot(context, said)
@@ -178,6 +214,20 @@ export const salesOrderTellNode: TemplateNode<typeof input, typeof output> = def
                 },
             ],
             output: { text: TOLD, declined: false },
+        },
+        {
+            name: "a pay link (a provider that keeps the request): the customer gets the page address; no picture is sent, a QR payload is no image",
+            params: {},
+            input: { ...ORDER, request: LINK_REQUEST },
+            agent: [{ answer: { text: TOLD_LINK }, calls: PAYMENT_TRUTH }],
+            tools: [
+                {
+                    id: TOOL.customerMessageSend,
+                    args: { text: TOLD_LINK },
+                    answer: sentAnswer("msg-3", "conv-1"),
+                },
+            ],
+            output: { text: TOLD_LINK, declined: false },
         },
         {
             name: "a person declines the send: the customer is not told and the node says declined; the order stays recorded",

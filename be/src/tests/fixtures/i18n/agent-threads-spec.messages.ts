@@ -68,13 +68,13 @@ export const HANDLED_EARLIER_ANSWER_VI = "Đã xử lý ở thẻ trước"
 
 /** The engine's own refusal text of a tool call, as an approval stop folds it into the answers. */
 export const ENGINE_REFUSAL_VI =
-    "Chủ cửa hàng không cho phép gọi nivo.tool.payment.transfer.create với các tham số này. Không gọi lại đúng lệnh đó cho việc này"
+    "Chủ cửa hàng không cho phép gọi nivo.tool.payment.request.create với các tham số này. Không gọi lại đúng lệnh đó cho việc này"
 
 /** The first sentence of the engine's refusal text of a tool call. */
-export const ENGINE_REFUSAL_HEAD_VI = "Chủ cửa hàng không cho phép gọi nivo.tool.payment.transfer.create với các tham số này."
+export const ENGINE_REFUSAL_HEAD_VI = "Chủ cửa hàng không cho phép gọi nivo.tool.payment.request.create với các tham số này."
 
 /** A drafted subject naming a tool id. */
-export const DRAFT_TOOL_SUBJECT_VI = "lệnh tạo QR nivo.tool.payment.transfer.create"
+export const DRAFT_TOOL_SUBJECT_VI = "lệnh tạo yêu cầu thanh toán nivo.tool.payment.request.create"
 
 /** A drafted value naming a snake_case key. */
 export const DRAFT_SNAKE_VALUE_VI = "ghi nhận cho đơn đang chờ theo order_has_money"

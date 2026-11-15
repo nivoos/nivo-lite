@@ -5,14 +5,15 @@ import {
     type ProviderRefusalReason,
 } from "@modules/domain/provider-registry"
 
-export { PAYMENT_TOOL_BUSINESS_REFUSALS } from "@modules/domain/provider-registry"
+export { PAYMENT_REQUEST_REFUSALS, PAYMENT_TOOL_BUSINESS_REFUSALS } from "@modules/domain/provider-registry"
 export { PAYMENT_TOOL_REFUSALS }
 
 /**
- * The expected refusals of the generic payment-instruction tool: an answer to the caller, never a failure of the connector. Every
- * provider's refusal maps onto these (the leaf lists live in the provider registry, so the tool registry states them without this tool).
+ * The expected refusals of the payment tools (`nivo.tool.payment.request.*`, `nivo.tool.payment.credit.get`): an answer to the caller,
+ * never a failure of the connector. Every provider's refusal maps onto these (the leaf lists live in the provider registry, so the tool
+ * registry states them without these tools).
  *
- * One refusal of the payment-instruction tool.
+ * One refusal of the payment tools.
  */
 export type PaymentRefusalReason = (typeof PAYMENT_TOOL_REFUSALS)[number]
 
@@ -23,6 +24,8 @@ export const PAYMENT_REFUSAL_CLASS: Readonly<Record<PaymentRefusalReason, Refusa
     rejected: "business",
     not_found: "business",
     not_available: "infrastructure",
+    // The provider keeps no request (a bank-transfer instruction): an answer about the request, final for a cancel.
+    no_request_state: "business",
 }
 
 const REASON_OF_PROVIDER: Readonly<Record<ProviderRefusalReason, PaymentRefusalReason>> = {

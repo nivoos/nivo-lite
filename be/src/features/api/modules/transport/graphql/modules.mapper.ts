@@ -60,6 +60,13 @@ export const toCatalogRequest = (workspaceId: string | null): GetCatalogRequest 
  */
 export const toModuleDefinitionType = (module: CatalogModule): ModuleDefinitionType => ({
     ...module,
+    knowledgeIdeas: (module.knowledgeIdeas ?? []).map((idea) => ({
+        key: idea.key,
+        topic: idea.topic,
+        hint: idea.hint,
+        businessTypes: idea.businessTypes ?? [],
+        general: idea.general === true,
+    })),
     authorityActions: [],
 })
 

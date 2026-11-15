@@ -67,7 +67,7 @@ export interface PaymentInstructionRequest {
     readonly transferContent: string
 }
 
-/** What the generic transfer tool asks of a provider: an instruction for an amount and a content. */
+/** What SePay's bank-transfer instruction is asked for: an amount and a content (its payment-request adapter asks it). */
 export interface TransferInstructionRequest {
     /** The amount to pay, in VND (a positive integer). */
     readonly amountVnd: number
@@ -103,28 +103,36 @@ export interface TransferInstruction {
 }
 
 /**
- * Every refusal the generic payment-instruction tool (`nivo.tool.payment.transfer.create`) answers, whichever provider served it. A
- * leaf list, so the engine's tool registry states it without importing the tool.
+ * Every refusal the payment tools (`nivo.tool.payment.request.*`, `nivo.tool.payment.credit.get`) answer, whichever provider served them.
+ * A leaf list, so the engine's tool registry states it without importing the tools. `no_request_state`: the provider keeps no request
+ * (a bank-transfer instruction composed locally), so there is nothing to read or cancel.
  */
-export const PAYMENT_TOOL_REFUSALS: readonly ["not_connected", "connection_refused", "rejected", "not_found", "not_available"] = [
+export const PAYMENT_TOOL_REFUSALS: readonly ["not_connected", "connection_refused", "rejected", "not_found", "not_available", "no_request_state"] = [
     "not_connected",
     "connection_refused",
     "rejected",
     "not_found",
     "not_available",
+    "no_request_state",
 ] as const satisfies ReadonlyArray<string>
 
-/** The refusals of that tool a node reads and goes on from (class `business` in the tool's `PAYMENT_REFUSAL_CLASS`); the rest freeze the step. */
+/** The refusals of a provider's answer a node reads and goes on from (class `business` in `PAYMENT_REFUSAL_CLASS`); the rest freeze the step. */
 export const PAYMENT_TOOL_BUSINESS_REFUSALS: readonly ["rejected", "not_found"] = ["rejected", "not_found"] as const satisfies ReadonlyArray<(typeof PAYMENT_TOOL_REFUSALS)[number]>
 
-/** A bank provider that builds the QR a payer scans. */
+/** The business refusals of the payment-request tools: the provider's answers, and `no_request_state` from a provider that keeps no request. */
+export const PAYMENT_REQUEST_REFUSALS: readonly ["rejected", "not_found", "no_request_state"] = [
+    ...PAYMENT_TOOL_BUSINESS_REFUSALS,
+    "no_request_state",
+] as const satisfies ReadonlyArray<(typeof PAYMENT_TOOL_REFUSALS)[number]>
+
+/** A bank provider that composes a bank-transfer instruction (the QR a payer scans): SePay's own port, which its payment-request adapter wraps. */
 export interface PaymentInstructionPort {
     /** The provider key of the account it draws for. */
     readonly provider: string
     /** The QR image link for one transfer into the account. */
     qrUrl(account: InstructionAccount, request: PaymentInstructionRequest): string
     /**
-     * The transfer instruction of the generic tool for one account. It throws `providerRefusal` (a `ProviderRegistryError`) for an account that cannot give one (a
+     * The transfer instruction for one account (its payment-request adapter asks it). It throws `providerRefusal` (a `ProviderRegistryError`) for an account that cannot give one (a
      * missing receiving account is `no_credential`, an instruction the provider cannot express is `rejected`); it never calls the
      * provider unless the provider's own API creates the instruction (and then proves `not_sent` / `unknown` with `providerCallFailure`).
      */

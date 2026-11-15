@@ -7,6 +7,8 @@ export const AUTH_ROUTES = {
     forgot: "/forgot-password",
     reset: "/reset-password",
     workspaces: "/workspaces",
+    /** Where the payment provider sends a payer's browser back to; be's `PAY_RETURN_PATH` is the same text (a spec holds the two equal). */
+    payDone: "/pay/done",
 } as const
 
 /** The privacy policy, served by the landing site. */

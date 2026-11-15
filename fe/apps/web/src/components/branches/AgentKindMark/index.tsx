@@ -1,47 +1,32 @@
-import { Avatar, IconTile, type IconTileTone } from "@starci/grammar/common"
-import { nivoIconSource, type IconName } from "@/components/leaves/Icon"
+import { Avatar } from "@starci/grammar/common"
 
-/** The glyph and the soft colour of each kind of agent: the mark it wears on every screen. */
-const KIND_MARK: Readonly<Record<string, { readonly glyph: IconName; readonly tone: IconTileTone }>> = {
-    chatbot: { glyph: "moduleChatbot", tone: "accent" },
-    lead_gen: { glyph: "moduleLeadGen", tone: "danger" },
-    sales: { glyph: "moduleSales", tone: "danger" },
-    booking: { glyph: "moduleBooking", tone: "accent" },
-    video: { glyph: "moduleVideo", tone: "accent" },
-    content: { glyph: "moduleContent", tone: "success" },
-    hiring: { glyph: "moduleHiring", tone: "success" },
-}
-
-/** The kinds that have a 3D emblem under `public/agents/<key>.webp`; a kind outside it keeps its glyph. */
-const EMBLEM_KINDS: ReadonlySet<string> = new Set([
-    "chatbot",
-    "lead_gen",
-    "sales",
-    "booking",
-    "video",
-    "content",
-    "hiring",
-])
-
-/** What the mark draws: the key of the agent kind and whether the agent is still being read. */
+/** What the mark draws: the key of the agent kind, the glyph its template declares, and whether the agent is still being read. */
 type AgentKindMarkProps = {
     readonly module: string
+    /** The svg path the module template declares (`glyph`, served by the catalogue); empty or absent when none is known. */
+    readonly glyph?: string | undefined
     readonly isLoading?: boolean | undefined
 }
 
-/** The mark of an agent kind: its 3D emblem, else the glyph of its type on the soft colour of its kind; an unknown kind wears the chatbot mark. The NIVO mascot is for NIVO itself. */
-export const AgentKindMark = (props: AgentKindMarkProps) => {
-    const mark = KIND_MARK[props.module] ?? KIND_MARK["chatbot"]
-    const kind = KIND_MARK[props.module] === undefined ? "chatbot" : props.module
-    if (EMBLEM_KINDS.has(kind)) {
-        return <Avatar name={kind} src={`/agents/${kind}.webp`} shape="square" size="md" isDecorative isLoading={props.isLoading === true} />
-    }
-    return (
-        <IconTile
-            source={nivoIconSource(mark?.glyph ?? "moduleChatbot", "leading")}
-            tone={mark?.tone ?? "accent"}
-            size="md"
-            isLoading={props.isLoading === true}
-        />
-    )
-}
+/** The module's own glyph on the 24 grid, in the text colour of the mark: no new colour, no art. */
+const GlyphMark = (props: { readonly path: string }) => (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true" focusable="false">
+        <path d={props.path} />
+    </svg>
+)
+
+/**
+ * The mark of an agent kind: its 3D emblem, the image `/agents/<key>.webp` (a host file named by convention). A kind with no emblem file
+ * draws the glyph its template declares, and, when it declares none, the generic mark of the Avatar. The NIVO mascot is for NIVO itself.
+ */
+export const AgentKindMark = (props: AgentKindMarkProps) => (
+    <Avatar
+        name={props.module}
+        {...(props.module === "" ? {} : { src: `/agents/${props.module}.webp` })}
+        {...(props.glyph === undefined || props.glyph === "" ? {} : { fallback: <GlyphMark path={props.glyph} /> })}
+        shape="square"
+        size="md"
+        isDecorative
+        isLoading={props.isLoading === true}
+    />
+)

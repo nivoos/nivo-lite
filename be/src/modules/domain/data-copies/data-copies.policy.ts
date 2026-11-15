@@ -140,5 +140,23 @@ export const backupFailureOf = (
 export const dataRefusalFailure = (cause: DataRefusal): DomainError<string> => {
     const storeAway = cause.code === "DATA_STORE_FAILED" && classifyFailure(cause.cause) === "transient"
     const permanent = cause.retry === "configuration" && !storeAway
-    return dataCopyFailure(permanent ? "config" : "transient", cause.code, cause)
+    return dataCopyFailure(permanent ? "config" : "transient", refusalReasonOf(cause), cause, refusalFactsOf(cause))
 }
+
+/** The params of a refusal a person can read without a value in them: which store or driver, its cause (a code or a class), the sizes. */
+const REFUSAL_FACTS: ReadonlyArray<string> = ["store", "cause", "driver", "bytes", "cap"]
+
+/** The named facts (store, cause, driver, bytes, cap) a refusal carries, only as strings and numbers. */
+export const refusalFactsOf = (cause: DataRefusal): Readonly<Record<string, string | number>> =>
+    Object.fromEntries(REFUSAL_FACTS.flatMap((name) => (name in cause.params ? [[name, cause.params[name] ?? ""]] : [])))
+
+/** The one line a dead-letter item shows for a refusal: its code, then each named fact (`DATA_STORE_FAILED store=database cause=42501`). */
+export const refusalReasonOf = (cause: DataRefusal): string =>
+    [cause.code, ...Object.entries(refusalFactsOf(cause)).map(([name, value]) => `${name}=${String(value)}`)].join(" ")
+
+/** The fields a refusal is logged with: the code, the retry class and the named facts; never a value. */
+export const refusalLogOf = (cause: DataRefusal): Readonly<Record<string, string | number>> => ({
+    code: cause.code,
+    retry: cause.retry,
+    ...refusalFactsOf(cause),
+})

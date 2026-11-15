@@ -10,9 +10,11 @@ import { telegramUpdate } from "./telegram.data-types"
 
 /*
  * THE TELEGRAM BOT'S MESSAGE TRIGGER (stage 1 of the one event pipeline, concept triggers rule 13): a message a person sends the bot, as
- * ONE canonical event. Pure: the translate reads only its argument. What counts as a message is what the conversation intake answered: an
- * update with a `message` that has an id, a chat and words (a text, or a photo / an image or PDF sent as a file, read as the photo label with
- * its caption); an edited message, a join, a message with no words are dropped. `/start` is a message like any other: its text says
+ * ONE canonical event. Pure: the translate reads only its argument. A message is an update with a `message` that has an id, a chat and
+ * any content: its words (the text, or a caption) and EVERY part Telegram sends (photo, sticker, document of any type, animation, voice,
+ * audio, video, video note: a file by its id; a location, a venue, a contact: a typed part with no file), none dropped for its kind (the
+ * inbound contract, `DeclaredLine`); no word is written for a part. An edited message, a join, a message with no content are dropped.
+ * `/start` is a message like any other: its text says
  * `/start` and the package's first node reads it (the trigger carries no start flag).
  */
 
@@ -22,29 +24,39 @@ export const TELEGRAM_MESSAGE_RECEIVED = "message.received"
 /** The channel of a Telegram person's identity. */
 export const TELEGRAM_CHANNEL = "telegram"
 
-/**
- * The words a photo with no text is read as, in the shop's language (Vietnamese, as the wake's words always were): the conversations
- * bundle's `conversations.photoSent` in brackets. A constant of the provider, so the translate stays pure.
- */
-export const TELEGRAM_PHOTO_LABEL = "[Kh\u00e1ch g\u1eedi m\u1ed9t \u1ea3nh]"
-
-/** A picture or file of a Telegram message as the update names it: no address yet, only the id `getFile` turns into one. */
+/** One part of a Telegram message as the update names it: a file (no address yet, only the id `getFile` turns into one) or a typed part. */
 export interface TelegramMessageFile {
-    /** `image` for a photo or an image sent as a file, `file` for a PDF. */
+    /** `image` for a photo, a sticker or an image sent as a file; `file` for any other part. */
     readonly kind: "image" | "file"
-    /** Telegram's `file_id`. */
+    /** Telegram's `file_id`; empty for a part with no file. */
     readonly fileId: string
-    /** The file name the sender gave, or an empty text (a photo has none). */
+    /** The file name the sender gave, or an empty text; for a part with no file, what Telegram sent of it. */
     readonly name: string
     /** The size in bytes Telegram gave, or null. */
     readonly size: number | null
+    /** Set only for a part with no file (a location, a venue, a contact): its media type. */
+    readonly contentType?: string | undefined
 }
+
+/** The media types of a part that carries no file (standard IANA types): a contact card, a place. */
+const CONTACT_PART = "text/vcard"
+const PLACE_PART = "application/geo+json"
+
+/** The members of a message that carry ONE file each, with what the shop reads it as (a sticker is a picture). */
+const FILE_MEMBERS: ReadonlyArray<readonly [string, TelegramMessageFile["kind"]]> = [
+    ["sticker", "image"],
+    ["animation", "file"],
+    ["voice", "file"],
+    ["audio", "file"],
+    ["video", "file"],
+    ["video_note", "file"],
+]
 
 /** The data of one Telegram message (the channel message members of every channel, plus the provider's attachments). */
 export type TelegramMessageData = {
     /** The key the line is stored once under: `tg:<connection>:<chat id>:<message id>` (a message id is unique only inside its bot's chat). */
     readonly messageKey: string
-    /** What the person wrote, or the photo label with its caption. */
+    /** What the person wrote (the text, or a part's caption), as sent; empty for a message of parts only. */
     readonly text: string
     /** When it was sent (ISO 8601, the message `date`), or null when the update carries none. */
     readonly at: string | null
@@ -114,18 +126,56 @@ const photoOf = (sizes: ReadonlyArray<unknown>): ReadonlyArray<TelegramMessageFi
     return [{ kind: "image", fileId: textOf(largest, "file_id"), name: "", size: sizeOf(largest) }]
 }
 
-/** What the shop reads a document as by its declared type: a picture, a PDF, or nothing. */
-const documentKindOf = (type: string): TelegramMessageFile["kind"] | null => {
-    if (type.startsWith("image/")) return "image"
-    return type === "application/pdf" ? "file" : null
-}
-
-/** A document the shop can read: a picture sent as a file or a PDF; anything else is no customer file. */
+/** A document of any type: a picture sent as a file reads as `image`, any other as `file` (its bytes decide whether it is kept). */
 const documentOf = (document: unknown): ReadonlyArray<TelegramMessageFile> => {
     const fileId = textOf(document, "file_id")
-    const kind = documentKindOf(textOf(document, "mime_type").toLowerCase())
-    if (fileId === "" || kind === null) return []
+    if (fileId === "") return []
+    const kind = textOf(document, "mime_type").toLowerCase().startsWith("image/") ? "image" : "file"
     return [{ kind, fileId, name: textOf(document, "file_name"), size: sizeOf(document) }]
+}
+
+/** The one-file members of a message (sticker, animation, voice, audio, video, video note), each by its file id. */
+const filesOf = (message: Readonly<Record<string, unknown>>): ReadonlyArray<TelegramMessageFile> =>
+    FILE_MEMBERS.flatMap(([member, kind]) => {
+        const file = message[member]
+        const fileId = textOf(file, "file_id")
+        return fileId === "" ? [] : [{ kind, fileId, name: textOf(file, "file_name"), size: sizeOf(file) }]
+    })
+
+/** A part with no file, its words as Telegram sent them joined by a space. */
+const typedPart = (contentType: string, words: ReadonlyArray<string>): TelegramMessageFile => ({
+    kind: "file",
+    fileId: "",
+    name: words.filter((word) => word !== "").join(" "),
+    size: null,
+    contentType,
+})
+
+/** The parts with no file: a venue (its place, title and address) or a bare location, and a contact card, as Telegram sent them. */
+const typedPartsOf = (message: Readonly<Record<string, unknown>>): ReadonlyArray<TelegramMessageFile> => {
+    const venue = message.venue
+    const place = isRecord(venue) ? venue.location : message.location
+    const contact = message.contact
+    return [
+        ...(isRecord(place)
+            ? [
+                  typedPart(PLACE_PART, [
+                      `${String(numberOf(place, "latitude"))},${String(numberOf(place, "longitude"))}`,
+                      textOf(venue, "title"),
+                      textOf(venue, "address"),
+                  ]),
+              ]
+            : []),
+        ...(isRecord(contact)
+            ? [typedPart(CONTACT_PART, [textOf(contact, "first_name"), textOf(contact, "last_name"), textOf(contact, "phone_number")])]
+            : []),
+    ]
+}
+
+/** Every part of a message in one list; a file Telegram names twice (an animation is also its document) is kept once. */
+const partsOf = (message: Readonly<Record<string, unknown>>): ReadonlyArray<TelegramMessageFile> => {
+    const all = [...photoOf(listOf(message, "photo")), ...filesOf(message), ...documentOf(message.document), ...typedPartsOf(message)]
+    return all.filter((part, index) => part.fileId === "" || all.findIndex((other) => other.fileId === part.fileId) === index)
 }
 
 /** The time of a message (`date`, Unix seconds) as ISO 8601, or null. */
@@ -144,15 +194,10 @@ export const translateTelegramUpdateRow = (
     const messageId = numberOf(message, "message_id")
     const chatId = isRecord(message) ? numberOf(message.chat, "id") : Number.NaN
     if (!isRecord(message) || Number.isNaN(updateId) || Number.isNaN(messageId) || Number.isNaN(chatId)) return null
-    const hasPhoto = Array.isArray(message.photo) && message.photo.length > 0
-    const files = [...photoOf(listOf(message, "photo")), ...documentOf(message.document)]
-    const caption = textOf(message, "caption").trim()
+    const files = partsOf(message)
     const written = textOf(message, "text")
-    const text =
-        written === "" && (hasPhoto || files.length > 0)
-            ? [TELEGRAM_PHOTO_LABEL, caption].filter(Boolean).join(" ")
-            : written
-    if (text === "") return null
+    const text = (written === "" ? textOf(message, "caption") : written).trim()
+    if (text === "" && files.length === 0) return null
     const name = nameOf(message.from)
     const chat = String(chatId)
     return {
@@ -160,7 +205,7 @@ export const translateTelegramUpdateRow = (
         subject: { channel: TELEGRAM_CHANNEL, id: chat, ...(name === "" ? {} : { name }) },
         data: {
             messageKey: `tg:${origin.connectionId ?? ""}:${chat}:${String(messageId)}`,
-            text: text.trim(),
+            text,
             at: atOf(message),
             attachments: files,
         },
@@ -178,6 +223,7 @@ const TELEGRAM_MESSAGE_DATA: z.ZodType<TelegramMessageData> = z.object({
             fileId: z.string(),
             name: z.string(),
             size: z.number().nullable(),
+            contentType: z.string().optional(),
         }),
     ),
     resume: z.literal("held").optional(),
@@ -217,21 +263,21 @@ export const TELEGRAM_MESSAGE_WEBHOOK: TriggerDeclaration<TelegramUpdateRow, Tel
     words: {
         title: { vi: "Telegram · Tin nhắn đến", en: "Telegram · Message received" },
         summary: {
-            vi: "Một người nhắn cho bot Telegram của bạn (chữ, ảnh hoặc tệp ảnh/PDF).",
-            en: "A person sends your Telegram bot a message (text, a photo, or an image / PDF file).",
+            vi: "Một người nhắn cho bot Telegram của bạn (chữ, ảnh, nhãn dán, tệp, ảnh động, ghi âm, âm thanh, video, vị trí hoặc danh bạ).",
+            en: "A person sends your Telegram bot a message (text, a photo, a sticker, a file, an animation, a voice note, audio, a video, a location or a contact).",
         },
         members: {
             messageKey: { vi: "Mã tin nhắn (duy nhất trong bot)", en: "The message's key (unique inside the bot)" },
             text: { vi: "Nội dung người đó viết", en: "What the person wrote" },
             at: { vi: "Thời điểm gửi", en: "When it was sent" },
-            attachments: { vi: "Ảnh và tệp gửi kèm", en: "Pictures and files sent with it" },
+            attachments: { vi: "Mọi phần gửi kèm (tệp, hoặc vị trí / danh bạ không có tệp)", en: "Every part sent with it (a file, or a location / contact with no file)" },
         },
     },
     dataType: telegramUpdate.name,
     raw: TELEGRAM_UPDATE_ROW,
     data: TELEGRAM_MESSAGE_DATA,
     translate: translateTelegramUpdateRow,
-    line: telegramLineOf,
+    feeds: { stream: "lines", line: telegramLineOf },
     key: { by: "subject" },
     settle: CHAT_SETTLE,
     // The person's lines append to the route's stream: held lines are ONE marker the workflow reads the stream from (rule Q-4).

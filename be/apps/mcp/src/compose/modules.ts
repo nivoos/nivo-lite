@@ -33,7 +33,7 @@ import { NIVO_API_ERROR_KINDS, NIVO_API_MESSAGES, NivoApiExecutorService } from 
 import { ClockModule } from "@modules/platform/clock"
 import { CONFIG_ERROR_KINDS } from "@modules/platform/config"
 import { CqrsModule } from "@modules/platform/cqrs"
-import { DatabaseModule, PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
+import { DATABASE_ERROR_KINDS, DatabaseModule, PRIMARY_ENTITY_MANAGER, typedDatabaseFailure } from "@modules/platform/database"
 import { IdsModule } from "@modules/platform/ids"
 import { JobsModule } from "@modules/platform/jobs"
 import { EffectsModule } from "@modules/platform/effects"
@@ -74,6 +74,7 @@ const MCP_ERROR_KIND_TABLES = [
     API_KEYS_ERROR_KINDS,
     CONFIG_ERROR_KINDS,
     CONNECTION_SECRETS_ERROR_KINDS,
+    DATABASE_ERROR_KINDS,
     HTTP_SECURITY_ERROR_KINDS,
     IDENTITY_ERROR_KINDS,
     ...mcpKnowledgeErrorKinds,
@@ -105,6 +106,7 @@ export const mcpModules = (options: McpAppOptions): Array<DynamicModule | Type> 
     ErrorsModule.register({
         isGlobal: true,
         kinds: [...MCP_ERROR_KIND_TABLES],
+        typers: [typedDatabaseFailure],
     }),
     CqrsModule.register({ isGlobal: true }),
     HttpSecurityModule.register({ isGlobal: true, ...options.httpSecurity }),

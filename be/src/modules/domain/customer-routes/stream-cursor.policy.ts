@@ -5,6 +5,9 @@ import type { CustomerLine } from "./customer-line-store.port"
  * handed as decimal text). A read records the newest PERSON line it returned; the end of the step that read folds it into the cursor.
  */
 
+/** The name of the lines stream (concept agent-data): its subject is the route; the other engine streams are named by their record type. */
+export const LINES_STREAM = "lines"
+
 /** True when the decimal text `left` is a greater position than `right` (both non-negative integers, no sign, no leading zeros needed). */
 export const seqAfter = (left: string, right: string): boolean => {
     const [a, b] = [left.replace(/^0+(?=\d)/u, ""), right.replace(/^0+(?=\d)/u, "")]

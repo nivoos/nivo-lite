@@ -311,11 +311,11 @@ describe("JobRunnerService", () => {
 
             await expect(runner.run(processor, delivery)).rejects.toMatchObject({
                 code: QueueErrorCode.RetryAfter,
-                params: { seconds: 5, reason: "ECONNRESET" },
+                params: { seconds: 5, reason: "Error ECONNRESET: provider down" },
                 cause: failure,
             })
 
-            expect(claims.fail).toHaveBeenCalledWith({ jobId: "j-1", expectedFencingToken: 2, reason: "provider down" })
+            expect(claims.fail).toHaveBeenCalledWith({ jobId: "j-1", expectedFencingToken: 2, reason: "Error ECONNRESET: provider down" })
             expect(logger.error).toHaveBeenCalledWith(JobsLogEvent.DeliveryFailed, failure, { jobId: "j-1" })
             expect(claims.park).not.toHaveBeenCalled()
             expect(deadLetters.raise).not.toHaveBeenCalled()

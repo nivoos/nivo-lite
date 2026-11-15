@@ -3,10 +3,17 @@ export {
     InjectStorageFiles,
     InjectStorageObjects,
     STORAGE_ASSETS,
+    STORAGE_BUCKETS_PORT,
     STORAGE_FILES,
     STORAGE_OBJECTS,
 } from "./object-storage.decorators"
-export type { StorageAssetsPort, StorageFilesPort, StorageObjectsPort } from "./object-storage.port"
+export type {
+    BucketObjectHead,
+    StorageAssetsPort,
+    StorageBucketsPort,
+    StorageFilesPort,
+    StorageObjectsPort,
+} from "./object-storage.port"
 export type { RecordFileSpot } from "./object-storage-files.policy"
 export { isRecordFileKeyOf, isStagedKeyOf, recordFileKeyOf, stagedKeyOf } from "./object-storage-files.policy"
 export { OBJECT_STORAGE_ERROR_KINDS } from "./errors/object-storage.error"

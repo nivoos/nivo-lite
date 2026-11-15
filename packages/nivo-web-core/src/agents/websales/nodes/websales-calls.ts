@@ -140,10 +140,12 @@ const answerOf = (said: SayResult): ToolAnswer<JsonObject> | DeclinedAnswer => {
 type SendContext = Pick<NodeContext, "tools" | "fail" | "run" | "workspace">
 
 /** The ONE send of the reach: through the shared helper to the person the run serves (a conversation), or on the channel `email` to the address (a mail). */
-const sendOf = async (context: SendContext, reach: Reach, words: CustomerWords): Promise<CustomerSendAnswer> => {
-    if (reach.by === "conversation") return answerOf(await sayToCustomer(context, { text: words.text }))
-    if (reach.by === "route") return context.tools.call(TOOL.customerMessageSend, routeArgsOf(reach.routeId, words))
-    return context.tools.call(TOOL.customerMessageSend, mailArgsOf(reach.to, words))
+const sendOf = async (context: SendContext, reach: Reach, words: CustomerWords, image?: string): Promise<CustomerSendAnswer> => {
+    // A picture goes with the words only when the caller hands one (a QR picture of a payment request).
+    const images = image === undefined ? {} : { images: [{ url: image, caption: "" }] }
+    if (reach.by === "conversation") return answerOf(await sayToCustomer(context, { text: words.text, ...images }))
+    if (reach.by === "route") return context.tools.call(TOOL.customerMessageSend, { ...routeArgsOf(reach.routeId, words), ...images })
+    return context.tools.call(TOOL.customerMessageSend, { ...mailArgsOf(reach.to, words), ...images })
 }
 
 /**
@@ -179,8 +181,9 @@ export const tellCustomer = async (
     context: SendContext,
     reach: Reach,
     words: CustomerWords,
+    image?: string,
 ): Promise<Told | null> => {
-    const answer = await sendOf(context, reach, words)
+    const answer = await sendOf(context, reach, words, image)
     if (isDeclined(answer)) return null
     return toldOf(context, valueOrCannot(context, TOOL.customerMessageSend, answer))
 }

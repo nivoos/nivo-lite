@@ -174,7 +174,7 @@ describe("StopCardsService posts the card of a permission request or a failure",
 describe("StopCardsService carries the approval card the engine built before the write (team-chat rule 9)", () => {
     const CARD = {
         step: { nodeId: "sales.payment-qr", title: "Make QR", description: "" },
-        call: { tool: "nivo.tool.payment.transfer.create", account: "SePay · MB 5252" },
+        call: { tool: "nivo.tool.payment.request.create", account: "SePay · MB 5252" },
         facts: [{ name: "amountVnd", value: "250000" }],
         text: "Tạo mã QR 250.000đ.",
         preview: { kind: "sales.order.summary", payload: { orderNo: "DH-7" } },
@@ -253,7 +253,7 @@ describe("StopCardsService: a rewrite carries what the record says about the eng
 
         await cards.rewritten("ws-1", { ...STOP, detail: { ...STOP.detail, facts } }, "vi")
 
-        expect(memberOf(memberOf(payloadOf(0), "rewrite"), "lineFacts")).toEqual([
+        expect(memberOf(memberOf(payloadOf(0), "rewrite"), "liveFacts")).toEqual([
             { name: "customerLine", value: "not_told" },
             { name: "customerLineReason", value: "ability_off" },
         ])
@@ -274,7 +274,7 @@ describe("StopCardsService: a rewrite carries what the record says about the eng
         await cards.rewritten("ws-1", notTold("ability_off"), "vi")
         await cards.rewritten("ws-1", notTold("not_attached"), "vi")
 
-        expect(memberOf(memberOf(payloadOf(0), "rewrite"), "lineFacts")).toEqual([])
+        expect(memberOf(memberOf(payloadOf(0), "rewrite"), "liveFacts")).toEqual([])
         expect(keyOf(post, 0)).toMatch(/:f1$/)
         expect(keyOf(post, 1)).toMatch(/:f3:ability_off$/)
         expect(keyOf(post, 2)).toMatch(/:f3:not_attached$/)
@@ -283,6 +283,18 @@ describe("StopCardsService: a rewrite carries what the record says about the eng
 })
 
 describe("stopCardStateOf", () => {
+    it("E-FIX12 rule A-4: an act of unknown outcome with no declared way to make or check it again offers no Retry until a take-over", () => {
+        const detail = { ...STOP.detail, facts: [...STOP.detail.facts, { name: "retry", value: "after_take_over" }] }
+        expect(stopCardStateOf({ kind: "ai_report", state: "open", decision: null, detail }).needs.decisions).toEqual(["take_over", "skip"])
+        expect(stopCardStateOf({ kind: "ai_report", state: "open", decision: null, detail: STOP.detail }).needs.decisions).toEqual([
+            "retry",
+            "take_over",
+            "skip",
+        ])
+        const takenOver = { kind: "take_over" as const, text: null, by: "seat-1", at: NOW }
+        expect(stopCardStateOf({ kind: "ai_report", state: "open", decision: takenOver, detail }).needs.decisions).toEqual(["retry", "skip"])
+    })
+
     it.each([
         ["open, no decision", "open", null, "open", true],
         ["open, answered (the step runs again)", "open", "answer", "answered", false],
@@ -299,6 +311,7 @@ describe("stopCardStateOf", () => {
             kind: "ai_report",
             state,
             decision: decision === null ? null : { kind: decision, text: null, by: "seat-1", at: NOW },
+            detail: STOP.detail,
         })
         expect(read.state).toBe(expected)
         expect(read.needs.answer).toBe(asks)
@@ -309,6 +322,7 @@ describe("stopCardStateOf", () => {
             kind: "ai_error",
             state: "open",
             decision: { kind: "take_over", text: null, by: "seat-1", at: NOW },
+            detail: STOP.detail,
         })
         expect(read).toEqual({
             state: "answered",

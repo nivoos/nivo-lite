@@ -2,11 +2,14 @@ import { RENDER_COMPLETED, RENDER_DOOR_PATH, type RenderStatus } from "@modules/
 import type { SandboxCatalogue, SandboxInboundCase, SandboxInput, SandboxInputField } from "@modules/domain/provider-sandbox"
 
 /*
- * JSON2VIDEO'S SANDBOX CATALOGUE (owner ruling R60): fixed named cases `JSON2VIDEO-<n>`, identical on every machine. A render (a movie) is
- * picked by the address of the FIRST CLIP of the spec (its natural key); a clip the catalogue does not name takes the default case
- * JSON2VIDEO-1 (a render that completes). A status read walks JSON2Video's own states (pending, running, then done or error); the
- * webhook body is JSON2Video's flat one (no event name: `success`, `project`, then `url` or `error`). The refusal and not-found words
- * are representative: the live adapter carries whatever words JSON2Video answered.
+ * JSON2VIDEO'S SANDBOX CATALOGUE (owner ruling R60; SBX standard 2026-11-15): fixed named cases `JSON2VIDEO-<n>`, identical on every machine.
+ * A start is answered by the account's NEXT CASE of `start` (the Sandbox page / `setSandboxNextCase`, sticky); with none picked the default
+ * JSON2VIDEO-1 answers (a render that completes). A render's WHOLE LIFE (accepted -> progress -> done / failed / never finishes / timed
+ * out) is chosen at START by the case and lived out by the status reads from the account's state; a status read is answered by the
+ * render's kept life, unless the account picked a case of `statusOf`. A status read walks JSON2Video's own states (pending, running, then
+ * done or error); the webhook body is JSON2Video's flat one (no event name: `success`, `project`, then `url` or `error`; the dashboard's
+ * Test sends `test: true`: json2video-status.policy.ts `completionOf`). The refusal and not-found words are representative: the live
+ * adapter carries whatever words JSON2Video answered.
  */
 
 /** The provider key of the catalogue. */
@@ -30,44 +33,58 @@ export const JSON2VIDEO_SANDBOX_NO_CREDITS_MESSAGE = "Not enough credits to rend
 /** JSON2Video's words for a project the account does not hold (a 404). */
 export const JSON2VIDEO_SANDBOX_NOT_FOUND_MESSAGE = "Project not found."
 
-/** What a start comes to: a render accepted, refused (an answered 4xx: nothing was sent), or sent with an outcome that is unknown (a 5xx). */
-export type Json2VideoSandboxStartOutcome = "accepted" | "refused" | "unknown"
+/** JSON2Video's words for a key it refuses (a 401). */
+export const JSON2VIDEO_SANDBOX_AUTH_MESSAGE = "Invalid API key."
 
-/** One start case of the table: the clip address that picks it and what happens next. */
+/**
+ * What a start comes to, in the words of the live adapter's failures (json2video-failure.policy.ts): `accepted` a render is started;
+ * `refused` an answered 4xx such as 402 (`rejected`, nothing sent); `auth_refused` the key is refused (401, nothing sent);
+ * `rate_limited` a 429 (nothing sent, a retry may pass); `timeout` no answer and NOTHING started (`Unreachable`, proof unknown);
+ * `unknown` a 5xx or no answer AFTER the render was started (proof unknown: the render exists, the caller cannot know it).
+ */
+export type Json2VideoSandboxStartOutcome = "accepted" | "refused" | "auth_refused" | "rate_limited" | "timeout" | "unknown"
+
+/** One start case of the table: what the start comes to and the life of the render it started. */
 export interface Json2VideoSandboxStartCase {
     /** The catalogue case id. */
     readonly caseId: string
-    /** The address of the first clip that picks the case. */
-    readonly clipUrl: string
     /** What the start comes to. */
     readonly outcome: Json2VideoSandboxStartOutcome
-    /** The statuses successive status reads see (the last one holds); empty for a start that is refused. */
+    /** The statuses successive status reads see (the last one HOLDS: a list ending in `rendering` never finishes); empty when no render starts. */
     readonly polls: ReadonlyArray<RenderStatus>
+    /** When the life ends in `failed`: that it is the client's 15-minute timeout (JSON2Video's `timeout`), whose words are not the provider's own error. */
+    readonly timedOut?: true | undefined
 }
 
-/** The first clip address of every named start case. */
-export const JSON2VIDEO_SANDBOX_CLIPS = {
-    completes: "https://sandbox.nivo.test/clips/completes.mp4",
-    fails: "https://sandbox.nivo.test/clips/fails.mp4",
-    noCredits: "https://sandbox.nivo.test/clips/no-credits.mp4",
-    serverError: "https://sandbox.nivo.test/clips/server-error.mp4",
-} as const
+/** The life of a render that completes: queued (pending), rendering (running), then done. */
+const COMPLETES: ReadonlyArray<RenderStatus> = ["queued", "rendering", "done"]
 
-/** The start cases by clip address. A status read sees queued (pending), then rendering (running), then the end. */
+/** The start cases, by id. A status read sees queued (pending), then rendering (running), then the end. */
 export const JSON2VIDEO_SANDBOX_STARTS: ReadonlyArray<Json2VideoSandboxStartCase> = [
-    { caseId: "JSON2VIDEO-1", clipUrl: JSON2VIDEO_SANDBOX_CLIPS.completes, outcome: "accepted", polls: ["queued", "rendering", "done"] },
-    { caseId: "JSON2VIDEO-2", clipUrl: JSON2VIDEO_SANDBOX_CLIPS.fails, outcome: "accepted", polls: ["queued", "rendering", "failed"] },
-    { caseId: "JSON2VIDEO-3", clipUrl: JSON2VIDEO_SANDBOX_CLIPS.noCredits, outcome: "refused", polls: [] },
-    { caseId: "JSON2VIDEO-4", clipUrl: JSON2VIDEO_SANDBOX_CLIPS.serverError, outcome: "unknown", polls: ["queued", "rendering", "done"] },
+    { caseId: "JSON2VIDEO-1", outcome: "accepted", polls: COMPLETES },
+    { caseId: "JSON2VIDEO-2", outcome: "accepted", polls: ["queued", "rendering", "failed"] },
+    { caseId: "JSON2VIDEO-9", outcome: "accepted", polls: ["queued", "rendering"] },
+    { caseId: "JSON2VIDEO-19", outcome: "accepted", polls: ["queued", "rendering", "failed"], timedOut: true },
+    { caseId: "JSON2VIDEO-3", outcome: "refused", polls: [] },
+    { caseId: "JSON2VIDEO-10", outcome: "auth_refused", polls: [] },
+    { caseId: "JSON2VIDEO-11", outcome: "rate_limited", polls: [] },
+    { caseId: "JSON2VIDEO-12", outcome: "timeout", polls: [] },
+    { caseId: "JSON2VIDEO-4", outcome: "unknown", polls: COMPLETES },
 ]
 
-/** The case a start takes when its first clip names none: a render that completes. */
-export const JSON2VIDEO_SANDBOX_DEFAULT_START: Json2VideoSandboxStartCase = {
-    caseId: "JSON2VIDEO-1",
-    clipUrl: "",
-    outcome: "accepted",
-    polls: ["queued", "rendering", "done"],
-}
+/** The case a start takes while the account's selector names none: a render that completes. */
+export const JSON2VIDEO_SANDBOX_DEFAULT_START: Json2VideoSandboxStartCase = { caseId: "JSON2VIDEO-1", outcome: "accepted", polls: COMPLETES }
+
+/** The case ids of the status read (`statusOf`) that fail the read itself, by what the read comes to. */
+export const JSON2VIDEO_SANDBOX_READS = {
+    notFound: "JSON2VIDEO-5",
+    authRefused: "JSON2VIDEO-14",
+    rateLimited: "JSON2VIDEO-15",
+    timeout: "JSON2VIDEO-16",
+} as const
+
+/** The render id the callback of JSON2VIDEO-18 names: a render the account never started. */
+export const JSON2VIDEO_SANDBOX_NEVER_STARTED_ID = "SBX-JSON2VIDEO-NEVER-STARTED"
 
 /** The id (JSON2Video's `project`) of the render a sandbox account starts as its start number `seq` + 1: the ids the inbound cases name. */
 export const json2videoSandboxRenderId = (seq: number): string => `SBX-JSON2VIDEO-${String(seq + 1).padStart(6, "0")}`
@@ -100,11 +117,58 @@ export const JSON2VIDEO_SANDBOX_CATALOGUE: SandboxCatalogue = {
             id: "JSON2VIDEO-1",
             label: "A render is accepted (pending) and later completes: status reads see pending, running, then done with its video address",
             operation: "start",
+            outcome: "ok",
+            default: true,
         },
-        { id: "JSON2VIDEO-2", label: "A render is accepted and later fails: status reads end at error with its message", operation: "start" },
-        { id: "JSON2VIDEO-3", label: "A render is refused at start for no credits (402): rejected, nothing sent", operation: "start" },
-        { id: "JSON2VIDEO-4", label: "A render start ends in an unknown outcome (5xx): the render exists, the caller cannot know it", operation: "start" },
-        { id: "JSON2VIDEO-5", label: "A status read of a render the account does not hold: not_found refusal", operation: "statusOf" },
+        { id: "JSON2VIDEO-2", label: "A render is accepted and later fails: status reads end at error with its message", operation: "start", outcome: "ok" },
+        {
+            id: "JSON2VIDEO-9",
+            label: "A render is accepted and never finishes: status reads see pending, then running for ever (the run's deadline reads it and ends the wait)",
+            operation: "start",
+            outcome: "ok",
+        },
+        {
+            id: "JSON2VIDEO-19",
+            label: "A render is accepted and runs past 15 minutes: the live status mapper fails it with JSON2Video's timeout words (movies-status: the client treats it as fatal)",
+            operation: "start",
+            outcome: "ok",
+        },
+        { id: "JSON2VIDEO-3", label: "A render is refused at start for no credits (402): rejected, nothing sent", operation: "start", outcome: "refused" },
+        { id: "JSON2VIDEO-10", label: "A render is refused at start because the key is refused (401): auth_refused, nothing sent", operation: "start", outcome: "refused" },
+        {
+            id: "JSON2VIDEO-11",
+            label: "A render start is answered 429 (rate limit): the live adapter's rate-limit error proving not_sent, no render exists, a retry may pass",
+            operation: "start",
+            outcome: "transient",
+        },
+        {
+            id: "JSON2VIDEO-12",
+            label: "A render start gets no answer (timeout): the live adapter's `Unreachable` proving unknown, but NOTHING was started: no render exists",
+            operation: "start",
+            outcome: "timeout",
+        },
+        {
+            id: "JSON2VIDEO-4",
+            label: "A render start ends in an unknown outcome (5xx): the render exists, the caller cannot know it",
+            operation: "start",
+            outcome: "timeout",
+        },
+        {
+            id: "JSON2VIDEO-13",
+            label: "A status read of a render the account started: the render as its life (chosen at start) shows it, one step per read",
+            operation: "statusOf",
+            outcome: "ok",
+            default: true,
+        },
+        {
+            id: "JSON2VIDEO-5",
+            label: "A status read of a render the account does not hold: not_found refusal (also what the default answers for an id never started)",
+            operation: "statusOf",
+            outcome: "refused",
+        },
+        { id: "JSON2VIDEO-14", label: "A status read refused for the key (401): auth_refused, nothing read", operation: "statusOf", outcome: "refused" },
+        { id: "JSON2VIDEO-15", label: "A status read answered 429 (rate limit): the live adapter's rate-limit error, a retry may pass", operation: "statusOf", outcome: "transient" },
+        { id: "JSON2VIDEO-16", label: "A status read gets no answer (timeout): the live adapter's `Unreachable`", operation: "statusOf", outcome: "timeout" },
         {
             id: "JSON2VIDEO-6",
             label: "The webhook reports a render that succeeded (the project named, by default the first render of the account): done with its video address",
@@ -123,6 +187,21 @@ export const JSON2VIDEO_SANDBOX_CATALOGUE: SandboxCatalogue = {
                 path: webhookPath,
                 inputs: [],
                 eventsOf: async () => [{ body: { test: true, success: true, project: json2videoSandboxRenderId(0), url: JSON2VIDEO_SANDBOX_OUTPUT_URL } }],
+            },
+        },
+        {
+            id: "JSON2VIDEO-17",
+            label: "The webhook says success but carries no https video address: the live mapper reads no finished render, the door keeps nothing",
+            inbound: webhookCase(json2videoSandboxRenderId(0), (project) => ({ success: true, project, url: null })),
+        },
+        {
+            id: "JSON2VIDEO-18",
+            label: "The webhook reports a render the account never started (a fixed project nobody asked for): the door keeps it once and no waiting run matches it",
+            inbound: {
+                trigger: RENDER_COMPLETED,
+                path: webhookPath,
+                inputs: [],
+                eventsOf: async () => [{ body: { success: true, project: JSON2VIDEO_SANDBOX_NEVER_STARTED_ID, url: JSON2VIDEO_SANDBOX_OUTPUT_URL } }],
             },
         },
     ],

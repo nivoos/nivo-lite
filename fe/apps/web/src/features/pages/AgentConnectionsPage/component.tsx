@@ -1,12 +1,11 @@
 import { AgentConnections } from "@/components/blocks/AgentConnections"
 import { AgentStepRights } from "@/components/blocks/AgentStepRights"
-import type { ModuleKey } from "@/modules/catalog"
 
 /** The workspace, type and instance the connections tab draws. */
 export interface AgentConnectionsPageBaseProps {
     readonly props: {
         readonly workspaceId: string | undefined
-        readonly module: ModuleKey | undefined
+        readonly module: string | undefined
         readonly installationId: string | undefined
     }
 }

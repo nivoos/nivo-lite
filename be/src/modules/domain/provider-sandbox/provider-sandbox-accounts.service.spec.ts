@@ -35,6 +35,7 @@ const doorsOf = (enabled: boolean) => {
                 id: "BANK-1",
                 label: "money in, posted twice",
                 inbound: {
+                    polled: true,
                     trigger: "transaction.received",
                     path: (id) => `api/connections/sepay/${id}`,
                     inputs: [
@@ -48,8 +49,14 @@ const doorsOf = (enabled: boolean) => {
                         ]),
                 },
             },
-            { id: "BANK-2", label: "renewed", operation: "renew", default: true },
-            { id: "BANK-3", label: "refused", operation: "renew" },
+            { id: "BANK-2", label: "renewed", operation: "renew", default: true, outcome: "ok" },
+            { id: "BANK-3", label: "refused", operation: "renew", outcome: "refused" },
+            { id: "BANK-4", label: "one webhook only, no poll returns it", inbound: {
+                trigger: "x.received",
+                path: (id) => `api/x/${id}`,
+                inputs: [],
+                eventsOf: (_input: SandboxInput, context) => Promise.resolve([{ body: { at: context.at.toISOString() } }]),
+            } },
         ],
     })
     const { sandbox } = (enabled ? sandboxServiceOf : sandboxServiceOff)(SANDBOX, LIVE)
@@ -81,7 +88,7 @@ describe("ProviderSandboxAccountsService (the Sandbox page's doors, rulings R58,
         const { doors } = doorsOf(true)
         expect((await doors.accounts(ACTOR)).map((one) => one.id)).toEqual([SANDBOX.id])
         expect(await doors.providers(ACTOR)).toEqual(["sepay"])
-        expect((await doors.catalogue(ACTOR, "sepay")).map((one) => one.id)).toEqual(["BANK-1", "BANK-2", "BANK-3"])
+        expect((await doors.catalogue(ACTOR, "sepay")).map((one) => one.id)).toEqual(["BANK-1", "BANK-2", "BANK-3", "BANK-4"])
     })
 
     it("SENDS an inbound case: the case's payloads, in order, to the provider's own route with the sandbox key; logs one inbound call", async () => {
@@ -106,6 +113,8 @@ describe("ProviderSandboxAccountsService (the Sandbox page's doors, rulings R58,
                 { path, status: 200, body: { success: true } },
             ],
             webhookDropped: false,
+            mode: "once",
+            lateBySeconds: 0,
         })
         const calls = await sandbox.calls(SANDBOX, "inbound")
         expect(calls).toHaveLength(1)
@@ -115,13 +124,53 @@ describe("ProviderSandboxAccountsService (the Sandbox page's doors, rulings R58,
     it("DROPS the webhook on request: the case is recorded as the provider would remember it (one inbound call), nothing is posted", async () => {
         const { doors, poster, sandbox } = doorsOf(true)
 
-        const sent = await doors.send(ACTOR, SANDBOX.id, "BANK-1", { content: "NIVO DH1", amount: 350000 }, { dropWebhook: true })
+        const sent = await doors.send(ACTOR, SANDBOX.id, "BANK-1", { content: "NIVO DH1", amount: 350000 }, { mode: "withheld" })
 
         expect(poster.posts).toEqual([])
-        expect(sent).toEqual({ caseId: "BANK-1", input: { content: "NIVO DH1", amount: 350000 }, deliveries: [], webhookDropped: true })
+        expect(sent).toEqual({ caseId: "BANK-1", input: { content: "NIVO DH1", amount: 350000 }, deliveries: [], webhookDropped: true, mode: "withheld", lateBySeconds: 0 })
         const calls = await sandbox.calls(SANDBOX, "inbound")
         expect(calls).toHaveLength(1)
         expect(calls[0]).toMatchObject({ key: "BANK-1", request: { caseId: "BANK-1", input: { content: "NIVO DH1", amount: 350000 } } })
+    })
+
+    it("TWICE posts every event two times in a row (the state is kept once: one inbound call)", async () => {
+        const { doors, poster, sandbox } = doorsOf(true)
+        const sent = await doors.send(ACTOR, SANDBOX.id, "BANK-4", {}, { mode: "twice" })
+        expect(poster.posts.map((one) => one.body)).toEqual([{ at: NOW.toISOString() }, { at: NOW.toISOString() }])
+        expect(sent.deliveries).toHaveLength(2)
+        expect(sent.mode).toBe("twice")
+        expect(await sandbox.calls(SANDBOX, "inbound")).toHaveLength(1)
+    })
+
+    it("WITHHELD is refused for a case no poll returns, and allowed for a polled one", async () => {
+        const { doors, poster } = doorsOf(true)
+        await expect(doors.send(ACTOR, SANDBOX.id, "BANK-4", {}, { mode: "withheld" })).rejects.toMatchObject({
+            code: ProviderSandboxErrorCode.ModeUnavailable,
+            params: { caseId: "BANK-4", mode: "withheld" },
+        })
+        expect(poster.posts).toEqual([])
+    })
+
+    it("LATE stamps the event before the arrival by the interval, with no sleep (the clock port's now is the arrival); a bad interval is refused", async () => {
+        const { doors, poster } = doorsOf(true)
+        const sent = await doors.send(ACTOR, SANDBOX.id, "BANK-4", {}, { mode: "late", lateBySeconds: 7_200 })
+        expect(poster.posts[0]?.body).toEqual({ at: new Date(NOW.getTime() - 7_200_000).toISOString() })
+        expect(sent).toMatchObject({ mode: "late", lateBySeconds: 7_200 })
+        await doors.send(ACTOR, SANDBOX.id, "BANK-4", {}, { mode: "late" })
+        expect(poster.posts[1]?.body).toEqual({ at: new Date(NOW.getTime() - 3_600_000).toISOString() })
+        await expect(doors.send(ACTOR, SANDBOX.id, "BANK-4", {}, { mode: "late", lateBySeconds: 0 })).rejects.toMatchObject({
+            code: ProviderSandboxErrorCode.InputInvalid,
+            params: { field: "lateBySeconds" },
+        })
+    })
+
+    it("picks the next answer by the generic OUTCOME of an operation; an outcome the operation has no case of is refused", async () => {
+        const { doors } = doorsOf(true)
+        await expect(doors.setNextOutcome(ACTOR, SANDBOX.id, "renew", "refused")).resolves.toEqual({ operation: "renew", caseId: "BANK-3", isDefault: false })
+        await expect(doors.setNextOutcome(ACTOR, SANDBOX.id, "renew", "timeout")).rejects.toMatchObject({
+            code: ProviderSandboxErrorCode.OutcomeUnavailable,
+            params: { operation: "renew", outcome: "timeout" },
+        })
     })
 
     it("prefills the inputs from the LATEST payment request the agent made, else the examples; refuses a wrong kind", async () => {

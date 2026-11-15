@@ -4,6 +4,7 @@ import { ModuleAuthorityActionType } from "./module-authority-action.type"
 import { ModuleBilingualListType } from "./module-bilingual-list.type"
 import { ModuleBilingualType } from "./module-bilingual.type"
 import { ModuleGateType } from "./module-gate.type"
+import { ModuleKnowledgeIdeaType } from "./module-knowledge-idea.type"
 import { ModulePluginType } from "./module-plugin.type"
 import { ModuleRequirementsType } from "./module-requirements.type"
 
@@ -77,6 +78,10 @@ export class ModuleDefinitionType {
     /** The folder of the NIVO base knowledge for the module. */
     @Field()
     knowledgeFolder!: string
+
+    /** The documents the module suggests the shop to add to its knowledge; none when the module declares none. */
+    @Field(() => [ModuleKnowledgeIdeaType])
+    knowledgeIdeas!: ReadonlyArray<ModuleKnowledgeIdeaType>
 
     /** The key of the workbench of the module, when it has one. */
     @Field(() => String, { nullable: true })

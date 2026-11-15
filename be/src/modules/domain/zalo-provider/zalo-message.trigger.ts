@@ -1,14 +1,15 @@
 import { PROVIDER, TRIGGER } from "@nivo-lite/agent-sdk/names"
 import type { DeclaredLine, OptionalCanonicalEvent, TriggerDeclaration } from "@modules/domain/provider-triggers"
-import { ZALO_ATTACHMENT_LABELS, ZALO_MESSAGE_WORDS } from "./messages/zalo-trigger.messages"
+import { ZALO_MESSAGE_WORDS } from "./messages/zalo-trigger.messages"
 import { ZALO_EVENT_ROW, ZALO_MESSAGE_DATA } from "./zalo-message.trigger.schema"
 
 /*
  * THE ZALO OA'S MESSAGE TRIGGER (stage 1 of the one event pipeline, concept triggers rule 13): what a customer writes to the OA, as ONE
  * canonical event. It is received by the OA's webhook and by the poll of the OA's inbox (`via: ["webhook", "poll"]`: one event, two ways); the poll
  * keeps the same `zalo_oa.event` row under the same key (the body the webhook would have posted), so both ways give one event. Pure: the translate reads
- * only its arguments. What counts as a message is Zalo's documented event names (`user_send_text`, `user_send_image`, `user_send_file`);
- * every other event (follow, seen, an OA message) is dropped, exactly as the conversation intake dropped it.
+ * only its arguments. What counts as a message is Zalo's documented customer-message events (`user_send_*`: text, image, gif, sticker,
+ * audio, video, file, link, location, business card): every part of one is mapped, none dropped for its kind (the inbound contract,
+ * `DeclaredLine`); every other event (follow, seen, an OA message) is dropped.
  */
 
 /** The trigger's name inside the provider. */
@@ -23,18 +24,36 @@ export const ZALO_CHANNEL = "zalo"
 /** The event of a customer writing text to the OA. */
 const TEXT_EVENT = "user_send_text"
 
-/** The events of a customer sending a picture or a file, with what the shop reads them as. */
-const ATTACHMENT_EVENTS: ReadonlyMap<string, "image" | "file"> = new Map([
-    ["user_send_image", "image"],
-    ["user_send_file", "file"],
+/** Zalo's documented events of a customer message with parts (each part's own `type` says what it is). */
+const PART_EVENTS: ReadonlySet<string> = new Set([
+    "user_send_image",
+    "user_send_gif",
+    "user_send_sticker",
+    "user_send_audio",
+    "user_send_video",
+    "user_send_file",
+    "user_send_link",
+    "user_send_location",
+    "user_send_business_card",
 ])
+
+/** The event whose parts are contact cards, whatever type word each part carries. */
+const BUSINESS_CARD_EVENT = "user_send_business_card"
+
+/** Zalo's part types whose bytes are a picture (the shop reads them as `image`); every other part with an address is a `file`. */
+const PICTURE_PARTS: ReadonlySet<string> = new Set(["image", "gif", "sticker"])
+
+/** The media types of a part that carries no file (standard IANA types): a link, a contact card, a place. */
+const LINK_PART = "text/uri-list"
+const CONTACT_PART = "text/vcard"
+const PLACE_PART = "application/geo+json"
 
 /** The door a stored event came by when it was not the webhook: a manual import may name a file of the import folder. */
 const MANUAL_IMPORT = "manual_import"
 
-/** One picture or file of a Zalo customer message, as Zalo sends it (`{ type, payload: { url, thumbnail, name } }`). */
+/** One part of a Zalo customer message, as Zalo sends it (`{ type, payload: { url, thumbnail, name, coordinates, description } }`). */
 export interface ZaloAttachment {
-    /** `image` or `file`. */
+    /** `image` for a picture (an image, a gif, a sticker), `file` for any other part. */
     readonly kind: "image" | "file"
     /** The https address Zalo gives (it expires: the entry keeps the bytes before the delivery); empty for a file of a manual import. */
     readonly url: string
@@ -44,17 +63,19 @@ export interface ZaloAttachment {
     readonly name: string
     /** The path of a manual import inside the import folder; empty for any other source. */
     readonly localPath: string
+    /** Set only for a part with no file (a link, a contact card, a location): its media type; `name` then holds what Zalo sent of it. */
+    readonly contentType?: string | undefined
 }
 
 /** The data of one Zalo customer message (the channel message members of every channel, plus the provider's attachments). */
 export type ZaloMessageData = {
     /** The key the line is stored once under, the same for the webhook and the poll: `zalo:<msg_id>`. */
     readonly messageKey: string
-    /** What the customer wrote as the turn reads it: the text, or the label of the picture or file with its caption after it. */
+    /** What the customer wrote (a part's caption), as sent; empty for a message of parts only. */
     readonly text: string
     /** When the customer sent it (ISO 8601), as the event says; null when the event carries no usable time. */
     readonly at: string | null
-    /** The pictures and files sent with it, as Zalo names them; empty for a text. */
+    /** Every part sent with it, as Zalo names them (a file, or a typed part with no file); empty for a text. */
     readonly attachments: ReadonlyArray<ZaloAttachment>
     /** Set only on the engine's release delivery of the channel verb (`held`): no new words. */
     readonly resume?: "held" | undefined
@@ -98,29 +119,45 @@ const millisOf = (source: unknown, name: string): number | null => {
     return typeof millis === "number" && Number.isFinite(millis) && millis > 0 ? millis : null
 }
 
-/** The attachments of a message; one with no address (and, for an import, no local path) is left out. */
-const attachmentsOf = (
-    message: unknown,
-    kind: "image" | "file",
-    allowLocalPath: boolean,
-): ReadonlyArray<ZaloAttachment> =>
-    listOf(message, "attachments").flatMap((item: unknown) => {
-        const payload = isRecord(item) ? item.payload : undefined
-        const url = textOf(payload, "url")
-        const localPath = allowLocalPath ? textOf(item, "localPath") : ""
-        if (url === "" && localPath === "") return []
-        return [{ kind, url, thumbnailUrl: textOf(payload, "thumbnail"), name: textOf(payload, "name"), localPath }]
-    })
-
-/** The words the turn reads: the text, or the label of the first picture or file with the caption after it. */
-const wordsOf = (text: string, attachments: ReadonlyArray<ZaloAttachment>): string => {
-    const [first] = attachments
-    return first === undefined ? text : `${ZALO_ATTACHMENT_LABELS[first.kind]} ${text}`.trim()
+/** A number field of an object, or null. */
+const numberOf = (source: unknown, name: string): number | null => {
+    const value = isRecord(source) ? source[name] : undefined
+    return typeof value === "number" && Number.isFinite(value) ? value : null
 }
 
 /**
- * The customer message of one Zalo body: text, or a picture or file with its caption. Null for any other event and for one that lacks the
- * sender, the message id, the text (of a text event) or any attachment with an address (of a picture or file event). Zalo's webhook names
+ * One part as the line keeps it: a picture or a file with its address (empty when Zalo gave none: the pipeline records it typed
+ * not-kept); a link, a contact card or a location as a typed part with no file, its content as Zalo sent it.
+ */
+const partOf = (eventName: string, item: unknown, allowLocalPath: boolean): ZaloAttachment => {
+    const type = textOf(item, "type")
+    const payload = isRecord(item) ? item.payload : undefined
+    const url = textOf(payload, "url")
+    const base = { url: "", thumbnailUrl: textOf(payload, "thumbnail"), name: "", localPath: "" }
+    if (eventName === BUSINESS_CARD_EVENT)
+        return { ...base, kind: "file", name: textOf(payload, "description") || url, contentType: CONTACT_PART }
+    if (type === "link") return { ...base, kind: "file", name: url, contentType: LINK_PART }
+    if (type === "location") {
+        const at = isRecord(payload) ? payload.coordinates : undefined
+        const [latitude, longitude] = [numberOf(at, "latitude") ?? textOf(at, "latitude"), numberOf(at, "longitude") ?? textOf(at, "longitude")]
+        return { ...base, kind: "file", name: `${String(latitude)},${String(longitude)}`, contentType: PLACE_PART }
+    }
+    return {
+        ...base,
+        kind: PICTURE_PARTS.has(type) ? "image" : "file",
+        url,
+        name: textOf(payload, "name"),
+        localPath: allowLocalPath ? textOf(item, "localPath") : "",
+    }
+}
+
+/** Every part of a message, in Zalo's order; none dropped for its kind. */
+const partsOf = (eventName: string, message: unknown, allowLocalPath: boolean): ReadonlyArray<ZaloAttachment> =>
+    listOf(message, "attachments").flatMap((item: unknown) => (isRecord(item) ? [partOf(eventName, item, allowLocalPath)] : []))
+
+/**
+ * The customer message of one Zalo body: its words and every part. Null for any other event and for one that lacks the sender, the
+ * message id, or any content (no words and no part). Zalo's webhook names
  * no customer name or picture; a body the poll made of a listed message carries the name the listing shows as `sender.display_name`.
  */
 export const zaloMessageOfBody = (
@@ -133,17 +170,16 @@ export const zaloMessageOfBody = (
     const text = textOf(body.message, "text").trim()
     const sentAt = millisOf(body, "timestamp")
     if (userId === "" || messageId === "") return null
-    const kind = ATTACHMENT_EVENTS.get(name)
-    if (name !== TEXT_EVENT && kind === undefined) return null
-    const attachments = kind === undefined ? [] : attachmentsOf(body.message, kind, allowLocalPath)
-    if (kind === undefined ? text === "" : attachments.length === 0) return null
+    if (name !== TEXT_EVENT && !PART_EVENTS.has(name)) return null
+    const attachments = name === TEXT_EVENT ? [] : partsOf(name, body.message, allowLocalPath)
+    if (text === "" && attachments.length === 0) return null
     const shown = textOf(body.sender, "display_name").trim()
     return {
         id: messageId,
         subject: { channel: ZALO_CHANNEL, id: userId, ...(shown === "" ? {} : { name: shown }) },
         data: {
             messageKey: `${ZALO_CHANNEL}:${messageId}`,
-            text: wordsOf(text, attachments),
+            text,
             at: sentAt === null ? null : new Date(sentAt).toISOString(),
             attachments,
         },
@@ -180,7 +216,7 @@ export const ZALO_MESSAGE_TRIGGER: TriggerDeclaration<ZaloEventRow, ZaloMessageD
     raw: ZALO_EVENT_ROW,
     data: ZALO_MESSAGE_DATA,
     translate: translateZaloEventRow,
-    line: zaloLineOf,
+    feeds: { stream: "lines", line: zaloLineOf },
     key: { by: "subject" },
     settle: CHAT_SETTLE,
     // The person's lines append to the route's stream: held lines are ONE marker the workflow reads the stream from (rule Q-4).

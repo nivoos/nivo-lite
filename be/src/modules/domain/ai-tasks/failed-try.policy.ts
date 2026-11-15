@@ -1,4 +1,4 @@
-import type { AiCutSpend } from "@modules/integrations/ai"
+import type { AiCutSpend, AiFailedTry } from "@modules/integrations/ai"
 import type { ChatMessage, MeterEntry, TextRequest } from "./ai-tasks.contracts"
 import { meteredCallOf } from "./metered-call.policy"
 import { modelFactsOf, type ModelChoice } from "./model-choice.policy"
@@ -19,18 +19,19 @@ export const promptCharsOf = (messages: ReadonlyArray<Pick<ChatMessage, "content
 /**
  * The meter entry of a FAILED try (a timeout, a provider error, an answer cut at the token limit or empty): the provider may charge
  * for it, so it is booked (owner, 2026-11-11), estimated, with what the app knows of the prompt and no output, priced at the model the
- * try asked for, and flagged with its failure so it is never billed. A try the deployment could not even send (`unconfigured`) is
- * not a try: it is not booked.
+ * try asked for, and flagged with its failure so it is never billed. A try that LEFT NO REQUEST (`tried.sent === false`: no endpoint is
+ * configured, or the runner that served it failed it before sending, as a provider's sandbox does) spent nothing anywhere: it is not
+ * booked at all.
  */
 export const failedTryEntryOf = (
     request: Pick<TextRequest, "workspaceId" | "kind" | "module" | "purpose">,
-    failure: string,
+    tried: Pick<AiFailedTry, "failure" | "spent" | "sent">,
     tryNumber: number,
     choice: ModelChoice | null,
     prompt: FailedPrompt,
-    spent?: AiCutSpend,
 ): MeterEntry | null => {
-    if (failure === "unconfigured") return null
+    if (tried.sent === false) return null
+    const { failure, spent } = tried
     if (spent !== undefined) return cutTryEntryOf(request, failure, tryNumber, choice, prompt, spent)
     const model = choice?.intended ?? UNTOLD_MODEL
     const tokens = "tokens" in prompt ? prompt.tokens : null

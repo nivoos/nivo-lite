@@ -48,6 +48,8 @@ const GOOD: ModuleDefinition = {
     gates: [GATE],
 }
 
+const IDEA = { key: "i1", topic: text, hint: text }
+
 const INVALID_MODULES: Array<[string, ModuleDefinition, string]> = [
     ["a key that is not lowercase ASCII", { ...GOOD, key: "Bad-Key" }, "key must be short lowercase ASCII"],
     ["a name missing its English text", { ...GOOD, name: { vi: "x", en: " " } }, "name needs"],
@@ -95,6 +97,13 @@ const INVALID_MODULES: Array<[string, ModuleDefinition, string]> = [
     ["no gates", { ...GOOD, gates: [] }, "gates must not be empty"],
     ["a gate without a hint", { ...GOOD, gates: [{ ...GATE, hint_en: "" }] }, "every gate needs"],
     ["a duplicate gate", { ...GOOD, gates: [GATE, GATE] }, "duplicate gate g1"],
+    [
+        "a knowledge idea without its English hint",
+        { ...GOOD, knowledgeIdeas: [{ ...IDEA, hint: { vi: "x", en: "" } }] },
+        "every knowledge idea needs",
+    ],
+    ["a knowledge idea without a key", { ...GOOD, knowledgeIdeas: [{ ...IDEA, key: " " }] }, "every knowledge idea needs"],
+    ["a duplicate knowledge idea", { ...GOOD, knowledgeIdeas: [IDEA, IDEA] }, "duplicate knowledge idea i1"],
 ]
 
 describe("checkCatalog", () => {

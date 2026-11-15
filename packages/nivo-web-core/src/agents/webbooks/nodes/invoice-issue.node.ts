@@ -2,7 +2,7 @@ import { PROVIDER, TOOL } from "@nivo-lite/agent-sdk/names"
 import { type TemplateNode, defineTemplateNode } from "@nivo-lite/agent-sdk/template"
 import { z } from "zod"
 import { webbooksText } from "../copy"
-import { LINE_MAX, idSchema, localeSchema } from "./books-shapes"
+import { idSchema, localeSchema } from "./books-shapes"
 import { misaOk, refused } from "./books.fixtures"
 
 /**
@@ -15,19 +15,16 @@ const input = z.object({
     locale: localeSchema,
 })
 
-/** The issue's business refusals that say nothing was issued: the e-invoice service refused it, or it knows no such draft. */
-const NOT_ISSUED: ReadonlyArray<string> = ["rejected", "not_found"]
-
 /**
- * What the issue answered: `issued` with the e-invoice service's id, its number (null when it gave none yet) and state; `rejected` with
- * the refusal (nothing issued: a person acts); or, when the owner declined the issue (`declined` true: a decision, the graph tells the
- * team and ends `declined`), nothing issued: its members null.
+ * What the issue answered: `issued` with the e-invoice service's id, its number (null when it gave none yet) and state; or, when the
+ * owner declined the issue (`declined` true: a decision, the graph tells the team and ends `declined`), nothing issued: its members
+ * null. A refusal of the e-invoice service is no output: the engine stops the step for a person (E-FIX12).
  */
 const output = z.object({
     outcome: z
-        .enum(["issued", "rejected"])
+        .enum(["issued"])
         .nullable()
-        .describe("`issued` when the e-invoice service issued it, `rejected` when it refused; null when declined."),
+        .describe("`issued` when the e-invoice service issued it; null when declined."),
     invoiceNo: z
         .string()
         .min(1)
@@ -37,7 +34,6 @@ const output = z.object({
     invoiceId: z.string().min(1).max(200).nullable().describe("The e-invoice service's id of the invoice; null when none was issued."),
     state: z.string().min(1).max(40).nullable().describe("The invoice's `state` exactly as the issue answered it."),
     issuedOn: z.string().max(10).nullable().describe("The issue date (`YYYY-MM-DD`) exactly as the e-invoice service answered it; null when it gave none."),
-    refusal: z.string().min(1).max(LINE_MAX).nullable().describe("The issue's refusal when it was rejected; null otherwise."),
     declined: z.boolean().describe("True when the owner declined the issue."),
 })
 
@@ -52,16 +48,17 @@ const ARGS = { draftId: DRAFT_ID, renewalId: RENEWAL_ID }
 const issuedOf = (invoiceNo: string | null, state: string, issuedOn: string | null = "2026-11-13") =>
     misaOk({ outcome: "issued", provider: "misa_meinvoice", invoiceId: "misa-inv-0002", invoiceNo, state, issuedOn })
 
-const NOTHING = { outcome: null, invoiceNo: null, invoiceId: null, state: null, issuedOn: null, refusal: null }
+const NOTHING = { outcome: null, invoiceNo: null, invoiceId: null, state: null, issuedOn: null }
 
 /**
  * `webbooks.invoice-issue` (Issue the invoice): the legal act, `TOOL.invoiceCreate` on the MISA meInvoice account (R57: the e-invoice
  * service issues, the CRM only records it after; a sandbox ACCOUNT replaces the dry run, R56), mode `ask`: the ONE invoice step a
  * person must sign, a tax document issued in the company's name, so every call waits for the owner's yes on an approval card. ONE tool
  * call and no AI: the renewal id goes with the draft id. The answer is the output: `issued` with the service's id, number (none yet is
- * kept as null), state and issue date (MISA's own `issuedOn`, null when it gave none); `rejected` / `not_found` refusals are `rejected` with the refusal (nothing issued: the team is told, a person
- * acts). The owner who declines the issue made a decision: `declined` true (the graph tells the team and ends `declined`). Any other
- * refusal, or an answer with no known outcome, is a fact the node cannot go past: the run stops and the engine reports it. Blocking.
+ * kept as null), state and issue date (MISA's own `issuedOn`, null when it gave none). The owner who declines the issue made a decision: `declined` true (the graph tells the
+ * team and ends `declined`). Any refusal of the e-invoice service (`rejected`, `not_found`, any other) is `context.fail` `cannot`
+ * `invoice_issue_refused:<code>`: the tool declares no final refusal, so the engine stops the step for a person (Retry / Take over /
+ * Skip, E-FIX12 A-1) and the node never turns it into an output. An answer with no known outcome stops the run too. Blocking.
  */
 export const webbooksInvoiceIssueNode: TemplateNode = defineTemplateNode({
     id: "webbooks.invoice-issue",
@@ -77,8 +74,7 @@ export const webbooksInvoiceIssueNode: TemplateNode = defineTemplateNode({
         if (draftId === null) return ctx.fail({ kind: "cannot", why: "no_draft_named" })
         const issued = await ctx.tools.call(TOOL.invoiceCreate, { draftId, renewalId: given.renewalId })
         if (!issued.ok && issued.declined === true) return { ...NOTHING, declined: true }
-        if (!issued.ok && NOT_ISSUED.includes(issued.refusal))
-            return { ...NOTHING, outcome: "rejected" as const, refusal: issued.refusal, declined: false }
+        // A refusal of the e-invoice service is a failed act: the engine stops the step for a person (E-FIX12 A-1); never an output.
         if (!issued.ok)
             return ctx.fail({ kind: "cannot", why: `invoice_issue_refused:${issued.refusal}` }, issued.facts)
         const text = (member: string): string | null => {
@@ -93,7 +89,6 @@ export const webbooksInvoiceIssueNode: TemplateNode = defineTemplateNode({
             invoiceId: text("invoiceId"),
             state: text("state"),
             issuedOn: text("issuedOn"),
-            refusal: null,
             declined: false,
         }
     },
@@ -109,7 +104,6 @@ export const webbooksInvoiceIssueNode: TemplateNode = defineTemplateNode({
                 invoiceId: "misa-inv-0002",
                 state: "issued",
                 issuedOn: "2026-11-13",
-                refusal: null,
                 declined: false,
             },
         },
@@ -124,16 +118,15 @@ export const webbooksInvoiceIssueNode: TemplateNode = defineTemplateNode({
                 invoiceId: "misa-inv-0002",
                 state: "pending_number",
                 issuedOn: "2026-11-13",
-                refusal: null,
                 declined: false,
             },
         },
         {
-            name: "the e-invoice service rejects it: nothing issued, rejected with the refusal (the team is told)",
+            name: "the e-invoice service rejects it: the step cannot go on, the engine stops it for a person",
             params: {},
             input: GIVEN,
             tools: [{ id: TOOL.invoiceCreate, args: ARGS, answer: refused("rejected", { message: "buyer tax id invalid" }) }],
-            output: { ...NOTHING, outcome: "rejected", refusal: "rejected", declined: false },
+            failure: { kind: "cannot", why: "invoice_issue_refused:rejected" },
         },
         {
             name: "the owner declines: nothing is issued, declined returned (the graph tells the team, ends declined)",
@@ -143,7 +136,7 @@ export const webbooksInvoiceIssueNode: TemplateNode = defineTemplateNode({
             output: { ...NOTHING, declined: true },
         },
         {
-            name: "any other refusal (the live service is not available): the node cannot go on",
+            name: "a refusal the service gives (here not available) is the same: the node cannot go on",
             params: {},
             input: GIVEN,
             tools: [{ id: TOOL.invoiceCreate, args: ARGS, answer: refused("not_available") }],

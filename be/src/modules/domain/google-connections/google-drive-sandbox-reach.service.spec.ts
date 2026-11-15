@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs"
 import { mock } from "@starci/jest-preset"
 import { ProviderSandboxErrorCode, SandboxCatalogueRegistryService } from "@modules/domain/provider-sandbox"
 import { DocumentsErrorCode } from "@modules/integrations/documents"
+import { DocumentsHttpClient } from "@modules/integrations/documents/documents-http.client"
+import type { HttpClient } from "@modules/platform/http"
+import type { Logger } from "@modules/platform/logging"
 import { connectionRecord } from "@tests/fixtures/builders/connection-records.builder"
 import { sandboxAccount, sandboxServiceOf, sandboxServiceOff } from "@tests/fixtures/builders/provider-sandbox.builder"
 import { DriveLiveReachService } from "./drive-live-reach.service"
@@ -156,9 +159,9 @@ describe("the Drive sandbox as a whole", () => {
         expect(catalogues.casesOf("google_drive").map((one) => one.id)).toEqual(GOOGLE_DRIVE_SANDBOX_CASES.map((one) => one.id))
     })
 
-    it("has unique GOOGLE_DRIVE-<n> ids 1..15, exactly one default per operation, three operations, no inbound case", () => {
+    it("has unique GOOGLE_DRIVE-<n> ids 1..18, exactly one default per operation, three operations, no inbound case", () => {
         const cases = GOOGLE_DRIVE_SANDBOX_CASES
-        expect(cases.map((one) => one.id)).toEqual(Array.from({ length: 15 }, (_, index) => `GOOGLE_DRIVE-${String(index + 1)}`))
+        expect(cases.map((one) => one.id)).toEqual(Array.from({ length: 18 }, (_, index) => `GOOGLE_DRIVE-${String(index + 1)}`))
         expect(Object.values(GOOGLE_DRIVE_CASE)).toEqual(cases.map((one) => one.id))
         expect(cases.filter((one) => one.default === true).map((one) => one.operation).toSorted()).toEqual(["grant", "list", "read"])
         expect(cases.every((one) => one.inbound === undefined && one.label.length > 0)).toBe(true)
@@ -176,5 +179,53 @@ describe("the Drive sandbox as a whole", () => {
             expect(text).not.toContain("withToken")
             expect(text).not.toContain("Date.now")
         }
+    })
+})
+
+describe("the Drive sandbox cases that end a call without an answer or on a refused refresh (GOOGLE_DRIVE-16 .. 18)", () => {
+    it("GOOGLE_DRIVE-16 / -17: no answer is the SAME DOCUMENTS_UNAVAILABLE (status 0) the documents http wrapper throws for a cut or a timeout, on the listing and on the read", async () => {
+        const live = await new DocumentsHttpClient(mock<HttpClient>({ request: jest.fn().mockRejectedValue(new Error("timeout")) }), mock<Logger>())
+            .get("https://x.test/", {}, 1)
+            .then(() => null, (cause: unknown) => cause)
+        const { sandbox, service } = setup()
+
+        await sandbox.setNextCase(ACCOUNT, "list", GOOGLE_DRIVE_CASE.listNoAnswer)
+        await sandbox.setNextCase(ACCOUNT, "read", GOOGLE_DRIVE_CASE.readNoAnswer)
+
+        expect(live).toMatchObject({ code: DocumentsErrorCode.Unavailable, params: { status: 0 } })
+        await expect(failureOf(service.listFolder(CONNECTION, "f"))).resolves.toMatchObject({ code: DocumentsErrorCode.Unavailable, params: { status: 0 } })
+        await expect(failureOf(service.readFile(CONNECTION, "sbx-drive-prices"))).resolves.toMatchObject({ code: DocumentsErrorCode.Unavailable, params: { status: 0 } })
+    })
+
+    it("GOOGLE_DRIVE-18: a refresh Google refuses (invalid_grant) is DOCUMENTS_GOOGLE_GRANT_REVOKED, the error the Drive client throws for it", async () => {
+        const { sandbox, service } = setup()
+        await sandbox.setNextCase(ACCOUNT, "list", GOOGLE_DRIVE_CASE.listRefreshRefused)
+
+        await expect(failureOf(service.listFolder(CONNECTION, "f"))).resolves.toMatchObject({ code: DocumentsErrorCode.GoogleGrantRevoked })
+    })
+
+    it("every case is tagged with the outcome of the situation it makes: refusals refused, a 5xx transient, a cut timeout, the answers ok; the grant lost is refused", () => {
+        const tags = Object.fromEntries(GOOGLE_DRIVE_SANDBOX_CASES.map((one) => [one.id, one.outcome]))
+
+        expect(tags).toEqual({
+            "GOOGLE_DRIVE-1": "ok",
+            "GOOGLE_DRIVE-2": "ok",
+            "GOOGLE_DRIVE-3": "refused",
+            "GOOGLE_DRIVE-4": "ok",
+            "GOOGLE_DRIVE-5": "ok",
+            "GOOGLE_DRIVE-6": "ok",
+            "GOOGLE_DRIVE-7": "refused",
+            "GOOGLE_DRIVE-8": "refused",
+            "GOOGLE_DRIVE-9": "transient",
+            "GOOGLE_DRIVE-10": "refused",
+            "GOOGLE_DRIVE-11": "ok",
+            "GOOGLE_DRIVE-12": "refused",
+            "GOOGLE_DRIVE-13": "refused",
+            "GOOGLE_DRIVE-14": "refused",
+            "GOOGLE_DRIVE-15": "transient",
+            "GOOGLE_DRIVE-16": "timeout",
+            "GOOGLE_DRIVE-17": "timeout",
+            "GOOGLE_DRIVE-18": "refused",
+        })
     })
 })

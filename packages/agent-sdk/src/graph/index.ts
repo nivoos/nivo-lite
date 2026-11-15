@@ -158,6 +158,7 @@ export {
     WAIT_STEP,
     WAIT_TIMEOUT_ROUTE,
     WAIT_TRIGGERS_MAX,
+    WAIT_KEY_VERBS_MAX,
     isLoopOver,
     isLoopUntil,
     isStoredPresence,

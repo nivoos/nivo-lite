@@ -5,6 +5,7 @@ import { queueQueryBuilders } from "@tests/fixtures/builders/entity-query-builde
 import { CLOCK } from "@modules/platform/clock"
 import { Secret } from "@modules/platform/config"
 import { IDS } from "@modules/platform/ids"
+import { QUEUE_OUTBOX, type QueueOutbox } from "@modules/platform/queue"
 import type { EntityDefinition } from "@nivo-lite/agent-sdk/entity"
 import type { Delete, Insert, Mutation } from "@nivo-lite/agent-sdk/mutation"
 import { EngineFailureService } from "./engine-failure.service"
@@ -56,7 +57,27 @@ const TASK: EntityDefinition = {
     fields: { title: { kind: "text", nullable: false, maxLength: 100 } },
     relations: { lead: { kind: "toOne", target: "sales.lead" } },
 }
-const ENTITIES = [LEAD, MEMBER, TASK]
+/**
+ * A SECOND KIND (concept agent-data rules 10, 12): append-only facts of a fixture package about a service (no person), a stream split by the
+ * service id. The S1 members ride beside the plain definition (`Object.assign`), whichever SDK build the engine is compiled with.
+ */
+const NOTE: EntityDefinition = Object.assign<EntityDefinition, object>(
+    {
+        entry: "entity",
+        name: "fixture-web.webrenew.renewal-note",
+        dataKind: "renewal-note",
+        fields: {
+            serviceId: { kind: "uuid", nullable: false },
+            text: { kind: "text", nullable: false, maxLength: 400 },
+            ref: { kind: "text", nullable: false, maxLength: 40 },
+        },
+        constraints: [{ kind: "unique", name: "ref_key", on: ["ref"], refusal: "ref_taken" }],
+        matchKeys: [{ name: "byRef", on: ["ref"] }],
+    },
+    { append: true, events: { subject: "serviceId", combine: "stream" } },
+)
+const SERVICE_ID = "55555555-5555-4555-8555-555555555555"
+const ENTITIES = [LEAD, MEMBER, TASK, NOTE]
 
 const rawRecord = (id: string, data: Record<string, unknown>, version = "1") => ({
     id,
@@ -131,6 +152,8 @@ const build = async (em: MockEntityManager) => {
             },
             { provide: CLOCK, useValue: new FakeClock(AT) },
             { provide: IDS, useValue: fakeIds() },
+            // The append-only fixture declares `events`: its writes leave an outbox row (concept agent-data rule 2).
+            { provide: QUEUE_OUTBOX, useValue: mock<QueueOutbox>({ write: jest.fn().mockResolvedValue(undefined) }) },
         ],
     }).compile()
     return { mutations: moduleRef.get(EntityMutationService), em, failures }
@@ -506,5 +529,58 @@ describe("EntityMutationService link and unlink", () => {
             ok: false,
             reason: "missing",
         })
+    })
+})
+
+describe("EntityMutationService on an append-only type (concept agent-data rules 10, 12)", () => {
+    const NOTE_VALUES = { serviceId: SERVICE_ID, text: "Hoi gia han", ref: "r-1" }
+
+    it("refuses an update of a fact before any statement, whoever writes (an action or a job)", async () => {
+        const { mutations, em } = await build(mockEntityManager())
+        const update: Mutation = { op: "update", entity: NOTE.name, key: LEAD_ID, expected: "1", values: { text: "sua" } }
+
+        await expect(mutations.mutate(txOf(em), update, "action")).rejects.toMatchObject({ code: EntityEngineErrorCode.AppendOnly })
+        await expect(mutations.mutate(txOf(em), update, "job")).rejects.toMatchObject({ code: EntityEngineErrorCode.AppendOnly })
+        expect(em.createQueryBuilder).not.toHaveBeenCalled()
+        expect(em.query).not.toHaveBeenCalled()
+    })
+
+    it("refuses an upsert (it may change a fact) before any statement", async () => {
+        const { mutations, em } = await build(mockEntityManager())
+
+        await expect(
+            mutations.mutate(txOf(em), { op: "upsert", entity: NOTE.name, on: "ref_key", values: NOTE_VALUES }, "job"),
+        ).rejects.toMatchObject({ code: EntityEngineErrorCode.AppendOnly })
+        expect(em.createQueryBuilder).not.toHaveBeenCalled()
+    })
+
+    it("takes the lock of the fact's stream subject in the write's transaction BEFORE the row is numbered (inserted)", async () => {
+        const { mutations, em } = await build(mockEntityManager(LOCKS))
+        queueQueryBuilders(em, [{ execute: { raw: [rawRecord(NEW_ID, NOTE_VALUES)] } }])
+
+        await expect(mutations.mutate(txOf(em), { op: "insert", entity: NOTE.name, values: NOTE_VALUES }, "action")).resolves.toMatchObject({
+            ok: true,
+        })
+
+        expect(em.query).toHaveBeenNthCalledWith(1, HASH_SQL, [`stream:${WS}:${NOTE.name}:${SERVICE_ID}`, 0])
+        expect(em.query.mock.invocationCallOrder[1] ?? Infinity).toBeLessThan(em.createQueryBuilder.mock.invocationCallOrder[0] ?? 0)
+    })
+
+    it("takes the same lock when an ensure may create the fact, and keeps the link and soft delete roads open", async () => {
+        const { mutations, em } = await build(mockEntityManager(LOCKS))
+        queueQueryBuilders(em, [{ getOne: null }, { execute: { raw: [rawRecord(NEW_ID, NOTE_VALUES)] } }])
+
+        await expect(
+            mutations.mutate(txOf(em), { op: "ensure", entity: NOTE.name, match: "byRef", values: NOTE_VALUES }, "job"),
+        ).resolves.toMatchObject({ ok: true, created: true })
+        expect(em.query).toHaveBeenNthCalledWith(1, HASH_SQL, [`stream:${WS}:${NOTE.name}:${SERVICE_ID}`, 0])
+    })
+
+    it("takes no stream lock for a type that is not append-only (the first kind stays as it was)", async () => {
+        const { mutations, em } = await build(mockEntityManager())
+        queueQueryBuilders(em, [{ execute: { raw: [rawRecord(NEW_ID, { contactName: "An", stage: "new" })] } }])
+
+        await expect(mutations.mutate(txOf(em), INSERT, "action")).resolves.toMatchObject({ ok: true })
+        expect(em.query).not.toHaveBeenCalled()
     })
 })

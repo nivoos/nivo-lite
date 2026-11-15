@@ -1,0 +1,6 @@
+{"findings":[],"hash":"bb5ed5dc0a7fcac54480c47f8892b9fd5ea1a2856c05588204663e229d534717","path":".starcistacks/dev/seeds/data/seed-standards/blocks-core-seed-standard.json","step":"prettier"}
+{"findings":[],"hash":"a9655b3ff88d82cc765a25fdae97526f720a1f54265d55c8784b130af22262e9","path":".starcistacks/dev/seeds/data/seed-standards/nivo-web-core-seed-standard.json","step":"prettier"}
+{"findings":[],"hash":"163bd9ad43de4c64ef08febd897f8b104849764e49c6dc3139e1e5a41b1e6899","path":".starcistacks/dev/seeds/data/test-accounts.json","step":"prettier"}
+{"findings":[],"hash":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","path":".starcistacks/dev/seeds/files/.gitkeep","step":"prettier"}
+{"findings":[],"hash":"47b3a2da471494edae654d0d5a063906b111e2f3874a1d797830dd63e3505daf","path":".starcistacks/dev/seeds/seeds.yaml","step":"prettier"}
+{"findings":[],"hash":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","path":".starcistacks/dev/seeds/sql/.gitkeep","step":"prettier"}

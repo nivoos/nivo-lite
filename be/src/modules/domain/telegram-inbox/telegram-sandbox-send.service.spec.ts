@@ -144,10 +144,10 @@ describe("TelegramSandboxSendService", () => {
     })
 
     it("has unique TELEGRAM-SEND-<n> ids with exactly one default and TELEGRAM-STAFF-<n> likewise, each for its operation", () => {
-        expect(TELEGRAM_SEND_SANDBOX_CASES.map((one) => one.id)).toEqual(["TELEGRAM-SEND-1", "TELEGRAM-SEND-2", "TELEGRAM-SEND-3", "TELEGRAM-SEND-4"])
+        expect(TELEGRAM_SEND_SANDBOX_CASES.map((one) => one.id)).toEqual(["TELEGRAM-SEND-1", "TELEGRAM-SEND-2", "TELEGRAM-SEND-3", "TELEGRAM-SEND-4", "TELEGRAM-SEND-5"])
         expect(TELEGRAM_SEND_SANDBOX_CASES.filter((one) => one.default === true).map((one) => one.id)).toEqual(["TELEGRAM-SEND-1"])
         expect(TELEGRAM_SEND_SANDBOX_CASES.every((one) => one.operation === "send")).toBe(true)
-        expect(TELEGRAM_STAFF_SANDBOX_CASES.map((one) => one.id)).toEqual(["TELEGRAM-STAFF-1", "TELEGRAM-STAFF-2"])
+        expect(TELEGRAM_STAFF_SANDBOX_CASES.map((one) => one.id)).toEqual(["TELEGRAM-STAFF-1", "TELEGRAM-STAFF-2", "TELEGRAM-STAFF-3", "TELEGRAM-STAFF-4"])
         expect(TELEGRAM_STAFF_SANDBOX_CASES.filter((one) => one.default === true).map((one) => one.id)).toEqual(["TELEGRAM-STAFF-1"])
         expect(TELEGRAM_STAFF_SANDBOX_CASES.every((one) => one.operation === "sendToPerson")).toBe(true)
     })

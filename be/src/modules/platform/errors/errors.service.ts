@@ -16,6 +16,7 @@ import { HTTP_STATUS_BY_KIND } from "./http-status.policy"
 /** Turns any failure into the one description every transport answers with: declared codes keep their code and kind, everything else is masked. */
 export class ErrorsService {
     private readonly kinds: ReadonlyMap<string, ErrorKind>
+    private readonly typers: NonNullable<ErrorsOptions["typers"]>
 
     constructor(
         @InjectErrorsOptions() options: ErrorsOptions,
@@ -24,6 +25,7 @@ export class ErrorsService {
         @Optional() @InjectErrorReporter() private readonly reporter?: ErrorReporter,
     ) {
         this.kinds = new Map([...options.kinds, ERRORS_ERROR_KINDS].flatMap((table) => Object.entries(table)))
+        this.typers = options.typers ?? []
     }
 
     /** The one GraphQL error formatter of the app: the server registration hands it over as its `formatError`. */
@@ -41,6 +43,12 @@ export class ErrorsService {
         if (isDomainError(error)) {
             const kind = this.kinds.get(error.code)
             if (kind !== undefined) return this.build(error.code, kind, error.params)
+        }
+        const typed = this.typers.map((typer) => typer(error)).find((found) => found !== null && this.kinds.has(found.code))
+        if (typed !== undefined && typed !== null) {
+            // A failure a capability typed (a transient database failure): answered by its code, logged, never reported as a bug.
+            this.logger.error(ErrorsLogEvent.Unhandled, error, { scope: failureSite.scope })
+            return this.build(typed.code, this.kinds.get(typed.code) ?? "internal", typed.params)
         }
         this.logger.error(ErrorsLogEvent.Unhandled, error, { scope: failureSite.scope })
         void this.reporter?.report(failureSite.scope, error, failureSite.context)

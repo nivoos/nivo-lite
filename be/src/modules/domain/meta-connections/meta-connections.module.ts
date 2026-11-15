@@ -5,7 +5,7 @@ import { MetaChannelSender } from "./meta-channel-sender.service"
 import { MetaConnectionsService } from "./meta-connections.service"
 import { MetaCustomerSendService } from "./meta-customer-send.service"
 import { META_SANDBOX_CATALOGUE } from "./meta-sandbox.catalogue"
-import { META_SEND_SANDBOX_CASES } from "./meta-sandbox-send.catalogue"
+import { META_SEND_SANDBOX_CATALOGUE } from "./meta-sandbox-send.catalogue"
 import { MetaSandboxSendService } from "./meta-sandbox-send.service"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./meta-connections.module-definition"
 
@@ -44,6 +44,6 @@ export class MetaConnectionsModule extends ConfigurableModuleClass implements On
     onModuleInit(): void {
         this.sends.register({ live: this.sendLive, sandbox: this.sendSandbox })
         this.catalogues.register(META_SANDBOX_CATALOGUE)
-        this.catalogues.register({ provider: META_SANDBOX_CATALOGUE.provider, cases: META_SEND_SANDBOX_CASES })
+        this.catalogues.register(META_SEND_SANDBOX_CATALOGUE)
     }
 }

@@ -1,5 +1,6 @@
 import type { RealtimeTopic } from "@modules/platform/realtime"
 import type { JobProgressTopic } from "./job-progress.port"
+import { isClosedError } from "./parked-job-resume.policy"
 import type { JobState } from "./persistence/entities"
 
 /** The most chains one subscription may name at once. */
@@ -8,8 +9,8 @@ export const JOB_PROGRESS_MAX_ROOTS = 50
 /** How far back the current state of a whole workspace reaches: the rows changed within this many hours. */
 export const JOB_PROGRESS_RECENT_HOURS = 24
 
-/** The states a job's progress frame tells. */
-export type JobProgressState = "running" | "retry" | "done" | "dead_letter"
+/** The states a job's progress frame tells; `closed` is the end of a dead letter a person closed for good (no step runs again). */
+export type JobProgressState = "running" | "retry" | "done" | "dead_letter" | "closed"
 
 /**
  * One frame of a job's progress: a state change of the job row or a step report. Keys and numbers only: no text a person reads. `id`
@@ -44,7 +45,7 @@ export interface JobProgressFrame {
     readonly at: string
 }
 
-const STATES: ReadonlySet<string> = new Set<JobProgressState>(["running", "retry", "done", "dead_letter"])
+const STATES: ReadonlySet<string> = new Set<JobProgressState>(["running", "retry", "done", "dead_letter", "closed"])
 
 const isOptional = (value: unknown, type: "string" | "number"): boolean => value === undefined || typeof value === type
 
@@ -167,13 +168,15 @@ export interface JobProgressRow {
     readonly progressAt: Date | null
     /** When a waiting retry runs again, as the runner scheduled it; null when none was stored. */
     readonly progressRetryAt: Date | null
+    /** The error of the row: the mark of a person's close tells a closed job from one handed back to its queue. */
+    readonly error: string | null
     /** When the row last changed. */
     readonly updatedAt: Date
 }
 
-const stateOf = (status: JobState): JobProgressState => {
+const stateOf = (status: JobState, error: string | null): JobProgressState => {
     if (status === "done") return "done"
-    if (status === "failed") return "retry"
+    if (status === "failed") return isClosedError(error) ? "closed" : "retry"
     if (status === "failed_awaiting_fix") return "dead_letter"
     return "running"
 }
@@ -182,7 +185,7 @@ const stateOf = (status: JobState): JobProgressState => {
 export const frameOfRow = (row: JobProgressRow): JobProgressFrame | undefined => {
     const chain = row.progressTopic === null ? undefined : jobProgressTopicOfName(row.progressTopic)
     if (chain === undefined) return undefined
-    const state = stateOf(row.status)
+    const state = stateOf(row.status, row.error)
     const reported = state === "running" && row.progressDone !== null && row.progressTotal !== null
     const at = (reported && row.progressAt !== null ? row.progressAt : row.updatedAt).toISOString()
     const base = { kind: "job" as const, root: chain.root, job: row.kind, jobId: row.id, state, at }

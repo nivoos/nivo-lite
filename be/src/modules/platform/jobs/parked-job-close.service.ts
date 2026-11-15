@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { JobsLogEvent } from "./jobs.log-events"
+import { closedErrorOf } from "./parked-job-resume.policy"
 import { JobEntity } from "./persistence/entities"
 
 /** Where an operator command prints (a process's `stdout`). */
@@ -18,9 +19,6 @@ export interface CommandExit {
 
 /** The id of a job row. */
 const JOB_ID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu
-
-/** What a closed job keeps as its error: that a person closed it, and why. */
-export const closedErrorOf = (reason: string): string => `closed: ${reason}`
 
 @Injectable()
 /**

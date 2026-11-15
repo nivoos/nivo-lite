@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { isIP } from "node:net"
 import { isPrivateAddress } from "@modules/platform/primitives"
-import { canonicalJsonOf } from "./openapi-document.policy"
+import { REPLAY_KEY_HEADER, canonicalJsonOf } from "./openapi-document.policy"
 import { declaredPropertiesOf, typesOf, violationOf } from "./openapi-schema.policy"
 import type {
     CallIdentity,
@@ -16,8 +16,6 @@ import type {
     ToolsAccountFacts,
 } from "./openapi-tools.contracts"
 
-/** The header an operation takes its replay key in, lower case. */
-const IDEMPOTENCY_HEADER = "idempotency-key"
 
 /** The switch of an operation that answers what it would do without doing it: a body member or a query parameter of this name. */
 export const DRY_RUN = "dryRun"
@@ -76,13 +74,21 @@ const controlOf = (parameter: PinnedParameter, plan: Plan): Controlled | null =>
     if (parameter.in !== "header") return null
     const name = parameter.name.toLowerCase()
     if (name === plan.account.workspaceHeader.toLowerCase()) return "workspace"
-    if (name === IDEMPOTENCY_HEADER) return "idempotency"
+    if (name === REPLAY_KEY_HEADER) return "idempotency"
     return plan.securityHeaders.includes(name) || name === "authorization" ? "security" : null
 }
 
 /** The members of an operation's body, by name. */
 const bodyMembersOf = (operation: PinnedOperation): Readonly<Record<string, SchemaNode>> =>
     operation.body === null ? {} : declaredPropertiesOf(operation.body.schema)
+
+/**
+ * Whether an operation's document declares that it takes the provider's replay key (the `Idempotency-Key` header on a write): the system
+ * then answers a second call of the same key with the result of the first instead of acting twice. Read from the document only.
+ */
+export const takesReplayKey = (operation: PinnedOperation): boolean =>
+    operation.method !== "GET" &&
+    operation.parameters.some((parameter) => parameter.in === "header" && parameter.name.toLowerCase() === REPLAY_KEY_HEADER)
 
 /** Where an operation takes its dry-run switch, or null when it has none. */
 export const dryRunPlaceOf = (operation: PinnedOperation): OptionalDryRunPlace => {

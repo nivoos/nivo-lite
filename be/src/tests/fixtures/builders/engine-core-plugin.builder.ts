@@ -14,7 +14,6 @@ import {
     not,
     or,
     outcome,
-    memberContains,
     memberEquals,
     wait,
     waitFor,
@@ -84,7 +83,7 @@ export const CORE_AGENT_WRITE = "tcore.agent-write"
 export const CORE_AGENT_DEFAULTS = "tcore.agent-defaults"
 /** The same node, the graph step setting `ask`. */
 export const CORE_AGENT_DEFAULTS_ASK = "tcore.agent-defaults-ask"
-/** A wait on the run for a line of its conversation (one naming the note's word first, else any), two hours at most. */
+/** A wait on the run for a line of its conversation on any of its channels (one key listing both channel verbs), two hours at most. */
 export const CORE_WAIT = "tcore.wait"
 /** The minutes the wait graph waits. */
 export const WAIT_MINUTES = 120
@@ -95,6 +94,11 @@ export const WAIT_MINUTES = 120
 export const CORE_AWAIT = "tcore.await"
 /** The minutes the await graph waits. */
 export const AWAIT_MINUTES = 30
+/**
+ * A record type of the fixture whose writes are events keyed by the record itself (no person): a renewal request. The await graph's wait
+ * takes a write of the request its run holds (`trigger.ticket`). Only its name is the graph's; the world hands the type's declaration.
+ */
+export const CORE_REQUEST_TYPE = "tcore.renewal-request"
 
 /** The purpose the classify node's agent is asked under (the legacy loop: `<node id>:agent`). */
 export const CLASSIFY_PURPOSE = "tcore.classify:agent"
@@ -528,9 +532,10 @@ const writeOnRoute = (text: Ref<string> | string) =>
     node(writeAutoNode, { input: { noteId: ref("trigger.noteId"), text }, routes: { done: "done", declined: "done" } })
 
 /**
- * Writes the note, then WAITS on the same run: a line of the run's conversation that names the note's word (`trigger.word`) takes the
- * `named` route, any other line of that conversation the `replied` route, two hours without one the `timeout` route; each route writes
- * its own line (the event's text for a line).
+ * Writes the note, then WAITS on the same run: a line of the run's conversation on ANY of its channels (one meaning, one key listing both
+ * channel verbs: concept templates rule 12) takes the `replied` route, two hours without one the `timeout` route; each route writes its own
+ * line (the event's text for a line). (Before S7-WAIT one verb sat under two keys, `named` by a `contains` match and `replied` for any other
+ * line: a verb now has ONE meaning per wait, `WAIT_VERB_DUPLICATE`.)
  */
 export const waitGraph: TemplateGraph = defineTemplateGraph({
     key: CORE_WAIT,
@@ -542,14 +547,10 @@ export const waitGraph: TemplateGraph = defineTemplateGraph({
     nodes: {
         first: node(writeAutoNode, { input: writeBindings, routes: { done: "hold", declined: "hold" } }),
         hold: wait({
-            for: {
-                named: waitFor(TRIGGER.zaloMessageReceived, { match: [memberContains("data.text", ref("trigger.word"))] }),
-                replied: waitFor(TRIGGER.zaloMessageReceived),
-            },
+            for: { replied: waitFor([TRIGGER.zaloMessageReceived, TRIGGER.telegramMessageReceived]) },
             timeout: { minutes: WAIT_MINUTES },
-            next: { named: "named", replied: "replied", timeout: "late" },
+            next: { replied: "replied", timeout: "late" },
         }),
-        named: writeOnRoute(ref("steps.hold.output.event.data.text")),
         replied: writeOnRoute(ref("steps.hold.output.event.data.text")),
         late: writeOnRoute("het gio"),
         done: outcome({ name: "done" }),
@@ -580,11 +581,20 @@ export const awaitGraph: TemplateGraph = defineTemplateGraph({
     nodes: {
         first: node(writeAutoNode, { input: writeBindings, routes: { done: "hold", declined: "hold" } }),
         hold: wait({
-            for: { completed: waitFor(TRIGGER.videoRenderCompleted, { match: [memberEquals("renderId", ref("trigger.ticket"))] }) },
+            for: {
+                completed: waitFor(TRIGGER.videoRenderCompleted, { match: [memberEquals("renderId", ref("trigger.ticket"))] }),
+                // A record-keyed meaning (no person): a write of the run's renewal request (`CORE_REQUEST_TYPE`, keyed by the request
+                // itself), matched on its id, whoever wrote it (a person on the workbench); the run's own write is never offered back.
+                renewed: waitFor(TRIGGER.recordWritten, {
+                    where: [{ param: "data.type", op: "equals", value: CORE_REQUEST_TYPE }],
+                    match: [memberEquals("data.recordId", ref("trigger.ticket"))],
+                }),
+            },
             timeout: { minutes: AWAIT_MINUTES },
-            next: { completed: "finished", timeout: "late" },
+            next: { completed: "finished", renewed: "renewed", timeout: "late" },
         }),
         finished: writeOnRoute(ref("steps.hold.output.event.status")),
+        renewed: writeOnRoute("da doi trang thai"),
         late: writeOnRoute("het gio"),
         done: outcome({ name: "done" }),
     },

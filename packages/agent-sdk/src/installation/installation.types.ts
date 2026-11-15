@@ -104,6 +104,12 @@ export interface ProviderSandboxKeeps {
     readonly collection: string
     /** The answer's field naming the record (a top-level field); a running `sbx-<n>` is placed there when the answer has none. */
     readonly keyField: string
+    /**
+     * The system's own "the open one is answered" rule for a create (an enquiry of the same source answers the open purchase instead of
+     * opening another): a create that finds a kept record of the collection holding the same value of EVERY member of `by` (the request's
+     * members) and, when `whileIn` is named, a value of its member among the listed ones, answers that record and keeps nothing new.
+     */
+    readonly reuses?: { readonly by: ReadonlyArray<string>; readonly whileIn?: { readonly field: string; readonly values: ReadonlyArray<string> } | undefined } | undefined
 }
 
 /** A read that answers a record an earlier write kept: from `collection`, keyed by the call's parameter `keyParam` (path or query). */

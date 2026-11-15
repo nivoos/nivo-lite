@@ -29,6 +29,6 @@ describe("ZaloZnsTemplateService (docs-missing)", () => {
         moduleRef.get(ZaloZnsProviderRegistrationService).onModuleInit()
         expect(registry.liveOf("zalo_oa")).toBe(service)
         expect(registry.portFor({ provider: "zalo_oa", sandbox: true })).toBe(moduleRef.get(ZaloZnsSandboxTemplateService))
-        expect(moduleRef.get(SandboxCatalogueRegistryService).casesOf("zalo_zns")).toHaveLength(3)
+        expect(moduleRef.get(SandboxCatalogueRegistryService).casesOf("zalo_oa").map((one) => one.id)).toEqual(["ZNS-1", "ZNS-2", "ZNS-3", "ZNS-4", "ZNS-5", "ZNS-6", "ZNS-7"])
     })
 })

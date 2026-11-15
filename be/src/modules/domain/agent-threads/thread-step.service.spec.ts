@@ -429,6 +429,8 @@ describe("ThreadStepService.run: one step of a thread", () => {
                     stepKey: "match",
                     question: expect.objectContaining({ stopId: "stop-1", kind: "ai_report", question: REFUND_OR_KEEP_VI }),
                     locale: "vi",
+                    // The trouble keeps the failure code: a person's Retry reads it (one road for every retry, E-STREAM).
+                    code: "order_closed",
                 },
             },
             goto: FREEZE_NODE,
@@ -643,7 +645,19 @@ describe("ThreadStepService.gate and the founder's decisions", () => {
 
         const routed = await built.steps.gate({ agentId: "agent-1" }, state, scopeOf({ kind: "retry", by: "owner-1", at: "t" }))
 
-        expect(routed).toEqual({ update: { founderAnswers: [], trouble: null }, goto: "match" })
+        // RETRY-FIX (the rule changed this expectation, said openly): a Retry keeps the marker with the stop's code whatever the act came
+        // to (here a refusal), so the visit continues the attempt on its recorded words: one road for every retry.
+        expect(routed).toEqual({ update: { founderAnswers: [], trouble: { stepKey: "match", decidedRetry: "PAYMENT_REFUSED" } }, goto: "match" })
+    })
+
+    it("a retry visit of a refused step runs the node on the recorded words (no remake: nothing is open)", async () => {
+        const built = await build()
+        const state = await stopped(built)
+        const routed = await built.steps.gate({ agentId: "agent-1" }, state, scopeOf({ kind: "retry", by: "owner-1", at: "t" }))
+        built.host.run.mockClear()
+        await built.steps.run(AT, stateOf({ trouble: routed.update?.trouble }), scopeOf())
+        expect(built.host.remake).not.toHaveBeenCalled()
+        expect(built.host.run).toHaveBeenCalledWith(expect.objectContaining({ modelReplay: true }))
     })
 
     it("a skip ends the run and resolves the stop", async () => {
@@ -703,7 +717,7 @@ describe("ThreadStepService.gate replayed and taken over", () => {
 describe("ThreadStepService.run: a call that asks the owner first (an `ask` ability)", () => {
     const ASK = new GraphNodesError({
         code: GraphNodesErrorCode.ToolApprovalRequired,
-        params: { tool: "nivo.tool.payment.transfer.create", fingerprint: "fp-1", reason: "ask_mode" },
+        params: { tool: "nivo.tool.payment.request.create", fingerprint: "fp-1", reason: "ask_mode" },
     })
     const QUESTION = { reason: "Cho phep tao QR?", question: null, suggestions: [], decisions: ["retry", "take_over", "skip"] }
 

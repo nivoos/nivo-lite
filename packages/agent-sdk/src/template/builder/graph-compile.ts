@@ -361,10 +361,10 @@ export const waitTimeoutOf = (timeout: WaitTimeout): LoopEvery => {
     return { minutes: count }
 }
 
-/** One trigger of a wait as stored: its key, verb, `where` and match (each match value a stored binding). */
+/** One key of a wait as stored: its key, its verbs in written order, `where` and match (each match value a stored binding). */
 const waitOnOf = (key: string, on: WaitTrigger): GraphV2WaitOn => ({
     key,
-    verb: on.verb,
+    verbs: [...on.verbs],
     ...(on.where === undefined ? {} : { where: on.where }),
     ...(on.match === undefined
         ? {}

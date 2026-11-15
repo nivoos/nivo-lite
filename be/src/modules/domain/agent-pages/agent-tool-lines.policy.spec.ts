@@ -13,7 +13,7 @@ const CATALOGUE: ReadonlyArray<ProviderSpec> = [
         kind: "payment",
         abilities: [
             { id: "transactions.read", scope: "read", tools: ["nivo.tool.bank.transaction.list", "nivo.tool.connection.status.get"] },
-            { id: "qr.create", scope: "write", tools: ["nivo.tool.payment.transfer.create"] },
+            { id: "request.create", scope: "write", tools: ["nivo.tool.payment.request.create"] },
         ],
     },
 ]
@@ -32,7 +32,7 @@ const WORDS: Readonly<Record<string, ToolWords>> = {
 }
 
 const input = (overrides: Partial<AgentToolsInput> = {}): AgentToolsInput => ({
-    declared: ["nivo.tool.customer.message.send", "nivo.tool.payment.transfer.create", "nivo.tool.brain.search", "nivo.tool.order.create"],
+    declared: ["nivo.tool.customer.message.send", "nivo.tool.payment.request.create", "nivo.tool.brain.search", "nivo.tool.order.create"],
     defaultReads: ["nivo.tool.contact.get", "nivo.tool.brain.search"],
     attachments: [
         { agentId: "a-1", connectionId: "oa-1", provider: "zalo_oa" },
@@ -54,7 +54,7 @@ describe("agentToolsOf", () => {
 
         expect(tools.map((tool) => [tool.id, tool.origin])).toEqual([
             ["nivo.tool.customer.message.send", "declared"],
-            ["nivo.tool.payment.transfer.create", "declared"],
+            ["nivo.tool.payment.request.create", "declared"],
             ["nivo.tool.brain.search", "declared"],
             ["nivo.tool.order.create", "declared"],
             ["nivo.tool.bank.transaction.list", "attached"],
@@ -66,7 +66,7 @@ describe("agentToolsOf", () => {
     it("names each provider tool's attached accounts with their label", () => {
         const tools = agentToolsOf(input())
 
-        expect(tools.find((tool) => tool.id === "nivo.tool.payment.transfer.create")?.accounts).toEqual([
+        expect(tools.find((tool) => tool.id === "nivo.tool.payment.request.create")?.accounts).toEqual([
             { connectionId: "mb", provider: "sepay", accountLabel: "MB Bank \u2022\u2022\u2022\u2022 5252" },
         ])
         expect(tools.find((tool) => tool.id === "nivo.tool.customer.message.send")?.accounts).toEqual([
@@ -92,7 +92,7 @@ describe("agentToolsOf", () => {
     it("is not ready for a provider tool no attached account serves, but a send is (website chat)", () => {
         const tools = agentToolsOf(input({ attachments: [] }))
 
-        expect(tools.find((tool) => tool.id === "nivo.tool.payment.transfer.create")?.ready).toBe(false)
+        expect(tools.find((tool) => tool.id === "nivo.tool.payment.request.create")?.ready).toBe(false)
         expect(tools.find((tool) => tool.id === "nivo.tool.customer.message.send")?.ready).toBe(true)
         expect(tools.find((tool) => tool.id === "nivo.tool.order.create")?.ready).toBe(true)
     })

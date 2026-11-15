@@ -129,7 +129,7 @@ describe("ChannelFrontDoorService > ensureForConnection", () => {
         expect(creation.create).toHaveBeenCalledTimes(1)
         expect(creation.create).toHaveBeenCalledWith(
             "owner-1",
-            expect.objectContaining({ workspaceId: "w1", connectionIds: ["c1"], startFrom: "default", copyFrom: null }),
+            expect.objectContaining({ workspaceId: "w1", connectionIds: ["c1"], startFrom: "default", copyFrom: null, platform: true }),
         )
         expect(outcome).toEqual(
             expect.objectContaining({ kind: "installed", agentId: "agent-new", installationId: "inst-new" }),

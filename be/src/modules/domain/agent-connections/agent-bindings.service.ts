@@ -429,7 +429,8 @@ export class AgentBindingsService {
      * channel is answered by exactly one agent of a role). A grant of a purpose that is no channel passes.
      */
     private async requireChannelFree(manager: EntityManager, grant: BindingGrant): Promise<void> {
-        const [agent] = await this.agents.activeCreatedAmong(grant.workspaceId, [grant.agentId], 1)
+        // On the grant's own transaction (it holds the agent and connection rows): never a second connection of the pool (D3-W1-6).
+        const [agent] = await this.agents.activeCreatedAmong(grant.workspaceId, [grant.agentId], 1, manager)
         if (agent === undefined) return
         await this.owners.requireFree(
             grant.workspaceId,

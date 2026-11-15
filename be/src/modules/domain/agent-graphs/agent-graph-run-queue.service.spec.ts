@@ -65,8 +65,8 @@ const build = async (pendingAtFirst: ReadonlyArray<PendingScopeWake>, heldAtFirs
         heldBehind = heldBehind.filter((wake) => !ids.includes(wake.id))
         return Promise.resolve(before - pending.length - heldBehind.length)
     })
-    wakes.heldBehind.mockImplementation((_m, _ws, runId) => Promise.resolve(runId === "run-1" ? heldBehind : []))
     wakes.waitingCountOf.mockImplementation(() => Promise.resolve(waitingNow))
+    wakes.heldBehind.mockImplementation((_m, _ws, runId) => Promise.resolve(runId === "run-1" ? heldBehind : []))
     const runs = mock<AgentRunsService>()
     runs.runOf.mockResolvedValue(
         mock<RunView>({ id: "run-1", agentId: "front", status: "running", context: { threadScope: SCOPE, workflowId: "wf-front" } }),
@@ -148,19 +148,17 @@ describe("AgentGraphRunQueueService: the run queue (D5, ROAD-API section 4)", ()
         expect(world.ledger.rows.has("queue:run-1")).toBe(true)
     })
 
-    it("a step visit after the founder's answer keeps what the step took before and adds what came during the stop", async () => {
+    it("E-FIX12 A-7: a step visit after the founder's answer keeps what the step took before; what came during the stop STAYS held", async () => {
         const world = await build([lineWake("w2", "2026-11-14T03:00:02Z")])
         await world.queue.snapshotOf(turnOf(0), PLACE)
         world.holdBehind(lineWake("w5", "2026-11-14T03:00:30Z"))
 
-        const after = await world.queue.snapshotOf(turnOf(1), PLACE, true)
+        const after = await world.queue.snapshotOf(turnOf(1), PLACE)
 
-        // Rule Q-1: the event held behind the run (`waiting:run-1`) joins the visit's queue, after what the step took before.
-        expect(after.map((event) => event.eventId)).toEqual(["m-w2", "m-w5"])
-        expect(after[1]).toMatchObject({ verb: TRIGGER.zaloMessageReceived, routeId: "route-1", contactId: "contact-1", data: { text: "words of row-w5" } })
-        // The held wake is closed `queued:<run>` (no drain starts a run for it).
-        expect(world.claimed.at(-1)).toEqual(["w2", "w5"])
-        expect(world.held()).toEqual([])
+        // The event held behind the run (`waiting:run-1`) is never swallowed by the step run again: it waits for the run's next wait
+        // (offered there) or for the run's end (released to start the next run).
+        expect(after.map((event) => event.eventId)).toEqual(["m-w2"])
+        expect(world.held().map((wake) => wake.id)).toEqual(["w5"])
     })
 
     it("takes only events of the run's own workflow: another workflow's event on the same key starts its own run", async () => {
@@ -190,15 +188,43 @@ describe("AgentGraphRunQueueService: the run queue (D5, ROAD-API section 4)", ()
         expect(world.pending().map((wake) => wake.id)).toEqual(["w4"])
     })
 
-    it("R18: a later step's visit after the founder's answer takes the events held behind the stop (the stopped run takes them on resume)", async () => {
+    it("E-FIX12 A-7 (replaces R18's taking): a later step's visit after the founder's answer takes NO event held behind the stop", async () => {
         const world = await build([])
         await world.queue.snapshotOf(turnOf(), { runId: "run-1", stepKey: "hear" })
         world.holdBehind(lineWake("w6", "2026-11-14T03:00:40Z"))
 
+        const resumed = await world.queue.snapshotOf(turnOf(1), PLACE)
+
+        expect(resumed).toEqual([])
+        expect(world.held().map((wake) => wake.id)).toEqual(["w6"])
+    })
+
+    it("SDK-DECL: a step whose node DECLARES `readsHeldEvents` takes the lines held behind the stop into its snapshot, oldest first, and closes them", async () => {
+        const world = await build([])
+        await world.queue.snapshotOf(turnOf(), { runId: "run-1", stepKey: "hear" })
+        world.holdBehind(lineWake("w8", "2026-11-14T03:00:41Z"))
+        world.holdBehind(lineWake("w9", "2026-11-14T03:00:42Z"))
+
         const resumed = await world.queue.snapshotOf(turnOf(1), PLACE, true)
 
-        expect(resumed.map((event) => event.eventId)).toEqual(["m-w6"])
-        expect(world.claimed.at(-1)).toEqual(["w6"])
+        expect(resumed.map((scope) => scope.eventId)).toEqual(["m-w8", "m-w9"])
+        expect(world.claimed.at(-1)).toEqual(["w8", "w9"])
+        // Taken (`queued:<run>`): nothing is left held, so the run's end releases nothing and no next run answers them again.
+        expect(world.held()).toEqual([])
+    })
+
+    it("SDK-DECL, a second kind: a held RECORD write event (no person, no line) is taken the same way by a declaring step", async () => {
+        const world = await build([])
+        await world.queue.snapshotOf(turnOf(), { runId: "run-1", stepKey: "hear" })
+        world.holdBehind({
+            id: "wr-1",
+            createdAt: new Date("2026-11-14T03:00:43Z"),
+            context: { verb: "nivo.trigger.record.written", eventId: "fixture-web.webrenew.request:r-1:v2", workflowId: "wf-front", dataJson: "{}" },
+        })
+
+        const resumed = await world.queue.snapshotOf(turnOf(1), PLACE, true)
+
+        expect(resumed.map((scope) => scope.eventId)).toEqual(["fixture-web.webrenew.request:r-1:v2"])
         expect(world.held()).toEqual([])
     })
 

@@ -81,6 +81,9 @@ export class HoldReleaseDoorService {
     ): Promise<ConversationRelease> {
         const route = this.routes === undefined ? null : await this.routes.get(workspaceId, routeId)
         if (this.routes !== undefined && route === null) return { outcome: "not_found", answered: 0 }
+        // The resume event is PREPARED before the transaction (concept outbox-job rule 12: nothing in it reads through the pool) and
+        // committed in it only when the press ended something; the hold it clears there is read by that commit.
+        const resume = (await this.heldLines?.prepareHeld(workspaceId, routeId)) ?? null
         const { held, ended, answered } = await this.entityManager.transaction(async (tx) => {
             const cleared = (await this.routes?.release(workspaceId, routeId, tx)) ?? null
             const stops = (await this.takeOvers?.handedBack(tx, workspaceId, routeId, route?.contactId ?? null, by.memberId)) ?? 0
@@ -88,7 +91,7 @@ export class HoldReleaseDoorService {
             // take-over closed) delivers it. A press with nothing held (a second press, a press after the drain, a double click before
             // it) delivers nothing: the agent would otherwise answer again with no new line of the person.
             if (cleared === null && stops === 0) return { held: null, ended: 0, answered: 0 }
-            const woken = (await this.heldLines?.answerHeld(workspaceId, routeId, tx)) ?? 0
+            const woken = resume === null ? 0 : ((await this.heldLines?.commitHeld(resume, tx)) ?? 0)
             return { held: cleared, ended: stops, answered: woken }
         })
         if (held === null && ended === 0) return { outcome: "nothing_held", answered: 0 }

@@ -1,4 +1,5 @@
-import { moduleListProblems, seedSpecProblems } from "@nivo-lite/agent-sdk/module"
+import { moduleAvailabilityProblems, moduleListProblems, seedSpecProblems } from "@nivo-lite/agent-sdk/module"
+import { corePlugin } from "../../plugin"
 import { coreBlocks } from "../blocks/core-blocks"
 import { workbenchSpecProblems } from "../workbench/workbench-spec-problems"
 import { MODULE_DECLARATIONS } from "./module-declarations"
@@ -85,5 +86,17 @@ describe("MODULE_MESSAGES", () => {
             expect(messages).toBeDefined()
             expect(Object.keys(messages?.en ?? {}).sort()).toEqual(Object.keys(messages?.vi ?? {}).sort())
         }
+    })
+})
+
+describe("the modules the package offers (templates.md rule 21)", () => {
+    it("builds every module whose template is not `available: false`: a declaration, an agent graph, a registered workbench", () => {
+        expect(
+            moduleAvailabilityProblems({
+                servers: corePlugin.servers,
+                modules: corePlugin.modules,
+                templateAgents: corePlugin.templateAgents,
+            }),
+        ).toEqual([])
     })
 })

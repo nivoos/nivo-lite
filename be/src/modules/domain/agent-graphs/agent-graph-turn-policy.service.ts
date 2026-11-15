@@ -52,7 +52,7 @@ export class AgentGraphTurnPolicyService {
     ) {}
 
     /** The turn with what its agent is told: the module's guidance and tool set, and what the step under `stepKey` already sent. */
-    async toldOf(turn: NodeTurn, moduleKey: string, stepKey: string): Promise<NodeTurn> {
+    async toldOf(turn: NodeTurn, moduleKey: string, stepKey: string, readsHeld = false): Promise<NodeTurn> {
         await this.requireOpen(turn.workspaceId, moduleKey)
         // The agent of the module as the plugin that declares it wrote it: the engine names no package (the installation is the array).
         const guidance = INSTALLED.guidanceOf(moduleKey, turn.locale)
@@ -60,7 +60,7 @@ export class AgentGraphTurnPolicyService {
         const agentTools = agent === null ? [] : withDefaultReads(agent.tools)
         const [{ sent, done, decided }, events, waiting] = await Promise.all([
             this.toldBefore(turn, stepKey),
-            this.queueOf(turn, stepPlaceOf(stepKey)),
+            this.queueOf(turn, stepPlaceOf(stepKey), readsHeld),
             this.queue?.waitingOf(turn, stepPlaceOf(stepKey)) ?? Promise.resolve(0),
         ])
         return {
@@ -80,15 +80,12 @@ export class AgentGraphTurnPolicyService {
      * (busy in a step, or waiting at a stop) and that this visit took, oldest first, as a fixed snapshot kept once per visit (a re-run of
      * the visit reads the same). None outside a run, or in an app with no queue. The node reads it as `run.queue`.
      */
-    private async queueOf(turn: NodeTurn, place: StepPlace | null): Promise<NonNullable<NodeTurn["queue"]>> {
+    private async queueOf(turn: NodeTurn, place: StepPlace | null, readsHeld: boolean): Promise<NonNullable<NodeTurn["queue"]>> {
         if (this.queue === undefined) return []
-        // Once a person decided on a stop of the run (Retry included, not only answers in words), the run's next step visits take the
-        // events held behind it while it stopped (rule Q-1; R18 kept generic).
-        const decided =
-            place !== null &&
-            this.stops !== undefined &&
-            (await this.stops.ofRun(turn.workspaceId, place.runId)).some((stop) => stop.answers.length > 0)
-        return this.queue.snapshotOf(turn, place, decided)
+        // E-FIX12 rule A-7 (T-A2c) + SDK-DECL: the events held behind a stopped run are taken by a step only when its node DECLARES it reads
+        // them (`readsHeldEvents`); otherwise they stay held and are offered to the run's next wait that lists them, else they start the
+        // next run once it finishes.
+        return this.queue.snapshotOf(turn, place, readsHeld)
     }
 
     /**

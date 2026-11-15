@@ -46,3 +46,8 @@ Grammar: `Drawer`, `node_modules/@starci/grammar/dist/core/frame/Drawer/index.d.
 Vì sao: a document whose `truths.state` is `legacy` has its own line ("đọc theo cách cũ — chưa đếm đoạn": passage counts 0 mean not counted, not none found), the chip "Đọc cách cũ" and the existing "Đọc lại" door (`retry-facts`, the same command as "Thử lại" of a failed reading). The notes of a finished reading are said in the meta line: lượt đọc lỗi sẽ đọc lại (with "Đọc lại"), dòng không khớp tài liệu, sự thật chờ chủ tiệm duyệt.
 Luật: `badge-dot-or-not`, `suggestion-button-sm`.
 Grammar: `ListRowData.description`, `ListRowData.control` with `Button size="sm"`, `node_modules/@starci/grammar/dist/core/surfaceCardData.d.ts`.
+
+## Vùng của tài liệu: nhãn và nút đổi
+Vì sao: every listed document shows where it stands for readers as a plain Badge "Nội bộ" / "Công khai" (neutral tone for both: a label, not a state, no dot, no red), and the head of an opened document says it too. The head also offers ONE neutral sm button, "Chuyển sang Công khai" (or "Chuyển sang Nội bộ"), that opens the Grammar confirm dialog; moving to public says plainly that customers may now be told the document's content. It calls `updateKnowledgeSource {sourceId, visibility}`. Hidden from readers who may not write.
+Luật: `badge-dot-or-not`, `red-budget-links-foreground`, `surfacecard-select-subtitle`.
+Grammar: `Badge`, `AlertDialog tone="informative"`, `node_modules/@starci/grammar/dist/core/frame/AlertDialog/index.d.ts`.

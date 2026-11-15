@@ -2,6 +2,7 @@ import { Test } from "@nestjs/testing"
 import { LessThan, Not } from "typeorm"
 import {
     builder,
+    FakeClock,
     fakeTransaction,
     mock,
     mockEntityManager,
@@ -9,6 +10,7 @@ import {
     recordingQueueOutbox,
 } from "@starci/jest-preset"
 import type { MockEntityManager } from "@starci/jest-preset"
+import { CLOCK } from "@modules/platform/clock"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
 import { QUEUE_OUTBOX } from "@modules/platform/queue"
@@ -18,6 +20,7 @@ import { JobsLogEvent } from "./jobs.log-events"
 import type { JobsOptions } from "./jobs.options"
 import { ParkedJobCloseService } from "./parked-job-close.service"
 import { AUTO_RESUMES, ParkedJobResumerService } from "./parked-job-resumer.service"
+import { JobProgressService } from "./job-progress.service"
 import { JobEntity } from "./persistence/entities"
 
 const WS = "11111111-1111-4111-8111-111111111111"
@@ -38,6 +41,8 @@ const parkedJob = (id: string, payload: object, extra: Partial<JobEntity> = {}):
 const build = async (em: MockEntityManager, buildId?: string) => {
     const logger = mock<Logger>()
     const outbox = recordingQueueOutbox()
+    const progress = mock<JobProgressService>()
+    progress.publishTo.mockResolvedValue(undefined)
     const moduleRef = await Test.createTestingModule({
         providers: [
             ParkedJobResumerService,
@@ -53,10 +58,12 @@ const build = async (em: MockEntityManager, buildId?: string) => {
             },
             { provide: QUEUE_OUTBOX, useValue: outbox },
             { provide: LOGGER, useValue: logger },
+            { provide: CLOCK, useValue: new FakeClock(new Date("2026-11-15T10:00:00.000Z")) },
+            { provide: JobProgressService, useValue: progress },
             ParkedJobCloseService,
         ],
     }).compile()
-    return { resumer: moduleRef.get(ParkedJobResumerService), logger, outbox }
+    return { resumer: moduleRef.get(ParkedJobResumerService), logger, outbox, progress }
 }
 
 describe("ParkedJobResumerService resume", () => {
@@ -174,12 +181,66 @@ describe("ParkedJobResumerService close", () => {
         expect(outbox.jobs).toEqual([])
     })
 
-    it("refuses a job that is not parked", async () => {
+    it("refuses a job that is not parked, and tells the chain nothing", async () => {
         const em = mockEntityManager({})
         em.update.mockResolvedValue({ affected: 0, raw: [], generatedMaps: [] })
-        const { resumer } = await build(em)
+        const { resumer, progress } = await build(em)
 
         await expect(resumer.close("j-9", "why")).resolves.toBe(false)
+        expect(progress.publishTo).not.toHaveBeenCalled()
+    })
+
+    it("tells the chain's progress stream that the job is closed: the last frame must not stay `retry` or `dead_letter`", async () => {
+        const em = mockEntityManager({})
+        em.update.mockResolvedValue({ affected: 1, raw: [], generatedMaps: [] })
+        em.findOne.mockResolvedValue(Object.assign(new JobEntity(), { id: "j-1", kind: "knowledge.facts", progressTopic: "job-progress:ws-1:knowledge-source:s1" }))
+        const { resumer, progress } = await build(em)
+
+        await expect(resumer.close("j-1", "source deleted")).resolves.toBe(true)
+
+        expect(progress.publishTo).toHaveBeenCalledWith({
+            topicName: "job-progress:ws-1:knowledge-source:s1",
+            job: { jobId: "j-1" },
+            jobName: "knowledge.facts",
+            state: "closed",
+            change: {},
+            at: new Date("2026-11-15T10:00:00.000Z"),
+        })
+    })
+
+    it("a job that never recorded a chain tells nothing, and a failing frame never undoes the close", async () => {
+        const em = mockEntityManager({})
+        em.update.mockResolvedValue({ affected: 1, raw: [], generatedMaps: [] })
+        em.findOne.mockResolvedValue(Object.assign(new JobEntity(), { id: "j-1", kind: "x.y", progressTopic: null }))
+        const { resumer, progress } = await build(em)
+        await expect(resumer.close("j-1", "why")).resolves.toBe(true)
+        expect(progress.publishTo).not.toHaveBeenCalled()
+
+        em.findOne.mockRejectedValue(new Error("read failed"))
+        await expect(resumer.close("j-2", "why")).resolves.toBe(true)
+    })
+})
+
+describe("ParkedJobResumerService stateOf", () => {
+    it.each([
+        ["parked", { id: "j-1", status: "failed_awaiting_fix", error: "boom" }, "parked"],
+        ["closed by a person", { id: "j-1", status: "failed", error: "closed: old payment" }, "closed"],
+        ["handed back to its queue", { id: "j-1", status: "failed", error: null }, "other"],
+        ["done", { id: "j-1", status: "done", error: null }, "other"],
+    ])("a job %s in the workspace is %s", async (_name, row, expected) => {
+        const em = mockEntityManager({})
+        queueQueryBuilders(em, [{ getOne: Object.assign(new JobEntity(), row) }])
+        const { resumer } = await build(em)
+
+        await expect(resumer.stateOf(WS, "j-1")).resolves.toBe(expected)
+    })
+
+    it("no row of this workspace under the id is missing", async () => {
+        const em = mockEntityManager({})
+        queueQueryBuilders(em, [{ getOne: null }])
+        const { resumer } = await build(em)
+
+        await expect(resumer.stateOf(WS, "j-9")).resolves.toBe("missing")
     })
 })
 
@@ -241,6 +302,8 @@ describe("ParkedJobResumerService without a connection", () => {
                 },
                 { provide: QUEUE_OUTBOX, useValue: recordingQueueOutbox() },
                 { provide: LOGGER, useValue: mock<Logger>() },
+                { provide: CLOCK, useValue: new FakeClock(new Date("2026-11-15T10:00:00.000Z")) },
+                { provide: JobProgressService, useValue: mock<JobProgressService>() },
                 ParkedJobCloseService,
             ],
         }).compile()

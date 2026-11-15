@@ -100,6 +100,7 @@ export class AgentInstanceCreationService {
             newInstance: present !== null,
             name: null,
             agent: { name: judged.value.name, handle: judged.value.handle },
+            platform: request.platform,
         })
         const agentId = made.agentId
         // Forward only: a step after the installation that fails throws and takes nothing back (the installation stays, needing its setup).

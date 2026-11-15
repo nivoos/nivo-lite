@@ -30,8 +30,16 @@ export interface QueueItem {
     readonly sourceId?: string | undefined
 }
 
+/** The area a document is added to, chosen by the owner, never inferred: who reads it. Internal: the team and internal agents. Public: the agent that answers customers too. */
+export type UploadArea = "internal" | "public"
+
+/** The area an upload goes to when the owner chose none: internal. */
+export const DEFAULT_UPLOAD_AREA: UploadArea = "internal"
+
 /** What a send of one item needs: where it goes and the options chosen once for the batch. */
 export interface BatchMeta {
+    /** The area the owner chose for the batch; it is sent with the upload address and with the document. */
+    readonly visibility: UploadArea
     readonly topic: string | null
     readonly tags: ReadonlyArray<string>
     readonly module: string | null
@@ -70,7 +78,11 @@ export interface EnqueueOutcome {
 /** The two things a send needs from the outside: bytes to storage, and a document to the queue. */
 export interface QueueActions {
     /** Sends the bytes to storage; `onProgress` is told the fraction sent, 0 to 1, while they travel. A file the allowance has no room for is refused before any byte is sent. */
-    readonly upload: (file: File, onProgress?: (fraction: number) => void) => Promise<UploadOutcome>
+    readonly upload: (
+        file: File,
+        visibility: UploadArea,
+        onProgress?: (fraction: number) => void,
+    ) => Promise<UploadOutcome>
     /** Hands the document to the job queue; answers the id of the new document, or null when it was refused. */
     readonly enqueue: (input: EnqueueItem) => Promise<string | null>
     /** The same command, answering also why the document was refused for room (the brain's limit checked again when the source is added). */

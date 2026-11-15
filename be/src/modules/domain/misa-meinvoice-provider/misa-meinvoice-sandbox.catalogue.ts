@@ -27,6 +27,8 @@ export const MISA_SANDBOX_CASE = {
     authRefused: "MISA-5",
     /** MISA-6: the invoice is issued and numbered, then the answer is lost (unknown, the invoice exists). */
     timeoutApplied: "MISA-6",
+    /** MISA-7: the invoice is accepted but not numbered yet (`invoiceNo` null: the port's own words for an invoice MISA has not numbered). */
+    notNumbered: "MISA-7",
 } as const
 
 /**
@@ -41,32 +43,44 @@ export const MISA_MEINVOICE_SANDBOX_CATALOGUE: SandboxCatalogue = {
             id: MISA_SANDBOX_CASE.issued,
             label: `An invoice is issued: it takes the account's next number (${MISA_SANDBOX_SERIES}/ and 8 digits, gapless)`,
             operation: MISA_SANDBOX_ISSUE_OPERATION,
+            outcome: "ok",
             default: true,
         },
         {
             id: MISA_SANDBOX_CASE.rejected,
             label: "An invoice is rejected: the buyer tax code is invalid, MISA refuses (rejected, not sent), no number consumed",
             operation: MISA_SANDBOX_ISSUE_OPERATION,
+            outcome: "refused",
         },
         {
             id: MISA_SANDBOX_CASE.noAnswer,
             label: "MISA gives no answer: the outcome is unknown (proof unknown) and nothing was issued, no number consumed",
             operation: MISA_SANDBOX_ISSUE_OPERATION,
+            outcome: "timeout",
         },
         {
             id: MISA_SANDBOX_CASE.unavailable,
             label: "MISA is unavailable: a server failure before anything is issued (not sent), no number consumed",
             operation: MISA_SANDBOX_ISSUE_OPERATION,
+            outcome: "transient",
         },
         {
             id: MISA_SANDBOX_CASE.authRefused,
             label: "The account's credential is refused: auth refused (not sent), no number consumed",
             operation: MISA_SANDBOX_ISSUE_OPERATION,
+            outcome: "refused",
         },
         {
             id: MISA_SANDBOX_CASE.timeoutApplied,
             label: "A timeout with the effect applied: the invoice is issued and numbered, then the answer is lost (proof unknown)",
             operation: MISA_SANDBOX_ISSUE_OPERATION,
+            outcome: "timeout",
+        },
+        {
+            id: MISA_SANDBOX_CASE.notNumbered,
+            label: "An invoice is accepted but not numbered yet: state pending, invoiceNo null, no issue date (the port's IssuedInvoice: invoiceNo is null while the provider has not numbered it); no number consumed. The state word `pending` is the sandbox's own: MISA's documentation could not be read",
+            operation: MISA_SANDBOX_ISSUE_OPERATION,
+            outcome: "ok",
         },
     ],
 }

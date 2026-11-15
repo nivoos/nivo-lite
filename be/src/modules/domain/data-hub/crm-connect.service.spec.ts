@@ -390,6 +390,48 @@ describe("CrmConnectService save: updating and who may", () => {
     })
 })
 
+describe("CrmConnectService save: a NIVO Sandbox account", () => {
+    const sandboxAccount = (stored: StoredConnection): void => {
+        stored.connection = {
+            id: "connection-sandbox",
+            workspaceId: actor.workspaceId,
+            provider: "openapi",
+            name: "NIVO Sandbox CRM",
+            status: "connected",
+            lastError: null,
+            meta: { summary: "acme" },
+            everyMinutes: null,
+            lastSyncAt: null,
+            sandbox: true,
+        }
+    }
+
+    it("pins the template's own document at the reserved sandbox host: no address check, no fetch, no key, writes off", async () => {
+        const { service, client, publicHost, hub, stored } = await build(COMPLETE_DOCUMENT)
+        sandboxAccount(stored)
+
+        const result = await service.save(actor, { crmId: "acme", connectionId: "connection-sandbox", baseUrl: "", auth: { type: "bearer", value: "" } })
+
+        expect(client.fetchSpec).not.toHaveBeenCalled()
+        expect(publicHost.resolve).not.toHaveBeenCalled()
+        expect(hub.saveCredential).not.toHaveBeenCalled()
+        expect(hub.create).not.toHaveBeenCalled()
+        expect(result).toMatchObject({ connectionId: "connection-sandbox", templated: true, driftFromTemplate: [] })
+        expect(result.pin.live).toBe(false)
+        expect(JSON.parse(stored.connection?.meta["config"] ?? "{}")).toMatchObject({ baseUrl: "https://sandbox.invalid", authType: "bearer" })
+        expect(stored.connection?.meta["summary"]).toBe("acme")
+    })
+
+    it("refuses a sandbox account of a CRM no package declares: there is no document to answer from", async () => {
+        const { service, client, stored } = await build(COMPLETE_DOCUMENT)
+        sandboxAccount(stored)
+        await expect(
+            service.save(actor, { crmId: "shopcrm", connectionId: "connection-sandbox", baseUrl: "", auth: { type: "bearer", value: "" } }),
+        ).rejects.toMatchObject({ code: DataHubErrorCode.Invalid, params: { detail: "sandbox_template_required" } })
+        expect(client.fetchSpec).not.toHaveBeenCalled()
+    })
+})
+
 describe("CrmConnectService connection", () => {
     it("reopens a saved connection with its address, how its key is sent, whether one is stored and its pin, never the key", async () => {
         const { service } = await build()

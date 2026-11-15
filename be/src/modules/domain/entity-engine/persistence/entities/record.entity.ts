@@ -34,6 +34,13 @@ export class RecordEntity extends AbstractEntity {
     version!: string
 
     /**
+     * The record's position in its type's STREAM (concept agent-data rule 5; migration 20261115000100_records-seq.sql): one sequence of the
+     * whole table, drawn by the insert. Read only by the consuming read of an append-only type (`select: false`): no find reads it.
+     */
+    @Column({ name: "seq", type: "bigint", nullable: true, select: false, insert: false, update: false })
+    seq!: string | null
+
+    /**
      * When the record was soft-deleted, or null while it lives (owner order 2026-11-14: a record is never hard-deleted). A delete sets it
      * and bumps `version`; this column is the entity's delete-date column, so every find and every query builder over `records` (and every
      * join to it) leaves a deleted record out unless a caller asks `withDeleted`. Nothing in the engine does.

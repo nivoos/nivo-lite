@@ -44,6 +44,7 @@ const declared = (over: Partial<DataBackupValues> = {}): DataBackupValues => ({
     checkout: "/outside/backup-dev",
     recipients: `${RECIPIENT}, ${RECIPIENT}`,
     remote: undefined,
+    database: true,
     ...over,
 })
 
@@ -57,10 +58,11 @@ describe("the scheduled backup's settings", () => {
                 checkout: undefined,
                 recipients: undefined,
                 remote: undefined,
+                database: false,
             }),
         ).toEqual({
             enabled: false,
-            reason: "DATA_BACKUP_ENV, DATA_BACKUP_CHECKOUT and DATA_BACKUP_RECIPIENTS are not declared",
+            reason: "DATA_BACKUP_ENV, DATA_BACKUP_CHECKOUT, DATA_BACKUP_RECIPIENTS and DATABASE_OWNER_URL are not declared",
         })
     })
 
@@ -74,6 +76,10 @@ describe("the scheduled backup's settings", () => {
         expect(subject.backupConfigOf(declared({ environment: "staging" }))).toEqual({
             enabled: false,
             reason: "DATA_BACKUP_ENV (dev or prod) missing or invalid",
+        })
+        expect(subject.backupConfigOf(declared({ database: false }))).toEqual({
+            enabled: false,
+            reason: "DATABASE_OWNER_URL missing or invalid",
         })
     })
 
@@ -114,7 +120,7 @@ describe("the scheduled backup's settings", () => {
 })
 
 describe("the data set a deployment keeps copies of", () => {
-    it("names the backup repository driver of the environment, and declares one daily seed-backup set that reads both stores", async () => {
+    it("names the backup repository driver of the environment, and declares one daily seed-backup set that reads the whole database and every bucket", async () => {
         const subject = await build()
 
         expect(subject.backupDriverIdOf("prod")).toBe("nivo-lite-seed-backup-prod")

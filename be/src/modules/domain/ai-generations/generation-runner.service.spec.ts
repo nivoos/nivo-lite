@@ -305,6 +305,20 @@ describe("GenerationRunnerService", () => {
         })
     })
 
+    it("writes a try that LEFT NO REQUEST (`sent: false`, a runner that failed it itself) as the same failure, and books nothing", async () => {
+        const { em } = managerOf(generationRow(), null)
+        const { runner, usage } = await build(em, { tried: { ok: false, failure: "timeout", sent: false } })
+
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("error")
+
+        expect(em.update).toHaveBeenLastCalledWith(
+            AiGenerationEntity,
+            { id: "g1", workspaceId: "w1", status: OPEN },
+            expect.objectContaining({ status: "error", error: "no_answer" }),
+        )
+        expect(usage.record).not.toHaveBeenCalled()
+    })
+
     it("cancels a generation whose model call gave no answer by its deadline", async () => {
         const { em } = managerOf(generationRow(), null)
         const { runner, usage } = await build(em, { answer: null, takesMs: 17_000 })

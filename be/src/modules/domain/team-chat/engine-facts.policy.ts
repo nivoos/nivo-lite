@@ -93,6 +93,13 @@ export const STUCK_FACT = {
  */
 export const LINE_FACT = { told: "customerLine", reason: "customerLineReason" } as const
 
+/**
+ * The name of the engine fact of an OPEN stop that counts the events of its run's subject waiting behind the run (ENGINE-FIN (a),
+ * `RunStopsService.waitingCounted` writes it): a stream marker counts its events, an `each` wake one, a `latest` wake one. Its value is
+ * the number as text.
+ */
+export const WAITING_FACT = "waiting"
+
 /** The value of the `customerLine` fact: the engine's holding line was NOT told to the customer. */
 export const LINE_NOT_TOLD = "not_told"
 
@@ -115,21 +122,22 @@ const lineReasonFactsOf = (words: FactWords, code: string): ReadonlyArray<Messag
 const CARD_FACTS_MAX = 40
 
 /**
- * The facts of a stored card with what its stop says NOW about its holding line (the raw `LINE_FACT` facts of the stop record, handed
- * with a rewrite): the line facts the card showed before are replaced by the ones given, worded; worded facts stay first. A rewrite
- * that hands no line fact leaves the stored facts as they are.
+ * The facts of a stored card with what its stop says NOW while it is open (its LIVE facts, raw, handed with a rewrite): its holding line
+ * (`LINE_FACT`) and the events waiting behind its run (`WAITING_FACT`). The live facts the card showed before are replaced by the ones
+ * given, worded; worded facts stay first. A rewrite that hands no live fact leaves the stored facts as they are.
  */
-export const withLineFactsOf = (
+export const withLiveFactsOf = (
     stored: ReadonlyArray<MessageFact>,
     given: ReadonlyArray<MessageFact>,
     words: FactWords,
 ): ReadonlyArray<MessageFact> => {
     const fresh = given.flatMap((fact) => {
         if (fact.name === LINE_FACT.told) return [lineFactOf(words, fact.value)]
+        if (fact.name === WAITING_FACT) return [worded(words, WAITING_FACT, fact.value)]
         return fact.name === LINE_FACT.reason ? lineReasonFactsOf(words, fact.value) : []
     })
     if (fresh.length === 0) return stored
-    const labels = new Set(Object.values(LINE_LABEL).map((label) => labelOf(words, label)))
+    const labels = new Set([...Object.values(LINE_LABEL), WAITING_FACT].map((label) => labelOf(words, label)))
     const kept = stored.filter((fact) => !labels.has(fact.name)).slice(0, CARD_FACTS_MAX - fresh.length)
     const all = [...kept, ...fresh]
     return [...all.filter((fact) => fact.technical !== true), ...all.filter((fact) => fact.technical === true)]

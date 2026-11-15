@@ -57,11 +57,11 @@ const STEP: ApprovalStep = {
     },
 }
 
-/** The host's typed refusal of a call of `nivo.tool.payment.transfer.create` an `ask` tick holds. */
+/** The host's typed refusal of a call of `nivo.tool.payment.request.create` an `ask` tick holds. */
 const askError = (params: Record<string, unknown> = {}): GraphNodesError =>
     new GraphNodesError({
         code: GraphNodesErrorCode.ToolApprovalRequired,
-        params: { tool: "nivo.tool.payment.transfer.create", fingerprint: FINGERPRINT, reason: "ask_mode", ...params },
+        params: { tool: "nivo.tool.payment.request.create", fingerprint: FINGERPRINT, reason: "ask_mode", ...params },
     })
 
 const itemOf = builder<WorkItem>({
@@ -108,7 +108,7 @@ const stopOf = (over: Partial<RunStop> = {}): RunStop => ({
     question: null,
     detail: {
         suggestions: [],
-        facts: factsOf(["tool", "nivo.tool.payment.transfer.create"], ["workItemId", "item-1"], ["fingerprint", FINGERPRINT]),
+        facts: factsOf(["tool", "nivo.tool.payment.request.create"], ["workItemId", "item-1"], ["fingerprint", FINGERPRINT]),
     },
     cardMessageId: "msg-1",
     customerLines: [],
@@ -130,10 +130,10 @@ const BOARD: ProviderBoard = {
             connected: true,
             abilities: [
                 {
-                    id: "qr.create",
-                    label: { vi: "Create a payment QR (vi)", en: "Create a payment QR" },
+                    id: "request.create",
+                    label: { vi: "Ask the payer to pay (vi)", en: "Ask the payer to pay" },
                     scope: "write",
-                    tools: ["nivo.tool.payment.transfer.create"],
+                    tools: ["nivo.tool.payment.request.create"],
                 },
             ],
             accounts: [
@@ -264,7 +264,7 @@ describe("ThreadApprovalsService.asked", () => {
                     engine: "langgraph",
                     runId: "run-1",
                     stepKey: "qr",
-                    tool: "nivo.tool.payment.transfer.create",
+                    tool: "nivo.tool.payment.request.create",
                     fingerprint: FINGERPRINT,
                     account: "SePay · MB Bank 5252",
                     connectionId: "conn-1",
@@ -289,9 +289,9 @@ describe("ThreadApprovalsService.asked", () => {
             contactId: "lead-1",
         })
         expect(opened?.facts).toEqual([
-            { name: "tool", value: "nivo.tool.payment.transfer.create" },
+            { name: "tool", value: "nivo.tool.payment.request.create" },
             { name: "account", value: "SePay · MB Bank 5252" },
-            { name: "ability", value: "Create a payment QR (vi)" },
+            { name: "ability", value: "Ask the payer to pay (vi)" },
             { name: "orderId", value: "DH-1" },
             { name: "amountVnd", value: "25000" },
             { name: "workItemId", value: "item-1" },
@@ -403,9 +403,9 @@ describe("ThreadApprovalsService.asked, the approval card the engine builds befo
             step: { nodeId: "sales.payment-qr", title: "Make QR", description: "" },
             // The "Thao tac" row's words: the tool's declared title (its plugin's tool label), never the raw id alone.
             call: {
-                tool: "nivo.tool.payment.transfer.create",
+                tool: "nivo.tool.payment.request.create",
                 account: "SePay · MB Bank 5252",
-                label: { vi: "Tạo thông tin chuyển khoản", en: "Create a bank-transfer instruction" },
+                label: { vi: "Yêu cầu khách thanh toán", en: "Ask the payer to pay" },
             },
             facts: [
                 { name: "orderNo", value: "DH-7" },
@@ -619,7 +619,7 @@ describe("ThreadApprovalsService.verdict", () => {
             status,
             proposal: {
                 summary: "x",
-                fields: { engine: "langgraph", runId: "run-1", stepKey: "qr", tool: "nivo.tool.payment.transfer.create" },
+                fields: { engine: "langgraph", runId: "run-1", stepKey: "qr", tool: "nivo.tool.payment.request.create" },
             },
         })
 

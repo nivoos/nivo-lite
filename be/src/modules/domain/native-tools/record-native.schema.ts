@@ -86,6 +86,12 @@ export const RECORD_LIST_SCHEMA = z.strictObject({
         .max(QUERY_LIMITS.select)
         .optional()
         .describe("The fields answered; every declared field when left out."),
+    consume: z
+        .literal(true)
+        .optional()
+        .describe(
+            "Only for an append-only type, with `where` naming ONE subject (`eq` on the type's subject field): takes the records read as this step's to handle; they count as handled once the step ends (`consumedSeq` moves to the newest `seq` read).",
+        ),
 })
 
 /** The arguments of `nivo.tool.record.create`. */

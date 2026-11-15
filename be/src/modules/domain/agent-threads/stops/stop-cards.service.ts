@@ -6,6 +6,7 @@ import {
     LINE_FACT,
     NO_NEEDS,
     STOP_CARD_MESSAGE_KIND,
+    WAITING_FACT,
     type StopCardApproval,
     type StopCardKind,
     type StopCardNeeds,
@@ -14,8 +15,11 @@ import {
     type StopCardState,
 } from "@modules/domain/team-chat"
 import { InjectMessageCatalog, type MessageCatalog } from "@modules/platform/i18n"
-import type { RunStop, StopCardContext } from "./run-stop.contracts"
+import { retryNeedsTakeOver, type RunStop, type StopCardContext } from "./run-stop.contracts"
 import type { ApprovalCardPreview } from "../approval-card.policy"
+
+/** The facts of an open stop that change while it waits and are shown again on every rewrite of its card. */
+const LIVE_FACTS: ReadonlySet<string> = new Set([LINE_FACT.told, LINE_FACT.reason, WAITING_FACT])
 
 /** The longest summary line of a card. */
 const SUMMARY_MAX = 4000
@@ -39,11 +43,15 @@ export const stopCardKindOf = (stop: Pick<StopCardSource, "kind">): StopCardKind
     return stop.kind === "ai_report" ? "ai_report" : "ai_error"
 }
 
-/** What an open stop asks: a verdict for a permission request; the founder's words and the three buttons for any other stop. */
-const openNeedsOf = (kind: StopCardKind): StopCardNeeds =>
-    kind === "approval"
-        ? { answer: false, decisions: [], verdicts: ["approve", "refuse"] }
-        : { answer: true, decisions: [...STOPPED_DECISIONS], verdicts: [] }
+/**
+ * What an open stop asks: a verdict for a permission request; the founder's words and the three buttons for any other stop, without
+ * Retry when the step's act has an outcome nobody knows and no declared way to make or check it again (E-FIX12 rule A-4).
+ */
+const openNeedsOf = (kind: StopCardKind, takeOverFirst: boolean): StopCardNeeds => {
+    if (kind === "approval") return { answer: false, decisions: [], verdicts: ["approve", "refuse"] }
+    const decisions = takeOverFirst ? STOPPED_DECISIONS.filter((decision) => decision !== "retry") : [...STOPPED_DECISIONS]
+    return { answer: true, decisions, verdicts: [] }
+}
 
 /** What a stop a person took over still accepts: their words, a retry once they are done, or a skip. */
 const TAKEN_OVER_NEEDS: StopCardNeeds = { answer: true, decisions: ["retry", "skip"], verdicts: [] }
@@ -59,7 +67,7 @@ export interface StopCardRead {
 }
 
 /** The fields of a stop its card's state is read from. */
-export type StopCardSource = Pick<RunStop, "kind" | "state" | "decision">
+export type StopCardSource = Pick<RunStop, "kind" | "state" | "decision" | "detail">
 
 /** The card's state of a stop and what the engine needs now, read from the stop record alone. */
 export const stopCardStateOf = (stop: StopCardSource): StopCardRead => {
@@ -70,7 +78,8 @@ export const stopCardStateOf = (stop: StopCardSource): StopCardRead => {
         if (decision === "timeout") return { state: "timed_out", needs: NO_NEEDS, takenOver: false }
         return { state: decision === null ? "resolved" : "answered", needs: NO_NEEDS, takenOver: false }
     }
-    if (decision === null) return { state: "open", needs: openNeedsOf(stopCardKindOf(stop)), takenOver: false }
+    if (decision === null)
+        return { state: "open", needs: openNeedsOf(stopCardKindOf(stop), retryNeedsTakeOver(stop.detail.facts)), takenOver: false }
     if (decision === "take_over") return { state: "answered", needs: TAKEN_OVER_NEEDS, takenOver: true }
     if (decision === "timeout") return { state: "timed_out", needs: NO_NEEDS, takenOver: false }
     return { state: "answered", needs: NO_NEEDS, takenOver: false }
@@ -229,20 +238,25 @@ export class StopCardsService {
         const section = this.sectionOf(stop, locale)
         const key = stopCardKeyOf(stop.runId, stop.stepKey)
         const summary = [section.headline, stop.reason].join("\n")
-        // What the record says about the engine's holding line (not told to the customer, and why) travels with every rewrite, raw:
-        // the team chat words it on the card, so the card never stays silent about a line the send refused.
-        const lineFacts = stop.detail.facts
-            .filter((fact) => fact.name === LINE_FACT.told || fact.name === LINE_FACT.reason)
+        // What the record says NOW while the stop is open travels with every rewrite, raw (its LIVE facts): the engine's holding line (not
+        // told to the customer, and why), so the card never stays silent about a line the send refused, and the events of the run's
+        // subject waiting behind it (ENGINE-FIN (a)). The team chat words them on the card.
+        const liveFacts = stop.detail.facts
+            .filter((fact) => LIVE_FACTS.has(fact.name))
             .map((fact) => ({ name: fact.name, value: fact.value }))
-        const notTold = lineFacts.find((fact) => fact.name === LINE_FACT.reason)?.value
+        const notTold = liveFacts.find((fact) => fact.name === LINE_FACT.reason)?.value
+        const waiting = liveFacts.find((fact) => fact.name === WAITING_FACT)?.value
         const payload = {
             kind: STOP_CARD_MESSAGE_KIND,
-            rewrite: { title: section.headline, summary: summary.slice(0, SUMMARY_MAX), stop: section, lineFacts },
+            rewrite: { title: section.headline, summary: summary.slice(0, SUMMARY_MAX), stop: section, liveFacts },
             ...(stop.detail.approvalCard === undefined ? {} : { decision: stop.detail.approvalCard }),
         }
-        // A fact added to an open stop (a credit that joined its run, D-MX-3) rewrites the card too: the key counts the facts, and
-        // names the reason a holding line was not told (a second refusal for another reason is another write).
-        const written = `f${String(stop.detail.facts.length)}${notTold === undefined ? "" : `:${notTold}`}`
+        // A fact added to an open stop (a credit that joined its run, D-MX-3) rewrites the card too: the key counts the facts, names the
+        // reason a holding line was not told (a second refusal for another reason is another write) and the number of events waiting
+        // (each new number is one write; the same number again writes nothing).
+        const told = notTold === undefined ? "" : `:${notTold}`
+        const waits = waiting === undefined ? "" : `:w${waiting}`
+        const written = `f${String(stop.detail.facts.length)}${told}${waits}`
         await post.execute(turnOf(workspaceId, stop, locale), payload, {
             key: `${key}:${section.state}:${String(stop.repeats)}:${String(stop.answers.length)}:${written}`,
             dedupeKey: key,

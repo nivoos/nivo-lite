@@ -40,9 +40,9 @@ describe("DataBackupService: the first run writes one copy per driver", () => {
             warnings: [],
         })
         expect(result.counts).toEqual([
-            { store: "database", set: "agents", items: 1 },
-            { store: "database", set: "contacts", items: 2 },
-            { store: "storage", set: "files", items: 1 },
+            { store: "database-all", set: "agents", items: 1 },
+            { store: "database-all", set: "contacts", items: 2 },
+            { store: "storage-all", set: "files", items: 1 },
         ])
         const copies = [await git.list(), await s3.list()]
         expect(copies.map((list) => list.length)).toEqual([1, 1])

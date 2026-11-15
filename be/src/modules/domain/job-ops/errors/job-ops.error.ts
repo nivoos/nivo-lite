@@ -20,6 +20,12 @@ export enum JobOpsErrorCode {
     StoppedWorkNeedsOwner = "JOB_OPS_STOPPED_WORK_NEEDS_OWNER",
     /** The close reason is empty or longer than the limit. */
     StoppedWorkReasonInvalid = "JOB_OPS_STOPPED_WORK_REASON_INVALID",
+    /** No job of this workspace has the id (an id that never existed and another workspace's job answer alike). */
+    StoppedWorkNotFound = "JOB_OPS_STOPPED_WORK_NOT_FOUND",
+    /** A person already closed the job for good: it can be neither closed again nor resumed. */
+    StoppedWorkAlreadyClosed = "JOB_OPS_STOPPED_WORK_ALREADY_CLOSED",
+    /** The job exists in the workspace but is not stopped (running, queued, done or already handed back). */
+    StoppedWorkNotStopped = "JOB_OPS_STOPPED_WORK_NOT_STOPPED",
 }
 
 /** How each jobs operations code travels. */
@@ -33,6 +39,9 @@ export const JOB_OPS_ERROR_KINDS: Record<JobOpsErrorCode, ErrorKind> = {
     [JobOpsErrorCode.JobsStaleAlert]: "internal",
     [JobOpsErrorCode.StoppedWorkNeedsOwner]: "forbidden",
     [JobOpsErrorCode.StoppedWorkReasonInvalid]: "invalid",
+    [JobOpsErrorCode.StoppedWorkNotFound]: "not-found",
+    [JobOpsErrorCode.StoppedWorkAlreadyClosed]: "conflict",
+    [JobOpsErrorCode.StoppedWorkNotStopped]: "conflict",
 }
 
 /** The one error class of the jobs operations capability. */

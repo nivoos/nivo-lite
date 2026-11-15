@@ -4116,6 +4116,7 @@ type ModuleDefinitionType {
   includedWithWorkspace: Boolean!
   key: String!
   knowledgeFolder: String!
+  knowledgeIdeas: [ModuleKnowledgeIdeaType!]!
   mascot: String!
   multiInstance: Boolean!
   name: ModuleBilingualType!
@@ -4184,6 +4185,14 @@ type ModuleInstallationType {
 input ModuleKeyInput {
   key: String! @inputBounds(maxLength: 24)
   workspaceId: ID = null @inputBounds(maxLength: 36)
+}
+
+type ModuleKnowledgeIdeaType {
+  businessTypes: [String!]!
+  general: Boolean!
+  hint: ModuleBilingualType!
+  key: String!
+  topic: ModuleBilingualType!
 }
 
 type ModulePluginType {
@@ -4387,6 +4396,7 @@ type Mutation {
   setOperatingMode(input: SetOperatingModeInput!): ModuleInstallationType!
   setProviderTriggerEnabled(input: SetProviderTriggerEnabledInput!): ProviderTriggerStateType!
   setSandboxNextCase(input: SetSandboxNextCaseInput!): SandboxNextCaseType!
+  setSandboxNextOutcome(input: SetSandboxNextOutcomeInput!): SandboxNextCaseType!
   setSetupGate(input: SetSetupGateInput!): SetupSessionType!
   setTeamRoomPostRight(input: SetChatRoomPostRightInput!): ChatRoomPayloadType!
   setTeamRoomPurpose(input: SetChatRoomPurposeInput!): ChatRoomPayloadType!
@@ -5305,12 +5315,15 @@ type SandboxCaseInputFieldType {
 }
 
 type SandboxCaseType {
+  delivery: String
   direction: String!
   id: ID!
   inputs: [SandboxCaseInputFieldType!]!
   isDefault: Boolean!
   label: String!
   operation: String
+  outcome: String
+  polled: Boolean!
   trigger: String
 }
 
@@ -5364,6 +5377,8 @@ type SandboxSendResultType {
   caseId: String!
   deliveries: [SandboxDeliveryType!]!
   inputs: [SandboxInputValueType!]!
+  lateBySeconds: Int!
+  mode: String!
   webhookDropped: Boolean!
 }
 
@@ -5376,6 +5391,7 @@ type SandboxWaitingRunType {
   agentId: ID!
   agentLabel: String!
   dueAt: String!
+  kind: String!
   parkKey: String!
   personLabel: String!
   routeId: String
@@ -5562,6 +5578,8 @@ input SendSandboxCaseInput {
   connectionId: ID! @inputBounds(maxLength: 64)
   dropWebhook: Boolean = false
   inputs: [SandboxInputValueInput!] = [] @inputBounds(maxItems: 20)
+  lateBySeconds: Int @inputBounds(min: 1)
+  mode: String
 }
 
 input SendSmtpTestInput {
@@ -5786,6 +5804,12 @@ input SetSandboxNextCaseInput {
   caseId: String! @inputBounds(maxLength: 60)
   connectionId: ID! @inputBounds(maxLength: 64)
   scope: String @inputBounds(maxLength: 200)
+}
+
+input SetSandboxNextOutcomeInput {
+  connectionId: ID! @inputBounds(maxLength: 64)
+  operation: String! @inputBounds(maxLength: 200)
+  outcome: String!
 }
 
 input SetSetupGateInput {

@@ -2,9 +2,8 @@
 
 import { useMemo } from "react"
 import { useQueryModuleInstallationsSwr } from "@/hooks/swr"
-import { toWireInstallation } from "@/modules/documents"
 import { readError } from "@/hooks/workspaceread"
-import type { Installation } from "@/modules/installations"
+import { toInstallations, type Installation } from "@/modules/installations"
 
 /** The view `useModuleInstallations` returns. */
 export interface ModuleInstallationsView {
@@ -18,15 +17,6 @@ export const useModuleInstallations = (): ModuleInstallationsView => {
     const swrRead = useQueryModuleInstallationsSwr()
     const { data, isLoading } = swrRead
     const error = readError(swrRead)
-    const installations = useMemo(
-        () =>
-            data === undefined
-                ? undefined
-                : data.flatMap((row) => {
-                      const installation = toWireInstallation(row)
-                      return installation === null ? [] : [installation]
-                  }),
-        [data],
-    )
+    const installations = useMemo(() => (data === undefined ? undefined : [...toInstallations(data)]), [data])
     return { installations, error, isLoading }
 }

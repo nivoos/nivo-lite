@@ -12,8 +12,8 @@ import { addsOverBound, inForceLockKey, type InForceBound } from "./in-force.pol
  * first one's value in force and is refused (owner 2026-11-12, the race of direct apply).
  */
 export interface GuardedBound extends InForceBound {
-    /** Runs under the lock before the write; throws to refuse it. */
-    readonly guard: () => Promise<void>
+    /** Runs under the lock before the write, in the write's own transaction `tx`; throws to refuse it. */
+    readonly guard: (tx: EntityManager) => Promise<void>
 }
 
 /** Whether a bound carries a guard. */
@@ -35,7 +35,7 @@ export class InForceBoundService {
     async within<T>(tx: EntityManager, workspaceId: string, bound: InForceBound | undefined, write: () => Promise<T>): Promise<T> {
         if (bound === undefined) return write()
         await advisoryXactLock(tx, inForceLockKey(workspaceId))
-        if (isGuarded(bound)) await bound.guard()
+        if (isGuarded(bound)) await bound.guard(tx)
         const before = await this.reads.heldInForce(tx, workspaceId)
         const written = await write()
         if (addsOverBound(before, await this.reads.heldInForce(tx, workspaceId), bound))

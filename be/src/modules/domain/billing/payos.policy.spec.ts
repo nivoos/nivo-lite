@@ -119,6 +119,8 @@ describe("payos policy > readPayosDelivery", () => {
             content: "NIVO8F3K2",
             eventId: "payos:REF1",
             bankRef: "REF1",
+            // The paid link's order code: the payment request's own reference (R111), what the request's paid event is matched by.
+            requestRef: "99",
         })
     })
 
@@ -132,6 +134,7 @@ describe("payos policy > readPayosDelivery", () => {
             content: "NIVO8F3K2",
             eventId: "payos:REF1",
             bankRef: "REF1",
+            requestRef: "99",
             account: "12345678",
             occurredAt: "2023-02-04T11:25:00.000Z",
         })
@@ -155,6 +158,7 @@ describe("payos policy > readPayosDelivery", () => {
             amount: 1000,
             content: "",
             eventId: "payos:7",
+            requestRef: "7",
         })
         // An order code is payOS's own: it is never taken for the bank's reference.
         expect(reading).not.toHaveProperty("bankRef")

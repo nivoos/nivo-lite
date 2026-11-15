@@ -1,3 +1,4 @@
+import { KnowledgeSourcesReadService } from "@modules/domain/knowledge-sources"
 import { Test } from "@nestjs/testing"
 import { fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
 import { DOC_SOURCE, DOC_WS, docSourceOf } from "@tests/fixtures/builders/document-facts.builder"
@@ -32,6 +33,9 @@ const proposalOf = settleProposalOf
 const reviewed = settleReviewed
 const founderDoc = settleFounderDoc
 
+/** The transaction of a write (the document check is the reader's `holds`, scripted per spec). */
+const heldTx = () => mockEntityManager()
+
 /** The bound of an automatic write: the ceiling, with its guard. */
 const BOUND = objectLike({ truths: TRUTH_CEILING.truths, bytes: TRUTH_CEILING.bytes })
 
@@ -50,6 +54,8 @@ const build = async (waiting: ReadonlyArray<FactRecord>, critique: PassageCritiq
     const publicDocuments = mock<PublicDocumentsService>()
     const parts = mock<DocumentPartsService>()
     const vectors = mock<FactEmbeddingsService>()
+    const sourceReader = mock<KnowledgeSourcesReadService>()
+    sourceReader.holds.mockResolvedValue(true)
     const decisions = mock<CritiqueDecisionsService>()
     scriptSettleDoubles({ facts, reads, extractions, members, ceiling, critic, publicDocuments, parts, vectors }, { waiting, critique, bare })
     const moduleRef = await Test.createTestingModule({
@@ -65,12 +71,13 @@ const build = async (waiting: ReadonlyArray<FactRecord>, critique: PassageCritiq
             { provide: DocumentPartsService, useValue: parts },
             { provide: PublicDocumentsService, useValue: publicDocuments },
             { provide: FactEmbeddingsService, useValue: vectors },
+            { provide: KnowledgeSourcesReadService, useValue: sourceReader },
             { provide: CritiqueDecisionsService, useValue: decisions },
             // A critic that has no such read yet (bare): no point holds anything.
             { provide: TRUTH_CRITIQUE_GATE, useValue: bare ? {} : critic },
         ],
     }).compile()
-    return { service: moduleRef.get(DocumentSettleService), facts, reads, extractions, ceiling, critic, parts, publicDocuments, logger, vectors, decisions, tx }
+    return { service: moduleRef.get(DocumentSettleService), facts, reads, extractions, ceiling, critic, parts, publicDocuments, logger, vectors, decisions, tx, sourceReader }
 }
 
 describe("DocumentSettleService: a member's document goes in force as soon as it is read (owner 2026-11-12)", () => {
@@ -250,7 +257,7 @@ describe("DocumentSettleService: the race of two documents settled at once, chec
         t.facts.mergeDuplicate.mockResolvedValue(appeared)
         t.facts.applyUnannounced.mockImplementation(async (_ws, id, _by, _note, bound) => {
             inForce.push(appeared)
-            if (guarded(bound)) await bound.guard()
+            if (guarded(bound)) await bound.guard(heldTx())
             return proposalOf({ id, status: "active" })
         })
     }
@@ -304,10 +311,30 @@ describe("DocumentSettleService: the race of two documents settled at once, chec
         expect(BRAIN_ERROR_KINDS[BrainErrorCode.SettleLostRace]).toBe("conflict")
     })
 
+    it("the document was deleted meanwhile: the guard refuses the write in ITS transaction with SettleOriginGone, and the truth is not put in force", async () => {
+        const t = await build([proposalOf()])
+        t.sourceReader.holds.mockResolvedValue(false)
+        let refusal: unknown = null
+        t.facts.applyUnannounced.mockImplementation(async (_ws, id, _by, _note, bound) => {
+            try {
+                if (guarded(bound)) await bound.guard(heldTx())
+            } catch (cause) {
+                refusal = cause
+                throw cause
+            }
+            return proposalOf({ id, status: "active" })
+        })
+
+        await expect(t.service.settle(founderDoc, [], STATE)).resolves.toBeNull()
+
+        expect(refusal).toMatchObject({ code: BrainErrorCode.SettleOriginGone })
+        expect(BRAIN_ERROR_KINDS[BrainErrorCode.SettleOriginGone]).toBe("conflict")
+    })
+
     it("nothing appeared: the guard lets the write through", async () => {
         const t = await build([proposalOf()])
         t.facts.applyUnannounced.mockImplementation(async (_ws, id, _by, _note, bound) => {
-            if (guarded(bound)) await bound.guard()
+            if (guarded(bound)) await bound.guard(heldTx())
             return proposalOf({ id, status: "active" })
         })
 

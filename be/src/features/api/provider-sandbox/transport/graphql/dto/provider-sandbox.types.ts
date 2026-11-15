@@ -91,6 +91,18 @@ export class SandboxCaseType {
     @Field(() => Boolean)
     isDefault!: boolean
 
+    /** The generic outcome an outbound case is a name for (`ok`, `refused`, `final`, `transient`, `timeout`); null for an inbound one. */
+    @Field(() => String, { nullable: true })
+    outcome!: string | null
+
+    /** True when the provider's poll returns what an inbound case keeps, so it can be sent `withheld`. */
+    @Field(() => Boolean)
+    polled!: boolean
+
+    /** The delivery mode an inbound case is a name for (`twice`, `late`, ...); null when it is delivered `once`. */
+    @Field(() => String, { nullable: true })
+    delivery!: string | null
+
     /** The trigger an inbound case feeds; null for an outbound one. */
     @Field(() => String, { nullable: true })
     trigger!: string | null
@@ -181,7 +193,7 @@ export class SandboxCallType {
 }
 
 @ObjectType()
-/** One run parked at a wait. */
+/** One run parked on a deadline (a wait's timeout, an until round, a retry-ladder rung, an approval's expiry, a stop's deadline). */
 export class SandboxWaitingRunType {
     /** The run. */
     @Field(() => ID)
@@ -203,15 +215,19 @@ export class SandboxWaitingRunType {
     @Field(() => String, { nullable: true })
     routeId!: string | null
 
-    /** What the wait listens for. */
+    /** Which deadline the run is parked on: `wait`, `round`, `retry`, `approval` or `stop` (ENGINE-FIN (b)). */
+    @Field(() => String)
+    kind!: string
+
+    /** What a wait listens for; empty for every other deadline. */
     @Field(() => [String])
     waitsFor!: ReadonlyArray<string>
 
-    /** The park key of the wait. */
+    /** The key the deadline is filed under. */
     @Field(() => String)
     parkKey!: string
 
-    /** When the wait's time runs out, ISO 8601. */
+    /** When the deadline comes, ISO 8601. */
     @Field(() => String)
     dueAt!: string
 }
@@ -259,9 +275,17 @@ export class SandboxSendResultType {
     @Field(() => [SandboxDeliveryType])
     deliveries!: ReadonlyArray<SandboxDeliveryType>
 
-    /** True when the send was asked to drop its webhook: the state was recorded, nothing was posted. */
+    /** True when the send was `withheld`: the state was recorded, nothing was posted. */
     @Field(() => Boolean)
     webhookDropped!: boolean
+
+    /** The delivery mode used: `once`, `twice`, `withheld` or `late`. */
+    @Field(() => String)
+    mode!: string
+
+    /** How many seconds before its arrival the event happened (`late`), else 0. */
+    @Field(() => Int)
+    lateBySeconds!: number
 }
 
 @ObjectType()

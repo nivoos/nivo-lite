@@ -16,6 +16,8 @@ import { RecordFilesWorkspaceObjects } from "./record-files-workspace-objects.se
 
 const NOT_FOUND = OBJECT_STORAGE_ERROR_CODES.ObjectNotFound
 const UNAVAILABLE = OBJECT_STORAGE_ERROR_CODES.Unavailable
+/** Stands for a records bucket that does not exist yet (a fresh object store): the listing answers not found. */
+const NO_BUCKET = "no-bucket"
 
 /** The records the fake engine pages: the `data` of each (the file field of a video project). */
 type Records = ReadonlyArray<Readonly<Record<string, unknown>>>
@@ -51,7 +53,7 @@ const pageOf = (records: Records, after: string | undefined, size: number): List
 const build = async (
     objects: Record<string, Stored>,
     records: Records = [],
-    staged: ReadonlyArray<string> | null = [],
+    staged: ReadonlyArray<string> | null | typeof NO_BUCKET = [],
 ) => {
     const calls: Array<string> = []
     const down = { value: false }
@@ -85,9 +87,9 @@ const build = async (
     const listing = mock<StorageObjectsPort>()
     listing.list.mockImplementation((bucket, prefix) => {
         calls.push(`list ${bucket} ${prefix}`)
-        return Promise.resolve(
-            staged === null ? refused(UNAVAILABLE) : ok(staged.map((name) => ({ name, createdAt: null }))),
-        )
+        if (staged === null) return Promise.resolve(refused(UNAVAILABLE))
+        if (staged === NO_BUCKET) return Promise.resolve(refused(NOT_FOUND))
+        return Promise.resolve(ok(staged.map((name) => ({ name, createdAt: null }))))
     })
     const engine = mock<EntityEngineService>({ catalog: catalogOf() })
     engine.scoped.mockImplementation((workspaceId, work) => work(mock<ScopedTx>({ workspaceId })))
@@ -174,6 +176,12 @@ describe("RecordFilesWorkspaceObjects", () => {
         await expect(t.service.write("ws-1", "a", { bytes: new Uint8Array(), mime: "x/y" })).rejects.toMatchObject({
             code: DataStoresErrorCode.StorageUnavailable,
         })
+    })
+
+    it("a records bucket that does not exist yet holds no staged object: the workspace has no file, which is a valid empty answer", async () => {
+        const t = await build({}, [], NO_BUCKET)
+
+        expect(await t.service.keys("ws-1")).toEqual([])
     })
 
     it("throws when the staged folder cannot be listed", async () => {

@@ -4,7 +4,7 @@ import type { EntityManager } from "typeorm"
 import { AgentRunsService } from "@modules/domain/agent-runs"
 import type { PendingScopeWake } from "@modules/domain/agent-work"
 import { DeliveredWakesService } from "@modules/domain/provider-triggers/delivered-wakes.service"
-import { streamScopeOf } from "@modules/domain/provider-triggers/trigger-delivery.policy"
+import { KEY_SCOPE_PREFIX, streamScopeOf } from "@modules/domain/provider-triggers/trigger-delivery.policy"
 import { NODE_EFFECT_STORE, type NodeEffectStore, type NodeTurn } from "@modules/domain/graph-nodes"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { isRecord } from "@modules/platform/primitives"
@@ -73,7 +73,7 @@ export class AgentGraphRunQueueService {
     ) {}
 
     /** The queue snapshot of a step visit: the scopes of the events it took, oldest first; none outside a run or with no ledger. */
-    async snapshotOf(turn: NodeTurn, place: StepPlace | null, afterDecision = false): Promise<ReadonlyArray<JsonObject>> {
+    async snapshotOf(turn: NodeTurn, place: StepPlace | null, readsHeld = false): Promise<ReadonlyArray<JsonObject>> {
         const { ledger } = this
         if (place === null || ledger === undefined) return []
         const visit = (turn.founderAnswers ?? []).length
@@ -87,7 +87,7 @@ export class AgentGraphRunQueueService {
         }
         const before =
             visit === 0 ? [] : eventsOf((await ledger.byKey(turn.workspaceId, snapshotKeyOf(place.runId, place.stepKey, visit - 1)))?.args ?? null)
-        const fresh = await this.queuedOf(turn.workspaceId, place.runId, await this.isFirstVisit(turn.workspaceId, place.runId), afterDecision)
+        const fresh = await this.queuedOf(turn.workspaceId, place.runId, await this.isFirstVisit(turn.workspaceId, place.runId), readsHeld)
         const taken = new Set(before.map((event) => event.wakeId))
         const events = [...before, ...fresh.filter((event) => !taken.has(event.wakeId))]
         const wrote = await ledger.insert(turn.workspaceId, {
@@ -160,16 +160,21 @@ export class AgentGraphRunQueueService {
         return typeof settled === "number" ? settled : waiting
     }
 
-    private async queuedOf(workspaceId: string, runId: string, first: boolean, afterDecision: boolean): Promise<ReadonlyArray<QueuedEvent>> {
+    private async queuedOf(workspaceId: string, runId: string, first: boolean, readsHeld: boolean): Promise<ReadonlyArray<QueuedEvent>> {
         const run = await this.runs.runOf(workspaceId, runId)
         if (run === null) return []
-        // After a person decided on a stop of the run, its step visits take the events held behind it while it stopped (its work).
-        const held = afterDecision ? await this.wakes.heldBehind(this.entityManager, workspaceId, runId, QUEUE_TAKE_MAX) : []
+        // The events HELD behind the run (`waiting:<run>`, rule Q-1: of any source, lines and record events alike) are taken ONLY by a step
+        // whose node declares it reads them (`readsHeldEvents`); any other step leaves them to the run's next wait that lists them
+        // (`ThreadHandBacksService.offerToWait`), else to the next run when this one finishes (E-FIX12 rule A-7).
+        const held = readsHeld ? await this.wakes.heldBehind(this.entityManager, workspaceId, runId, QUEUE_TAKE_MAX) : []
         const fromHolds: Array<QueuedEvent> = []
         for (const wake of held) fromHolds.push({ wakeId: wake.id, scope: await this.scopeOfWake(workspaceId, wake) })
         const scopeKey: unknown = run.context[THREAD_SCOPE]
         const workflowId: unknown = run.context.workflowId
-        if (!first || typeof scopeKey !== "string" || typeof workflowId !== "string") return fromHolds.slice(0, QUEUE_TAKE_MAX)
+        // A run about NO subject (a keyless lock scope) has no queue: an event with no subject is never queued behind anything, each is
+        // its own run (concept runs-and-queue, "subject"); only the wakes of the run's own `key:<path>=<value>` scope are its subject's.
+        if (!first || typeof scopeKey !== "string" || !scopeKey.startsWith(KEY_SCOPE_PREFIX) || typeof workflowId !== "string")
+            return fromHolds.slice(0, QUEUE_TAKE_MAX)
         const pending = await this.wakes.pendingOfScope(this.entityManager, workspaceId, run.agentId, scopeKey, QUEUE_TAKE_MAX)
         const ours = pending.filter((wake) => wake.context.workflowId === workflowId && pipelineVerbOf(wake.context) !== null)
         const fromWakes: Array<QueuedEvent> = []

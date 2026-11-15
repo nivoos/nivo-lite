@@ -27,6 +27,7 @@ import {
     GraphNodesErrorCode,
     resolvedConditionHolds,
     type HostedNodeRun,
+    type NodeRunInput,
     type NodeStepRef,
     type NodeToolApproval,
     type NodeTurn,
@@ -44,6 +45,7 @@ import {
     AgentGraphsService,
     AgentWorkflowRunsService,
     GRAPH_NODE_STEP_KIND,
+    THREAD_SCOPE_MEMBER,
     WAITING_MEMBER,
     effectsBeyond,
     failureClassOf,
@@ -53,6 +55,8 @@ import {
     localeOf,
     nodeBlocks,
     retryVerdictOf,
+    subjectOfScope,
+    unknownToolOf,
     stuckFactsOf,
     troubleOfConfusion,
     troubleOfFailure,
@@ -67,7 +71,7 @@ import {
     type StepTrouble,
     type UntilSettings,
 } from "@modules/domain/agent-graphs"
-import { repeatableBySpec } from "@modules/domain/tool-specs"
+import { confirmByOf, repeatableBySpec } from "@modules/domain/tool-specs"
 import {
     CHECKPOINT_LIMITS,
     DEFAULT_CHECKPOINT_LIMITS,
@@ -135,6 +139,7 @@ import {
     type StepEndingReason,
     type UnsuccessfulEnding,
 } from "./step-ending.policy"
+import { isRunEnded } from "./run-ended.policy"
 import { runSubjectOf, timeoutMsOf, waitCameOf, waitOnOf, waitOutputOf, waitParkOf } from "./thread-waits.policy"
 import { waitMatchKeysOf } from "./wait-match.policy"
 import { HAND_BACK_NO_EVENT, HAND_BACK_WAIT_PARAM, TEMPLATE_HAND_BACK_STEP, handedOffByOf } from "./thread-hand-back.policy"
@@ -142,7 +147,14 @@ import { ThreadHandBacksService } from "./thread-hand-backs.service"
 import { ThreadProjectionService } from "./thread-projection.service"
 import { RunStopsService } from "./stops/run-stops.service"
 import { ThreadApprovalsService } from "./thread-approvals.service"
-import type { FounderAnswerJson, StopCardContext, StopKind, StopQuestion } from "./stops/run-stop.contracts"
+import {
+    RETRY_AFTER_TAKE_OVER,
+    RETRY_FACT,
+    type FounderAnswerJson,
+    type StopCardContext,
+    type StopKind,
+    type StopQuestion,
+} from "./stops/run-stop.contracts"
 import { stopDecisionOf, stopEndCodeOf } from "./stops/stop-gate.policy"
 
 /** The node of a thread graph one call runs, and what of the run it needs: bound to one pinned version, shared by every thread on it. */
@@ -167,6 +179,10 @@ export interface ThreadStepNode {
     readonly until?: OptionalUntilFrame | undefined
     /** How many automatic retries of this step were already made (rule Q-2: read from the run's checkpoint), 0 for none. */
     readonly retried?: number | undefined
+    /** The code the step failed with before the automatic retry this visit makes (absent on any other visit). */
+    readonly retryCode?: string | undefined
+    /** True when this visit is a PERSON's Retry decision (no words) of the stopped step: the person settles what no declaration settles. */
+    readonly retryByPerson?: true | undefined
 }
 
 /** How a visit leaves a step other than its own exit: the loop node's move (where it goes, the frame it writes). */
@@ -198,6 +214,18 @@ export interface ThreadTrouble {
     /** The language of the team, for the card when the stop resolves. */
     readonly locale: "vi" | "en"
     /**
+     * The failure code of the step's trouble (`tool_outcome_unknown`, ...): what a person's Retry reads to continue the attempt before it
+     * when its act's outcome was unknown (one road for every retry). Absent in a trouble written before it was kept.
+     */
+    readonly code?: string | undefined
+    /**
+     * The automatic retries the attempt made before this stop (rule Q-2), absent for none. A decision with no words (a person's Retry, a
+     * deadline's `timeout`, through the same gate) continues THAT attempt with this count (stops-and-holds rule 13: the stop keeps the
+     * act's code, the acts made and the retries), so the ladder never restarts at a rung the run already made: a rung's park and its
+     * wake are keyed by its number once per run, and a second rung of the same number would wait on a wake already spent (D3-W4-10).
+     */
+    readonly retried?: number | undefined
+    /**
      * A fan-out's window only: the steps of EVERY item held in it, in list order (`stepKey` is the first). Each has its own open stop;
      * the founder's one decision is kept on all of them and sends every held item back to its failed node together.
      */
@@ -210,8 +238,14 @@ export interface ThreadTrouble {
  */
 export const OUTCOME_UNKNOWN: ReadonlySet<string> = new Set([TOOL_OUTCOME_UNKNOWN, CHAT_DELIVERY_UNKNOWN, DECISION_ACTOR_UNKNOWN])
 
+/**
+ * The codes of a step whose act outside decides what happened, so the AI core may only report, never answer the step's output: an act
+ * whose outcome is unknown, and an act the outside refused for good (E-FIX12 rule A-1, `GRAPH_NODES_ACT_REFUSED`).
+ */
+const ACT_IS_THE_TRUTH: ReadonlySet<string> = new Set([...OUTCOME_UNKNOWN, GraphNodesErrorCode.ActRefused])
+
 /** The loop key a step's retry park is filed under (`retry:<step>`): its timer key `retry:<step>[r<n>]` names no step and no loop. */
-const RETRY_PARK_PREFIX = "retry:"
+export const RETRY_PARK_PREFIX = "retry:"
 
 /** What the gate keeps of a step waiting for its automatic retry (rule Q-2): the step, its graph node, the retry and the team language. */
 interface RetryWait {
@@ -245,10 +279,43 @@ const retryWaitOf = (trouble: unknown): RetryWait | null => {
 const retryParkOf = (wait: RetryWait): UntilPark => untilParkOf(`${RETRY_PARK_PREFIX}${wait.stepKey}`, wait.retry.attempt, wait.retry.dueAt)
 
 /** How many automatic retries a step's checkpoint says were made already (its own retry wait, carried into its next visit). */
-const retriedOf = (trouble: unknown, stepKey: string): number => {
+const retriedOf = (trouble: unknown, stepKey: string): Pick<ThreadStepNode, "retried" | "retryCode" | "retryByPerson"> => {
     const wait = retryWaitOf(trouble)
-    return wait !== null && wait.stepKey === stepKey ? wait.retry.attempt : 0
+    if (wait !== null && wait.stepKey === stepKey) return { retried: wait.retry.attempt, retryCode: wait.retry.code }
+    // A PERSON's Retry (or a deadline's timeout) of a stop continues the attempt before it, as the engine's own ladder does (one road for
+    // every retry, RETRY-FIX): the recorded model turns are replayed (A-6); an act of unknown outcome is first made again as recorded (A-2).
+    // The retries the attempt already made come with it (the ladder goes on from its last rung, never from rung 1 again).
+    const decided = decidedRetryOf(trouble)
+    return decided !== null && decided.stepKey === stepKey
+        ? {
+              retryCode: decided.code,
+              ...(decided.retried > 0 ? { retried: decided.retried } : {}),
+              ...(decided.person ? { retryByPerson: true as const } : {}),
+          }
+        : {}
 }
+
+/** The code of an ask for a call a person refused or whose approval expired (`ThreadApprovalsService.asked`). */
+const APPROVAL_REFUSED = "tool_approval_refused"
+
+/** The member of the retry marker that says a PERSON pressed Retry (a deadline's `timeout` carries none). */
+const PERSON_RETRY = "person"
+
+/** The marker the gate keeps when a person's decision with no words sends the thread back to its stopped step, or null. */
+const decidedRetryOf = (
+    trouble: unknown,
+): { readonly stepKey: string; readonly code: string; readonly person: boolean; readonly retried: number } | null => {
+    if (!isRecord(trouble)) return null
+    const code: unknown = trouble.decidedRetry
+    const stepKey: unknown = trouble.stepKey
+    const retried = retriesOf(trouble.retried)
+    return typeof code === "string" && typeof stepKey === "string"
+        ? { stepKey, code, person: trouble.retryBy === PERSON_RETRY, retried }
+        : null
+}
+
+/** A kept count of automatic retries, 0 when none or unreadable. */
+const retriesOf = (value: unknown): number => (typeof value === "number" && Number.isInteger(value) && value > 0 ? value : 0)
 
 /** Ends the node when the drive lost its lease: the abort's own reason (or an `Aborted` error) is thrown, so the port leaves the thread as its checkpoint says. */
 const leaseHeld = (scope: ThreadNodeScope): void => {
@@ -325,6 +392,13 @@ const ROUTE_HELD: CustomerMessageSendRefusal = "route_held"
 
 /** The kind of the fact an effect answers when it refused (the SDK's refusal fact). */
 const REFUSED_KIND = "refused"
+
+/**
+ * Whether an installed step's node declares that it reads the events held behind its run (`readsHeldEvents` of the SDK node contract), read
+ * structurally so the engine reads it from whichever SDK build it is compiled with.
+ */
+const readsHeldEventsOf = (step: unknown): boolean =>
+    typeof step === "object" && step !== null && (step as { readonly readsHeldEvents?: unknown }).readsHeldEvents === true
 
 /** The mark of a refusal the step's node made of the engine's own line (the customer send's executor writes it). */
 const NODE_RULE = "node"
@@ -501,6 +575,25 @@ const triesOf = (trouble: StepTrouble): ReadonlyArray<{ readonly name: string; r
 }
 
 
+/**
+ * The trouble as the AI core reads it (E-FIX12 rule A-3): with the automatic retries the engine made before this stop as a fact of what
+ * went wrong (`retries`), beside the count of acts the ledger kept on an unknown outcome (`made`), so its words never contradict what
+ * the engine did (a card saying "not sent again" after four sends). Facts, not instructions.
+ */
+const troubleWithRetries = (trouble: StepTrouble, retried: number): StepTrouble =>
+    retried === 0 ? trouble : { ...trouble, data: { ...trouble.data, retries: retried } }
+
+/**
+ * E-FIX12 rule A-4: whether a Retry of the stopped step would make an act of unknown outcome again BLIND: the trouble is an outcome nobody
+ * knows and the tool it names declares neither `repeatable` (the recorded intent is made again under its key) nor `confirmBy` (the engine
+ * reads first). An unknown outcome naming no tool counts as blind. Read from declarations only.
+ */
+const blindRetry = (trouble: StepTrouble): boolean => {
+    if (!OUTCOME_UNKNOWN.has(trouble.code)) return false
+    const tool = unknownToolOf(trouble)
+    return tool === null || (repeatableBySpec(tool) !== true && confirmByOf(tool) === null)
+}
+
 /** The most characters of a fault's stack one log line keeps. */
 const STACK_LOG_MAX = 4000
 
@@ -625,8 +718,10 @@ export class ThreadStepService {
         }
         const placed = this.viewOf(at, state, scope, input)
         // Rule Q-2: the automatic retries this step already made ride in the checkpoint (`trouble.retry`), never in memory.
+        // ENGINE-FIN (c): BOTH members are carried: a person's Retry names only `retryCode` (no automatic count), and dropping it here made
+        // that visit a fresh attempt (a new model wording) instead of the continuation every other retry road is.
         const retried = retriedOf(state.trouble, placed.stepKey)
-        return this.visitedAt(retried === 0 ? at : { ...at, retried }, node, placed, input, trigger, state, scope)
+        return this.visitedAt({ ...at, ...retried }, node, placed, input, trigger, state, scope)
     }
 
     /** The visit of `visited` once its step and its retries are known. */
@@ -641,7 +736,12 @@ export class ThreadStepService {
     ): Promise<ThreadNodeAnswer> {
         const { step } = at
         const frame = at.frame ?? null
-        const turn = this.turnOf(view, trigger, state)
+        const run = await this.visitRunOf(view)
+        if (run.ended) {
+            this.logger?.info(AgentThreadsLogEvent.StepOfEndedRun, { runId: view.runId, stepKey: view.stepKey })
+            return { goto: THREAD_END }
+        }
+        const turn = this.turnOf(view, trigger, state, run.subject)
         // A `loop({ until })` node: the engine drives its rounds (start, judge after a round, park between rounds, end).
         if (node !== undefined && isUntilNode(node)) return this.untilVisited({ at, view, input, turn }, node, scope)
         // A `wait` node: the engine parks the run until an event it takes or its timeout, and answers what came.
@@ -949,8 +1049,26 @@ export class ThreadStepService {
         // A skip ends the run here; the speaker goes back in the thread runs' end hook (0-8), never here, so it is released once.
         if (route.goto === THREAD_END)
             await this.projection?.runEnded(ref, { outcome: "skipped", code: stopEndCodeOf(stopDecisionOf(decision)), by, at: this.clock.now() })
+        // A person's decision that sends the thread back to its stopped step keeps a marker with the stop's code (never the ladder's
+        // `retry`: the gate's ladder branch is not entered), so the visit continues the attempt: the same road as the automatic retry,
+        // whatever the act came to (RETRY-FIX: unknown, refused, failed or not sent; only a settled act is answered by its receipt).
+        // ENGINE-FIN (c): only a decision with NO words continues the attempt (a Retry, a deadline's timeout): a person's words are a new
+        // instruction the node must read, so their visit asks the model (the recorded act at that position is still answered by its receipt).
+        const stopCode = trouble.code ?? trouble.question.reason
+        const withoutWords = stopDecisionOf(decision)?.kind !== "answer"
+        const backToStep = route.goto !== FREEZE_NODE && route.goto !== THREAD_END && withoutWords
+        const marker = {
+            stepKey: trouble.stepKey,
+            ...(trouble.nodeKey === undefined ? {} : { nodeKey: trouble.nodeKey }),
+            decidedRetry: stopCode,
+            // The attempt goes on with the retries it made (D3-W4-10: from rung 1 again, a rung waited on a wake already spent).
+            ...((trouble.retried ?? 0) > 0 ? { retried: trouble.retried } : {}),
+            // A PERSON's Retry is the settle of an act whose outcome is unknown (E-FIX12 A-4: Take over, then Retry): the call is made again.
+            ...(stopDecisionOf(decision)?.kind === "retry" ? { retryBy: PERSON_RETRY } : {}),
+        }
+        const kept = route.goto === FREEZE_NODE ? trouble : backToStep ? marker : null
         return {
-            update: { founderAnswers: route.founderAnswers, trouble: route.goto === FREEZE_NODE ? trouble : null },
+            update: { founderAnswers: route.founderAnswers, trouble: kept },
             goto,
         }
     }
@@ -1015,7 +1133,15 @@ export class ThreadStepService {
         const [beyond] = effectsBeyond(this.nodes.installed().nodes.get(node.step)?.effects ?? [], grant)
         if (beyond !== undefined) return { code: new RightsDeniedError(beyond).code, text: `effect not granted: ${beyond}` }
         const bound = await this.boundOf(at, view, input, node)
-        const told = this.policy === undefined ? turn : await this.policy.toldOf(turn, at.flow.moduleKey, `${view.runId}:${view.stepKey}`)
+        // A node that DECLARES it reads the events held behind its run (`readsHeldEvents`, SDK node contract; lines and record events alike)
+        // takes them into its queue snapshot; any other step leaves them to the run's next wait or the next run (concept agent-data rule 4).
+        const readsHeld = readsHeldEventsOf(installedStepIn(this.nodes.installed().nodes, node.step))
+        const policed = this.policy === undefined ? turn : await this.policy.toldOf(turn, at.flow.moduleKey, `${view.runId}:${view.stepKey}`, readsHeld)
+        // A step a PERSON ran again (Retry, no words) lets an act of unknown outcome be made again under its key. That is a fact of the
+        // ATTEMPT, so EVERY call the attempt makes carries it, whoever makes it: the node's own calls AND the engine's replay of the call a
+        // person approved in this step (`approvedRun`, below); a turn without it there answered the kept unknown from its receipt
+        // (`receipt_replay`) for ever (D3-W4-9: Take over, then Retry).
+        const told = at.retryByPerson === true ? { ...policed, personRetry: true as const } : policed
         // One replay per run of the node: the thread's wrapper of the host's ports, and in the same record the model turns of the host's
         // own agent loop (a node the AGENT_LOOP flag names), so a step that starts again asks the model nothing it already answered.
         const replayed = replayRunOf(at.replay)
@@ -1050,11 +1176,11 @@ export class ThreadStepService {
                           ? {}
                           : { alreadyDone: [...new Set([...(told.alreadyDone ?? []), approved.tool])] }),
                   }
-        try {
-            return await this.host.run({
+        const runInput: NodeRunInput = {
                 nodeId: node.step,
                 params: bound.params,
                 input: bound.input,
+                // Carries the person's Retry when there was one (`told`, above).
                 turn: runTurn,
                 grant: { tools: grant.tools },
                 key: `${view.runId}:${view.stepKey}`,
@@ -1071,7 +1197,26 @@ export class ThreadStepService {
                 ...(this.approvals === undefined ? {} : { approved: this.approvedIn(view) }),
                 // Inside a for-each body: the item, which a template node reads as `ctx.run.item`.
                 ...(input.item === undefined ? {} : { item: { key: input.item.key, index: input.item.index } }),
-            })
+            }
+        try {
+            // E-FIX12 rule A-2: the engine's own retry of a step whose act ended with its outcome unknown makes THAT act again first,
+            // as the ledger recorded it (its arguments, its key), with no model call; only once it is settled does the node run to finish
+            // the step (its write at that position is then answered by the receipt). Still unknown: the step's trouble again (next rung).
+            const continues = at.retryCode !== undefined && OUTCOME_UNKNOWN.has(at.retryCode)
+            const remade = continues ? await this.host.remake(runInput) : 0
+            if (at.retryCode !== undefined)
+                this.logger?.info(AgentThreadsLogEvent.StepRetryRan, {
+                    runId: view.runId,
+                    stepKey: view.stepKey,
+                    attempt: at.retried ?? 0,
+                    code: at.retryCode,
+                    remade,
+                })
+            // E-FIX12 rule A-6 + RETRY-FIX (one road for every retry): every retry visit (a rung, a person's Retry, a deadline's
+            // timeout; never a person's words) runs the node on the model turns the attempt before recorded (no model call for what it
+            // decided): the same calls with the same arguments under the same keys. A settled act is answered by its receipt; an
+            // unsettled one (refused, failed, not sent) is made again; its output states what was done, from the same words.
+            return await this.host.run(at.retryCode === undefined ? runInput : { ...runInput, modelReplay: true })
         } catch (cause) {
             return ranOfFailure(cause)
         }
@@ -1129,9 +1274,13 @@ export class ThreadStepService {
         const decision =
             isAiFailure(trouble) || node === undefined || byEngine
                 ? null
-                : await this.decisionOf({ at, view, input, turn, trouble, given, nodeStep }, subject?.conversationId ?? null)
-        // An outcome-unknown step never completes by the AI's output: only the founder decides whether it happened.
-        if (decision?.kind === "output" && node !== undefined && !OUTCOME_UNKNOWN.has(trouble.code)) {
+                : await this.decisionOf(
+                      { at, view, input, turn, trouble: troubleWithRetries(trouble, at.retried ?? 0), given, nodeStep },
+                      subject?.conversationId ?? null,
+                  )
+        // An outcome-unknown step never completes by the AI's output: only the founder decides whether it happened. Nor does a step whose
+        // act the outside refused (E-FIX12 rule A-1): the act is the truth, and it did not happen.
+        if (decision?.kind === "output" && node !== undefined && !ACT_IS_THE_TRUTH.has(trouble.code)) {
             this.notices?.recovered(view, trouble)
             return this.completed(at, view, input, node, turn, {
                 output: decision.output,
@@ -1180,6 +1329,8 @@ export class ThreadStepService {
                 ...(report === null ? [...facts, ...triesOf(trouble).filter((one) => !facts.some((fact) => fact.name === one.name))] : facts),
                 // The automatic retries the engine made before this stop (rule Q-2), as one fact.
                 ...((at.retried ?? 0) > 0 ? [{ name: "retries", value: String(at.retried ?? 0) }] : []),
+                // E-FIX12 rule A-4: an act of unknown outcome with no declared way to make or check it again: Retry only after a take-over.
+                ...(blindRetry(trouble) ? [{ name: RETRY_FACT, value: RETRY_AFTER_TAKE_OVER }] : []),
             ],
             card,
         })
@@ -1192,7 +1343,14 @@ export class ThreadStepService {
             { workspaceId: view.workspaceId, runId: view.runId },
             { ...this.factOf(view, input, node), code: trouble.code, error: { code: trouble.code, text: trouble.text }, calls: [], waitItemId: null },
         )
-        const left: ThreadTrouble = { stepKey: view.stepKey, ...nodeKeyIn(view), question, locale: card.locale }
+        const left: ThreadTrouble = {
+            stepKey: view.stepKey,
+            ...nodeKeyIn(view),
+            question,
+            locale: card.locale,
+            code: trouble.code,
+            ...((at.retried ?? 0) > 0 ? { retried: at.retried } : {}),
+        }
         return { update: { trouble: { ...left } }, goto: FREEZE_NODE }
     }
 
@@ -1324,6 +1482,13 @@ export class ThreadStepService {
             { ...ref, stepKey: view.stepKey, agentId: at.agentId, workflowId: at.workflowId, contactId, turn: { ...turn, step }, card },
             cause,
         )
+        // A call a person declined, or whose approval expired unanswered (silence past the deadline is a decline), ends the step as its
+        // `declined` business ending on EVERY road, as a template node's declined call does: never a report stop.
+        const ending = stepEndingOf(node)
+        if (asked.kind === "trouble" && asked.code === APPROVAL_REFUSED && ending !== null && (ending.then === "end" || at.step.exit.kind === "next")) {
+            const tool = cause instanceof GraphNodesError && typeof cause.params.tool === "string" ? cause.params.tool : ""
+            return this.cannotEnded({ at, view, input, turn }, node, ending, troubleOfRefusal(asked.code, asked.text), { kind: "declined", tool })
+        }
         if (asked.kind === "trouble") return this.troubled(at, view, input, node, turn, troubleOfRefusal(asked.code, asked.text))
         await this.projection?.stepStopped(ref, {
             ...this.factOf(view, input, node),
@@ -1527,8 +1692,34 @@ export class ThreadStepService {
         }
     }
 
-    /** The turn a node runs in: the run is the turn, with the founder's words of this stop and what waits for the founder. */
-    private turnOf(view: StepView, trigger: StepJson, state: ThreadState): NodeTurn {
+    /**
+     * The run a step visit belongs to: its SUBJECT, as its trigger declared it when the run was opened (the lock scope its wake ran
+     * under, `key:<path>=<value>`, kept in the run's context; null for a run about no subject, or in an app with no run store), and
+     * whether it has ENDED (cancelled by an erasure of its subject, skipped, closed by the sweep) while its thread still moves.
+     */
+    private async visitRunOf(
+        view: StepView,
+    ): Promise<{ readonly subject: { readonly kind: string; readonly id: string } | null; readonly ended: boolean }> {
+        const run = await this.agentRuns?.runOf(view.workspaceId, view.runId)
+        const scopeKey: unknown = run?.context[THREAD_SCOPE_MEMBER]
+        return {
+            subject: run == null || typeof scopeKey !== "string" ? null : subjectOfScope({ scopeKey, context: run.context }),
+            // An ended run runs no further step (run-ended.policy): a drive still in flight when the run was ended outside it stops here.
+            ended: run != null && isRunEnded(run.status),
+        }
+    }
+
+    /**
+     * The turn a node runs in: the run is the turn, with the founder's words of this stop and what waits for the founder. Its subject is
+     * the trigger's own record when it names one as `{ kind, id }`, else the RUN's subject (what its trigger declared: the person, the
+     * room, the transaction), so every step of every run, whatever started it, knows what the run is about.
+     */
+    private turnOf(
+        view: StepView,
+        trigger: StepJson,
+        state: ThreadState,
+        runSubject: { readonly kind: string; readonly id: string } | null,
+    ): NodeTurn {
         const answers = founderAnswersOf(state)
         const subject: unknown = trigger.subject
         return {
@@ -1538,7 +1729,7 @@ export class ThreadStepService {
             subject:
                 isRecord(subject) && typeof subject.kind === "string" && typeof subject.id === "string"
                     ? { kind: subject.kind, id: subject.id }
-                    : null,
+                    : runSubject,
             // The generic trigger scope names the person's route `routeId` (the engine's `conversationId` of the turn); no chat member.
             conversationId: textOf(trigger, "routeId"),
             contactId: textOf(trigger, "contactId"),
@@ -1690,11 +1881,15 @@ export class ThreadStepService {
      * R68: the node said it cannot, on a step that declares its ending: the team is told once and the step ends with no output (as a
      * passed-over side step is kept), then the run goes to the step's exit (`continue`, a non-routing step) or to its outcome (`end`).
      */
-    private async cannotEnded(visit: StepVisit, node: GraphSpecNode, ending: UnsuccessfulEnding, trouble: StepTrouble): Promise<ThreadNodeAnswer> {
+    private async cannotEnded(
+        visit: StepVisit,
+        node: GraphSpecNode,
+        ending: UnsuccessfulEnding,
+        trouble: StepTrouble,
+        reason: StepEndingReason = { kind: "cannot", why: trouble.text },
+    ): Promise<ThreadNodeAnswer> {
         const { at, view, input, turn } = visit
-        await this.endingTold(visit, node, this.stepTitleOf(node.step, turn.locale) ?? view.stepKey, ending, [
-            { kind: "cannot", why: trouble.text },
-        ])
+        await this.endingTold(visit, node, this.stepTitleOf(node.step, turn.locale) ?? view.stepKey, ending, [reason])
         const result: StepJson = { output: null, effects: [], failed: trouble.code, unsuccessful: true }
         await this.projection?.stepEnded(
             { workspaceId: view.workspaceId, runId: view.runId },
@@ -1801,14 +1996,17 @@ export class ThreadStepService {
     private troubleOf(state: ThreadState): ThreadTrouble | null {
         const trouble = state.trouble
         if (!isRecord(trouble)) return null
-        const { stepKey, nodeKey, question, locale, held } = trouble
+        const { stepKey, nodeKey, question, locale, held, code } = trouble
         if (typeof stepKey !== "string" || !isRecord(question)) return null
         const heldSteps = Array.isArray(held) ? held.filter((one: unknown): one is string => typeof one === "string") : []
+        const retried = retriesOf(trouble.retried)
         return {
             stepKey,
             ...(typeof nodeKey === "string" ? { nodeKey } : {}),
             question: question as unknown as StopQuestion,
             locale: locale === "en" ? "en" : "vi",
+            ...(typeof code === "string" ? { code } : {}),
+            ...(retried > 0 ? { retried } : {}),
             ...(heldSteps.length === 0 ? {} : { held: heldSteps }),
         }
     }

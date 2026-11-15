@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common"
-import { InjectAi, spendOf, type AiService } from "@modules/integrations/ai"
+import { InjectAi, leftNoRequest, spendOf, type AiService } from "@modules/integrations/ai"
 import type { PageImage, TranscriptOutcome, Transcriber } from "@modules/integrations/document-readers"
 import { ok, refused } from "@modules/platform/primitives"
 import {
@@ -76,18 +76,20 @@ export class DocumentTranscriptionService {
         const booked = { workspaceId, kind: "brain" as const, module: "knowledge", promptChars, tryNumber: attempt }
         const spend = spendOf(answer)
         // A try that returned nothing may still be charged by the provider: booked estimated from the prompt's text (the picture is
-        // not counted), never billed (U1). The model it asked for is the endpoint's chat profile.
-        await this.usage.record(
-            spend !== null
-                ? { ...booked, ...spend }
-                : {
-                      ...booked,
-                      model: TRANSCRIPTION_MODEL,
-                      usage: null,
-                      completionChars: 0,
-                      failure: answer.ok ? undefined : answer.failure,
-                  },
-        )
+        // not counted), never billed (U1). The model it asked for is the endpoint's chat profile. A try that left no request is not booked.
+        if (!leftNoRequest(answer)) {
+            await this.usage.record(
+                spend !== null
+                    ? { ...booked, ...spend }
+                    : {
+                          ...booked,
+                          model: TRANSCRIPTION_MODEL,
+                          usage: null,
+                          completionChars: 0,
+                          failure: answer.ok ? undefined : answer.failure,
+                      },
+            )
+        }
         if (answer.ok) return ok(transcriptOf(answer.answer.text))
         return attempt >= TRANSCRIPTION_TRIES
             ? refused("failed")

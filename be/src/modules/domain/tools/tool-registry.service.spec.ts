@@ -723,9 +723,8 @@ describe("ToolRegistryService NIVO effect tools > the mode the step's node state
 const SEPAY_ROW: ProviderAttachmentView = { agentId: "sales", connectionId: "conn-mb", provider: "sepay" }
 
 /**
- * A write tool of the payment provider the NODE places (no catalogue provider serves it). Ledger (TOOLS-LEAD 2026-11-13): this stand-in was
- * `payment.transfer.create`; that tool is now a READ of the `sepay` catalogue (`transfer.instruction`: it creates and moves nothing), and a
- * read never asks, so the write cases use another id.
+ * A write tool of the payment provider the NODE places (no catalogue provider serves it). Ledger (R111): every payment tool the catalogue serves is
+ * the `payment.request.*` family (served by `sepay` and `payos`) or a read, so the write cases use `payment.refund.create`, which no provider serves.
  */
 const QR_MANIFEST: ToolManifest = {
     ...EFFECT_MANIFEST,

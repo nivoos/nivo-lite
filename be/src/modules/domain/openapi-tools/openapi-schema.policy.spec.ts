@@ -77,6 +77,11 @@ describe("violationOf", () => {
         expect(subject.violationOf({ type: "string" }, null)).toBe(": type")
         expect(subject.violationOf({ type: "object", properties: { a: { type: "string" } }, additionalProperties: false }, { a: "x", b: 1 })).toBe("b: not declared")
         expect(subject.violationOf({ allOf: [{ type: "object", required: ["a"] }, { type: "object", required: ["b"] }] }, { a: 1 })).toBe("b: required")
+        // `nullable` on a schema that composes another by `allOf` admits null whole; a value is still judged by every part.
+        const quote = { type: "object", nullable: true, allOf: [{ type: "object", required: ["total"] }] }
+        expect(subject.violationOf(quote, null)).toBeNull()
+        expect(subject.violationOf(quote, {})).toBe("total: required")
+        expect(subject.violationOf({ allOf: [{ type: "object" }] }, null)).toBe(": type")
     })
 })
 

@@ -24,6 +24,8 @@ import {
 import { AgentWorkflowTriggerReceiversService } from "@modules/domain/agent-graphs/agent-workflow-trigger-receivers.service"
 import type { GraphNodeRegistryService, NodeEffectExecutor, NodeTurn } from "@modules/domain/graph-nodes"
 import { ProviderTriggersService, triggerDeclarations } from "@modules/domain/provider-triggers"
+import { recordWrittenDeclarationOf, type RecordEventsSource } from "@modules/domain/record-events"
+import type { RecordEventPayload } from "@modules/queues/record-events"
 import type { KeptFile } from "@modules/domain/provider-triggers/trigger-delivery.policy"
 import type { AgentAccountsService } from "@modules/domain/tools"
 import { AccountAttachmentsService } from "@modules/domain/tool-grants"
@@ -603,6 +605,8 @@ export interface HeardCredit {
     readonly direction?: "credit" | "debit"
     /** When the bank booked it. */
     readonly at: string
+    /** The provider's own reference of the payment request the movement pays, when the feed names one (payOS: the order code). */
+    readonly requestRef?: string
 }
 
 /**
@@ -628,6 +632,7 @@ export const heardCredit = async (source: ChatSource, credit: HeardCredit): Prom
         amount: credit.amountVnd,
         direction: credit.direction ?? "credit",
         content: credit.content,
+        ...(credit.requestRef === undefined ? {} : { requestRef: credit.requestRef }),
         at: credit.at,
         source: credit.provider,
     }
@@ -644,6 +649,67 @@ export const heardCredit = async (source: ChatSource, credit: HeardCredit): Prom
             connectionId: credit.connectionId,
             agentId: null,
             events: [{ event, raw: { type, id }, occurredAt: credit.at }],
+        },
+        mockEntityManager(),
+    )
+    return chat.wakes.slice(before)
+}
+
+/** One write of a record whose type declares `events` (concept agent-data rule 2), as the write door's outbox row names it. */
+export interface WrittenRecord {
+    /** The record type's declaration (its name, fields and `events`): the derived trigger declaration is the engine's own. */
+    readonly type: RecordEventsSource
+    /** The agent that owns the record. */
+    readonly agentId: string
+    /** The record's id. */
+    readonly recordId: string
+    /** The record's version after the write. */
+    readonly version: string
+    /** What the write did. */
+    readonly op: "created" | "changed" | "deleted"
+    /** Who wrote it: a person on the workbench (`action`), a run's step (`run`, with `writer`), a job. */
+    readonly writerKind: "run" | "action" | "job"
+    /** The writing run and its workflow, when a step wrote. */
+    readonly writer?: { readonly runId: string; readonly workflowId: string | null } | undefined
+    /** The value of the type's declared subject (the record's id for `subject: "id"`). */
+    readonly subject: string
+    /** The person the record names through a contact field, if any. */
+    readonly contactId?: string | null | undefined
+    /** The declared `events.members` as stored. */
+    readonly fields: Readonly<Record<string, string>>
+}
+
+/**
+ * A record write enters the ONE pipeline as the delivery job hands it (`RecordEventDeliveryService.deliver`, minus its database reads): the
+ * type's DERIVED declaration, its pure translate, the REAL `deliver` to the owning agent with the writer named. Answers the wakes written.
+ */
+export const recordWritten = async (source: ChatSource, written: WrittenRecord): Promise<ReadonlyArray<HeardWake>> => {
+    const { chat } = source
+    const declaration = recordWrittenDeclarationOf(written.type)
+    triggerDeclarations.register(declaration)
+    const before = chat.wakes.length
+    const payload: RecordEventPayload = {
+        workspaceId: WS,
+        agentId: written.agentId,
+        type: written.type.name,
+        recordId: written.recordId,
+        version: written.version,
+        op: written.op,
+        writer: written.writerKind,
+        writerRunId: written.writer?.runId ?? null,
+        subject: written.subject,
+        contactId: written.contactId ?? null,
+        fields: { ...written.fields },
+    }
+    const event = declaration.translate(payload, { connectionId: null })
+    if (event === null) return []
+    await chatServicesOf(source).triggers.deliver(
+        {
+            workspaceId: WS,
+            declaration,
+            connectionId: null,
+            agentId: written.agentId,
+            events: [{ event, contactId: payload.contactId, writer: written.writer ?? null }],
         },
         mockEntityManager(),
     )

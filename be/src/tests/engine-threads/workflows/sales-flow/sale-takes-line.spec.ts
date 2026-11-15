@@ -80,7 +80,8 @@ describe("a sale parked at its wait takes the person's next line before the fron
         expect(resumed.map((one) => one.error)).toEqual([null])
         expect(await threadStepsOf(process, saleRun)).toEqual(["talk[r1].opening", "talk[r1].consult", "talk[r2].opening", "talk[r2].hear", "talk[r2].consult", "talk[r3].opening"])
         const view = await process.threads.stateOf({ workspaceId: WS, runId: saleRun })
-        expect(view?.state.steps["talk[r2].hear"]).toMatchObject({ output: { trigger: "zalo", event: { data: { text: NEXT } } } })
+        // v33 (S7-WAIT, templates rule 12): the person's line on any channel is ONE key `said` (was one key per channel).
+        expect(view?.state.steps["talk[r2].hear"]).toMatchObject({ output: { trigger: "said", event: { data: { text: NEXT } } } })
     })
 
     // The design: the consult of round 2 reads the message the `hear` of that round took (`latest`). It was red while the adapter dropped

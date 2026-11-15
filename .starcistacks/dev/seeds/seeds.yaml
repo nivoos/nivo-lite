@@ -1,12 +1,5 @@
 schema: starci/seeds@1
 entries:
-  - id: agent-graphs
-    kind: data
-    path: data/graphs
-    target: [node, be/dist/apps/cli/src/main.js, seed-agent-graphs, --workspace, NIVO]
-    mode: upsert
-    after: [test-accounts]
-    schema: be/src/modules/domain/agent-graphs/agent-graph-spec.schema.json
   - id: test-accounts
     kind: test-account
     path: data/test-accounts.json
@@ -14,30 +7,6 @@ entries:
     mode: upsert
     schema: be/src/modules/domain/channel-provisioning/test-accounts-seed.schema.json
     reason: The sign-ins the dev stack is tested with (owner and staff of the NIVO workspace and of the demo workspace, @example.test addresses); their addresses and passwords are sealed in seeds-test-accounts, never typed.
-  # The demo shop "Tiệm hoa Nắng Mai" (a fictional business, no real address, phone or person) for the real flow F walk; five public documents (introduction and hours, the flowers on sale, products and prices, delivery, payment and returns) and two internal ones (order handling, replying and the discount limit) are kept as knowledge sources and indexed like any document.
-  - id: brain-tiem-hoa
-    kind: data
-    path: data/brain-tiem-hoa.json
-    target: [node, be/dist/apps/cli/src/main.js, seed-brain, --workspace, NIVO]
-    mode: upsert
-    after: [test-accounts]
-    schema: be/src/modules/domain/channel-provisioning/brain-seed.schema.json
-  # The Sales rules of the demo shop written through the entity engine (maxDiscountPct 10 and the 5.000.000 VND owner threshold), so the internal Brain document about the discount limit and the setting cannot drift.
-  - id: records-tiem-hoa
-    kind: data
-    path: data/records-tiem-hoa.json
-    target: [node, be/dist/apps/cli/src/main.js, seed-records, --workspace, NIVO]
-    mode: upsert
-    after: [agent-graphs]
-    schema: be/src/modules/domain/channel-provisioning/records-seed.schema.json
-  # The team chat of the demo shop: three group rooms (the whole shop, sales, bookkeeping) with a few lines each, among them an order notice card and a reply waiting for the owner's approval. Rooms and lines keep stable ids, so a rerun adds nothing; people are found by role and agents by module.
-  - id: chat-tiem-hoa
-    kind: data
-    path: data/chat-tiem-hoa.json
-    target: [node, be/dist/apps/cli/src/main.js, seed-chat, --workspace, NIVO]
-    mode: upsert
-    after: [agent-graphs, test-accounts]
-    schema: be/src/modules/domain/channel-provisioning/chat-seed.schema.json
   # The SEED STANDARDS (owner R98, R101-R106): one `<name>-seed-standard` repository = ONE complete workspace, pinned by commit, loaded ONCE
   # by this bring-up through the app's own doors (they replace the dev management seed and the dev enterprise seed, R109) (`seed-standard apply`: its receipt in public.workspace_seed_receipts skips it whole on
   # every later up and answers `unchanged`; a new pin is only reported; `force: true` on a declaration re-seeds once per pinned commit,

@@ -40,6 +40,38 @@ export const zaloSandboxProfileOf = (personId: string): OptionalChannelProfile =
     return customer === undefined ? null : { name: customer.name, picture: customer.picture }
 }
 
+/** What a customer sends the OA: a text, a picture, a file, a video, a voice message or a sticker (Zalo's events `user_send_<kind>`). */
+export type ZaloSandboxKind = "text" | "photo" | "file" | "video" | "audio" | "sticker"
+
+/** The event name and the one attachment each non-text kind posts, in Zalo's own webhook shapes (the address is the sandbox's, never Zalo's). */
+const ZALO_ATTACHMENT_OF: Readonly<
+    Record<Exclude<ZaloSandboxKind, "text">, (message: ZaloSandboxMessage) => { readonly event: string; readonly attachment: unknown }>
+> = {
+    photo: () => ({
+        event: "user_send_image",
+        attachment: { type: "image", payload: { thumbnail: "https://sandbox.invalid/zalo/photo.jpg", url: "https://sandbox.invalid/zalo/photo.jpg" } },
+    }),
+    file: (message) => ({
+        event: "user_send_file",
+        attachment: {
+            type: "file",
+            payload: { url: "https://sandbox.invalid/zalo/file.pdf", name: message.fileName ?? "file.pdf", size: "48600", checksum: "sandbox-checksum", type: "pdf" },
+        },
+    }),
+    video: () => ({
+        event: "user_send_video",
+        attachment: {
+            type: "video",
+            payload: { thumbnail: "https://sandbox.invalid/zalo/video.jpg", description: "", url: "https://sandbox.invalid/zalo/video.mp4" },
+        },
+    }),
+    audio: () => ({ event: "user_send_audio", attachment: { type: "audio", payload: { url: "https://sandbox.invalid/zalo/voice.aac" } } }),
+    sticker: () => ({
+        event: "user_send_sticker",
+        attachment: { type: "sticker", payload: { id: "sandbox-sticker", url: "https://sandbox.invalid/zalo/sticker.png" } },
+    }),
+}
+
 /** One customer message the account's cases made, as the OA's chat list reports it and as the webhook delivered it. */
 export interface ZaloSandboxMessage {
     /** Zalo's id of the message (`msg_id`, `sbx-zmsg-000001` running per account). */
@@ -47,9 +79,11 @@ export interface ZaloSandboxMessage {
     /** The customer who wrote it. */
     readonly userId: string
     /** The kind the chat list reports: `text` or `photo`. */
-    readonly kind: "text" | "photo"
-    /** The text; empty for a photo. */
+    readonly kind: ZaloSandboxKind
+    /** The text; empty for anything but a text. */
     readonly text: string
+    /** The file name of a `file` message (`payload.name`); absent for every other kind. */
+    readonly fileName?: string | undefined
     /** When Zalo stamped it, epoch milliseconds. */
     readonly sentAt: number
 }
@@ -74,21 +108,21 @@ const zaloRoute = (connectionId: string): string => `api/connections/zalo/${conn
 const messageIdOf = (seq: number): string => `sbx-zmsg-${String(seq + 1).padStart(6, "0")}`
 
 /** The body Zalo's webhook posts for one message (its real event names and members). */
-export const zaloWebhookBodyOf = (message: ZaloSandboxMessage): Readonly<Record<string, unknown>> => ({
-    app_id: "sandbox-app",
-    user_id_by_app: message.userId,
-    event_name: message.kind === "photo" ? "user_send_image" : "user_send_text",
-    timestamp: String(message.sentAt),
-    sender: { id: message.userId },
-    recipient: { id: "sandbox-oa" },
-    message:
-        message.kind === "photo"
-            ? {
-                  msg_id: message.messageId,
-                  attachments: [{ type: "image", payload: { thumbnail: "https://sandbox.invalid/zalo/photo.jpg", url: "https://sandbox.invalid/zalo/photo.jpg" } }],
-              }
-            : { msg_id: message.messageId, text: message.text },
-})
+export const zaloWebhookBodyOf = (message: ZaloSandboxMessage): Readonly<Record<string, unknown>> => {
+    const attachment = message.kind === "text" ? null : ZALO_ATTACHMENT_OF[message.kind](message)
+    return {
+        app_id: "sandbox-app",
+        user_id_by_app: message.userId,
+        event_name: attachment === null ? "user_send_text" : attachment.event,
+        timestamp: String(message.sentAt),
+        sender: { id: message.userId },
+        recipient: { id: "sandbox-oa" },
+        message:
+            attachment === null
+                ? { msg_id: message.messageId, text: message.text }
+                : { msg_id: message.messageId, attachments: [attachment.attachment] },
+    }
+}
 
 /** The messages an account's cases made, oldest first (empty for a new account). */
 export const zaloMessagesOf = (kept: unknown): ReadonlyArray<ZaloSandboxMessage> =>
@@ -106,27 +140,58 @@ const USER_FIELD: SandboxInputField = { name: "userId", label: "Zalo ID của kh
 /** The input holding the line the person writes (ZALO-1 and ZALO-3). */
 const TEXT_FIELD: SandboxInputField = { name: "text", label: "Nội dung tin / Message text", kind: "text", example: "Chao shop, cho minh hoi gia bo hoa hong do nhe" }
 
-/** What one inbound case does: the kind of message and how long before the send the Zalo timestamp lies. */
+/** The input naming the file of a file message (ZALO-6). */
+const FILE_NAME_FIELD: SandboxInputField = { name: "fileName", label: "Tên tệp / File name", kind: "text", example: "bao-gia.pdf" }
+
+/** What one inbound case does: the kind of message the customer sends. */
 interface ZaloMessagePlan {
-    readonly kind: "text" | "photo"
-    readonly ageMs: number
+    readonly kind: ZaloSandboxKind
 }
+
+/**
+ * One Zalo follow / unfollow event: the person follows or stops following the OA. Zalo's door keeps the person with their follow state
+ * (`follower.id`, else `sender.id`: zalo.normalise.policy) and makes no line, so nothing is kept in the account's state.
+ */
+const followCase = (event: "follow" | "unfollow"): SandboxInboundCase => ({
+    trigger: "message.received",
+    path: zaloRoute,
+    inputs: [USER_FIELD],
+    eventsOf: (input: SandboxInput, context: SandboxInboundContext): Promise<ReadonlyArray<SandboxWebhookEvent>> =>
+        Promise.resolve([
+            {
+                body: {
+                    app_id: "sandbox-app",
+                    user_id_by_app: typeof input.userId === "string" ? input.userId : "",
+                    event_name: event,
+                    timestamp: String(context.at.getTime()),
+                    oa_id: "sandbox-oa",
+                    follower: { id: typeof input.userId === "string" ? input.userId : "" },
+                },
+            },
+        ]),
+})
 
 /**
  * One Zalo inbound case: a customer's message becomes ONE webhook body (id from the account's running number, stamped `at - age`), kept
  * in the account's state (the message for the poll, the time of the customer's last line).
  */
-const caseOf = (plan: ZaloMessagePlan, inputs: ReadonlyArray<SandboxInputField>): SandboxInboundCase => ({
+const caseOf = (
+    plan: ZaloMessagePlan,
+    inputs: ReadonlyArray<SandboxInputField>,
+    extra: Pick<SandboxInboundCase, "polled" | "delivery"> = {},
+): SandboxInboundCase => ({
     trigger: "message.received",
     path: zaloRoute,
     inputs,
+    ...extra,
     eventsOf: async (input: SandboxInput, context: SandboxInboundContext): Promise<ReadonlyArray<SandboxWebhookEvent>> => {
-        const sentAt = context.at.getTime() - plan.ageMs
+        const sentAt = context.at.getTime()
         const message: ZaloSandboxMessage = {
             messageId: messageIdOf(context.state.seq),
             userId: typeof input.userId === "string" ? input.userId : "",
             kind: plan.kind,
             text: plan.kind === "text" && typeof input.text === "string" ? input.text : "",
+            ...(plan.kind === "file" && typeof input.fileName === "string" ? { fileName: input.fileName } : {}),
             sentAt,
         }
         const kept = zaloMessagesOf(await context.state.read(ZALO_SANDBOX_MESSAGES_STATE, ""))
@@ -148,28 +213,76 @@ export const ZALO_SANDBOX_CATALOGUE: SandboxCatalogue = {
         {
             id: "ZALO-1",
             label: "A customer writes a text line: user_send_text stamped at the send",
-            inbound: caseOf({ kind: "text", ageMs: 0 }, [USER_FIELD, TEXT_FIELD]),
+            inbound: caseOf({ kind: "text" }, [USER_FIELD, TEXT_FIELD], { polled: true }),
         },
         {
             id: "ZALO-2",
             label: "A customer sends a picture and no text: user_send_image stamped at the send",
-            inbound: caseOf({ kind: "photo", ageMs: 0 }, [USER_FIELD]),
+            inbound: caseOf({ kind: "photo" }, [USER_FIELD]),
         },
         {
             id: "ZALO-3",
             label: "A customer's text line stamped 49 hours before the send: outside the 48-hour reply window, a later customer send is refused",
-            inbound: caseOf({ kind: "text", ageMs: ZALO_SANDBOX_STALE_AGE_MS }, [USER_FIELD, TEXT_FIELD]),
+            // A thin NAME over the generic `late` delivery: ZALO-1 that happened 49 hours before it arrives.
+            inbound: caseOf({ kind: "text" }, [USER_FIELD, TEXT_FIELD], {
+                polled: true,
+                delivery: { mode: "late", lateBySeconds: ZALO_SANDBOX_STALE_AGE_MS / 1_000 },
+            }),
         },
         {
             id: "ZALO-4",
             label: "Profile of a person: the customer's name and picture link, null for a person the OA does not know",
             operation: ZALO_PROFILE_OPERATION,
             default: true,
+            outcome: "ok",
         },
         {
             id: "ZALO-5",
             label: "Profile read says nothing (null), whoever the person is",
             operation: ZALO_PROFILE_OPERATION,
+            outcome: "refused",
+        },
+        {
+            id: "ZALO-6",
+            label: "A customer sends a file: user_send_file with a file attachment (url, name, size, checksum, type) and no text",
+            inbound: caseOf({ kind: "file" }, [USER_FIELD, FILE_NAME_FIELD]),
+        },
+        {
+            id: "ZALO-7",
+            label: "A customer sends a video: user_send_video (a kind NIVO's message trigger does not read: no line is made)",
+            inbound: caseOf({ kind: "video" }, [USER_FIELD]),
+        },
+        {
+            id: "ZALO-8",
+            label: "A customer sends a voice message: user_send_audio (a kind NIVO's message trigger does not read: no line is made)",
+            inbound: caseOf({ kind: "audio" }, [USER_FIELD]),
+        },
+        {
+            id: "ZALO-9",
+            label: "A customer sends a sticker: user_send_sticker (a kind NIVO's message trigger does not read: no line is made)",
+            inbound: caseOf({ kind: "sticker" }, [USER_FIELD]),
+        },
+        {
+            id: "ZALO-10",
+            label: "A person follows the OA: the follow event (follower.id); the door keeps the person, no line is made",
+            inbound: followCase("follow"),
+        },
+        {
+            id: "ZALO-11",
+            label: "A person stops following the OA: the unfollow event; the door keeps the person's follow state, no line is made",
+            inbound: followCase("unfollow"),
+        },
+        {
+            id: "ZALO-12",
+            label: "The profile read fails \"not now\" (429 / 5xx): nothing read, the engine may ask again",
+            operation: ZALO_PROFILE_OPERATION,
+            outcome: "transient",
+        },
+        {
+            id: "ZALO-13",
+            label: "The profile read gets no answer in time: the outcome is unknown",
+            operation: ZALO_PROFILE_OPERATION,
+            outcome: "timeout",
         },
     ] satisfies ReadonlyArray<SandboxCase>,
 }

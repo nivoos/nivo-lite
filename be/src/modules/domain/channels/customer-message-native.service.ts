@@ -1,6 +1,6 @@
 import { Injectable, Optional } from "@nestjs/common"
 import { CONTEXT_NOTICE } from "@modules/domain/context-sources"
-import { CustomerMessagesService, StreamCursorService, type CustomerLine } from "@modules/domain/customer-routes"
+import { CustomerMessagesService, LINES_STREAM, StreamCursorService, type CustomerLine } from "@modules/domain/customer-routes"
 import { nativeRefusal } from "@modules/domain/native-tools/native-refusal.policy"
 import {
     argumentsOf,
@@ -60,7 +60,13 @@ const factOf = (line: CustomerLine): ToolJson => ({
         : {
               files: line.files.map((file) =>
                   file.url === null
-                      ? { notKept: file.notKept ?? null, contentType: file.contentType }
+                      ? {
+                            url: null,
+                            notKept: file.notKept ?? null,
+                            contentType: file.contentType,
+                            // A part with no file (a link, a contact, a place) IS its content: what the channel sent of it.
+                            ...(file.name === "" ? {} : { name: file.name }),
+                        }
                       : { url: file.url, contentType: file.contentType },
               ),
           }),
@@ -102,9 +108,11 @@ export class CustomerMessageNativeService implements NativeToolFamily {
         // THE STREAM CURSOR (rule QB-P5 C-4): the answer names what runs consumed of the route (`consumedSeq`, null while none did), and a
         // CONSUMING read (`consume: true`) made by a step of a run is that step's pending read until the step ends (the call key names the
         // run and the step); a read for context consumes nothing.
-        const consumedSeq = routeId === null || this.cursor === undefined ? null : await this.cursor.cursorOf(workspaceId, routeId)
+        // The CALLER AGENT's position (concept agent-data rule 8: the consumer is the agent; another agent reading the route keeps its own).
+        const ref = routeId === null ? null : { agentId: caller.agentId, stream: LINES_STREAM, subject: routeId }
+        const consumedSeq = ref === null || this.cursor === undefined ? null : await this.cursor.cursorOf(workspaceId, ref)
         if (routeId !== null && asked.consume === true && caller.graphStep === true && caller.opKey !== undefined)
-            await this.cursor?.read(workspaceId, routeId, caller.opKey, rows)
+            await this.cursor?.readLines(workspaceId, caller.agentId, routeId, caller.opKey, rows)
         return {
             notice: CONTEXT_NOTICE,
             source: CONVERSATION_SOURCE,

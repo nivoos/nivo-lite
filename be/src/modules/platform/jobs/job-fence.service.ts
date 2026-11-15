@@ -11,7 +11,10 @@ import { JobEntity } from "./persistence/entities"
 export class JobFenceService {
     constructor(@InjectJobsManagers() private readonly managers: ReadonlyArray<EntityManager>) {}
 
-    /** Rejects a stale token atomically with the domain write; a new claim waits until this transaction ends. */
+    /**
+     * Rejects a stale token atomically with the domain write; a new claim waits until this transaction ends. `action` writes on the fence's
+     * OWN transaction only: no second connection of the pool, no outside call (concept outbox-job rule 12; it is handed `tx` for that).
+     */
     async write(job: ClaimedJob, action: JobFenceAction): Promise<void> {
         const [manager] = this.managers
         if (manager === undefined) throw new JobsError({ code: JobsErrorCode.ConnectionMissing })

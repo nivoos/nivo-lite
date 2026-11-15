@@ -64,14 +64,24 @@ export const unreadFileOf = (index: number, kind: "image" | "file", name: string
  * Why a file a customer sent was NOT kept (DEF-7), as the line records it in the unread file's id (`unread:<reason>:<index>`) and the app
  * error reports it: the channel gave no address (`no_address`), the app has no whole-file store (`no_store`), the channel's address
  * answered no file of a kept type (`refused_<status>`: a refusal, a page, too large), the store refused the copy (`store_failed`), or
- * the read itself failed (`fetch_failed`: network, timeout).
+ * the read itself failed (`fetch_failed`: network, timeout), or the part has no file at all (`no_file`: a link, a contact, a location,
+ * typed by its `contentType`, its content in `name`: no failure, nothing reported).
  */
-export type FileNotKept = "no_address" | "no_store" | `refused_${number}` | "store_failed" | "fetch_failed"
+export type FileNotKept = "no_address" | "no_store" | `refused_${number}` | "store_failed" | "fetch_failed" | "no_file"
 
 /** True for a reason a file is recorded as not kept under: the named ones, and `refused_<status>`. */
 const isFileNotKept = (value: unknown): value is FileNotKept =>
     typeof value === "string" &&
-    (["no_address", "no_store", "store_failed", "fetch_failed"].includes(value) || /^refused_\d{3}$/u.test(value))
+    (["no_address", "no_store", "store_failed", "fetch_failed", "no_file"].includes(value) || /^refused_\d{3}$/u.test(value))
+
+/** The line's entry of a content part with no file (a link, a contact, a location): its type and what the channel sent of it. */
+export const partFileOf = (index: number, contentType: string, name: string): CustomerFile => ({
+    id: `${UNREAD_FILE_PREFIX}no_file:${String(index)}`,
+    url: "",
+    name,
+    contentType,
+    notKept: "no_file",
+})
 
 /** What the effects ledger keeps of a file entry: its members as JSON text (the entry is small: an id, an address, a name, a type, a reason). */
 export interface KeptFile {

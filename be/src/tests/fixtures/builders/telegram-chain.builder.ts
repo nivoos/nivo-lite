@@ -1,6 +1,6 @@
 import { Test } from "@nestjs/testing"
 import { FakeClock, fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
-import { AccountDataIntakeService, type AccountWrite, type PendingRow } from "@modules/domain/account-data"
+import { AccountDataAdmissionsService, AccountDataIntakeService, type AccountWrite, type PendingRow } from "@modules/domain/account-data"
 import { CHAT_FILES_ASSETS, CHAT_FILES_STORAGE } from "@modules/domain/chat-files/chat-files.decorators"
 import { CustomerFilesService } from "@modules/domain/chat-files/customer-files.service"
 import { ConnectionSecretReadsService, ConnectionsService } from "@modules/domain/connections"
@@ -93,6 +93,7 @@ export const telegramChain = async (claims: JobClaims, ledger: ReturnType<typeof
             TelegramInboxService,
             TelegramDeliveryService,
             TelegramFilesService,
+            AccountDataAdmissionsService,
             CustomerFilesService,
             { provide: TELEGRAM_RECEIPT_PROCESSOR, useExisting: TelegramInboxService },
             { provide: JOB_CLAIMS, useValue: claims },

@@ -4,7 +4,7 @@ import { ChannelsError, ChannelsErrorCode, ZALO_FREE_WINDOW_MS } from "@modules/
 import type { ChannelTarget, CustomerSendPort, CustomerSendRequest, DeliveryResult, PersonMessage } from "@modules/domain/channels"
 import { ProviderSandboxService } from "@modules/domain/provider-sandbox"
 import { ZALO_PROFILE_NONE_CASE, ZALO_PROFILE_OPERATION, zaloLastLineAt, zaloSandboxProfileOf } from "./zalo-sandbox.catalogue"
-import { ZALO_SEND_OPERATION, ZALO_STAFF_OPERATION } from "./zalo-sandbox-send.catalogue"
+import { ZALO_SANDBOX_DELIVERED_STATE, ZALO_SEND_OPERATION, ZALO_STAFF_OPERATION } from "./zalo-sandbox-send.catalogue"
 
 /** Delivered as the live consultation route answers it. */
 const DELIVERED: DeliveryResult = { delivered: true, failure: null, outcome: "acknowledged", via: "consultation" }
@@ -26,6 +26,9 @@ const notSent = (reason: string): ChannelsError => new ChannelsError({ code: Cha
 
 /** The live receipt of a call Zalo never answered: no numeric Zalo error, so the outcome is unknown. */
 const TIMED_OUT: DeliveryResult = { delivered: false, failure: "zalo_error", outcome: "ambiguous" }
+
+/** What a staff text that Zalo never answered throws: the transport's failure, no typed receipt (the outcome is unknown). */
+const STAFF_NO_ANSWER = "sandbox: no answer in time"
 
 @Injectable()
 /**
@@ -64,6 +67,13 @@ export class ZaloSandboxSendService implements CustomerSendPort {
                     if (closed || state.nextCase === "ZALO-SEND-2") return this.refused(request)
                     if (state.nextCase === "ZALO-SEND-3") return TOKEN_REFUSED
                     if (state.nextCase === "ZALO-SEND-4") return TIMED_OUT
+                    if (state.nextCase === "ZALO-SEND-8") {
+                        // No answer, but it went out: the person is kept as reached (the tester's proof of a duplicate).
+                        const reached = await state.read(ZALO_SANDBOX_DELIVERED_STATE, userId)
+                        await state.write(ZALO_SANDBOX_DELIVERED_STATE, userId, (typeof reached === "number" ? reached : 0) + 1)
+                        return TIMED_OUT
+                    }
+                    if (state.nextCase === "ZALO-SEND-7") return { ...DELIVERED, note: "qr_image_failed" }
                     if (state.nextCase === "ZALO-SEND-5") throw notSent("zalo_quota")
                     if (state.nextCase === "ZALO-SEND-6") throw notSent("zalo_refresh_busy")
                     return DELIVERED
@@ -83,6 +93,8 @@ export class ZaloSandboxSendService implements CustomerSendPort {
             key: request.recipientId,
             answer: (state) => {
                 if (state.nextCase === "ZALO-STAFF-2") throw new ChannelsError({ code: ChannelsErrorCode.ZaloNotAuthorized })
+                if (state.nextCase === "ZALO-STAFF-3") throw notSent("zalo_quota")
+                if (state.nextCase === "ZALO-STAFF-4") throw new Error(STAFF_NO_ANSWER)
                 return Promise.resolve()
             },
         })
@@ -92,7 +104,11 @@ export class ZaloSandboxSendService implements CustomerSendPort {
     async nameOf(account: ConnectionRecord, personId: string): Promise<string> {
         const profile = await this.sandbox.call(account, ZALO_PROFILE_OPERATION, { personId }, {
             key: personId,
-            answer: (state) => (state.nextCase === ZALO_PROFILE_NONE_CASE ? null : zaloSandboxProfileOf(personId)),
+            answer: (state) => {
+                if (state.nextCase === "ZALO-12") throw new Error("sandbox: 429 too many requests")
+                if (state.nextCase === "ZALO-13") throw new Error(STAFF_NO_ANSWER)
+                return state.nextCase === ZALO_PROFILE_NONE_CASE ? null : zaloSandboxProfileOf(personId)
+            },
         })
         return profile?.name ?? ""
     }

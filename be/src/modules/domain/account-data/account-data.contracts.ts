@@ -145,6 +145,45 @@ export interface AdmittedRow {
  */
 export type AccountAdmission = (tx: EntityManager, row: AdmittedRow) => Promise<void>
 
+/** A row as a receiver holds it BEFORE writing it: its type, the account it will belong to and its value (no id, no key yet). */
+export interface ArrivingRow {
+    /** The type it will be written as. */
+    readonly type: string
+    /** The account it will belong to. */
+    readonly owner: AccountOwner
+    /** The value as the receiver will write it. */
+    readonly value: object
+}
+
+/**
+ * The admission of a type whose tail does work that may not run inside the writing transaction (concept outbox-job rule 12: a read
+ * through the pool, an outside call): `prepare` runs for each arriving row with NO transaction open and answers the admission that the
+ * receiver then runs in its transaction for the row if the intake answers it as NEW.
+ */
+export type PreparedAccountAdmission = (row: ArrivingRow) => Promise<AccountAdmission>
+
+/** Which pending row a consumer takes: its type, its account and its key. */
+export interface PendingRowKey {
+    /** The `wakes` type. */
+    readonly type: string
+    /** The account. */
+    readonly connectionId: string
+    /** The provider's own key of the row. */
+    readonly key: string
+}
+
+/**
+ * The two phases a consumer of a pending row runs (`AccountDataIntakeService.consumePending`, concept outbox-job rule 12): `prepare` with NO
+ * transaction open, from the row as it stands (every read through the pool, every outside call); `commit` in one short transaction, on
+ * its manager only, with the row locked again.
+ */
+export interface PendingPhases<Prepared> {
+    /** Everything that reads through the pool or acts outside, before any transaction. */
+    readonly prepare: (row: PendingRow) => Promise<Prepared>
+    /** The writes of the row's consumption, in the transaction that completes it. */
+    readonly commit: (tx: EntityManager, row: PendingRow, prepared: Prepared) => Promise<void>
+}
+
 /** A pending row, or null when there is none (absent or already completed). */
 export type OptionalPendingRow = PendingRow | null
 

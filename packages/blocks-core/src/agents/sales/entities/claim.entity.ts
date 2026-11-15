@@ -32,8 +32,8 @@ type ClaimFields = {
 
 const claimFields: ClaimFields = {
     code: field.text({ maxLength: MAX_ID, nullable: true }),
-    /** The person who said it (the core contact); cleared when the contact is deleted, the claim stays for the books. */
-    contactId: field.contact({ nullable: true, onContactDelete: "clear" }),
+    /** The person who said it (the core contact); the claim is soft-deleted with the contact (the row stays, every read leaves it out). */
+    contactId: field.contact({ nullable: true }),
     /** The chat the customer said it in: an EXTERNAL id of the chatbot's record (no relation, no include, no cascade). */
     conversationId: field.uuid({ nullable: true }),
     amountVnd: field.moneyVnd({ nullable: true }),

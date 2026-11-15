@@ -44,11 +44,11 @@ export interface WaitParkMatch {
     readonly caseFold?: true | undefined
 }
 
-/** One trigger a parked wait listens for. */
+/** One trigger a parked wait listens for: one verb of one key (a key listing several verbs is one entry per verb, under the same key). */
 export interface WaitParkOn {
-    /** The key the wake names this trigger by. */
+    /** The key the wake names this trigger by: the meaning, and the route the wait takes. */
     readonly key: string
-    /** The verb of the trigger's event. */
+    /** One verb of the key. */
     readonly verb: string
     /** The conditions the event must meet. */
     readonly where?: ReadonlyArray<TriggerCondition> | undefined
@@ -134,22 +134,42 @@ const whereOf = (value: unknown): ReadonlyArray<TriggerCondition> | null => {
     return parsed.success ? parsed.data : null
 }
 
-/** The triggers of a wait as its resolved params give them, or null when they cannot be read. */
+/** One trigger of a wait (its key, ONE verb, `where`, match) as a record gives it, or null when it cannot be read. */
+const parkOnEntryOf = (entry: Readonly<Record<string, unknown>>, verb: string): WaitParkOn | null => {
+    if (typeof entry.key !== "string") return null
+    const where = entry.where === undefined ? undefined : whereOf(entry.where)
+    if (where === null) return null
+    const tests = Array.isArray(entry.match) ? entry.match.map((test: unknown) => matchOf(test)) : undefined
+    if (tests?.includes(null)) return null
+    return {
+        key: entry.key,
+        verb,
+        ...(where === undefined ? {} : { where }),
+        ...(tests === undefined ? {} : { match: tests.filter((test): test is WaitParkMatch => test !== null) }),
+    }
+}
+
+/**
+ * The triggers of a wait as its resolved params give them (concept templates rule 12: each KEY is one meaning listing the verbs that bring
+ * it), as the park keeps them: one entry per (key, verb), the key's `where` and match on each, in written order. Null when they cannot be
+ * read (no key, a key with no verb or a verb that is no text).
+ */
 export const waitOnOf = (value: unknown): ReadonlyArray<WaitParkOn> | null => {
     if (!Array.isArray(value) || value.length === 0) return null
-    const read = value.map((entry: unknown): WaitParkOn | null => {
-        if (!isRecord(entry) || typeof entry.key !== "string" || typeof entry.verb !== "string") return null
-        const where = entry.where === undefined ? undefined : whereOf(entry.where)
-        if (where === null) return null
-        const tests = Array.isArray(entry.match) ? entry.match.map((test: unknown) => matchOf(test)) : undefined
-        if (tests?.includes(null)) return null
-        return {
-            key: entry.key,
-            verb: entry.verb,
-            ...(where === undefined ? {} : { where }),
-            ...(tests === undefined ? {} : { match: tests.filter((test): test is WaitParkMatch => test !== null) }),
-        }
+    const read = value.map((entry: unknown): ReadonlyArray<WaitParkOn> | null => {
+        if (!isRecord(entry) || !Array.isArray(entry.verbs) || entry.verbs.length === 0) return null
+        const each = entry.verbs.map((verb: unknown) => (typeof verb === "string" ? parkOnEntryOf(entry, verb) : null))
+        return each.every((one): one is WaitParkOn => one !== null) ? each : null
     })
+    return read.every((entry): entry is ReadonlyArray<WaitParkOn> => entry !== null) ? read.flat() : null
+}
+
+/** The triggers a park keeps (one entry per key and verb, `waitOnOf`), or null when they cannot be read. */
+const parkOnOf = (value: unknown): ReadonlyArray<WaitParkOn> | null => {
+    if (!Array.isArray(value) || value.length === 0) return null
+    const read = value.map((entry: unknown): WaitParkOn | null =>
+        isRecord(entry) && typeof entry.verb === "string" ? parkOnEntryOf(entry, entry.verb) : null,
+    )
     return read.every((entry): entry is WaitParkOn => entry !== null) ? read : null
 }
 
@@ -179,7 +199,7 @@ export const waitParkOf = (
 export const parkOfWaitQuestion = (question: unknown): WaitPark | null => {
     if (!isRecord(question) || question.kind !== WAIT_PARK_KIND) return null
     const { parkKey, dueAt, subject } = question
-    const on = waitOnOf(question.on)
+    const on = parkOnOf(question.on)
     if (typeof parkKey !== "string" || typeof dueAt !== "string" || on === null || !isRecord(subject)) return null
     const members = Object.entries(subject).filter((entry): entry is [string, string] => typeof entry[1] === "string")
     return waitParkOf(parkKey, dueAt, on, Object.fromEntries(members))
@@ -212,8 +232,9 @@ const sameSubject = (park: WaitPark, event: Readonly<Record<string, unknown>>): 
     Object.entries(park.subject).some(([member, value]) => event[member] === value)
 
 /**
- * The key of the trigger a parked wait takes an event of `verb` as, or null: its verb is listed, it meets that trigger's `where`, and it
- * is the run's (every `match` test holds; with none, it is about the run's subject). The first trigger in written order that takes it.
+ * The key a parked wait takes an event of `verb` as, or null: the key whose verb list holds the verb (one key per verb: the graph check
+ * refuses a verb listed twice, `WAIT_VERB_DUPLICATE`), the event meets that key's `where`, and it is the run's (every `match` test holds;
+ * with none, it is about the run's subject).
  */
 export const waitTakes = (park: WaitPark, verb: string, event: Readonly<Record<string, unknown>>): string | null => {
     const taking = park.on.find(

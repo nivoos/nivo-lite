@@ -146,12 +146,8 @@ describe("ToolReceiptsService workspace and unsuccessful outcomes", () => {
         expect(tx.em.update.mock.calls).toEqual([UPDATE_CALL(WORKSPACE, SEALED), UPDATE_CALL("workspace-2", SEALED)])
     })
 
-    it.each<ToolCallResult>([
-        { ok: false, code: "unknown_outcome", detail: "remote timed out" },
-        { ok: false, code: "tool_error", detail: "connector refused" },
-        { ok: false, code: "idempotency_key_required", detail: "hakuen.booking.confirm" },
-        { ok: false, code: "approval_required", reason: "ask_mode" },
-    ])("keeps the first unsuccessful outcome for retries: %j", async (result) => {
+    it("keeps an unknown outcome for retries: nobody knows whether it acted, so it is never made again blind", async () => {
+        const result: ToolCallResult = { ok: false, code: "unknown_outcome", detail: "remote timed out" }
         const { service, claim, secrets } = await build()
         const operation = jest.fn(() => Promise.resolve(result))
         claim.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
@@ -160,6 +156,53 @@ describe("ToolReceiptsService workspace and unsuccessful outcomes", () => {
         await expect(service.run(WORKSPACE, KEY, operation)).resolves.toEqual(result)
         expect(operation).toHaveBeenCalledTimes(1)
         expect(secrets.seal).toHaveBeenCalledWith(JSON.stringify(result))
+    })
+
+    // RETRY-FIX (the rule changed this expectation, said openly): a result that says the act was NOT made (a refusal, a failure typed as
+    // not unknown, an approval still to give) is no receipt: the retry under the same key makes the act again, the row pending again first.
+    it.each<ToolCallResult>([
+        { ok: false, code: "unavailable", detail: "ENTITY_ENGINE_SCOPE_VIOLATION" },
+        { ok: false, code: "tool_error", detail: "connector refused" },
+        { ok: false, code: "idempotency_key_required", detail: "hakuen.booking.confirm" },
+        { ok: false, code: "approval_required", reason: "ask_mode" },
+    ])("makes an act not made again under the same key: %j", async (result) => {
+        const { service, claim, secrets, tx } = await build(receipt("sealed-unsettled"))
+        const operation = jest.fn<Promise<ToolCallResult>, []>().mockResolvedValueOnce(result).mockResolvedValueOnce(RESULT)
+        claim.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+        secrets.open.mockReturnValue({ kind: "ok", value: JSON.stringify(result) })
+        tx.em.update.mockResolvedValue({ affected: 1, raw: [], generatedMaps: [] })
+        await expect(service.run(WORKSPACE, KEY, operation)).resolves.toEqual(result)
+        await expect(service.run(WORKSPACE, KEY, operation)).resolves.toEqual(RESULT)
+        expect(operation).toHaveBeenCalledTimes(2)
+        expect(tx.em.update.mock.calls).toEqual([
+            UPDATE_CALL(WORKSPACE, SEALED),
+            [ToolReceiptEntity, { workspaceId: WORKSPACE, operationKey: KEY, resultSealed: "sealed-unsettled" }, { resultSealed: SEALED_PENDING }],
+            UPDATE_CALL(WORKSPACE, SEALED),
+        ])
+    })
+
+    it("makes it once when two retries find the same act not made: the other reads the pending intent", async () => {
+        const result: ToolCallResult = { ok: false, code: "unavailable", detail: "circuit_open" }
+        const { service, claim, secrets, tx } = await build(receipt("sealed-unsettled"))
+        const operation = jest.fn(() => Promise.resolve(RESULT))
+        claim.mockResolvedValue(false)
+        secrets.open.mockReturnValue({ kind: "ok", value: JSON.stringify(result) })
+        tx.em.update.mockResolvedValueOnce({ affected: 0, raw: [], generatedMaps: [] })
+        await expect(service.run(WORKSPACE, KEY, operation)).resolves.toEqual(PENDING)
+        expect(operation).not.toHaveBeenCalled()
+    })
+
+    it("answers an ok result that carries the outside's refusal as no receipt when the caller says nothing was done", async () => {
+        const refused: ToolCallResult = { ok: true, value: { ok: false, status: 409, code: "taken" } }
+        const { service, claim, secrets, tx } = await build(receipt("sealed-unsettled"))
+        const operation = jest.fn(() => Promise.resolve(RESULT))
+        claim.mockResolvedValue(false)
+        secrets.open.mockReturnValue({ kind: "ok", value: JSON.stringify(refused) })
+        tx.em.update.mockResolvedValue({ affected: 1, raw: [], generatedMaps: [] })
+        await expect(service.run(WORKSPACE, KEY, operation)).resolves.toEqual(refused)
+        expect(operation).not.toHaveBeenCalled()
+        await expect(service.run(WORKSPACE, KEY, operation, (answer) => answer.ok && answer.value.ok === false)).resolves.toEqual(RESULT)
+        expect(operation).toHaveBeenCalledTimes(1)
     })
 })
 

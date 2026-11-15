@@ -16,9 +16,9 @@ export type SandboxTurnDecision = { readonly message: AIMessage } | { readonly p
 export interface SandboxChatTurn {
     /**
      * Decides the try's case through the sandbox frame (logged on the account under the call's purpose): the sandbox's message, the pass,
-     * or the live client's failure THROWN (a deadline, a 5xx).
+     * or the live client's failure THROWN (a deadline, a 5xx). `tools` are the tools bound to this try's client, in binding order.
      */
-    decide(): Promise<SandboxTurnDecision>
+    decide(tools: ReadonlyArray<BindToolsInput>): Promise<SandboxTurnDecision>
     /** The endpoint's own client of this try, for the pass-through case (built only when the case passes). */
     endpoint(): Promise<AiChatModel>
 }
@@ -58,7 +58,7 @@ export class ModelSandboxChat extends BaseChatModel {
 
     /** One try: the case decided now; the sandbox's message, or the endpoint's answer to the same messages. */
     async _generate(messages: Array<BaseMessage>, options: this["ParsedCallOptions"]): Promise<ChatResult> {
-        const decided = await this.turn.decide()
+        const decided = await this.turn.decide(this.bound)
         const message = "message" in decided ? decided.message : await this.passed(messages, options.signal)
         return { generations: [{ text: typeof message.content === "string" ? message.content : "", message }] }
     }

@@ -1,4 +1,5 @@
 import type { ModuleServer, ModuleTemplate } from "@nivo-lite/agent-sdk/module"
+import { knowledgeIdeasOf } from "../../../shared/modules/knowledge-ideas/knowledge-ideas"
 import { BOOKING_COPY as copy } from "./copy"
 
 /** The booking module: its copy, agent and setup gates. */
@@ -19,6 +20,7 @@ export const BOOKING_TEMPLATE: ModuleTemplate = {
     includedWithWorkspace: false,
     available: true,
     knowledgeFolder: "booking",
+    knowledgeIdeas: knowledgeIdeasOf(["booking_services", "booking_cancellation", "booking_resources", "booking_exceptions", "brand_voice"]),
     workbench: "booking",
     settingsExtras: null,
     requires: {

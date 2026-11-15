@@ -1,7 +1,6 @@
 import type { GraphSpec, GraphSpecNode } from "@nivo-lite/agent-sdk/graph"
 import { TOOL } from "@nivo-lite/agent-sdk/names"
 import { INSTALLED } from "@modules/domain/installed-plugins"
-import { AGENT_RUN_STEPS } from "@tests/fixtures/builders/engine-core-tables.builder"
 import {
     ENDING_ASK,
     ENDING_CANNOT,
@@ -27,6 +26,7 @@ import {
     type ThreadDb,
     type ThreadProcess,
 } from "./thread-world"
+import { CustomerRoutesService } from "@modules/domain/customer-routes/customer-routes.service"
 import { chatServicesOf } from "./thread-world-intake"
 
 // RULING R68 (owner 2026-11-14, "cook luôn"): package graphs hold PURE business; a step that ends UNSUCCESSFULLY in a typed way the graph
@@ -52,7 +52,6 @@ const CODE = "DH-0042"
 
 /** The catalogue keys of the notice's words (the world's catalogue answers a key as its words: the words are the catalogue's, never coded). */
 const WORDS = {
-    sendRefused: "agentGraphs.stepEnding.sendRefused",
     declined: "agentGraphs.stepEnding.declined",
     cannot: "agentGraphs.stepEnding.cannot",
     exhausted: "agentGraphs.stepEnding.exhausted",
@@ -140,8 +139,8 @@ const windowClosed = async (db: ThreadDb, process: ThreadProcess): Promise<void>
     db.clock.advance(49 * 3_600_000)
 }
 
-describe("R68 (a): a customer send refused, on a step that goes on (`continue`)", () => {
-    it("the team is told once (the step, the order code, the typed refusal); nothing is sent; the run goes on to its next step and ends", async () => {
+describe("E-FIX12 rule A-1 (replaces R68 (a)): a refused write outside is a FAILED ACT, never a business ending", () => {
+    it("the send is refused: ONE stop for a person (no notice, no `unsuccessful` ending), the run stays in flight, nothing more runs", async () => {
         const db = threadDbOf()
         const process = await processOf(db)
         await windowClosed(db, process)
@@ -149,42 +148,43 @@ describe("R68 (a): a customer send refused, on a step that goes on (`continue`)"
         const { runId, error } = await started(process, ENDING_SEND, CODE)
 
         expect(error).toBeNull()
-        expect((await stateOf(process, runId))?.status).toBe("ended")
+        expect((await stateOf(process, runId))?.status).toBe("stopped")
+        expect(["done", "failed", "cancelled", "skipped"]).not.toContain(db.runs.get(runId)?.status)
+        const stops = await stopsOf(process, runId)
+        expect(stops.map((stop) => [stop.stepKey, stop.state])).toEqual([["tell", "open"]])
+        const facts = Object.fromEntries((stops[0]?.detail.facts ?? []).map((fact) => [fact.name, fact.value]))
+        // The stop names the tool and its typed refusal, generically.
+        expect(facts).toMatchObject({ code: "GRAPH_NODES_ACT_REFUSED", effect: TOOL.customerMessageSend, outsideRefusal: "outside_window" })
         const steps = await stepsOf(process, runId)
-        expect(steps.tell).toMatchObject({ output: { sent: false, refusal: "outside_window" } })
-        expect(steps.after).toMatchObject({ output: { noted: CODE } })
-        expect(steps.done).toMatchObject({ output: { outcome: "done" } })
-        const notice = onlyNotice(db)
-        expect(notice).toMatchObject({ kind: "report.facts", audience: "founder" })
-        expect(notice.text).toBe(`${WORDS.sendRefused} ${WORDS.continued}`)
-        expect(factsOf(notice)).toMatchObject({ "Mã đơn": CODE, [FACT.reason]: "outside_window", [FACT.step]: "Nhắn khách", [FACT.run]: runId, [FACT.route]: CONV })
-        expect(noticesOf(db)[0]?.key).toBe(`${ENDING_KEY}${runId}:tell:1`)
-        // Never silent, never a stop: no founder card, no stop for a typed ending.
-        expect(await stopsOf(process, runId)).toEqual([])
+        expect(steps.after).toBeUndefined()
+        expect(steps.done).toBeUndefined()
+        expect(noticesOf(db)).toEqual([])
         expect(db.lines).toEqual([])
     })
 
-    it("the same graph declaring nothing keeps today's road: no engine notice (the option is additive)", async () => {
+    it("whatever the step declares: the same graph with no `unsuccessful` declaration stops the same way", async () => {
         const db = threadDbOf()
         const process = await processOf(db)
         await windowClosed(db, process)
 
         const { runId } = await started(process, ENDING_SEND, CODE, withoutEndings(flowOf(ENDING_SEND)))
 
-        expect((await stateOf(process, runId))?.status).toBe("ended")
+        expect((await stateOf(process, runId))?.status).toBe("stopped")
+        expect((await stopsOf(process, runId)).map((stop) => stop.stepKey)).toEqual(["tell"])
         expect(noticesOf(db)).toEqual([])
-        expect(await stepsOf(process, runId)).toMatchObject({ done: { output: { outcome: "done" } } })
     })
 
-    it("a send refused `route_held` (a member holds the route) is quiet: no notice, the run goes on", async () => {
+    it("a send refused while a member holds the route is no failure for the founder (R45): no stop, no notice, the run ends quietly", async () => {
         const db = threadDbOf()
-        const process = await processOf(db)
+        // The routes' staff hold, as the app composes it globally (`CustomerRoutesModule`): the step reads the hold the door refused on.
+        const process = await processOf(db, { extra: [{ provide: CustomerRoutesService, useValue: chatServicesOf(db).routes }] })
         await customersSay(process, [{ text: "Shop oi", key: "m-hold-1" }])
         await chatServicesOf(db).routes.hold(WS, CONV, "member-1")
 
         const { runId } = await started(process, ENDING_SEND, CODE)
 
-        expect(await stepsOf(process, runId)).toMatchObject({ tell: { output: { sent: false, refusal: "route_held" } }, done: {} })
+        expect((await stateOf(process, runId))?.status).toBe("ended")
+        expect((await stepsOf(process, runId)).after).toBeUndefined()
         expect(noticesOf(db)).toEqual([])
         expect(await stopsOf(process, runId)).toEqual([])
     })
@@ -201,42 +201,16 @@ describe("R68 (a): a customer send refused, on a step that goes on (`continue`)"
         expect(noticesOf(db)).toEqual([])
     })
 
-    it("the process dies right after the notice: the re-driven step posts no second notice and the run ends once", async () => {
+    it("a re-drive of the stopped run opens no second stop and sends nothing", async () => {
         const db = threadDbOf()
         const process = await processOf(db)
         await windowClosed(db, process)
-        // The first `done` write of a step row is the send step's (its notice was already posted): the process dies there.
-        let doneWrites = 0
-        db.records.crashOnce((mutation) => {
-            if (mutation.entity !== AGENT_RUN_STEPS || mutation.op !== "update" || mutation.values.status !== "done") return false
-            doneWrites += 1
-            return doneWrites === 1
-        })
+        const { runId } = await started(process, ENDING_SEND, CODE)
 
-        const first = await started(process, ENDING_SEND, CODE)
-        expect(first.error).not.toBeNull()
-        expect(doneWrites).toBe(1)
-        expect(noticesOf(db)).toHaveLength(1)
-        await redrive(process, first.runId, "redrive:step-ending")
+        await redrive(process, runId, "redrive:act-refused")
 
-        expect((await stateOf(process, first.runId))?.status).toBe("ended")
-        expect(noticesOf(db)).toHaveLength(1)
-        expect(await stepsOf(process, first.runId)).toMatchObject({ done: { output: { outcome: "done" } } })
-    })
-
-    it("a team post that fails is no failure of the run: it follows its policy (the post door records the app error)", async () => {
-        const db = threadDbOf()
-        const process = await processOf(db)
-        await windowClosed(db, process)
-        db.throwOn.set(TOOL.teamMessagePost, new Error("team chat down"))
-
-        const { runId, error } = await started(process, ENDING_SEND, CODE)
-
-        expect(error).toBeNull()
-        expect((await stateOf(process, runId))?.status).toBe("ended")
-        expect(await stepsOf(process, runId)).toMatchObject({ after: {}, done: { output: { outcome: "done" } } })
-        expect(noticesOf(db)).toEqual([])
-        expect(await stopsOf(process, runId)).toEqual([])
+        expect((await stopsOf(process, runId)).map((stop) => [stop.stepKey, stop.state])).toEqual([["tell", "open"]])
+        expect(db.lines).toEqual([])
     })
 })
 

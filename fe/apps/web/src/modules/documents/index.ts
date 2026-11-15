@@ -1,17 +1,17 @@
-export { DOCUMENT_IDEAS, ideasFor, pairsToText } from "./ideas"
-export type { QaLabels } from "./ideas"
+export { ideasFor, ideasOf, relevanceOf, wordsOfIdea } from "./knowledge-ideas"
+export type { DocumentIdea, IdeaLocale, IdeaWords } from "./knowledge-ideas"
+export { pairsToText } from "./qa"
+export type { QaLabels, QaPair } from "./qa"
 export { instanceOptions } from "./instances"
 export type { InstanceOption } from "./instances"
 export { nextId, linkProblemOf } from "./link-rows"
 export type { LinkInput } from "./link-rows"
 export { splitLinks } from "./links"
-export { ARCHIVE_MAX_ENTRIES, canRetry, typedLinks } from "./queue"
-export type { BatchMeta, EnqueueItem, EnqueueOutcome, QueueActions, QueueItem } from "./queue"
+export { ARCHIVE_MAX_ENTRIES, DEFAULT_UPLOAD_AREA, canRetry, typedLinks } from "./queue"
+export type { BatchMeta, EnqueueItem, EnqueueOutcome, QueueActions, QueueItem, UploadArea } from "./queue"
 export {
-    AGENT_MODULES,
     DOCUMENT_STATUS_TONE,
     DOCUMENT_STATUS_KEYS,
-    isAgentModule,
     isDocumentActive,
     isDuplicateNote,
     isFinalFailure,
@@ -20,7 +20,6 @@ export {
     noteKeyOf,
     topicsOf,
 } from "./status"
-export type { AgentModule } from "./status"
 export { batchBytesOf } from "./queue-bytes"
 export { queueRowOf } from "./queue-rows"
 export { usageMeterOf } from "./usage"
@@ -31,7 +30,6 @@ export type { RetrievedPassage } from "./passages"
 export {
     isKnowledgeId,
     toDocumentPassage,
-    toWireInstallation,
     toKnowledgeDocument,
     toKnowledgeDocumentDetail,
     toNivoEntry,

@@ -28,20 +28,32 @@ const build = async () => {
 describe("RecordContactErasureService: a deleted contact leaves no record and no file", () => {
     it("erases the records, then removes the files of the erased ones from the store", async () => {
         const { mutations, storage, erasure } = await build()
-        mutations.eraseForContacts.mockResolvedValue({ kind: "erased", erased: 2, cleared: 1, files: ["k-1", "k-2"] })
+        mutations.eraseForContacts.mockResolvedValue({
+            kind: "erased",
+            erased: 2,
+            cleared: 1,
+            files: ["k-1", "k-2"],
+            hidden: [{ type: "fixture-web.webrenew.request", id: "r-1" }],
+        })
         storage.remove.mockResolvedValue({ kind: "ok", value: null })
 
-        await expect(erasure.erase(WS, [CONTACT])).resolves.toEqual({ kind: "erased", records: 2, cleared: 1 })
+        // The records it hid ride back to the contacts, which end the runs whose subject is one of them (concept agent-data).
+        await expect(erasure.erase(WS, [CONTACT])).resolves.toEqual({
+            kind: "erased",
+            records: 2,
+            cleared: 1,
+            hidden: [{ type: "fixture-web.webrenew.request", id: "r-1" }],
+        })
         expect(mutations.eraseForContacts).toHaveBeenCalledWith(WS, [CONTACT])
         expect(storage.remove.mock.calls).toEqual([["k-1"], ["k-2"]])
     })
 
     it("keeps (and logs) an object the store cannot remove: the records are already gone", async () => {
         const { mutations, storage, logger, erasure } = await build()
-        mutations.eraseForContacts.mockResolvedValue({ kind: "erased", erased: 1, cleared: 0, files: ["k-1"] })
+        mutations.eraseForContacts.mockResolvedValue({ kind: "erased", erased: 1, cleared: 0, files: ["k-1"], hidden: [] })
         storage.remove.mockResolvedValue({ kind: "refused", code: "OBJECT_STORAGE_UNAVAILABLE" })
 
-        await expect(erasure.erase(WS, [CONTACT])).resolves.toEqual({ kind: "erased", records: 1, cleared: 0 })
+        await expect(erasure.erase(WS, [CONTACT])).resolves.toEqual({ kind: "erased", records: 1, cleared: 0, hidden: [] })
         expect(logger.warn).toHaveBeenCalledWith(RecordFilesLogEvent.ObjectKept, { code: "OBJECT_STORAGE_UNAVAILABLE" })
     })
 

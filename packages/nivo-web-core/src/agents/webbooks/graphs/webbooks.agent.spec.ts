@@ -159,12 +159,13 @@ describe("the Accounting agent template (webbooks)", () => {
 })
 
 describe("webbooks.invoice", () => {
-    it("is version 12, reached by a call, open to any caller", () => {
+    it("is version 14, reached by a call, open to any caller", () => {
         // ledger 2026-11-13 (`nivo-frame.rights`): every graph's catalogue version + 1 (one mode per node changed every compiled document).
         // 2026-11-14 (R57): 10, the issue on the MISA account, the issued invoice recorded in the CRM.
         // 2026-11-14 (R68): 11, the declined draft / issue are the steps' unsuccessful ending (the engine tells the team).
         // 2026-11-14 (E-R57): 12, the invoice is recorded with MISA's own `issuedOn`.
-        expect(invoiceGraph.spec.catalogue?.version).toBe(13)
+        // 2026-11-15 (E-FIX12): 14, a refusal of the e-invoice service stops the issue step for a person (no `rejected` outcome).
+        expect(invoiceGraph.spec.catalogue?.version).toBe(14)
         expect(invoiceGraph.key).toBe("webbooks.invoice")
         expect(invoiceGraph.spec.triggers).toEqual([{ verb: TRIGGER.workflowCalled }])
         expect(invoiceGraph.spec.entry.openTo).toBe("any")
@@ -391,15 +392,15 @@ describe("webbooks.team-chat", () => {
 })
 
 describe("the webbooks catalogues' seedActive", () => {
-    it("mirrors the old JSON template of every graph: active at seed exactly where the JSON said `seedActive: true`", () => {
+    it("is active at seed for the team chat and the three Accounting rounds (owner 2026-11-15); the primary is the agent's own graph", () => {
         const seeded = webbooksAgent.graphs.map(
             (graph) => [graph.key, graph.spec.catalogue?.seedActive === true] as const,
         )
         expect([...seeded].sort(([a], [b]) => a.localeCompare(b))).toEqual([
-            ["webbooks.debt-round", false],
+            ["webbooks.debt-round", true],
             ["webbooks.invoice", false],
-            ["webbooks.payment", false],
-            ["webbooks.supplier-invoices", false],
+            ["webbooks.payment", true],
+            ["webbooks.supplier-invoices", true],
             ["webbooks.team-chat", true],
         ])
     })

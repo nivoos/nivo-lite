@@ -10,6 +10,8 @@ export interface ConnectionBindingFacts {
     readonly status: string
     /** When the connection was created. */
     readonly createdAt: Date
+    /** True for a sandbox account (lane concept provider-sandbox; set at creation, never changed). */
+    readonly sandbox: boolean
     /** The bot username the provider reported, trimmed, or null. */
     readonly botUsername: string | null
     /** The masked account the provider reported, trimmed, or null. */

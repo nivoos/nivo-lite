@@ -1,5 +1,7 @@
 import { Injectable, Optional } from "@nestjs/common"
 import {
+    EffectOutcomeUnknownCode,
+    EffectOutcomeUnknownError,
     GraphNodeEffectsService,
     GraphNodeRegistryService,
     GraphNodeRunTokensService,
@@ -20,6 +22,7 @@ import { lockedArgumentsOf } from "./locked-arguments.policy"
 import { CustomerRoutesService } from "@modules/domain/customer-routes"
 import { WorkspaceMembersReadService } from "@modules/domain/workspace-members"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
+import { QueueError, QueueErrorCode } from "@modules/platform/queue"
 import { ToolCallLogService } from "@modules/domain/tool-call-log"
 import { InjectClock, SystemClockService, type Clock } from "@modules/platform/clock"
 import { InjectConversationLeadsGate } from "./tools.decorators"
@@ -125,9 +128,21 @@ const failureOf = (
         return new GraphNodesError({ code: GraphNodesErrorCode.ToolNotConnected, params: { tool } })
     if (result.code === "tool_error" && result.nativeRefusal === CONNECTION_REFUSED)
         return new GraphNodesError({ code: GraphNodesErrorCode.ToolConnectionRefused, params: { tool } })
+    // A failure that left nothing outside (a write proved `not_sent`, or any failure of a read) AND says the other side could not answer
+    // now is TRANSIENT whatever the tool: the engine's one classifier (`failureClassOf`: a typed code or status class, never a word of
+    // the message) calls it `transient`. The node's trouble then carries that class, so the run's ladder (1, 2, 4, 8 minutes, nobody
+    // disturbed) tries the step again, then ONE card. A failure that says the REQUEST is wrong (invalid arguments, a provider refusal, a
+    // missing record) is permanent for a read too: the same arguments cannot succeed, so the step's trouble is ONE card, no ladder. Any
+    // other failure carries no class (a write that may have acted stops).
+    // A read changes nothing outside whatever its adapter proved (an `unknown` proof of a read that got no answer says nothing about an
+    // effect: a read has none), so its proof does not decide here.
+    const nothingLeft =
+        proved.failureClass === "transient" &&
+        (proved.proof === "not_sent" || (proved.read === true && result.code === "unavailable"))
     return new GraphNodesError({
         code: GraphNodesErrorCode.ToolFailed,
         params: { tool, reason: result.code, ...(proved.proof === null ? {} : { proof: proved.proof }) },
+        ...(nothingLeft ? { cause: new QueueError({ code: QueueErrorCode.FlowFailure, params: { failureClass: "transient", reason: "nothing_left_outside" } }) } : {}),
     })
 }
 
@@ -369,12 +384,10 @@ export class NodeToolDoorService implements NodeToolDoor {
             )
         }
         const caller = await this.callerOf(claims, call.key, approvedBy, call.account)
-        // What a failure proves is asked only of a call on an account the runner handed (its fallback reads it).
+        // What a failure proves (and whether the call was a read) is asked of every call: the runner's account fallback reads it, and so
+        // does the class of the node's trouble (`failureOf`).
         const proved: ToolProofSink = { proof: null }
-        const result =
-            call.account === undefined
-                ? await this.gateway.call(caller, call.tool, locked.args)
-                : await this.gateway.call(caller, call.tool, locked.args, proved)
+        const result = await this.gateway.call(caller, call.tool, locked.args, proved)
         if (result.ok) {
             if (call.refusals !== "answer") return result.value
             // The template road: an outside refusal is the refusal fact, an OpenAPI success the node's answer (body + meta).
@@ -386,6 +399,20 @@ export class NodeToolDoorService implements NodeToolDoor {
                 new GraphNodesError({ code: GraphNodesErrorCode.ToolFailed, params: { tool: call.tool, reason: "answer_unreadable" } }),
             )
         }
+        // A write whose outcome nobody knows (the gateway's `unknown_outcome`: a timeout, a pending receipt; or the adapter's own proof) is
+        // the engine's typed OUTCOME UNKNOWN, the same failure the effect road throws: the step reads it as one (one stop that offers Retry
+        // only as declared, the ladder for a `repeatable` tool), never as a failed call of a kind it cannot tell.
+        // A READ has no outcome to be unknown (it changed nothing): its failure is an ordinary failure with its class (`failureOf`).
+        if (result.code === "unknown_outcome" || (proved.proof === "unknown" && proved.read !== true))
+            throw this.failed(
+                call.tool,
+                claims,
+                new EffectOutcomeUnknownError({
+                    code: EffectOutcomeUnknownCode.Tool,
+                    params: { effect: call.tool, reason: result.code },
+                }),
+                result.code,
+            )
         const error = failureOf(call.tool, fingerprint, result, { args: checked.data, key: call.key, account: call.account }, proved)
         // A refusal its source classed business is the answer of a call that asks for refusals as answers (the template road); it is
         // still logged like every refusal. Everything else (not connected, a refused connection, a failure) is thrown as before.
@@ -413,9 +440,9 @@ export class NodeToolDoorService implements NodeToolDoor {
     private failed(
         tool: string,
         claims: NodeRunClaims | null,
-        error: GraphNodesError,
+        error: GraphNodesError | EffectOutcomeUnknownError,
         gatewayCode: string | null = null,
-    ): GraphNodesError {
+    ): GraphNodesError | EffectOutcomeUnknownError {
         this.logger.warn(ToolsLogEvent.NodeToolFailed, {
             workspaceId: claims?.workspaceId ?? null,
             agentId: claims?.agentId ?? null,
@@ -453,7 +480,9 @@ export class NodeToolDoorService implements NodeToolDoor {
             origin: "node",
             ...(claims.step === undefined ? {} : seenAtStep("node", claims.step)),
             ...(approvedBy === undefined ? {} : { approvedBy }),
+            ...(claims.personRetry === true ? { personRetry: true as const } : {}),
             ...(run === undefined ? {} : { run }),
+            ...(claims.subject === undefined ? {} : { subject: claims.subject }),
             ...(account === undefined
                 ? {}
                 : {

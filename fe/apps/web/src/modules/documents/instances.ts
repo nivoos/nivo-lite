@@ -1,10 +1,9 @@
-import type { ModuleKey } from "@/modules/catalog"
 import type { Installation } from "@/modules/installations"
 
 /** One agent instance a document may be kept for: "<type> - <instance>". */
 export interface InstanceOption {
     readonly id: string
-    readonly moduleKey: ModuleKey
+    readonly moduleKey: string
     readonly label: string
 }
 
@@ -18,7 +17,7 @@ const labelOf = (type: string, name: string): string => {
 /** The agent instances a document may be kept for: only types with several instances have anything to choose. */
 export const instanceOptions = (
     installations: ReadonlyArray<Installation>,
-    moduleNames: Readonly<Partial<Record<ModuleKey, string>>>,
+    moduleNames: Readonly<Partial<Record<string, string>>>,
 ): ReadonlyArray<InstanceOption> =>
     installations
         .filter((one) => one.isMulti && installations.filter((other) => other.moduleKey === one.moduleKey).length > 1)

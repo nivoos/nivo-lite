@@ -116,7 +116,7 @@ export const WEBSITE_FORM_TRIGGER: TriggerDeclaration<WebsiteSubmissionRaw, Webs
         source: z.record(z.string(), z.string()),
     }),
     translate: translateWebsiteSubmission,
-    line: websiteLineOf,
+    feeds: { stream: "lines", line: websiteLineOf },
     key: { by: "subject" },
     settle: null,
     // The visitor's request is a line of the route's stream: held requests are ONE marker the workflow reads the stream from (rule Q-4).

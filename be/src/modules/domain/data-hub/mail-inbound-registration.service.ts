@@ -29,7 +29,7 @@ export class MailInboundRegistrationService implements OnModuleInit {
     /** Registers the receiver (live and sandbox), the admission of `imap.mail` and the sandbox cases, once. */
     onModuleInit(): void {
         this.receivers.register({ live: this.live, sandbox: this.sandbox })
-        this.admissions.register(IMAP_MAIL_TYPE, (tx, row) => this.mail.admit(tx, row))
+        this.admissions.registerPrepared(IMAP_MAIL_TYPE, (row) => this.mail.prepare(row))
         this.catalogues.register(IMAP_SANDBOX_CATALOGUE)
         this.catalogues.register(MAILBOX_INBOUND_SANDBOX_CATALOGUE)
     }

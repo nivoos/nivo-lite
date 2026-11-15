@@ -1,5 +1,6 @@
 import { setSchemaOf, type EntryForm, type Inability, type JsonValue } from "@modules/integrations/seed"
 import { attempt, isRecord } from "@modules/platform/primitives"
+import type { DataStoreConsole } from "./data-stores.options"
 
 /** The format of the records NIVO's database store keeps; every record set is `nivo-seed-standard/<set>@1`. */
 export const RECORD_FORMAT = "nivo-seed-standard@1"
@@ -38,6 +39,8 @@ export enum DataRefusalCode {
     EntryCorrupt = "DATA_ENTRY_CORRUPT",
     /** The set has no door that removes a row: a mirror cannot remove this key. */
     NotRemovable = "DATA_SET_NOT_REMOVABLE",
+    /** An unscoped import entry's key names no live workspace in its prefix (`<workspace id>/<key>`). */
+    WorkspaceUnknown = "DATA_WORKSPACE_UNKNOWN",
 }
 
 /** What the database store says it cannot do, each with its reason. */
@@ -104,3 +107,32 @@ export const knowledgeKeyParts = (key: string): KnowledgeKeyParts | null => {
 
 /** The full key of a relative key: `<workspaceId>/<key>`. */
 export const fullKeyOf = (workspaceId: string, key: string): string => `${workspaceId}/${key}`
+
+/** A workspace id as the database writes it: a uuid, so it can never hold a slash and is safe to ask the database about. */
+const WORKSPACE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u
+
+/** True when a text has the shape of a workspace id. */
+export const isWorkspaceId = (value: string): boolean => WORKSPACE_ID.test(value)
+
+/** A key of an unscoped copy split into its workspace id and the key inside the workspace. */
+export interface WorkspaceKeyParts {
+    /** The workspace id the prefix names (not yet known to be a live workspace). */
+    readonly workspaceId: string
+    /** The key inside the workspace. */
+    readonly key: string
+}
+
+/** The workspace id and the key an unscoped copy's key (`<workspace id>/<key>`) names, or null when the key has no such prefix. */
+export const workspaceKeyParts = (prefixed: string): WorkspaceKeyParts | null => {
+    const slash = prefixed.indexOf("/")
+    if (slash <= 0 || slash === prefixed.length - 1) return null
+    const workspaceId = prefixed.slice(0, slash)
+    return isWorkspaceId(workspaceId) ? { workspaceId, key: prefixed.slice(slash + 1) } : null
+}
+
+/** The console of an app that serves no store over it: no input, output discarded. */
+export const NO_CONSOLE: DataStoreConsole = {
+    lines: () => ({ [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ done: true, value: undefined }) }) }),
+    print: () => undefined,
+    exit: () => undefined,
+}

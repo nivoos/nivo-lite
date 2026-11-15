@@ -24,10 +24,11 @@ export class OpenApiProviderRegistrationService implements OnModuleInit {
         this.registerFixtures(CRM_TEMPLATES)
     }
 
-    /** Registers the fixtures of every template that ships any (a template without the `sandbox` member answers none). */
+    /**
+     * Registers the sandbox of every template: its pinned document (every operation of it is answered by the generic store) and the
+     * declarations it ships (none: the store starts empty).
+     */
     registerFixtures(templates: ReadonlyArray<ProviderTemplate>): void {
-        for (const template of templates) {
-            if (template.sandbox !== undefined) this.fixtures.register(sandboxFixturesOf(template).fixtures)
-        }
+        for (const template of templates) this.fixtures.register(sandboxFixturesOf(template).fixtures)
     }
 }

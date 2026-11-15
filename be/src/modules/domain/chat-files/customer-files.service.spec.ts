@@ -122,22 +122,28 @@ describe("CustomerFilesService.keep", () => {
     })
 })
 
-describe("CustomerFilesService.keep: a failure of the channel or the store is the job's to judge", () => {
-    it("THROWS a read that failed on the way (the network), so the delivery job retries it; nothing is kept for the file", async () => {
+describe("CustomerFilesService.keep: the customer's file host failing never fails the delivery; the shop's own store down does", () => {
+    it("records a read that failed on the way (the network) as a typed, reported not-kept entry (R72 DEF-7), and the delivery goes on", async () => {
         const { service, remote, assets, errors, ledger } = await build()
         remote.read.mockRejectedValue(down())
 
-        await expect(service.keep(JOB, "ws-1", "zalo:m-4", [{ kind: "image", url: ZALO_URL, name: "" }])).rejects.toMatchObject({ code: "ECONNRESET" })
+        const [kept] = await service.keep(JOB, "ws-1", "zalo:m-4", [{ kind: "image", url: ZALO_URL, name: "" }])
 
+        expect(kept).toMatchObject({ id: "unread:fetch_failed:0", url: "", notKept: "fetch_failed" })
         expect(assets.upload).not.toHaveBeenCalled()
-        expect(errors.report).not.toHaveBeenCalled()
-        expect(ledger.rows.get("job-1:file:0")).toMatchObject({ acts: 1, settled: false })
+        expect(errors.report).toHaveBeenCalledWith(
+            "chat_files.customer_file_not_kept",
+            expect.anything(),
+            { workspaceId: "ws-1", event: "zalo:m-4", index: 0, reason: "fetch_failed" },
+        )
+        expect(ledger.rows.get("job-1:file:0")).toMatchObject({ acts: 1, settled: true })
     })
 
-    it("THROWS a channel that answers a server failure (5xx or 429), but records a refusal (404) as a typed not-kept entry", async () => {
+    it("records a channel that answers a server failure (5xx or 429) or a refusal (404) as a typed not-kept entry", async () => {
         const busy = await build()
         busy.remote.read.mockImplementation(answering(null, "text/html", 503))
-        await expect(busy.service.keep(JOB, "ws-1", "zalo:m-5", [{ kind: "image", url: ZALO_URL, name: "" }])).rejects.toBeDefined()
+        const [busyKept] = await busy.service.keep(JOB, "ws-1", "zalo:m-5", [{ kind: "image", url: ZALO_URL, name: "" }])
+        expect(busyKept?.id).toBe("unread:refused_503:0")
 
         const gone = await build()
         gone.remote.read.mockImplementation(answering(null, "image/jpeg", 404))

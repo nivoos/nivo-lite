@@ -101,6 +101,49 @@ export interface SeedReceipt {
     readonly commit: string
     readonly forcedCommit: string | null
     readonly appliedAt: string
+    /** The outcome of each DOOR step the door script sent after the seed (time zone, node settings), as last recorded; empty = none yet. */
+    readonly doors: ReadonlyArray<SeedDoorOutcome>
+}
+
+/** One door step's outcome: done, or FAILED with the typed code the door answered (never a value). */
+export interface SeedDoorOutcome {
+    /** What the step is (`settings timeZone`, `node chatbot.front-desk/answer`). */
+    readonly step: string
+    readonly outcome: "done" | "failed"
+    /** The typed code of a refusal, or null. */
+    readonly code: string | null
+}
+
+const STEP = /^[\w .:/-]{1,200}$/u
+const CODE = /^[A-Z][A-Z0-9_]{0,99}$/u
+
+/** Reads the door outcomes the door script reports (`{standards: {<name>: [{step, outcome, code?}]}}`); anything else is refused by field. */
+export const readDoorOutcomes = (input: string): ReadonlyMap<string, ReadonlyArray<SeedDoorOutcome>> => {
+    const read = parseJsonText(input)
+    const root = read.ok && isRecord(read.value) && isRecord(read.value.standards) ? read.value.standards : invalid("input")
+    return new Map(
+        Object.entries(root).map(([name, steps]) => {
+            if (!NAME.test(name) || !Array.isArray(steps)) return invalid("standards")
+            return [
+                name,
+                steps.map((step: unknown): SeedDoorOutcome => {
+                    if (!isRecord(step) || typeof step.step !== "string" || !STEP.test(step.step)) return invalid("step")
+                    if (step.outcome !== "done" && step.outcome !== "failed") return invalid("outcome")
+                    const code = step.code === undefined || step.code === null ? null : typeof step.code === "string" && CODE.test(step.code) ? step.code : invalid("code")
+                    return { step: step.step, outcome: step.outcome, code }
+                }),
+            ]
+        }),
+    )
+}
+
+/** The door steps of a receipt in one line: none sent yet, all done, or the FAILED ones with their codes. */
+export const doorsLineOf = (doors: ReadonlyArray<SeedDoorOutcome>): string => {
+    if (doors.length === 0) return "door steps: none recorded yet"
+    const failed = doors.filter((one) => one.outcome === "failed")
+    return failed.length === 0
+        ? `door steps: ${String(doors.length)} done`
+        : `door steps: ${String(failed.length)} of ${String(doors.length)} FAILED (${failed.map((one) => `${one.step}: ${one.code ?? "unknown"}`).join("; ")})`
 }
 
 /**
@@ -111,7 +154,7 @@ export const seedDecisionOf = (ref: SeedStandardRef, receipt: SeedReceipt | null
     if (receipt === null) return { act: "seed" }
     if (ref.force && receipt.forcedCommit !== ref.commit) return { act: "reseed", since: receipt.appliedAt }
     if (receipt.commit === ref.commit) {
-        return { act: "skip", why: `already seeded at ${receipt.commit}${receipt.forcedCommit === ref.commit ? " (force consumed at this commit)" : ""}` }
+        return { act: "skip", why: `already seeded at ${receipt.commit}${receipt.forcedCommit === ref.commit ? " (force consumed at this commit)" : ""}; ${doorsLineOf(receipt.doors)}` }
     }
     return { act: "skip", why: `standard changed since it was seeded (${receipt.commit} -> ${ref.commit}): declare force on its stack declaration to re-seed` }
 }

@@ -191,6 +191,21 @@ export const listPlanOf = (definition: EntityDefinition, args: RecordListArgs): 
     return { kind: "refused", reason: queryRefusalOf(queryProblems(shown, catalog)) ?? "query_not_indexed" }
 }
 
+/**
+ * The stream subject a consuming list names (concept agent-data rule 5): the value its `where` fixes for the type's declared subject field,
+ * as an `eq` at the top or inside a top-level `and`; null when the list names none (or names it twice, or the subject is the record itself).
+ */
+export const streamSubjectOfWhere = (subjectField: string, where: FilterExpr | undefined): string | null => {
+    if (where === undefined || subjectField === "id") return null
+    const parts = where.op === "and" ? where.of : [where]
+    const fixed = parts.flatMap((part) =>
+        part.op === "eq" && part.field === subjectField && part.ref === undefined && (typeof part.value === "string" || typeof part.value === "number")
+            ? [String(part.value)]
+            : [],
+    )
+    return fixed.length === 1 ? (fixed[0] ?? null) : null
+}
+
 /** A record as the record tools answer it. */
 export const recordViewOf = (row: RecordRow): RecordView => ({
     id: row.id,

@@ -16,7 +16,10 @@ import type {
 } from "./jobs.contracts"
 import type { FencedProcessor } from "./fenced.processor"
 
-/** A domain write performed in the transaction that holds the current job's fence. */
+/**
+ * A domain write performed in the transaction that holds the current job's fence (a row lock): it uses ONLY `tx`, never a manager of the
+ * pool, an outside call or a model call (concept outbox-job rule 12); what it needs from elsewhere is read before the fence.
+ */
 export type JobFenceAction = (tx: EntityManager) => Promise<void>
 
 /** The one door to the job row; `platform/jobs` implements it and nothing else writes the table. */

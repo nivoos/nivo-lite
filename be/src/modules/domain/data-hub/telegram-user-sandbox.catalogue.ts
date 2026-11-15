@@ -14,6 +14,7 @@ export const TELEGRAM_USER_CASE = {
     sessionRevoked: "TELEGRAM_USER-4",
     notConfigured: "TELEGRAM_USER-5",
     unreachable: "TELEGRAM_USER-6",
+    chatGone: "TELEGRAM_USER-7",
 } as const
 
 /** The moments of the sandbox account's chats (R60: a fixed history). A case reads the chats AS OF a moment. */
@@ -24,6 +25,9 @@ export const TELEGRAM_USER_PER_CHAT_LIMIT = 200
 
 /** The size of the busy group's history (TELEGRAM_USER-3): more than one pull takes. */
 const BUSY_GROUP_SIZE = 250
+
+/** The id of the chat the owner left in TELEGRAM_USER-7 (the group of regulars): Telegram's dialogs no longer list it. */
+export const TELEGRAM_USER_LEFT_CHAT_ID = "-1001000000001"
 
 /** The first moment of the chats' history, in epoch seconds (2026-11-10T03:00:00Z); every message is a minute after the one before it, per chat. */
 const HISTORY_START_UNIX = Date.UTC(2026, 10, 10, 3, 0, 0) / 1000
@@ -99,32 +103,46 @@ export const TELEGRAM_USER_SANDBOX_CASES: ReadonlyArray<SandboxCase> = [
         id: TELEGRAM_USER_CASE.firstRead,
         label: "A first read: a group of regulars asks after stock (2 lines) and one customer asks a price and sends a picture (2 messages); each chat's cursor moves to its newest message",
         operation: TELEGRAM_USER_PULL_OPERATION,
+        outcome: "ok",
         default: true,
     },
     {
         id: TELEGRAM_USER_CASE.newLines,
         label: "New lines: an order in the group and a payment note in the private chat arrived after the last cursor; only they are brought",
         operation: TELEGRAM_USER_PULL_OPERATION,
+        outcome: "ok",
     },
     {
         id: TELEGRAM_USER_CASE.busyGroup,
         label: "A busy group: 250 lines in one chat; one pull takes 200 and says older lines are left, the next takes the other 50",
         operation: TELEGRAM_USER_PULL_OPERATION,
+        outcome: "ok",
     },
     {
         id: TELEGRAM_USER_CASE.sessionRevoked,
         label: "The session is gone: Telegram ended it (signed out in Devices); the run is refused and the owner is told to reconnect",
         operation: TELEGRAM_USER_PULL_OPERATION,
+        outcome: "refused",
     },
     {
         id: TELEGRAM_USER_CASE.notConfigured,
         label: "The deployment has no Telegram app credentials: the run cannot talk to Telegram at all",
         operation: TELEGRAM_USER_PULL_OPERATION,
+        outcome: "refused",
     },
     {
         id: TELEGRAM_USER_CASE.unreachable,
         label: "Telegram does not answer in time: nothing is read, the run is unavailable and is tried again",
         operation: TELEGRAM_USER_PULL_OPERATION,
+        outcome: "transient",
+    },
+    {
+        // telegram-user.client.ts `readChats`: a picked chat that Telegram's dialogs no longer list (the owner left the group) has no entity and is
+        // skipped (`entity === undefined`, no error); the other chats are read and their cursors move.
+        id: TELEGRAM_USER_CASE.chatGone,
+        label: "A chat is gone: the owner left the group of regulars, so Telegram no longer lists it; that chat is skipped without a word and the other chats are brought",
+        operation: TELEGRAM_USER_PULL_OPERATION,
+        outcome: "ok",
     },
 ]
 

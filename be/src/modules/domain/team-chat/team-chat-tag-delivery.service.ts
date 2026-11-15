@@ -1,7 +1,5 @@
 import { Injectable } from "@nestjs/common"
-import type { EntityManager } from "typeorm"
 import { ProviderTriggersService } from "@modules/domain/provider-triggers"
-import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { isTeamChatTagPayload } from "@modules/queues/team-chat-tag"
 import { TEAM_CHAT_MESSAGE_TRIGGER } from "./team-chat-message.trigger"
 
@@ -14,7 +12,6 @@ import { TEAM_CHAT_MESSAGE_TRIGGER } from "./team-chat-message.trigger"
  */
 export class TeamChatTagDeliveryService {
     constructor(
-        @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
         private readonly triggers: ProviderTriggersService,
     ) {}
 
@@ -32,17 +29,12 @@ export class TeamChatTagDeliveryService {
             { connectionId: null },
         )
         if (event === null) return
-        await this.entityManager.transaction((tx) =>
-            this.triggers.deliver(
-                {
-                    workspaceId: payload.workspaceId,
-                    declaration: TEAM_CHAT_MESSAGE_TRIGGER,
-                    connectionId: null,
-                    agentId: payload.agentId,
-                    events: [{ event, actorMemberId: payload.memberId }],
-                },
-                tx,
-            ),
-        )
+        await this.triggers.deliverAlone({
+            workspaceId: payload.workspaceId,
+            declaration: TEAM_CHAT_MESSAGE_TRIGGER,
+            connectionId: null,
+            agentId: payload.agentId,
+            events: [{ event, actorMemberId: payload.memberId }],
+        })
     }
 }

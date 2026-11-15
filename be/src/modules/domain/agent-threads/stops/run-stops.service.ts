@@ -3,7 +3,7 @@ import type { SubjectRef } from "@nivo-lite/agent-sdk/node"
 import { TOOL } from "@nivo-lite/agent-sdk/names"
 import type { RunStopCustomerLine, RunStopFact } from "./run-stop.shapes"
 import { GraphNodeEffectsService } from "@modules/domain/graph-nodes"
-import { LINE_FACT, LINE_NOT_TOLD } from "@modules/domain/team-chat"
+import { LINE_FACT, LINE_NOT_TOLD, WAITING_FACT } from "@modules/domain/team-chat"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { eachInOrder } from "@modules/platform/primitives"
@@ -306,6 +306,22 @@ export class RunStopsService {
         if (written === null) return false
         await this.cards.rewritten(ref.workspaceId, written, context.locale)
         return true
+    }
+
+    /**
+     * ENGINE-FIN (a): how many events of the run's subject wait behind the run (`waiting`, counted by the caller: a stream marker its events,
+     * an `each` wake one, a `latest` wake one), kept as the fact `WAITING_FACT` of every OPEN stop of the run and shown by rewriting each
+     * card IN PLACE (one card per stop, never a new one; the same number again writes nothing). A person deciding a stop sees how much of
+     * the subject's work waits behind it, whatever the data source. Answers how many cards it rewrote.
+     */
+    async waitingCounted(ref: StopRunRef, waiting: number, context: StopCardLocale): Promise<number> {
+        if (!Number.isInteger(waiting) || waiting < 1) return 0
+        const open = (await this.records.ofRun(ref.workspaceId, ref.runId)).filter((stop) => stop.state === "open")
+        let rewritten = 0
+        await eachInOrder(open, async (stop) => {
+            if (await this.factsAdded(ref, stop.stepKey, [{ name: WAITING_FACT, value: String(waiting) }], context)) rewritten += 1
+        })
+        return rewritten
     }
 
     /** Keeps a line the stopped step sent a customer while its stop is open; nothing for a step with no open stop. */

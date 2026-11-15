@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common"
 import type { EntityManager, SelectQueryBuilder } from "typeorm"
 import { connectionsEntities } from "@modules/domain/connections"
-import { InjectPrimaryEntityManager } from "@modules/platform/database"
+import { advisoryXactLock, InjectPrimaryEntityManager } from "@modules/platform/database"
 import type { SandboxAccount, SandboxCall, SandboxCallOutcome } from "./provider-sandbox.contracts"
 import type { KeptState, ProviderSandboxStore, SandboxCallInput } from "./provider-sandbox-store.port"
 import { ProviderSandboxEntryEntity } from "./persistence/entities"
@@ -58,8 +58,8 @@ export class ProviderSandboxStoreService implements ProviderSandboxStore {
             .limit(1)
     }
 
-    async stateOf(account: SandboxAccount, name: string, key: string): Promise<KeptState | null> {
-        const row = await this.entries(account, "state")
+    async stateOf(account: SandboxAccount, name: string, key: string, manager: EntityManager = this.entityManager): Promise<KeptState | null> {
+        const row = await this.entries(account, "state", manager)
             .andWhere("e.operation = :name AND e.key = :key", { name, key })
             .orderBy("e.created_at", "DESC")
             .addOrderBy("e.id", "DESC")
@@ -68,20 +68,20 @@ export class ProviderSandboxStoreService implements ProviderSandboxStore {
         return row === undefined ? null : { value: row.body }
     }
 
-    async keepState(account: SandboxAccount, name: string, key: string, value: unknown): Promise<void> {
-        await this.keep(account, "state", name, key, value ?? null)
+    async keepState(account: SandboxAccount, name: string, key: string, value: unknown, manager: EntityManager = this.entityManager): Promise<void> {
+        await this.keep(manager, account, "state", name, key, value ?? null)
     }
 
-    async logCall(account: SandboxAccount, call: SandboxCallInput): Promise<void> {
-        await this.keep(account, "call", call.operation, call.key, { request: call.request ?? null, result: call.result })
+    async logCall(account: SandboxAccount, call: SandboxCallInput, manager: EntityManager = this.entityManager): Promise<void> {
+        await this.keep(manager, account, "call", call.operation, call.key, { request: call.request ?? null, result: call.result })
     }
 
-    async countCalls(account: SandboxAccount, operation: string): Promise<number> {
-        return await this.entries(account, "call").andWhere("e.operation = :operation", { operation }).getCount()
+    async countCalls(account: SandboxAccount, operation: string, manager: EntityManager = this.entityManager): Promise<number> {
+        return await this.entries(account, "call", manager).andWhere("e.operation = :operation", { operation }).getCount()
     }
 
     async calls(account: SandboxAccount, operation?: string): Promise<ReadonlyArray<SandboxCall>> {
-        const query = this.entries(account, "call")
+        const query = this.entries(account, "call", this.entityManager)
         if (operation !== undefined) query.andWhere("e.operation = :operation", { operation })
         const rows = await query
             .orderBy("e.created_at", "ASC")
@@ -96,6 +96,16 @@ export class ProviderSandboxStoreService implements ProviderSandboxStore {
         })
     }
 
+    async serialized<Result>(account: SandboxAccount, run: (manager: EntityManager) => Promise<Result>): Promise<Result> {
+        // The account's lock and EVERY read and write `run` makes go through this ONE transaction's connection (`run` is handed its
+        // manager): a connection that holds the lock never waits for another connection of the same pool (D3-W1-6, the pool deadlock of
+        // 20 parallel sends of one account on a pool of 10). The lock ends with the transaction.
+        return await this.entityManager.transaction(async (manager) => {
+            await advisoryXactLock(manager, `provider-sandbox:${account.id}`)
+            return await run(manager)
+        })
+    }
+
     async reset(account: SandboxAccount): Promise<void> {
         await this.entityManager
             .createQueryBuilder()
@@ -105,8 +115,15 @@ export class ProviderSandboxStoreService implements ProviderSandboxStore {
             .execute()
     }
 
-    private async keep(account: SandboxAccount, kind: "state" | "call", operation: string, key: string, body: unknown): Promise<void> {
-        await this.entityManager
+    private async keep(
+        manager: EntityManager,
+        account: SandboxAccount,
+        kind: "state" | "call",
+        operation: string,
+        key: string,
+        body: unknown,
+    ): Promise<void> {
+        await manager
             .createQueryBuilder(ProviderSandboxEntryEntity, "e")
             .insert()
             .values({ workspaceId: account.workspaceId, connectionId: account.id, kind, operation, key, body: () => ":body::jsonb" })
@@ -114,8 +131,8 @@ export class ProviderSandboxStoreService implements ProviderSandboxStore {
             .execute()
     }
 
-    private entries(account: SandboxAccount, kind: "state" | "call"): SelectQueryBuilder<ProviderSandboxEntryEntity> {
-        return this.entityManager
+    private entries(account: SandboxAccount, kind: "state" | "call", manager: EntityManager): SelectQueryBuilder<ProviderSandboxEntryEntity> {
+        return manager
             .createQueryBuilder(ProviderSandboxEntryEntity, "e")
             .select("e.id", "id")
             .addSelect("e.operation", "operation")

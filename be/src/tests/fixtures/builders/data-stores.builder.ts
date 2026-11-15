@@ -1,4 +1,5 @@
 import type { DataEntry, JsonValue } from "@modules/integrations/seed"
+import type { BucketObjectHead, StorageBucketsPort } from "@modules/integrations/object-storage"
 import {
     DataStoresError,
     DataStoresErrorCode,
@@ -63,13 +64,50 @@ export class MemorySetDoor implements SetDoor {
     }
 }
 
-/** A directory over a map from a natural key to the workspace it names. */
+/** A directory over a map from a natural key to the workspace it names; every distinct workspace of the map is a live one (by id). */
 export class MemoryWorkspaceDirectory implements WorkspaceDirectory {
     constructor(private readonly known: Readonly<Record<string, WorkspaceRef>>) {}
 
     /** The workspace the key names, or null. */
     resolve(natural: string): Promise<WorkspaceRef | null> {
         return Promise.resolve(this.known[natural] ?? null)
+    }
+
+    /** Every live workspace, in id order. */
+    all(): Promise<ReadonlyArray<WorkspaceRef>> {
+        const byId = new Map(Object.values(this.known).map((workspace) => [workspace.id, workspace]))
+        return Promise.resolve([...byId.values()].sort((left, right) => (left.id < right.id ? -1 : 1)))
+    }
+
+    /** The live workspace of an id, or null. */
+    async byId(workspaceId: string): Promise<WorkspaceRef | null> {
+        return (await this.all()).find((workspace) => workspace.id === workspaceId) ?? null
+    }
+}
+
+/** A set door that keeps each workspace's rows apart (one `MemorySetDoor` per workspace id), for the calls that reach several workspaces. */
+export class WorkspaceSetDoor implements SetDoor {
+    private readonly doors = new Map<string, MemorySetDoor>()
+
+    constructor(
+        readonly set: string,
+        private readonly seed: Readonly<Record<string, Readonly<Record<string, JsonValue>>>> = {},
+    ) {}
+
+    /** The rows of one workspace. */
+    list(workspace: WorkspaceRef): Promise<ReadonlyArray<DoorRow>> {
+        return this.doorOf(workspace).list()
+    }
+
+    /** Writes one record into the workspace's door. */
+    write(workspace: WorkspaceRef, key: string, record: JsonValue, held: DoorRow | null): Promise<string> {
+        return this.doorOf(workspace).write(workspace, key, record, held)
+    }
+
+    private doorOf(workspace: WorkspaceRef): MemorySetDoor {
+        const known = this.doors.get(workspace.id) ?? new MemorySetDoor(this.set, this.seed[workspace.id] ?? {})
+        this.doors.set(workspace.id, known)
+        return known
     }
 }
 
@@ -130,4 +168,60 @@ export const collectEntries = async (entries: AsyncIterable<DataEntry>): Promise
 export async function* entriesFrom(entries: ReadonlyArray<DataEntry>): AsyncIterable<DataEntry> {
     await Promise.resolve()
     yield* entries
+}
+
+/** The objects an owned bucket starts with: by set, by key. */
+export interface BucketSeed {
+    /** The objects of one bucket, by key. */
+    readonly [set: string]: Readonly<Record<string, WorkspaceObject>>
+}
+
+const byteOrderOf = (left: string, right: string): number => Buffer.compare(Buffer.from(left), Buffer.from(right))
+
+/** The owned buckets over a map, with every call recorded: a bucket that does not exist is empty, and a write creates it. */
+export class MemoryStorageBuckets implements StorageBucketsPort {
+    private readonly stored = new Map<string, Map<string, WorkspaceObject>>()
+    /** The calls served, `<verb> <set>/<key>`, in order. */
+    readonly calls: Array<string> = []
+
+    constructor(
+        private readonly owned: ReadonlyArray<string>,
+        seed: BucketSeed = {},
+    ) {
+        for (const [set, objects] of Object.entries(seed)) this.stored.set(set, new Map(Object.entries(objects)))
+    }
+
+    /** The owned sets. */
+    sets(): ReadonlyArray<string> {
+        return this.owned
+    }
+
+    /** The next keys after `after` in byte order. */
+    keys(set: string, after: string, limit: number): Promise<ReadonlyArray<string>> {
+        this.calls.push(`keys ${set}/${after}`)
+        const keys = [...(this.stored.get(set)?.keys() ?? [])].sort(byteOrderOf)
+        return Promise.resolve(keys.filter((key) => after === "" || byteOrderOf(key, after) > 0).slice(0, limit))
+    }
+
+    /** The size and content type of an object. */
+    head(set: string, key: string): Promise<BucketObjectHead | null> {
+        const found = this.stored.get(set)?.get(key)
+        return Promise.resolve(found === undefined ? null : { size: found.bytes.byteLength, contentType: found.mime })
+    }
+
+    /** The bytes and content type of an object. */
+    read(set: string, key: string): Promise<{ readonly bytes: Uint8Array; readonly contentType: string } | null> {
+        this.calls.push(`read ${set}/${key}`)
+        const found = this.stored.get(set)?.get(key)
+        return Promise.resolve(found === undefined ? null : { bytes: found.bytes, contentType: found.mime })
+    }
+
+    /** Stores a copy of the object, creating the bucket. */
+    write(set: string, key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+        this.calls.push(`write ${set}/${key}`)
+        const objects = this.stored.get(set) ?? new Map<string, WorkspaceObject>()
+        objects.set(key, { bytes: bytes.slice(), mime: contentType })
+        this.stored.set(set, objects)
+        return Promise.resolve()
+    }
 }

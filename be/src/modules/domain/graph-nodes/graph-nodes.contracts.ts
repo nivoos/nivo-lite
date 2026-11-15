@@ -58,6 +58,12 @@ export interface NodeTurn extends TurnRef {
      * the owner threshold) reads it; absent, nobody approved the call.
      */
     readonly approvedBy?: string | undefined
+    /**
+     * True on the turn of a step run again by a PERSON's Retry decision (no words): the person's decision stands as the settle of an act
+     * whose outcome is unknown and whose tool declares neither `repeatable` nor `confirmBy`, so the recorded call is made again under
+     * its own key (an unknown act settles only by its declaration or a person). Only the engine sets it, from the stop's decision.
+     */
+    readonly personRetry?: true | undefined
 }
 
 /** A row a data port answers: only the fields asked. */
@@ -350,6 +356,12 @@ export interface NodeRunInput {
      * must answer ports of the same contract. Absent, the node runs on the host's ports as they are.
      */
     readonly replay?: NodePortsWrap
+    /**
+     * E-FIX12 rule A-6: true on a run of the node that CONTINUES the attempt before it (the engine's own retry of an act of unknown
+     * outcome): its model turns are answered, by position and purpose, with what the attempt before recorded, so the step makes the same
+     * calls with the same arguments and states what was done, never new words. A turn of another purpose ends the replay (live from there).
+     */
+    readonly modelReplay?: boolean | undefined
     /**
      * Keeps each model turn of the host's own agent loop with the run of the step (the same engine that passes `replay`): on a step
      * that starts again a turn already answered is not asked again. Absent, every turn asks the model.

@@ -43,6 +43,22 @@ export interface NodeRunClaims {
     readonly expiresAt: number
     /** The workflow step the call is made in, when the host ran a node of a pinned version; absent for any other call. */
     readonly step?: NodeStepRef | undefined
+    /** True when the run is a step run again by a person's Retry: its calls make an unknown-outcome act again (the person's settle). */
+    readonly personRetry?: true | undefined
+    /**
+     * The SUBJECT of the run (`SubjectRef` kind + id: what its trigger declared, a called run's person), as the turn the token was minted
+     * from carries it on EVERY road to the step (first pass, a person's Retry, a deadline, a take-over's hand back); absent for a run about
+     * no subject. What the engine keeps FOR the run's subject (a timer) is keyed by it, so erasing the subject reaches it (D3-W1-10).
+     */
+    readonly subject?: RunSubjectClaim | undefined
+}
+
+/** The subject of a run as a token signs it: its kind (the scope path, `contactId`, `routeId`, ...) and its id. */
+export interface RunSubjectClaim {
+    /** The kind of the subject. */
+    readonly kind: string
+    /** The id within its kind. */
+    readonly id: string
 }
 
 /** The claims of a valid run token, or null for a token that is forged, malformed or expired. */

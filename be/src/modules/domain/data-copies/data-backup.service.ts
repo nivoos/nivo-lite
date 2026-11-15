@@ -34,6 +34,7 @@ import {
     keptWriteOf,
     membersOf,
     receiptFromKept,
+    refusalLogOf,
     warningsOf,
 } from "./data-copies.policy"
 
@@ -89,6 +90,11 @@ export class DataBackupService {
             return await this.backup(run)
         } catch (cause) {
             if (!(cause instanceof DataRefusal)) throw cause
+            this.logger.error(DataCopiesLogEvent.BackupRefused, cause, {
+                jobId: job.jobId,
+                setId: set.id,
+                ...refusalLogOf(cause),
+            })
             throw dataRefusalFailure(cause)
         }
     }

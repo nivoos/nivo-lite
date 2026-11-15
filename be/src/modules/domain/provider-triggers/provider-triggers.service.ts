@@ -9,6 +9,8 @@ import { LATEST_COMBINE, STREAM_COMBINE } from "@modules/domain/agent-work/agent
 import { AgentWakeService } from "@modules/domain/agent-work/agent-wake.service"
 // The service file, not the barrel: the fact claim of the account data store.
 import { AccountDataFactsService } from "@modules/domain/account-data/account-data-facts.service"
+// The files of an event are kept by PREPARE, outside any transaction.
+import { CustomerFilesService, partFileOf, unreadFileOf } from "@modules/domain/chat-files"
 import { ConnectionBindingsReadService, actsAs, halvesOf } from "@modules/domain/connections"
 // The service file, not the barrel: the barrel loads contacts-page.service, which reaches agent-work while it is half loaded (R37).
 import { ContactsService } from "@modules/domain/contacts/contacts.service"
@@ -17,6 +19,7 @@ import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { eachInOrder } from "@modules/platform/primitives"
+import { PREPARED, type Match, type PreparedDelivery, type PreparedEvent, type PreparedGate } from "./prepared-delivery"
 import { ProviderTriggerStoreService } from "./provider-trigger-store.service"
 import type {
     DeliverInput,
@@ -28,7 +31,6 @@ import type {
     SwitchRequest,
     TriggerChangeResult,
     TriggerSwitchView,
-    TriggerTaker,
 } from "./provider-triggers.contracts"
 import { InjectProviderTriggerCoreDeciders, InjectProviderTriggerReceivers } from "./provider-triggers.decorators"
 import { ProviderTriggersLogEvent } from "./provider-triggers.log-events"
@@ -45,6 +47,7 @@ import {
     ownKeyPathOf,
     scopeKeyOfEvent,
     type EventScope,
+    type KeptFile,
 } from "./trigger-delivery.policy"
 import {
     canCatchUpOf,
@@ -55,18 +58,8 @@ import {
     type SwitchedDeclaration,
 } from "./trigger-declarations.policy"
 
-/** One event the delivery hands on, after its data passed its schema and its person was met. */
-interface Handed {
-    readonly given: DeliveredEvent
-    readonly scope: EventScope
-}
-
-/** What one event came to for one agent. */
-/** What MATCH found for one agent: the registration that takes the event, else whether a `wait` of the agent lists its verb. */
-interface Match {
-    readonly taker: TriggerTaker | null
-    readonly listened: boolean
-}
+/** One event the commit hands on: prepared, and not the same fact as an earlier one. */
+type Handed = PreparedEvent
 
 type EventOutcome =
     | { readonly kind: "woken"; readonly agentId: string; readonly workflowId: string; readonly eventId: string; readonly wakeId: string }
@@ -86,11 +79,28 @@ const switchOf = (declaration: TriggerDeclaration): SwitchedDeclaration | null =
 
 const refused = (reason: Exclude<TriggerChangeResult, { ok: true }>["reason"]): TriggerChangeResult => ({ ok: false, reason })
 
+/** True for an account event older than its switch's start point (left out: the owner switched the trigger on after it happened). */
+const beforeStart = (given: DeliveredEvent, enabledAt: Date | null): boolean => {
+    const at = given.occurredAt === undefined ? null : Date.parse(given.occurredAt)
+    return enabledAt !== null && at !== null && !Number.isNaN(at) && at < enabledAt.getTime()
+}
+
+/** What the commit's first pass kept: the events handed on, the ones that were the same fact, the ones older than the start point. */
+interface KeptEvents {
+    readonly handed: ReadonlyArray<Handed>
+    readonly sameFact: number
+    readonly late: number
+}
+
+/** The switch of an account's trigger as one phase reads it: on (with its start point and row) or off. */
+type SwitchRead = { readonly on: true; readonly enabledAt: Date | null; readonly rowId: string | null } | { readonly on: false }
+
 @Injectable()
 /**
- * THE ONE DELIVERY POINT of every trigger (`deliver`, lane concept triggers rule 13), and the switches of each account. Every source's
- * entry (a provider's webhook or poll after ITS signature check, the clock, a timer, the website form, the release door) hands its
- * canonical events to `deliver`; the old per-provider emit (`fire`, its decider / notice split and its dead hand-overs) is gone.
+ * THE ONE DELIVERY POINT of every trigger (`prepare` then `deliver`, lane concept triggers rule 13), and the switches of each account.
+ * Every source's entry (a provider's webhook or poll after ITS signature check, the clock, a timer, the website form, the release door)
+ * hands its canonical events to `prepare` BEFORE its transaction and commits the answer with `deliver` INSIDE it (concept outbox-job rule
+ * 12: a transaction never waits for a second connection of its own pool, and does no outside work).
  */
 export class ProviderTriggersService {
     constructor(
@@ -108,44 +118,77 @@ export class ProviderTriggersService {
         @Optional() private readonly wakes?: AgentWakeService,
         @Optional() private readonly lines?: CustomerMessagesService,
         @Optional() private readonly facts?: AccountDataFactsService,
+        @Optional() private readonly files?: CustomerFilesService,
     ) {}
 
     /**
-     * THE ONE DELIVERY FUNCTION of the event pipeline (lane concept triggers rule 13; ROAD-API section 1.2), in the caller's transaction
-     * (the entry's: its inbox row and the wakes commit together). The entry already kept the raw row once (stage 2, the account_data
-     * intake) and ran its declaration's pure `translate` (stage 1). Here: the account's switch (a provider trigger that has one); ENRICH,
-     * for an event about a person (its `subject`): the contact the channel's own id names, else a new one, and the person's route on the
-     * account; MATCH: for each agent attached to the account (an engine source: the one agent it names), the active workflow whose
-     * registration on the verb takes the event; CORRELATE: one wake per (agent, event) whose lock scope is the event's correlation key, so
-     * the drain either starts a run or queues the event on the run of that key in flight. The same event delivered twice writes nothing
-     * new (the wake's once-key). An event nobody takes wakes nothing (the entry keeps it raw, as before).
+     * PREPARE, phase 1 of THE ONE DELIVERY FUNCTION (lane concept triggers rule 13; ROAD-API section 1.2). Called with NO transaction
+     * open: everything here reads through the pool or acts outside NIVO, so none of it may run while a lock is held. The account (a
+     * provider's: the workspace's, of the declaration's provider, not disconnected) and its switch (on, with its start point); for each
+     * event: its id, its start point, its data against the declaration's schema, its files kept in the shop's store (`attachments`: read
+     * once from the source, keyed by the delivery job), ENRICH for an event about a person (the contact the channel's own id names, else a
+     * new one, and the person's route on the account, both made sure of: each its own short transaction); MATCH: for each agent attached
+     * to the account (an engine source: the one agent it names), the active workflow whose registration takes the event, else whether a
+     * `wait` of one lists its verb. Nothing it writes is part of the delivery (a contact and a route are made sure of whether or not the
+     * delivery commits: the same person met again is the same contact), so an entry that prepares and then finds the event taken writes
+     * nothing more.
      */
-    async deliver(input: DeliverInput, tx: EntityManager): Promise<DeliverResult> {
-        const { declaration, workspaceId, connectionId } = input
+    async prepare(input: DeliverInput): Promise<PreparedDelivery> {
+        const { declaration } = input
         if (!triggerDeclarations.isRegistered(declaration)) {
             throw new ProviderTriggersError({
                 code: ProviderTriggersErrorCode.DeclarationUnknown,
                 params: { trigger: `${declaration.provider}:${declaration.name}` },
             })
         }
-        const gate = await this.gateOf(input, tx)
-        if (gate.status !== "open") return { status: gate.status }
-        const handed: Array<Handed> = []
-        let sameFact = 0
+        const gate = await this.gateOf(input)
+        if (gate.status !== "open")
+            return { [PREPARED]: true, input, gate: { status: gate.status }, agents: [], events: [], dropped: input.events.length }
+        const kept: Array<Omit<PreparedEvent, "matches">> = []
         await eachInOrder(input.events, async (given) => {
-            const read = await this.scopeOf(input, given, gate.enabledAt, tx)
-            if (read === "same_fact") {
-                sameFact += 1
-                return
-            }
-            if (read === null) return
-            handed.push({ given, scope: read.scope })
-            // A person's message is kept on its route ONCE per event, before any agent is matched (R26): whether or not a wait or a
-            // registration takes it, the conversation holds what the person said.
-            await this.heard(input, given, read, tx)
+            const read = await this.scopeOf(input, given, gate.enabledAt)
+            if (read !== null) kept.push(read)
         })
-        const outcomes: Array<EventOutcome> = []
         const agents = await this.agentsOf(input)
+        const events: Array<PreparedEvent> = []
+        await eachInOrder(kept, async (one) => {
+            // MATCH every agent first: an event no registration of any agent takes is UNCLAIMED, and its wait-only wakes say so.
+            const matches = new Map<string, Match>()
+            await eachInOrder(agents, async (agentId) => {
+                matches.set(agentId, await this.matchOf(input, one, agentId))
+            })
+            events.push({ ...one, matches })
+        })
+        const open: PreparedGate = { status: "open" }
+        return { [PREPARED]: true, input, gate: open, agents, events, dropped: input.events.length - kept.length }
+    }
+
+    /**
+     * PREPARE and COMMIT for a source that holds no lock of its own (a job that only delivers): prepared with no transaction open, then
+     * committed in one transaction of its own.
+     */
+    async deliverAlone(input: DeliverInput): Promise<DeliverResult> {
+        const prepared = await this.prepare(input)
+        return this.entityManager.transaction((tx) => this.deliver(prepared, tx))
+    }
+
+    /**
+     * COMMIT, phase 2 of THE ONE DELIVERY FUNCTION, in the caller's transaction (the entry's: its inbox row and the wakes commit together),
+     * on that ONE connection only: nothing here reads through the pool or acts outside. The account's switch is read again (the owner may
+     * have switched it off since PREPARE); per prepared event: THE SAME FACT (the fact key's claim under its advisory lock), the person's
+     * line kept once on its route (the route's stream lock, then its `seq`), the staff hold of the route, then CORRELATE: one wake per
+     * (agent, event) whose lock scope is the event's correlation key, with its combine (`stream` folds, `latest` replaces) under the wake
+     * set's lock. The same event delivered twice writes nothing new (the wake's once-key). An event nobody takes wakes nothing (the entry
+     * keeps it raw, as before).
+     */
+    async deliver(prepared: PreparedDelivery, tx: EntityManager): Promise<DeliverResult> {
+        const { input } = prepared
+        const { declaration, workspaceId, connectionId } = input
+        if (prepared.gate.status !== "open") return { status: prepared.gate.status }
+        const switched = await this.switchRead(input, tx)
+        if (!switched.on) return { status: "off" }
+        const { handed, sameFact, late } = await this.keptOf(prepared, switched.enabledAt, tx)
+        const outcomes: Array<EventOutcome> = []
         let accepted = 0
         await eachInOrder(handed, async (one) => {
             // A held route costs no AI work (R45): the event is kept (its raw row, the person's line above) and counted as delivered,
@@ -157,15 +200,9 @@ export class ProviderTriggersService {
             }
             let taken = false
             let repeated = false
-            // MATCH every agent first: an event no registration of any agent takes is UNCLAIMED, and its wait-only wakes say so (a wait
-            // that takes none of them leaves the event unanswered, which the engine reports, never a silent `no_waiter`).
-            const matches = new Map<string, Match>()
-            await eachInOrder(agents, async (agentId) => {
-                matches.set(agentId, await this.matchOf(input, one, agentId))
-            })
-            const unclaimed = [...matches.values()].every((match) => match.taker === null)
-            await eachInOrder(agents, async (agentId) => {
-                const match = matches.get(agentId) ?? { taker: null, listened: false }
+            const unclaimed = [...one.matches.values()].every((match) => match.taker === null)
+            await eachInOrder(prepared.agents, async (agentId) => {
+                const match = one.matches.get(agentId) ?? { taker: null, listened: false }
                 const outcome = await this.correlate(input, one, agentId, match, unclaimed, tx)
                 if (outcome.kind !== "untaken") taken = true
                 if (outcome.kind === "repeat") repeated = true
@@ -177,7 +214,7 @@ export class ProviderTriggersService {
         })
         // The switch counts each accepted event once (not per registration, not a repeat): the Trigger tab's "last fired · N times" and
         // the start point of a `catchUp`. A switch with no row (its default) has nothing to count on, as before.
-        if (gate.rowId !== null && accepted > 0) await this.store.markFired(tx, gate.rowId, this.clock.now(), accepted)
+        if (switched.rowId !== null && accepted > 0) await this.store.markFired(tx, switched.rowId, this.clock.now(), accepted)
         const woken = outcomes.flatMap((outcome) =>
             outcome.kind === "woken"
                 ? [{ agentId: outcome.agentId, workflowId: outcome.workflowId, eventId: outcome.eventId, wakeId: outcome.wakeId }]
@@ -186,7 +223,7 @@ export class ProviderTriggersService {
         const result: DeliverResult = {
             status: "delivered",
             events: handed.length,
-            dropped: input.events.length - handed.length - sameFact,
+            dropped: prepared.dropped + late,
             sameFact,
             woken,
             repeats: outcomes.filter((outcome) => outcome.kind === "repeat").length,
@@ -211,6 +248,32 @@ export class ProviderTriggersService {
     }
 
     /**
+     * The commit's first pass over the prepared events: an event older than the switch's start point (read again here) is left out; THE
+     * SAME FACT (owner R97), before any line or wake: the first report of a fact goes on, a later one is kept as its raw row
+     * (`same_fact_of`) and counted, never handed on and never silent; a person's message is kept on its route ONCE per event, before any
+     * agent is matched (R26): whether or not a wait or a registration takes it, the conversation holds what the person said.
+     */
+    private async keptOf(prepared: PreparedDelivery, enabledAt: Date | null, tx: EntityManager): Promise<KeptEvents> {
+        const { input } = prepared
+        const handed: Array<Handed> = []
+        let sameFact = 0
+        let late = 0
+        await eachInOrder(prepared.events, async (one) => {
+            if (beforeStart(one.given, enabledAt)) {
+                late += 1
+                return
+            }
+            if (await this.sameFactAsEarlier(input, one.given, one.data, tx)) {
+                sameFact += 1
+                return
+            }
+            handed.push(one)
+            await this.heard(input, one.given, one, tx)
+        })
+        return { handed, sameFact, late }
+    }
+
+    /**
      * True for an event ABOUT A PERSON (its `subject`: a channel identity) whose route a member of the shop holds now (the staff hold on
      * `customer_routes`, R43/R45). Generic: keyed on the route the engine met, nothing about chat. Any other event (no subject: a bank
      * credit, a timer, a call) flows as usual; so does every event in an app with no routes. The hold is read in the delivery's own
@@ -231,48 +294,54 @@ export class ProviderTriggersService {
     }
 
     /**
-     * Whether the delivery may go on: an account of a provider must be the workspace's, of that provider and not disconnected; a provider
-     * trigger with an account switch must be switched on (with its start point). A source of NIVO itself (`nivo`: the clock, a timer, the
-     * website form, the team chat) has no connection to prove.
+     * PREPARE's gate: an account of a provider must be the workspace's, of that provider and not disconnected; a provider trigger with an
+     * account switch must be switched on (with its start point). A source of NIVO itself (`nivo`: the clock, a timer, the website form,
+     * the team chat) has no connection to prove. Read through the pool: no transaction is open.
      */
     private async gateOf(
         input: DeliverInput,
-        tx: EntityManager,
-    ): Promise<
-        { readonly status: "open"; readonly enabledAt: Date | null; readonly rowId: string | null } | { readonly status: "off" | "disconnected" }
-    > {
+    ): Promise<{ readonly status: "open"; readonly enabledAt: Date | null } | { readonly status: "off" | "disconnected" }> {
         const { declaration, connectionId } = input
-        if (connectionId === null || declaration.provider === PROVIDER.nivo) return { status: "open", enabledAt: null, rowId: null }
-        const switchFacts = switchOf(declaration)
-        const held = switchFacts === null ? null : await this.store.find(tx, connectionId, declaration.name)
-        if (switchFacts !== null && (!switchedOn(held, switchFacts) || (held !== null && held.workspaceId !== input.workspaceId)))
-            return { status: "off" }
+        const switched = await this.switchRead(input, this.entityManager)
+        if (!switched.on) return { status: "off" }
+        if (connectionId === null || declaration.provider === PROVIDER.nivo) return { status: "open", enabledAt: null }
         const account = await this.connections.recordOf(input.workspaceId, connectionId)
         // The account is the declaration's provider's, or holds that provider's half (a mailbox `smtp` account holds its `imap` inbound half).
         if (account === null || !actsAs(account, declaration.provider) || account.status === "disconnected") return { status: "disconnected" }
-        return { status: "open", enabledAt: held?.enabledAt ?? null, rowId: held?.id ?? null }
+        return { status: "open", enabledAt: switched.enabledAt }
     }
 
     /**
-     * The scope one event gives a graph, or null when it is left out: an id that is no id, data its declaration's schema refuses, or an
-     * event older than its switch's start point. An event about a person is ENRICHED here: the contact the channel's own id of them names
-     * (a new one, named as the channel shows them, when none does) and their route on the account, both made sure of.
+     * The account's switch of the trigger, on `manager` (the pool in PREPARE, the commit's own transaction in COMMIT): a trigger with no
+     * switch, or a source with no account, is always on.
+     */
+    private async switchRead(input: DeliverInput, manager: EntityManager): Promise<SwitchRead> {
+        const { declaration, connectionId } = input
+        if (connectionId === null || declaration.provider === PROVIDER.nivo) return { on: true, enabledAt: null, rowId: null }
+        const switchFacts = switchOf(declaration)
+        if (switchFacts === null) return { on: true, enabledAt: null, rowId: null }
+        const held = await this.store.find(manager, connectionId, declaration.name)
+        if (!switchedOn(held, switchFacts) || (held !== null && held.workspaceId !== input.workspaceId)) return { on: false }
+        return { on: true, enabledAt: held?.enabledAt ?? null, rowId: held?.id ?? null }
+    }
+
+    /**
+     * What PREPARE keeps of one event, or null when it is left out: an id that is no id, data its declaration's schema refuses, or an
+     * event older than its switch's start point. Its files are kept (read once from the source, outside any transaction), and an event
+     * about a person is ENRICHED: the contact the channel's own id of them names (a new one, named as the channel shows them, when none
+     * does) and their route on the account, both made sure of.
      */
     private async scopeOf(
         input: DeliverInput,
-        given: DeliveredEvent,
+        source: DeliveredEvent,
         enabledAt: Date | null,
-        tx: EntityManager,
-    ): Promise<{ readonly scope: EventScope; readonly said: DeclaredLine | null } | "same_fact" | null> {
-        const { event } = given
+    ): Promise<Omit<PreparedEvent, "matches"> | null> {
+        const { event } = source
         if (!eventIdHolds(event.id)) return null
-        const at = given.occurredAt === undefined ? null : Date.parse(given.occurredAt)
-        if (enabledAt !== null && at !== null && !Number.isNaN(at) && at < enabledAt.getTime()) return null
+        if (beforeStart(source, enabledAt)) return null
         const parsed = input.declaration.data.safeParse(event.data)
         if (!parsed.success) return null
-        // THE SAME FACT (owner R97), before the person is met or any registration matched: the first report of a fact goes on, a later one
-        // is kept as its raw row (`same_fact_of`) and counted, never handed on and never silent.
-        if (await this.sameFactAsEarlier(input, given, parsed.data, tx)) return "same_fact"
+        const given = await this.withKeptFiles(input, source)
         const data: Readonly<Record<string, unknown>> = { ...parsed.data }
         const person = await this.personOf(input, given)
         const scope = eventScopeOf({
@@ -283,13 +352,35 @@ export class ProviderTriggersService {
             data,
             files: given.files ?? [],
         })
-        // The source's pure reading of the event as a person's message, on the PARSED data (null: this event is none).
-        return { scope, said: input.declaration.line?.(parsed.data) ?? null }
+        // The source's pure reading of the event as a person's message, on the PARSED data (null: this event is none, or it feeds no lines).
+        const { feeds } = input.declaration
+        return { given, data, scope, said: feeds?.stream === "lines" ? feeds.line(parsed.data) : null }
+    }
+
+    /**
+     * The event with the files it names at its source kept in the shop's store (`attachments`, generic for every source that hands
+     * files): each read ONCE from the source and copied, as one effect keyed by the delivery job and the file's place, so a retried job
+     * keeps the entry of the first time. Never inside a transaction. With no file store in the app every file is a typed not-kept entry
+     * (`no_store`), never an address that is not there.
+     */
+    private async withKeptFiles(input: DeliverInput, given: DeliveredEvent): Promise<DeliveredEvent> {
+        const attachments = given.attachments
+        if (attachments === undefined || attachments.files.length === 0) return given
+        const kept: ReadonlyArray<KeptFile> =
+            this.files === undefined
+                ? attachments.files.map((file, index) =>
+                      file.contentType === undefined
+                          ? unreadFileOf(index, file.kind, file.name, "no_store")
+                          : partFileOf(index, file.contentType, file.name),
+                  )
+                : await this.files.keep({ jobId: attachments.keptUnder }, input.workspaceId, attachments.key, attachments.files)
+        return { ...given, attachments: undefined, ...(kept.length === 0 ? {} : { files: kept }) }
     }
 
     /**
      * Whether the event reports a fact an earlier row of the workspace already reported: only for a declaration with a `factKey`, an event
-     * with its raw row and a key the source gives; the key is `<verb>:<factKey>` (two providers on one verb meet). Any other event goes on as before.
+     * with its raw row and a key the source gives; the key is `<verb>:<factKey>` (two providers on one verb meet). Any other event goes on as
+     * before. In the commit's transaction (the claim's advisory lock is its own).
      */
     private async sameFactAsEarlier(
         input: DeliverInput,
@@ -317,8 +408,9 @@ export class ProviderTriggersService {
     }
 
     /**
-     * Keeps a person's message on its route (`CustomerMessagesService.hear`, insert-or-nothing per route and the source's key): an event
-     * about a channel identity (`subject`) whose declaration reads a line from it. The same event delivered twice keeps one line.
+     * Keeps a person's message on its route (`CustomerMessagesService.hear`, insert-or-nothing per route and the source's key, the route's
+     * stream lock before its `seq`): an event about a channel identity (`subject`) whose declaration reads a line from it. The same event
+     * delivered twice keeps one line.
      */
     private async heard(
         input: DeliverInput,
@@ -330,6 +422,9 @@ export class ProviderTriggersService {
         const { said, scope } = read
         if (this.lines === undefined || subject === undefined || said === null || said.key === "") return
         if (scope.routeId === undefined || scope.contactId === undefined) return
+        // A line is a message with ANY content part: its words, or a file the event named (kept, or typed not-kept). One with neither is
+        // no line (customer-messages rule 18; D3-W2-9).
+        if (said.text.trim() === "" && (given.files ?? []).length === 0) return
         await this.lines.hear(tx, {
             workspaceId: input.workspaceId,
             routeId: scope.routeId,
@@ -344,7 +439,7 @@ export class ProviderTriggersService {
         })
     }
 
-    /** ENRICH: the person of an event with a subject (met, and their route ensured), else the one an engine source names. */
+    /** ENRICH (PREPARE): the person of an event with a subject (met, and their route ensured), else the one an engine source names. */
     private async personOf(
         input: DeliverInput,
         given: DeliveredEvent,
@@ -370,7 +465,7 @@ export class ProviderTriggersService {
         return { contactId, routeId }
     }
 
-    /** The agents MATCH asks: the one an engine source names, else every agent attached to the account, each once. */
+    /** The agents MATCH asks (PREPARE): the one an engine source names, else every agent attached to the account, each once. */
     private async agentsOf(input: DeliverInput): Promise<ReadonlyArray<string>> {
         if (input.agentId !== null) return [input.agentId]
         if (input.connectionId === null || this.receivers === null) return []
@@ -378,11 +473,11 @@ export class ProviderTriggersService {
     }
 
     /**
-     * MATCH of one event for one agent: the workflow whose registration takes it, else whether a `wait` of one of its workflows lists the
-     * verb (a run parked there may take it; with none the drain ends it). The clock's firing names its workflow, so it is never heard by a
-     * wait. Read only.
+     * MATCH of one event for one agent (PREPARE): the workflow whose registration takes it, else whether a `wait` of one of its workflows
+     * lists the verb (a run parked there may take it; with none the drain ends it). The clock's firing names its workflow, so it is never
+     * heard by a wait. Read only.
      */
-    private async matchOf(input: DeliverInput, one: Handed, agentId: string): Promise<Match> {
+    private async matchOf(input: DeliverInput, one: Omit<PreparedEvent, "matches">, agentId: string): Promise<Match> {
         const { declaration } = input
         const pin = one.given.pin ?? null
         const taker =
@@ -402,6 +497,7 @@ export class ProviderTriggersService {
         return { taker, listened }
     }
 
+
     /**
      * CORRELATE of one matched event for one agent: one wake keyed once by the verb, the origin and the event's id, locked by the event's
      * correlation key (the registration's own, else the declaration's), with the registration's settle time. Ids only ride on the wake:
@@ -417,10 +513,14 @@ export class ProviderTriggersService {
         tx: EntityManager,
     ): Promise<EventOutcome> {
         const { declaration } = input
-        const { taker, listened } = match
+        const { listened } = match
+        // A workflow never starts on an event its own run wrote (concept agent-data rule 4): its registration does not take it.
+        const writer = one.given.writer ?? null
+        const taker = match.taker !== null && writer !== null && match.taker.workflowId === writer.workflowId ? null : match.taker
         if (this.wakes === undefined) return { kind: "untaken" }
         if (taker === null && !listened) return { kind: "untaken" }
-        const keyPath = ownKeyPathOf(taker?.ownKey ?? null) ?? keyPathOf(declaration.key)
+        // The subject: the registration's own key, else the one the source declares for this event, else the declaration's default.
+        const keyPath = ownKeyPathOf(taker?.ownKey ?? null) ?? ownKeyPathOf(one.given.key ?? null) ?? keyPathOf(declaration.key)
         const keyValue = keyPath === null ? null : keyValueOf(one.scope, keyPath)
         const origin = input.connectionId ?? agentId
         const written = await this.wakes.write(tx, {
@@ -479,6 +579,7 @@ export class ProviderTriggersService {
             ...(connectionId === null ? {} : { connectionId }),
             ...(scope.contactId === undefined ? {} : { contactId: scope.contactId }),
             ...(scope.routeId === undefined ? {} : { conversationId: scope.routeId }),
+            ...(given.writer == null ? {} : { writerRunId: given.writer.runId }),
             ...(given.raw === undefined
                 ? { dataJson: JSON.stringify(given.event.data) }
                 : { rawType: given.raw.type, rawRowId: given.raw.id }),

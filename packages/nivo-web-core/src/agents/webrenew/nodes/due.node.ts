@@ -157,7 +157,7 @@ export const webrenewDueNode: TemplateNode<typeof input, typeof output, typeof p
                         { id: TOOL.brainSearch, args: { query: "quy dinh gia han va gio ho tro" }, answer: RULES },
                         {
                             id: CRM_NIVOWEB.get_services_expiring,
-                            args: { withinDays: 30, includeExpired: true, limit: ROUND_SERVICES_MAX },
+                            args: { withinDays: 30, includeExpired: "true", limit: ROUND_SERVICES_MAX },
                             answer: crmAnswered(LISTED),
                         },
                     ],

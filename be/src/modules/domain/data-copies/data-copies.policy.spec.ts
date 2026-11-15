@@ -92,9 +92,9 @@ describe("what a backup says of its export and what a ledger keeps of a write", 
         const manifest = await manifestOf(nivoStores())
 
         expect(subject.countsOf(manifest)).toEqual([
-            { store: "database", set: "agents", items: 1 },
-            { store: "database", set: "contacts", items: 2 },
-            { store: "storage", set: "files", items: 1 },
+            { store: "database-all", set: "agents", items: 1 },
+            { store: "database-all", set: "contacts", items: 2 },
+            { store: "storage-all", set: "files", items: 1 },
         ])
         expect(
             subject.warningsOf(
@@ -239,13 +239,13 @@ describe("the failure a backup run ends with: what is not a leg's own code", () 
         const away = new DataRefusal(
             "DATA_STORE_FAILED",
             "configuration",
-            { store: "database" },
+            { store: "database-all" },
             Object.assign(new Error("reset"), { code: "ECONNRESET" }),
         )
         const wrong = new DataRefusal(
             "DATA_STORE_FAILED",
             "configuration",
-            { store: "database" },
+            { store: "database-all" },
             new Error("no such table"),
         )
 

@@ -19,6 +19,7 @@ import type { PollFailure } from "./connection-poll.contracts"
 import { ConnectionPollLogEvent } from "./connection-poll.log-events"
 import { POLL_CURSOR_KEY } from "./connection-poll.policy"
 import { ConnectionPollError, ConnectionPollErrorCode } from "./errors/connection-poll.error"
+import { POLL_RATE_DEFERRED_REASON } from "./messages/connection-poll.messages"
 import { PollLimiterService } from "./poll-limiter.service"
 import { PollOwnerNoticeService } from "./poll-owner-notice.service"
 import type { DueConnection } from "./poll-schedule.service"
@@ -471,35 +472,82 @@ describe("PollSchedulerService failures of the provider's side", () => {
 })
 
 describe("PollSchedulerService a poll that waited for the rate limit", () => {
-    it("plans the connection again after the wait the limiter named, and is no failure", async () => {
+    const deferred = (waitMs?: number) =>
+        new ConnectionPollError({ code: ConnectionPollErrorCode.Deferred, ...(waitMs === undefined ? {} : { params: { waitMs } }) })
+
+    it("plans the connection again once the window the limiter named has passed, counts the cycle and is no failure", async () => {
         const { scheduler, schedule, limiter, live, logger } = await build()
         schedule.claimDue.mockResolvedValue([dueOf()])
-        limiter.pass.mockRejectedValue(
-            new ConnectionPollError({ code: ConnectionPollErrorCode.Deferred, params: { waitMs: 12_000 } }),
-        )
+        limiter.pass.mockRejectedValue(deferred(12_000))
 
         const tallies = await scheduler.tick()
 
         expect(tallies.get("sepay")?.deferred).toBe(1)
-        expect(schedule.defer).toHaveBeenCalledWith("c-1", new Date(NOW_MS + 12_000))
-        expect(schedule.settle).not.toHaveBeenCalled()
+        expect(tallies.get("sepay")?.polled).toBe(1)
+        expect(schedule.settle).toHaveBeenCalledWith(
+            "c-1",
+            expect.objectContaining({ nextPollAt: NOW_MS + 12_000, failures: 1, breakerState: "closed", succeeded: false, raiseOwnerNotice: false }),
+        )
+        expect(schedule.defer).not.toHaveBeenCalled()
         expect(live.classify).not.toHaveBeenCalled()
         expect(logger.info).toHaveBeenCalledWith(
             ConnectionPollLogEvent.Deferred,
-            expect.objectContaining({ connectionId: "c-1" }),
+            expect.objectContaining({ connectionId: "c-1", waitMs: 12_000, cycles: 1 }),
         )
+        expect(logger.error).not.toHaveBeenCalled()
     })
 
     it("falls back to a short wait when the error names none that can be read", async () => {
         const { scheduler, schedule, limiter } = await build()
         schedule.claimDue.mockResolvedValue([dueOf()])
-        limiter.pass.mockRejectedValue(new ConnectionPollError({ code: ConnectionPollErrorCode.Deferred }))
+        limiter.pass.mockRejectedValue(deferred())
 
         await scheduler.tick()
 
-        expect(schedule.defer).toHaveBeenCalledWith("c-1", new Date(NOW_MS + 5000))
+        expect(schedule.settle).toHaveBeenCalledWith("c-1", expect.objectContaining({ nextPollAt: NOW_MS + 5000 }))
     })
 
+    it("tells the owner ONCE through the poll's owner item at the cycle that reaches the threshold, and none at the cycles past it", async () => {
+        const { scheduler, schedule, limiter, notice } = await build()
+        limiter.pass.mockRejectedValue(deferred(300))
+        const cycle = async (failures: number): Promise<void> => {
+            schedule.claimDue.mockResolvedValueOnce([dueOf({ failures })])
+            await scheduler.tick()
+        }
+
+        await cycle(3)
+        expect(notice.unavailable).not.toHaveBeenCalled()
+        await cycle(DEFAULT_POLL_SCHEDULE.breakerThreshold - 1)
+        await cycle(DEFAULT_POLL_SCHEDULE.breakerThreshold)
+        await cycle(DEFAULT_POLL_SCHEDULE.breakerThreshold + 1)
+
+        expect(notice.unavailable).toHaveBeenCalledTimes(1)
+        expect(notice.unavailable).toHaveBeenCalledWith(expect.objectContaining({ id: "c-1" }), POLL_RATE_DEFERRED_REASON, NOW_MS)
+    })
+
+    it("logs an item that could not be filed and goes on", async () => {
+        const { scheduler, schedule, limiter, notice, logger } = await build()
+        limiter.pass.mockRejectedValue(deferred(300))
+        notice.unavailable.mockRejectedValue(new Error("no door"))
+        schedule.claimDue.mockResolvedValue([dueOf({ failures: DEFAULT_POLL_SCHEDULE.breakerThreshold - 1 })])
+
+        await scheduler.tick()
+
+        expect(logger.error).toHaveBeenCalledWith(
+            ConnectionPollLogEvent.DeferredOwnerNotTold,
+            expect.any(Error),
+            expect.objectContaining({ connectionId: "c-1" }),
+        )
+    })
+
+    it("a poll that reads after deferrals resets the count: the next outage is a new item", async () => {
+        const { scheduler, schedule } = await build()
+        schedule.claimDue.mockResolvedValue([dueOf({ failures: 4 })])
+
+        await scheduler.tick()
+
+        expect(schedule.settle).toHaveBeenCalledWith("c-1", expect.objectContaining({ failures: 0, succeeded: true }))
+    })
 })
 
 describe("PollSchedulerService the receivers of the one registry", () => {

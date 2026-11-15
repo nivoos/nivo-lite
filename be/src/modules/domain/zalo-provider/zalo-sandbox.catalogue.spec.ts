@@ -25,13 +25,13 @@ const send = async (sandbox: ReturnType<typeof sandboxServiceOf>["sandbox"], id:
 }
 
 describe("ZALO_SANDBOX_CATALOGUE (owner ruling R62)", () => {
-    it("names the provider, holds unique ids ZALO-<n>, the inbound cases ZALO-1..3 first", () => {
+    it("names the provider, holds unique ids ZALO-<n>, the inbound cases ZALO-1..3 and 6..9 (file, video, voice, sticker)", () => {
         const ids = ZALO_SANDBOX_CATALOGUE.cases.map((one) => one.id)
 
         expect(ZALO_SANDBOX_CATALOGUE.provider).toBe("zalo_oa")
-        expect(ids).toEqual(["ZALO-1", "ZALO-2", "ZALO-3", "ZALO-4", "ZALO-5"])
+        expect(ids).toEqual(["ZALO-1", "ZALO-2", "ZALO-3", "ZALO-4", "ZALO-5", "ZALO-6", "ZALO-7", "ZALO-8", "ZALO-9", "ZALO-10", "ZALO-11", "ZALO-12", "ZALO-13"])
         expect(new Set(ids).size).toBe(ids.length)
-        expect(ZALO_SANDBOX_CATALOGUE.cases.map((one) => one.inbound !== undefined)).toEqual([true, true, true, false, false])
+        expect(ZALO_SANDBOX_CATALOGUE.cases.map((one) => one.inbound !== undefined)).toEqual([true, true, true, false, false, true, true, true, true, true, true, false, false])
     })
 
     it("gives every inbound case Zalo's real route and its provider-word inputs", () => {
@@ -72,10 +72,13 @@ describe("ZALO_SANDBOX_CATALOGUE (owner ruling R62)", () => {
         expect((body?.message as { attachments: Array<{ type: string }> }).attachments[0]?.type).toBe("image")
     })
 
-    it("ZALO-3 stamps the line 49 hours before the send, outside the 48-hour window", async () => {
+    it("ZALO-3 is ZALO-1 under the generic `late` delivery by 49 hours (outside the 48-hour window); ZALO-1 and ZALO-3 are the polled kinds", async () => {
         const { sandbox } = sandboxServiceOf(ACCOUNT)
+        expect(inboundOf("ZALO-3").delivery).toEqual({ mode: "late", lateBySeconds: 49 * 3_600 })
+        expect([1, 2, 3, 6, 7, 8, 9].map((n) => inboundOf(`ZALO-${String(n)}`).polled === true)).toEqual([true, false, true, false, false, false, false])
 
-        const [body] = await send(sandbox, "ZALO-3")
+        // The frame builds a `late` case at the arrival minus the interval (proven in the frame spec): the case itself stamps its `at`.
+        const [body] = await send(sandbox, "ZALO-3", ASKED, new Date(AT.getTime() - 49 * 3_600_000))
 
         expect(body).toMatchObject({ event_name: "user_send_text", timestamp: String(AT.getTime() - 49 * 3_600_000) })
         const kept = zaloMessagesOf(await sandbox.call(ACCOUNT, "peek", {}, { answer: (state) => state.read(ZALO_SANDBOX_MESSAGES_STATE, "") }))
@@ -88,7 +91,7 @@ describe("ZALO_SANDBOX_CATALOGUE (owner ruling R62)", () => {
         const later = new Date("2026-11-14T05:00:00.000Z")
 
         await send(sandbox, "ZALO-1")
-        await send(sandbox, "ZALO-3", { userId: "8800110044", text: "Cu" })
+        await send(sandbox, "ZALO-3", { userId: "8800110044", text: "Cu" }, new Date(AT.getTime() - 49 * 3_600_000))
         await send(sandbox, "ZALO-2", { userId: "8800110022" }, later)
 
         const read = (userId: string) => sandbox.call(ACCOUNT, "peek", {}, { answer: (state) => zaloLastLineAt(state, userId) })
@@ -104,6 +107,31 @@ describe("ZALO_SANDBOX_CATALOGUE (owner ruling R62)", () => {
         ])
     })
 
+    it("ZALO-6..9 make Zalo's own events for a file, a video, a voice message and a sticker, each with one attachment and no text", async () => {
+        const { sandbox } = sandboxServiceOf(ACCOUNT)
+        const bodies = [
+            await send(sandbox, "ZALO-6", { userId: "8800110022", fileName: "bao-gia.pdf" }),
+            await send(sandbox, "ZALO-7", { userId: "8800110022" }),
+            await send(sandbox, "ZALO-8", { userId: "8800110022" }),
+            await send(sandbox, "ZALO-9", { userId: "8800110022" }),
+        ].map(([one]) => one)
+        expect(bodies.map((one) => one?.event_name)).toEqual(["user_send_file", "user_send_video", "user_send_audio", "user_send_sticker"])
+        const attachments = bodies.map((one) => (one?.message as { attachments: Array<{ type: string; payload: Record<string, unknown> }>; text?: string }))
+        expect(attachments.map((one) => one.attachments[0]?.type)).toEqual(["file", "video", "audio", "sticker"])
+        expect(attachments[0]?.attachments[0]?.payload).toMatchObject({ name: "bao-gia.pdf", url: expect.stringContaining("sandbox.invalid") })
+        expect(attachments.every((one) => one.text === undefined)).toBe(true)
+    })
+
+    it("ZALO-10 and ZALO-11 are Zalo's follow and unfollow events with follower.id and no message, keeping nothing in state", async () => {
+        const { sandbox } = sandboxServiceOf(ACCOUNT)
+        const [follow] = await send(sandbox, "ZALO-10", { userId: "8800110022" })
+        const [unfollow] = await send(sandbox, "ZALO-11", { userId: "8800110022" })
+        expect(follow).toMatchObject({ event_name: "follow", follower: { id: "8800110022" } })
+        expect(unfollow).toMatchObject({ event_name: "unfollow", follower: { id: "8800110022" } })
+        expect(follow?.message).toBeUndefined()
+        expect(zaloMessagesOf(await sandbox.call(ACCOUNT, "peek", {}, { answer: (state) => state.read(ZALO_SANDBOX_MESSAGES_STATE, "") }))).toEqual([])
+    })
+
     it("is deterministic: the same inputs and moment on a fresh account make the same body", async () => {
         const left = await send(sandboxServiceOf(ACCOUNT).sandbox, "ZALO-1")
         const right = await send(sandboxServiceOf(ACCOUNT).sandbox, "ZALO-1")
@@ -117,6 +145,8 @@ describe("ZALO_SANDBOX_CATALOGUE (owner ruling R62)", () => {
         expect(profile.map((one) => [one.id, one.default === true])).toEqual([
             ["ZALO-4", true],
             ["ZALO-5", false],
+            ["ZALO-12", false],
+            ["ZALO-13", false],
         ])
     })
 })

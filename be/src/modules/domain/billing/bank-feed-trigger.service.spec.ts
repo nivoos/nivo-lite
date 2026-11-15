@@ -55,7 +55,7 @@ describe("BankFeedTriggerService", () => {
                     {
                         event: {
                             id: "sepay:1",
-                            data: { transactionId: "sepay:1", direction: "out", amountVnd: 150_000, content: "NIVO8F3K2", at: "2026-11-12T04:00:00.000Z" },
+                            data: { transactionId: "sepay:1", direction: "out", amountVnd: 150_000, content: "NIVO8F3K2", at: "2026-11-12T04:00:00.000Z", payKey: "NIVO8F3K2" },
                         },
                         raw: { type: "sepay.transaction", id: "row-0" },
                         occurredAt: "2026-11-12T04:00:00.000Z",

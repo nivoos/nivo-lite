@@ -1,9 +1,7 @@
 import type { Metadata } from "next"
 import { getTranslations } from "next-intl/server"
-import { notFound } from "next/navigation"
 import type { ReactElement } from "react"
 import { SpecWorkbenchFrame } from "@/components/blocks/SpecWorkbenchFrame"
-import { isModuleKey } from "@/modules/catalog"
 import { agentHref } from "@/modules/installations"
 import { workspaceHref } from "@/modules/routes"
 import { workbenchSpec } from "@/modules/workbench-spec"
@@ -28,7 +26,6 @@ type AgentWorkbenchPageProps = {
 
 /** The workbench slot of one instance: the spec of the module drawn on the installation of the url, else the pending state. */
 export const AgentWorkbenchPage = async (props: AgentWorkbenchPageProps): Promise<ReactElement> => {
-    if (!isModuleKey(props.module)) notFound()
     const resolved = workbenchSpec(props.module)
     if (resolved !== null)
         return (

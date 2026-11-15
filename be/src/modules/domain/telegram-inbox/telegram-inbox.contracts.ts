@@ -23,8 +23,10 @@ export interface TelegramFileAddress {
     readonly kind: "image" | "file"
     /** The download address (it carries the bot token: it only goes to the guarded file fetch). */
     readonly url: string
-    /** The file name the sender gave, or an empty text. */
+    /** The file name the sender gave, or an empty text; for a part with no file, what Telegram sent of it. */
     readonly name: string
+    /** Set only for a part with no file (a location, a contact): its media type; never fetched. */
+    readonly contentType?: string | undefined
 }
 
 /** The customer message of an update, or null for an update the chat does not answer. */

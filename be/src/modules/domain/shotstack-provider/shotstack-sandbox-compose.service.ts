@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common"
 import type { ConnectionRecord } from "@modules/domain/connections"
 import { ProviderSandboxService } from "@modules/domain/provider-sandbox"
-import { providerCallFailure, providerRefusal, withProof } from "@modules/domain/provider-registry"
+import { providerRefusal, withProof } from "@modules/domain/provider-registry"
 import type {
     ComposeSpec,
     OptionalRenderCallback,
@@ -21,9 +21,11 @@ import {
     SHOTSTACK_SANDBOX_REJECTED_MESSAGE,
     SHOTSTACK_SANDBOX_OUTPUT_URL,
     SHOTSTACK_SANDBOX_PROVIDER,
+    SHOTSTACK_SANDBOX_READS,
     SHOTSTACK_SANDBOX_STARTS,
     shotstackSandboxRenderId,
 } from "./shotstack-sandbox.catalogue"
+import { shotstackAuthRefused, shotstackRateLimited, shotstackServerError, shotstackUnreachable } from "./shotstack-sandbox.failures"
 
 /** The state operation that holds one started render, by its render id: its case and how many status reads it has taken. */
 const RENDER_STATE = "render"
@@ -45,11 +47,12 @@ const keptRenderOf = (value: unknown): KeptRender | null => {
 @Injectable()
 /**
  * Shotstack's SANDBOX implementation of the compose purpose (owner rulings R56 / R59 / R60): used when the provider account is a sandbox
- * account, it answers from the hardcoded catalogue (`SHOTSTACK-<n>`) and the account's state through the generic sandbox frame, and
- * never reaches a host. A start picks its case by the address of the spec's first clip; the render it answers is read back by `statusOf`
- * as a live poll would see it (queued, rendering, then the end, one step per read), or finished by the provider's webhook (the inbound
- * cases). A refusal is the error the live adapter throws for the same case; the spec is checked by the live pure check first, so a spec
- * the Edit cannot be rendered in the account's environment is refused `rejected`, `not_sent`, as the live does.
+ * account, it answers from the hardcoded catalogue (`CREATOMATE-<n>`) and the account's state through the generic sandbox frame, and
+ * never reaches a host. A start is answered by the account's NEXT CASE of `start` (default: a render that completes); that case chooses
+ * the render's whole life (completes, fails, never finishes) and the render is read back by `statusOf` as a live poll would see it (queued,
+ * rendering, then the end, one step per read), or finished by the provider's webhook (the inbound cases). A `statusOf` case the account
+ * picked fails the read itself. A failure is the error the live adapter throws for the same case; the spec is checked by the live pure
+ * check first, so a spec the Edit cannot be rendered in the account's environment is refused `rejected`, `not_sent`, as the live does.
  */
 export class ShotstackSandboxComposeService implements VideoComposePort {
     /** The provider key. */
@@ -60,32 +63,40 @@ export class ShotstackSandboxComposeService implements VideoComposePort {
 
     constructor(private readonly sandbox: ProviderSandboxService) {}
 
-    /** Starts one render: refused, accepted (its render id is the next running one) or accepted with an unknown outcome. */
+    /** Starts one render as the account's next case says: refused, rate limited, no answer, accepted (the next running id) or accepted with an unknown outcome. */
     start(connection: ConnectionRecord, spec: ComposeSpec, callback: OptionalRenderCallback): Promise<RenderStarted> {
-        const clipUrl = spec.clips[0]?.fileUrl ?? ""
         return this.sandbox.call(
             connection,
             "start",
             { spec, callback },
             {
-                key: clipUrl,
                 answer: async (state) => {
                     const problems = shotstackProblemsOf(spec, shotstackEnvironmentOf(connection))
                     if (problems.length > 0) throw withProof(providerRefusal(this.provider, "rejected", problems.join("; ")), "not_sent")
-                    const chosen = SHOTSTACK_SANDBOX_STARTS.find((one) => one.clipUrl === clipUrl) ?? SHOTSTACK_SANDBOX_DEFAULT_START
-                    if (chosen.outcome === "refused") {
-                        throw withProof(providerRefusal(this.provider, "rejected", SHOTSTACK_SANDBOX_REJECTED_MESSAGE), "not_sent")
+                    const chosen = SHOTSTACK_SANDBOX_STARTS.find((one) => one.caseId === state.nextCase) ?? SHOTSTACK_SANDBOX_DEFAULT_START
+                    switch (chosen.outcome) {
+                        case "refused":
+                            throw withProof(providerRefusal(this.provider, "rejected", SHOTSTACK_SANDBOX_REJECTED_MESSAGE), "not_sent")
+                        case "auth_refused":
+                            throw shotstackAuthRefused()
+                        case "rate_limited":
+                            throw shotstackRateLimited()
+                        case "timeout":
+                            throw shotstackUnreachable()
+                        case "accepted":
+                        case "unknown":
+                            break
                     }
                     const renderId = shotstackSandboxRenderId(state.seq)
                     await state.write(RENDER_STATE, renderId, { caseId: chosen.caseId, reads: 0 })
-                    if (chosen.outcome === "unknown") throw providerCallFailure("unknown")
+                    if (chosen.outcome === "unknown") throw shotstackServerError()
                     return { renderId }
                 },
             },
         )
     }
 
-    /** The render as one more status read sees it; a render the account never started is the refusal `not_found`. */
+    /** The render as one more status read sees it (or the failure the account's `statusOf` case names); a render the account never started is the refusal `not_found`. */
     statusOf(connection: ConnectionRecord, renderId: string): Promise<RenderState> {
         return this.sandbox.call(
             connection,
@@ -94,6 +105,16 @@ export class ShotstackSandboxComposeService implements VideoComposePort {
             {
                 key: renderId,
                 answer: async (state) => {
+                    switch (state.nextCase) {
+                        case SHOTSTACK_SANDBOX_READS.authRefused:
+                            throw shotstackAuthRefused()
+                        case SHOTSTACK_SANDBOX_READS.rateLimited:
+                            throw shotstackRateLimited()
+                        case SHOTSTACK_SANDBOX_READS.timeout:
+                            throw shotstackUnreachable()
+                        case SHOTSTACK_SANDBOX_READS.notFound:
+                            throw withProof(providerRefusal(this.provider, "not_found", SHOTSTACK_SANDBOX_NOT_FOUND_MESSAGE), "not_sent")
+                    }
                     const kept = keptRenderOf(await state.read(RENDER_STATE, renderId))
                     const chosen = kept === null ? undefined : SHOTSTACK_SANDBOX_STARTS.find((one) => one.caseId === kept.caseId)
                     if (kept === null || chosen === undefined) {

@@ -11,6 +11,8 @@ export enum DatabaseErrorCode {
     ReturningRowRejected = "DATABASE_RETURNING_ROW_REJECTED",
     /** The managed migration wrapper failed or could not be started. */
     MigrationFailed = "DATABASE_MIGRATION_FAILED",
+    /** No pooled connection could be had within the pool's acquire bound (every one busy, or the database away): transient, try later. */
+    Unavailable = "DATABASE_UNAVAILABLE",
 }
 
 /** How each database code travels. */
@@ -19,6 +21,7 @@ export const DATABASE_ERROR_KINDS: Record<DatabaseErrorCode, ErrorKind> = {
     [DatabaseErrorCode.WebhookDeliveryIdRequired]: "invalid",
     [DatabaseErrorCode.ReturningRowRejected]: "internal",
     [DatabaseErrorCode.MigrationFailed]: "internal",
+    [DatabaseErrorCode.Unavailable]: "unavailable",
 }
 
 /** The one error class of the database capability. */

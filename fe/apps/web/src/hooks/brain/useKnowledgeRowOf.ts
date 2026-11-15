@@ -3,7 +3,6 @@
 import { useFormatter, useTranslations } from "next-intl"
 import {
     DOCUMENT_STATUS_TONE,
-    isAgentModule,
     isDuplicateNote,
     isFinalFailure,
     isReadyNote,
@@ -14,6 +13,8 @@ import {
     useWorkspaceMember,
     type WorkspaceMember,
 } from "@/hooks/knowledge"
+import { useModuleLabels } from "@/hooks/moduleCatalog"
+import type { ModuleLabelOf } from "@/modules/catalog"
 import { appliedBatchOf, sourceStatusLabelOf, waitingFactCountOf, type SourceStatusInput } from "@/modules/brain"
 import type { DocumentRowBadgeView, DocumentRowView, LiveProgress } from "@/modules/documents"
 import type { KnowledgeDocument, RowActionView } from "@/modules/types"
@@ -25,11 +26,11 @@ type Translate = ReturnType<typeof useTranslations<"knowledge">>
 type SourceBadgesInput = Pick<SourceStatusInput, "source" | "reading"> & { readonly status: string }
 
 /** The agent a document is kept for, or every agent. */
-const moduleLabelOf = (t: Translate, source: KnowledgeDocument): string =>
-    source.module !== null && isAgentModule(source.module) ? t(`module_${source.module}`) : t("moduleAll")
+const moduleLabelOf = (t: Translate, labelOf: ModuleLabelOf, source: KnowledgeDocument): string =>
+    source.module === null ? t("moduleAll") : (labelOf(source.module) ?? source.module)
 
 /** The badges of a row: where the document stands (a ready one whose facts were not read is neutral), who may read it and for which agent. */
-const badgesOf = (t: Translate, input: SourceBadgesInput): ReadonlyArray<DocumentRowBadgeView> => {
+const badgesOf = (t: Translate, labelOf: ModuleLabelOf, input: SourceBadgesInput): ReadonlyArray<DocumentRowBadgeView> => {
     const { source, status, reading } = input
     return [
         {
@@ -38,9 +39,9 @@ const badgesOf = (t: Translate, input: SourceBadgesInput): ReadonlyArray<Documen
         },
         {
             label: t(source.visibility === "public" ? "vis_public" : "vis_internal"),
-            tone: source.visibility === "public" ? "accent" : "neutral",
+            tone: "neutral",
         },
-        { label: moduleLabelOf(t, source), tone: "neutral" },
+        { label: moduleLabelOf(t, labelOf, source), tone: "neutral" },
     ]
 }
 
@@ -110,6 +111,7 @@ export const useKnowledgeRowOf = (
     const member = useWorkspaceMember()
     const progressOf = useKnowledgeProgressViewOf(live)
     const board = useBrainBoard()
+    const modules = useModuleLabels()
     const failed = () => {
         toast.danger(feedback("errorTitle"), { description: feedback("defaultError") })
     }
@@ -140,7 +142,7 @@ export const useKnowledgeRowOf = (
             id: source.id,
             title: source.title,
             lines: [parts.join(" · "), ...(source.error === null ? [] : [t(noteKeyOf(source.error))])],
-            badges: badgesOf(t, { source, status, reading }),
+            badges: badgesOf(t, modules.labelOf, { source, status, reading }),
             progress: progressOf(source.id) ?? undefined,
             job: jobOf(source.id),
             actions: retryActionsOf(

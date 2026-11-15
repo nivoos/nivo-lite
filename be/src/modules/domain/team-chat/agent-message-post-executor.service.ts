@@ -21,9 +21,9 @@ import { INSTALLED } from "@modules/domain/installed-plugins"
 import { InjectErrorReporter, isDomainError, type ErrorReporter } from "@modules/platform/errors"
 import { InjectMessageCatalog, type MessageCatalog } from "@modules/platform/i18n"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
-import { factWordsOf, withLineFactsOf, wordedStopFactsOf, type FactWords } from "./engine-facts.policy"
+import { factWordsOf, withLiveFactsOf, wordedStopFactsOf, type FactWords } from "./engine-facts.policy"
 import { InjectTeamCardKinds, type TeamCardKinds } from "./team-chat.decorators"
-import { lineKeyOf } from "./team-chat.policy"
+import { aboutRoom, lineKeyOf } from "./team-chat.policy"
 import { CARD_KIND_NOT_POSTABLE, postedCardOf, type PostedCard } from "./team-card-post.policy"
 import type { StopCardSection, StopCardSectionGiven } from "./stop-card.contracts"
 import {
@@ -93,12 +93,12 @@ interface RewriteGiven {
     readonly title: string
     readonly summary: string
     readonly stop: StopCardSectionGiven
-    /** What the stop's record says now about its holding line to the customer (its raw line facts); empty when it says nothing. */
-    readonly lineFacts: ReadonlyArray<{ readonly name: string; readonly value: string }>
+    /** What the stop's record says now while it is open (its raw LIVE facts: the holding line, the events waiting); empty when it says nothing. */
+    readonly liveFacts: ReadonlyArray<{ readonly name: string; readonly value: string }>
 }
 
 /** The raw facts handed with a rewrite: every `{ name, value }` pair of strings; anything else is left out. */
-const rawFactsOf = (given: unknown): RewriteGiven["lineFacts"] =>
+const rawFactsOf = (given: unknown): RewriteGiven["liveFacts"] =>
     Array.isArray(given)
         ? given.flatMap((one: unknown) => {
               if (typeof one !== "object" || one === null) return []
@@ -115,7 +115,7 @@ const rewriteGivenOf = (payload: EffectPayload): RewriteGiven | null => {
     const summary: unknown = Reflect.get(rewrite, "summary")
     const stop = stopCardSectionGiven.safeParse(Reflect.get(rewrite, "stop"))
     return typeof title === "string" && typeof summary === "string" && stop.success
-        ? { title, summary, stop: stop.data, lineFacts: rawFactsOf(Reflect.get(rewrite, "lineFacts")) }
+        ? { title, summary, stop: stop.data, liveFacts: rawFactsOf(Reflect.get(rewrite, "liveFacts")) }
         : null
 }
 
@@ -446,8 +446,8 @@ export class AgentMessagePostExecutorService implements OnModuleInit {
         if (previous === null || before?.success !== true)
             return { kind: "chat-message", id: key, facts: { rewritten: false } }
         const section = countedSectionOf(rewrite.stop, storedSectionOf(previous.payload))
-        // What the stop says now about its holding line to the customer (not told, and why) is shown on the card, in words.
-        const facts = withLineFactsOf(before.data.facts, rewrite.lineFacts, this.factWords(turn))
+        // What the stop says now while open (its holding line not told and why, the events waiting behind its run) is shown on the card, in words.
+        const facts = withLiveFactsOf(before.data.facts, rewrite.liveFacts, this.factWords(turn))
         const card = typedPayloadOf({ ...before.data, facts: [...facts] }, section)
         const message: TeamCardMessage = {
             kind: STOPPED_KIND,
@@ -469,12 +469,13 @@ export class AgentMessagePostExecutorService implements OnModuleInit {
     /**
      * An agent's answer to a person in the team chat (the `team.chat` step): posted in the room of the person's message as a reply to
      * it, as a typed `message.text` (intent notify), once per message and agent (the call's dedupe key). Refused (a fact, never a post)
-     * when the message is not a PERSON's line, or not of the room the run is about (`turn.subject` = `chat-room:<id>`).
+     * when the message is not a PERSON's line, or not of the room the run is about (`turn.subject`: the run's subject, the room key
+     * `ROOM_SUBJECT_KEY` the team chat turn declares, with the room's id).
      */
     private async answered(turn: NodeTurn, given: TeamChatAnswer, call: EffectCall): Promise<EffectFact> {
         const [asked] = await this.store.messagesByIds(turn.workspaceId, [given.messageId])
         if (asked?.authorKind !== "user") return refusalOf("not_person_line")
-        if (turn.subject?.kind !== "chat-room" || turn.subject.id !== asked.roomId) return refusalOf("other_room")
+        if (!aboutRoom(turn.subject, asked.roomId)) return refusalOf("other_room")
         const posted = await this.cards.postMessage(turn.workspaceId, {
             authorAgentId: turn.agentId,
             roomId: asked.roomId,

@@ -3,11 +3,11 @@ import { telegramChain, TELEGRAM_DELIVERY } from "@tests/fixtures/builders/teleg
 import { channelAnswers } from "@tests/fixtures/builders/zalo-chain.builder"
 
 describe("telegram chain: a failure ends as a bounded retry (transient only), then ONE dead letter, and a resume finishes", () => {
-    it("Telegram unreachable when the file is addressed is retried on the waited ladder, then parks transient with ONE item and the update pending; the resume finishes", async () => {
+    it("the shop's own file store staying down is retried on the waited ladder, then parks transient with ONE item and the update pending; the resume finishes", async () => {
         const h = await buildInboundRunner()
         const t = await telegramChain(h.claims)
         h.claim(TELEGRAM_DELIVERY)
-        t.telegram.fileUrl.mockRejectedValue(refused())
+        t.assets.upload.mockResolvedValue({ error: refused() })
 
         const pauses: Array<number | undefined> = []
         for (const attempt of [1, 2, 3, 4]) {
@@ -35,6 +35,22 @@ describe("telegram chain: a failure ends as a bounded retry (transient only), th
         expect(again.state.completed).toBe(true)
         expect(resumed.claims.complete).toHaveBeenCalledTimes(1)
         expect(resumed.deadLetters.raise).not.toHaveBeenCalled()
+    })
+
+    it("Telegram unreachable when the file is addressed is NOT a failure (R72 DEF-7): the message is delivered with the photo typed not kept, one run wakes", async () => {
+        const h = await buildInboundRunner()
+        const t = await telegramChain(h.claims)
+        h.claim(TELEGRAM_DELIVERY)
+        t.telegram.fileUrl.mockRejectedValue(refused())
+
+        await h.run(t.processor, TELEGRAM_DELIVERY, 1)
+
+        expect(h.claims.park).not.toHaveBeenCalled()
+        expect(h.claims.complete).toHaveBeenCalledTimes(1)
+        expect(t.state.wakes).toBe(1)
+        expect(t.triggers.deliver.mock.calls[0]?.[0].events[0]?.files).toEqual([
+            expect.objectContaining({ url: "", notKept: "no_address" }),
+        ])
     })
 
     it("a photo the channel refuses for good is NOT a failure: the message is delivered with a typed not-kept file entry that says why", async () => {

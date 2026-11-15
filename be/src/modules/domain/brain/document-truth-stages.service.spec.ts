@@ -25,7 +25,7 @@ import type { NatureInForce } from "./document-nature.policy"
 import { DocumentNatureService } from "./document-nature.service"
 import { CODE_VERSION, THINKING_ROOM, TRIAGE_PROMPT, TRIAGE_SCHEMA, TRIAGE_VERSION } from "./passage-triage.policy"
 
-import { objectLike, stageRulesOf, STAGES_CUT_SPEND, STAGES_RULE, STAGES_RULES_DOC, STAGES_STATE, STAGES_TABLE, STAGES_USAGE, scriptStageDoubles, stagePassageOf, stageReply, stageSource } from "@tests/fixtures/builders/brain-document.builder"
+import { existingSourcesProvider, objectLike, stageRulesOf, STAGES_CUT_SPEND, STAGES_RULE, STAGES_RULES_DOC, STAGES_STATE, STAGES_TABLE, STAGES_USAGE, scriptStageDoubles, stagePassageOf, stageReply, stageSource } from "@tests/fixtures/builders/brain-document.builder"
 
 const WS = DOC_WS
 const SOURCE = DOC_SOURCE
@@ -55,6 +55,7 @@ const build = async () => {
             { provide: BrainFactsService, useValue: facts },
             { provide: BrainExtractionsService, useValue: extractions },
             { provide: KnowledgeChunksService, useValue: chunks },
+            existingSourcesProvider(),
             { provide: UsageMeterService, useValue: usage },
             { provide: FactEmbeddingsService, useValue: vectors },
             { provide: DocumentNatureService, useValue: nature },

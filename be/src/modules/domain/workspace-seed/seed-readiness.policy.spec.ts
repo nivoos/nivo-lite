@@ -46,6 +46,28 @@ const seed = (overrides: Record<string, unknown> = {}) =>
 
 const ALL_SET: SealedNames = { zalo: { credential: "set" }, crm: { credential: "set" } }
 
+describe("readinessOf: attachments (R109 finding 2)", () => {
+    it("names a sandbox account of a kind no agent accepts, and a node setting naming an account not usable in the place", () => {
+        const missing = readinessOf(
+            seed({
+                accounts: [
+                    { key: "zalo", provider: "zalo_oa", name: "Zalo", sandbox: false, secrets: ["credential"] },
+                    { key: "bank-sbx", provider: "sepay", name: "Sandbox bank" },
+                    { key: "crm", provider: "openapi", name: "CRM", sandbox: false, secrets: ["credential"], facts: { summary: "acme" } },
+                    { key: "tele-sbx", provider: "telegram", name: "Sandbox Telegram" },
+                    { key: "zalo-sbx", provider: "zalo_oa", name: "Sandbox Zalo" },
+                ],
+                nodeSettings: [{ module: "desk", workflow: "desk.front", node: "answer", accounts: ["zalo-sbx"] }],
+            }),
+            INSTALLED,
+            ALL_SET,
+            "prod",
+        )
+        expect(missing).toContain("sandbox account tele-sbx: no agent of the standard accepts telegram (it would be attached to none)")
+        expect(missing).toContain("node setting desk.front/answer: account zalo-sbx is not usable here (it would not be attached to desk)")
+    })
+})
+
 describe("readinessOf: COMPLETE, derived from what the installed templates declare", () => {
     it("is READY when every required provider has a usable account (a CRM key is an OpenAPI account of that CRM), an entrance, knowledge, the plugin", () => {
         expect(readinessOf(seed(), INSTALLED, ALL_SET, "local")).toEqual([])

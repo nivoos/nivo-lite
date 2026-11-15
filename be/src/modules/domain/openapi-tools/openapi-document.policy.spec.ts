@@ -292,6 +292,26 @@ describe("readDocument", () => {
         expect(documentOf(subject, TEXT).operations.get("nivo.api.crm.nivoweb.get.tickets")?.unsupported).toEqual(["oneOf", "array or object parameter"])
     })
 
+    it("does not judge the schema of the replay-key header the provider fills itself: a `pattern` on it leaves the write callable; on any other parameter it does not", async () => {
+        const subject = await build()
+        const keyed = (name: string) =>
+            JSON.stringify({
+                openapi: "3.1.0",
+                info: { title: "t", version: "1" },
+                servers: [{ url: "https://crm.example.test/v1" }],
+                paths: {
+                    "/v1/tickets": {
+                        post: {
+                            parameters: [{ name, in: "header", required: true, schema: { type: "string", pattern: "^[A-Za-z0-9._:-]{1,200}$" } }],
+                            responses: { "201": { description: "" } },
+                        },
+                    },
+                },
+            })
+        expect(documentOf(subject, keyed("Idempotency-Key")).operations.get("nivo.api.crm.nivoweb.post.tickets")?.unsupported).toEqual([])
+        expect(documentOf(subject, keyed("X-Trace")).operations.get("nivo.api.crm.nivoweb.post.tickets")?.unsupported).toEqual(["pattern"])
+    })
+
     it("reads no purpose mark: an operation that carries `x-nivo-tool` is served under its generated name only", async () => {
         const subject = await build()
         const paths = { "/v1/customers": { get: { "x-nivo-tool": "nivo.tool.invoice.create", responses: {} } } }

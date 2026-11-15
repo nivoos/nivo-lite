@@ -131,12 +131,15 @@ describe("GraphNodeHostService effect rights", () => {
         expect(executor.execute).toHaveBeenCalled()
     })
 
-    it("answers the door's refusal as the effect's ordinary refusal fact, and neither runs nor ledgers the effect", async () => {
+    it("E-FIX12 rule A-1: a refusal of an effect that writes outside stops the node (a failed act), and neither runs nor ledgers the effect", async () => {
         const { host, tools, executor, effects } = await build(readingPort())
         const refusal = { kind: "refused", id: "not_attached", facts: { tool: "core.ping" } }
         tools.effectRight = jest.fn().mockResolvedValue(refusal)
 
-        await expect(host.run(INPUT)).resolves.toMatchObject({ output: { ref: "not_attached" }, effects: [] })
+        await expect(host.run(INPUT)).rejects.toMatchObject({
+            code: "GRAPH_NODES_ACT_REFUSED",
+            params: { effect: "core.ping", outsideRefusal: "not_attached" },
+        })
         expect(executor.execute).not.toHaveBeenCalled()
         expect(effects.once).not.toHaveBeenCalled()
     })

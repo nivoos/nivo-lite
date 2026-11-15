@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common"
 import type { ConnectionRecord } from "@modules/domain/connections"
 import {
     providerRefusal,
+    withProof,
     type PaymentLink,
     type PaymentLinkPort,
     type PaymentLinkRef,
@@ -9,6 +10,8 @@ import {
     type PaymentLinkState,
 } from "@modules/domain/provider-registry"
 import { ProviderSandboxService, type SandboxState } from "@modules/domain/provider-sandbox"
+import { PayosError, PayosErrorCode } from "@modules/integrations/payos"
+import { HttpError, HttpErrorCode } from "@modules/platform/http"
 import {
     PAYOS_SANDBOX_AT,
     PAYOS_SANDBOX_CANNOT_CANCEL_REASON,
@@ -28,6 +31,29 @@ const LINK = "link"
 
 /** State name: the link id of an order code, by the code's text. */
 const ORDER = "order"
+
+/**
+ * The failure the LIVE client throws for a 429 (`PayosError` `RateLimited`), as the live adapter types it (`payosFailureOf`): refused at the
+ * gateway, it proves `not_sent`. The same error the live road throws, so the engine's one classifier reads it the same way (`transient`):
+ * a sandbox twin that threw an untyped error made the engine class a rate limit as a fault of the code (D3-W2-10 / D3-W2-11).
+ */
+const tooMany = (): PayosError => withProof(new PayosError({ code: PayosErrorCode.RateLimited }), "not_sent")
+
+/**
+ * The failure the LIVE client throws for a call that got no answer in time (`PayosError` `Unreachable` over the transport's deadline,
+ * `HttpError` `Timeout`), as the live adapter types it: `unknown` (a signed POST that timed out may have created the link; a read has no effect).
+ */
+const noAnswer = (): PayosError =>
+    withProof(new PayosError({ code: PayosErrorCode.Unreachable, cause: new HttpError({ code: HttpErrorCode.Timeout }) }), "unknown")
+
+/** The failure of a transient or timeout case, as the live road throws it (`tooMany`, `noAnswer`). */
+const failureOf = (state: SandboxState, transient: string, timeout: string): void => {
+    if (state.nextCase === transient) throw tooMany()
+    if (state.nextCase === timeout) throw noAnswer()
+}
+
+/** Whether the case is one where the call got no answer but its effect WAS applied (the state is written first, then the answer is lost). */
+const appliedThenLost = (state: SandboxState, id: string): boolean => state.nextCase === id
 
 /** The path id of a link reference: the link id or the order code's text (the live path takes either). */
 const idOf = (ref: PaymentLinkRef): string => ("linkId" in ref ? ref.linkId : String(ref.orderCode))
@@ -68,6 +94,7 @@ export class PayosSandboxPaymentLinkService implements PaymentLinkPort {
         return await this.sandbox.call(connection, PAYOS_SANDBOX_OPERATION.create, request, {
             key: request.description,
             answer: async (state) => {
+                failureOf(state, PAYOS_SANDBOX_CASE.createTransient, PAYOS_SANDBOX_CASE.createTimeout)
                 if (state.nextCase === PAYOS_SANDBOX_CASE.createRefused) {
                     throw providerRefusal(PAYOS_SANDBOX_PROVIDER, "rejected", PAYOS_SANDBOX_REFUSED_REASON)
                 }
@@ -86,6 +113,7 @@ export class PayosSandboxPaymentLinkService implements PaymentLinkPort {
                 await state.write(ORDER, String(orderCode), linkId)
                 await state.write(PAYOS_SANDBOX_DESCRIPTION_STATE, linkId, request.description)
                 if (request.expiresAt !== undefined) await state.write(PAYOS_SANDBOX_EXPIRY_STATE, linkId, request.expiresAt)
+                if (appliedThenLost(state, PAYOS_SANDBOX_CASE.createTimeoutApplied)) throw noAnswer()
                 return {
                     linkId,
                     orderCode,
@@ -105,6 +133,7 @@ export class PayosSandboxPaymentLinkService implements PaymentLinkPort {
         return await this.sandbox.call(connection, PAYOS_SANDBOX_OPERATION.get, { ref }, {
             key: idOf(ref),
             answer: async (state) => {
+                failureOf(state, PAYOS_SANDBOX_CASE.readTransient, PAYOS_SANDBOX_CASE.readTimeout)
                 if (state.nextCase === PAYOS_SANDBOX_CASE.readNotFound) throw providerRefusal(PAYOS_SANDBOX_PROVIDER, "not_found")
                 const held = await heldOf(state, ref)
                 if (held === null) throw providerRefusal(PAYOS_SANDBOX_PROVIDER, "not_found")
@@ -118,6 +147,7 @@ export class PayosSandboxPaymentLinkService implements PaymentLinkPort {
         return await this.sandbox.call(connection, PAYOS_SANDBOX_OPERATION.cancel, { ref, reason: reason ?? null }, {
             key: idOf(ref),
             answer: async (state) => {
+                failureOf(state, PAYOS_SANDBOX_CASE.cancelTransient, PAYOS_SANDBOX_CASE.cancelTimeout)
                 if (state.nextCase === PAYOS_SANDBOX_CASE.cancelRefused) {
                     throw providerRefusal(PAYOS_SANDBOX_PROVIDER, "rejected", PAYOS_SANDBOX_CANNOT_CANCEL_REASON)
                 }
@@ -131,6 +161,7 @@ export class PayosSandboxPaymentLinkService implements PaymentLinkPort {
                     ...(reason === undefined ? {} : { cancellationReason: reason }),
                 }
                 await state.write(LINK, held.linkId, cancelled)
+                if (appliedThenLost(state, PAYOS_SANDBOX_CASE.cancelTimeoutApplied)) throw noAnswer()
                 return cancelled
             },
         })

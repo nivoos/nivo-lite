@@ -1,3 +1,5 @@
+import type { EntityManager } from "typeorm"
+
 /** A job a worker claimed: the token it must pass to every write. */
 export interface ClaimedJob {
     /** The id of the job row. */
@@ -85,10 +87,10 @@ export type JobClaimResult = ClaimedJob | null
 export type ClaimRetryDelay = number | null
 
 /** A domain effect executed while the platform holds the live job row's fence. */
-export type JobEffect<T> = () => Promise<T>
+export type JobEffect<T> = (tx: EntityManager) => Promise<T>
 
 /** The terminal failure effect executed while the platform holds the failed worker's fence. */
-export type FailedJobEffect = (write: GuardedWrite) => Promise<void>
+export type FailedJobEffect = (write: GuardedWrite, tx: EntityManager) => Promise<void>
 
 /** A lease being kept alive for a job that is running. */
 export interface LeaseHold {

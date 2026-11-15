@@ -1,4 +1,5 @@
 export { ChatFilesModule } from "./chat-files.module"
 export { CustomerFilesService } from "./customer-files.service"
-export { isCustomerFileRef } from "./customer-files.policy"
+export { isCustomerFileRef, partFileOf, unreadFileOf } from "./customer-files.policy"
+export type { CustomerAttachment } from "./chat-files.contracts"
 export { withPicturesNotSeen, type CustomerFile, type FileNotKept } from "./customer-files.policy"

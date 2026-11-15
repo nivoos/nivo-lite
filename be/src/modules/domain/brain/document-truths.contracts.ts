@@ -26,7 +26,7 @@ export interface Reading {
  * - `blocked`: the credit pool is empty; the reading waits.
  * A call that gives nothing usable is not an end: it throws (a typed brain error) and the runner retries or dead-letters the job.
  */
-export type StageEnd = "done" | "budget" | "blocked"
+export type StageEnd = "done" | "budget" | "blocked" | "origin_gone"
 
 /** What a stage hands back: how it ended, the passages as they stand now, and where the reading stands. */
 export interface StageResult {

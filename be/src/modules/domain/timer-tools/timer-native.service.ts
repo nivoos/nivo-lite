@@ -8,6 +8,7 @@ import {
     timerTaskTitleOf,
     timerWakeAtOf,
     type AgentTaskData,
+    type TimerSubject,
 } from "@modules/domain/agent-work"
 import { ConversationContactsService } from "@modules/domain/contacts"
 import {
@@ -21,6 +22,10 @@ import {
 } from "@modules/domain/tools"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import { TIMER_ARM_INPUT_SCHEMA, TIMER_ARM_SCHEMA, TIMER_CANCEL_INPUT_SCHEMA, TIMER_CANCEL_SCHEMA } from "./timer-native.schema"
+
+/** The subject kinds of a run that name a person and a route (the scope paths the engine keys runs by: `key:<path>=<id>`). */
+const CONTACT_SUBJECT = "contactId"
+const ROUTE_SUBJECT = "routeId"
 
 /** The tool names inside the connector (the full id is `nivo.tool.<name>`). */
 export const TIMER_TOOL = { arm: "timer.arm", cancel: "timer.cancel" } as const
@@ -106,12 +111,21 @@ export class TimerNativeService implements NativeToolFamily {
         return { cancelled: await this.tasks.cancelTimer(caller.agentId, timerTaskKeyOf(subject, asked.ref)) }
     }
 
-    /** Whom the run serves: its contact (the door's, else the conversation's), and its conversation. */
-    private async subjectOf(workspaceId: string, caller: NativeCaller): Promise<{ readonly contactId: string | null; readonly conversationId: string | null }> {
-        const conversationId = caller.conversationId
-        const fromRun = caller.run?.contactId ?? null
+    /**
+     * Whom the run serves: its contact (the door's, else the RUN's subject when it is a person, else the conversation's), its
+     * conversation (the call's, else the run's subject when it is a route), and the run's subject when it is neither (a record). The run's subject rides every call of the run (its token),
+     * so a timer armed after a person's Retry, a deadline or by a called run is keyed by the same subject as on a first pass, and the
+     * erase of that subject reaches it (D3-W1-10, D3-W1-4).
+     */
+    private async subjectOf(workspaceId: string, caller: NativeCaller): Promise<TimerSubject> {
+        const runSubject = caller.subject
+        const conversationId = caller.conversationId ?? (runSubject?.kind === ROUTE_SUBJECT ? runSubject.id : null)
+        const fromRun = caller.run?.contactId ?? (runSubject?.kind === CONTACT_SUBJECT ? runSubject.id : null)
         const contactId =
             fromRun ?? (conversationId === null ? null : await this.conversations.contactOf(workspaceId, conversationId))
-        return { contactId, conversationId }
+        // A run about another subject (a record, a transaction) keys its timer by THAT subject, so ending the subject reaches it.
+        const other =
+            runSubject !== undefined && runSubject.kind !== CONTACT_SUBJECT && runSubject.kind !== ROUTE_SUBJECT ? runSubject : null
+        return { contactId, conversationId, ...(other === null ? {} : { subject: { kind: other.kind, id: other.id } }) }
     }
 }

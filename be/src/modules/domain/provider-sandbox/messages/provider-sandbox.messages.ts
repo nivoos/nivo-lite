@@ -12,6 +12,8 @@ export const PROVIDER_SANDBOX_MESSAGES: MessageBundle = {
         "errors.PROVIDER_SANDBOX_RUN_NOT_WAITING": "Run này không còn đang chờ, không thể cho hết hạn chờ.",
         "errors.PROVIDER_SANDBOX_PROVIDER_UNKNOWN": "Nhà cung cấp {{provider}} chưa có Sandbox.",
         "errors.PROVIDER_SANDBOX_PAY_LINK_UNKNOWN": "Không tìm thấy yêu cầu thanh toán {{linkId}} trong Sandbox của không gian làm việc này.",
+        "errors.PROVIDER_SANDBOX_MODE_UNAVAILABLE": "Cách gửi {{mode}} không áp dụng cho tình huống {{caseId}}: nhà cung cấp không có poll trả lại sự kiện này.",
+        "errors.PROVIDER_SANDBOX_OUTCOME_UNAVAILABLE": "Thao tác {{operation}} không có tình huống kết quả {{outcome}}.",
     },
     en: {
         "errors.PROVIDER_SANDBOX_LIVE_ACCOUNT": "This account is a live account, not a Sandbox one.",
@@ -23,5 +25,7 @@ export const PROVIDER_SANDBOX_MESSAGES: MessageBundle = {
         "errors.PROVIDER_SANDBOX_RUN_NOT_WAITING": "This run is no longer waiting: its wait cannot be expired.",
         "errors.PROVIDER_SANDBOX_PROVIDER_UNKNOWN": "The provider {{provider}} has no Sandbox.",
         "errors.PROVIDER_SANDBOX_PAY_LINK_UNKNOWN": "No payment request {{linkId}} was found in this workspace's Sandbox.",
+        "errors.PROVIDER_SANDBOX_MODE_UNAVAILABLE": "The delivery {{mode}} does not apply to case {{caseId}}: the provider has no poll that returns this event.",
+        "errors.PROVIDER_SANDBOX_OUTCOME_UNAVAILABLE": "The operation {{operation}} has no case of outcome {{outcome}}.",
     },
 }

@@ -399,25 +399,26 @@ export interface GraphV2WaitMatch {
 }
 
 /**
- * One trigger a wait listens for: its key (the route it takes, the `trigger` of the output), its verb, the trigger conditions on the
- * event's members (`where`, as a graph trigger's) and the tests against the run's data (`match`). With no `match`, an event is the
- * wait's when it is about the run's SUBJECT (the same contact or conversation, or the same value of a member the verb declares its
- * subject by); with a `match`, the match decides which event is the run's.
+ * One KEY a wait listens for: ONE meaning with one route (the `trigger` of the output), the verbs that bring that meaning (1 to
+ * `WAIT_KEY_VERBS_MAX`: a person's line on any of the shop's channels is one meaning; a verb is listed under one key of a wait only), the
+ * trigger conditions on the event's members (`where`, as a graph trigger's) and the tests against the run's data (`match`), both read on
+ * whichever listed verb came. With no `match`, an event is the wait's when it is about the run's SUBJECT (the same contact or conversation,
+ * or the same value of a member the verb declares its subject by); with a `match`, the match decides which event is the run's.
  */
 export interface GraphV2WaitOn {
-    /** The key the arriving trigger is filed under. */
+    /** The key the arriving trigger is filed under: the meaning, and the route it takes. */
     readonly key: string
-    /** The trigger verb the wait listens for. */
-    readonly verb: TriggerVerb
+    /** The trigger verbs that bring this meaning (an event of any of them is taken under this key). */
+    readonly verbs: ReadonlyArray<TriggerVerb>
     /** The conditions the trigger must satisfy. */
     readonly where?: ReadonlyArray<TriggerCondition> | undefined
     /** The conditions the trigger's payload must match. */
     readonly match?: ReadonlyArray<GraphV2WaitMatch> | undefined
 }
 
-/** The params of a wait: its triggers (1 to `WAIT_TRIGGERS_MAX`) and how long it waits (`LoopEvery` units and bounds). */
+/** The params of a wait: its keys (1 to `WAIT_TRIGGERS_MAX` meanings, each listing its verbs) and how long it waits (`LoopEvery` units and bounds). */
 export interface GraphV2WaitParams {
-    /** The triggers the wait listens for. */
+    /** The keys the wait listens for, in written order. */
     readonly on: readonly [GraphV2WaitOn, ...Array<GraphV2WaitOn>]
     /** How long the wait lasts before it gives up. */
     readonly timeout: LoopEvery

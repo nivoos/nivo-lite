@@ -176,7 +176,7 @@ describe("sales.payment", () => {
         // Version 10: the front desk's unread `recentLines` is gone from the input (legacy). Version 11 (R68): pure business: the engine
         // tells the team of a declined step (the two notice nodes and `claim-reply-declined` are gone). Version 12 (P-NEXT, QUEUE-DESIGN
         // (4)): the team is told the words the reply step heard (every line since the shop last spoke), not only the hand-off's.
-        expect(versionOf(salesPaymentGraph)).toBe(12)
+        expect(versionOf(salesPaymentGraph)).toBe(13)
         expect(salesPaymentGraph.spec.triggers).toEqual([
             { verb: TRIGGER.paymentCreditReceived, accounts: ["sepay", "casso", "payos"] },
             { verb: TRIGGER.workflowCalled },
@@ -216,7 +216,7 @@ describe("sales.payment", () => {
         expect(stepOf("named")).toMatchObject({
             kind: "if",
             params: {
-                when: { op: "contains", ref: { $ref: "steps.credit.output.content" }, value: { $ref: "item.orderNo" } },
+                when: { op: "contains", ref: { $ref: "trigger.data.payKey", default: "" }, value: { $ref: "item.payKey" } },
             },
         })
         expect(stepOf("exact")).toMatchObject({

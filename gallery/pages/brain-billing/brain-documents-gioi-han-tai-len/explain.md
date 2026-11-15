@@ -20,5 +20,10 @@ Grammar: `Section kind="list"`, `Badge`, `node_modules/@starci/grammar/dist/core
 
 ## Ngăn kéo Thêm tài liệu
 Vì sao: the drawer itself (mode pills, drop zone, Drive, links, options, footer) is unchanged; the drop-zone hint no longer states a number (the limit is the server's).
+
+## Vùng của tài liệu (Nội bộ / Công khai)
+Vì sao: a document's audience is its upload area, chosen by the owner, never inferred (`truth-graph.md`). The drawer used to say only "Tài liệu ở đây là Nội bộ" and sent no `visibility`, so a price list uploaded for customers stayed unusable by the customer-facing agent and nothing said why. Now the drawer holds ONE choice list under the options: "Nội bộ" (checked by default, 12 muted line "Đội ngũ và agent nội bộ đọc. Agent trả lời khách không dùng tài liệu này.") and "Công khai" (12 muted "Agent trả lời khách được dùng tài liệu này."). The choice is sent as `visibility` to `createKnowledgeUpload` and to `enqueueKnowledgeSource` for every file, link and note of the batch. The Drive picker keeps sending "internal" (no choice there).
+Luật: `surfacecard-select-subtitle` (every choice list is a `SurfaceCard kind=select`, the subtitle only under a title), `red-budget-links-foreground` (no red: the page's one red button stays the add button), `type-scale-14-12`.
+Grammar: `SurfaceCard kind="select"` `selectionMode="single"`, `node_modules/@starci/grammar/dist/core/surfaceCardData.d.ts` (`SelectData`).
 Luật: `complex-content-page-not-drawer` (a short form stays a drawer).
 Grammar: `Drawer`, `node_modules/@starci/grammar/dist/core/frame/Drawer/index.d.ts`.

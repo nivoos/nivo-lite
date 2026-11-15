@@ -50,6 +50,8 @@ interface KeptRecord {
     readonly args: Readonly<Record<string, unknown>> | null
     readonly subject: SubjectRef
     readonly at: string
+    /** The ledger key it is kept under; absent: a key of the step's own form the spec does not name. */
+    readonly key?: string
 }
 
 /** A ledger as the host keeps it: the subject of a key answered again, a refusal never kept, the step's records read back. */
@@ -71,12 +73,16 @@ const ledgerOf = (records: Array<KeptRecord> = []) => {
                 const subject = await act()
                 if (subject.kind === "refused") return subject
                 kept.set(call.key, subject)
-                records.push({ effect, args: record?.args ?? null, subject, at: "2026-11-12T00:00:00.500Z" })
+                records.push({ effect, args: record?.args ?? null, subject, at: "2026-11-12T00:00:00.500Z", key: `call:${call.key}` })
                 return subject
             },
         ),
         recordsOf: jest.fn((_ws: string, _place: unknown, effects: ReadonlyArray<string>) =>
-            Promise.resolve(records.filter((one) => effects.includes(one.effect))),
+            Promise.resolve(
+                records
+                    .filter((one) => effects.includes(one.effect))
+                    .map((one, index) => ({ ...one, key: one.key ?? `call:run-1:send:kept${String(index)}` })),
+            ),
         ),
     }
 }
@@ -289,10 +295,14 @@ describe("ToolRunnerService", () => {
             subject: { kind: "outcome-unknown", id: "delivery_outcome_unknown" },
             at: "2026-11-11T23:59:00.000Z",
         }
-        const world = worldOf({}, [unknown])
+        const world = worldOf({}, [{ ...unknown, key: "call:run-1:send:first" }])
 
         await world.runner.run(effectOf({ conversationId: "conv-1", text: "y" })).catch(() => undefined)
-        expect(world.execute).toHaveBeenCalled()
+        // E-FIX12 rule A-2: made again AS RECORDED (its words, its key), never with the words asked now under a new key.
+        expect(world.execute).toHaveBeenCalledTimes(1)
+        expect(world.execute.mock.calls[0]?.[1]).toEqual({ conversationId: "conv-1", text: "x" })
+        expect(world.execute.mock.calls[0]?.[2]).toEqual({ key: "run-1:send:first", dedupeKey: null })
+        expect(world.ledger.once.mock.calls[0]?.[2]).toEqual({ key: "run-1:send:first", dedupeKey: null })
     })
 
     it("QB-P3 rule I-1: an earlier write kept as an INTENT with no result (the process died after the act) is an unknown outcome", async () => {
@@ -544,14 +554,14 @@ describe("ToolRunnerService accounts", () => {
     it("hands a write the node's first bound account, asked for the step's node, and answers via it", async () => {
         const { world, boundAccountsOf } = withAccounts([C1, C2])
 
-        const answer = await world.runner.run(toolOf(TOOL.paymentLinkCreate))
+        const answer = await world.runner.run(toolOf(TOOL.paymentRequestCreate))
 
         expect(answer).toEqual({ road: "tool", value: { value: 1 }, via: C1 })
         // The run the call is made in rides along: the account of its trigger and of its earlier calls are read by it.
         expect(boundAccountsOf).toHaveBeenCalledWith(
             "ws-1",
             "agent-1",
-            TOOL.paymentLinkCreate,
+            TOOL.paymentRequestCreate,
             { origin: "node", node: STEP },
             { runId: "run-1" },
         )
@@ -570,14 +580,14 @@ describe("ToolRunnerService accounts", () => {
             },
         })
 
-        const refused = await world.runner.run(toolOf(TOOL.paymentLinkCreate)).catch((cause: unknown) => cause)
+        const refused = await world.runner.run(toolOf(TOOL.paymentRequestCreate)).catch((cause: unknown) => cause)
 
         expect(refused).toBeInstanceOf(ToolsError)
         expect(refused).toMatchObject({
             code: ToolsErrorCode.AccountNeedsPick,
-            params: { tool: TOOL.paymentLinkCreate, provider: "bank", connectionIds: "live,sandbox" },
+            params: { tool: TOOL.paymentRequestCreate, provider: "bank", connectionIds: "live,sandbox" },
         })
-        expect(pickNeeded).toHaveBeenCalledWith("ws-1", "agent-1", TOOL.paymentLinkCreate, { origin: "node", node: STEP }, { runId: "run-1" })
+        expect(pickNeeded).toHaveBeenCalledWith("ws-1", "agent-1", TOOL.paymentRequestCreate, { origin: "node", node: STEP }, { runId: "run-1" })
         expect(world.door.call).not.toHaveBeenCalled()
     })
 
@@ -590,9 +600,9 @@ describe("ToolRunnerService accounts", () => {
                 pickNeeded,
             },
         })
-        await expect(none.runner.run(toolOf(TOOL.paymentLinkCreate))).rejects.toMatchObject({
+        await expect(none.runner.run(toolOf(TOOL.paymentRequestCreate))).rejects.toMatchObject({
             code: GraphNodesErrorCode.ToolNotConnected,
-            params: { tool: TOOL.paymentLinkCreate },
+            params: { tool: TOOL.paymentRequestCreate },
         })
 
         const askedNever = jest.fn(() => Promise.resolve({ provider: "bank", connectionIds: ["live", "sandbox"] }))
@@ -603,14 +613,14 @@ describe("ToolRunnerService accounts", () => {
                 pickNeeded: askedNever,
             },
         })
-        await expect(bound.runner.run(toolOf(TOOL.paymentLinkCreate))).resolves.toEqual({ road: "tool", value: { value: 1 }, via: C1 })
+        await expect(bound.runner.run(toolOf(TOOL.paymentRequestCreate))).resolves.toEqual({ road: "tool", value: { value: 1 }, via: C1 })
         expect(askedNever).not.toHaveBeenCalled()
     })
 
     it("goes on to the next account on a write failure proved not_sent, and stops on one whose outcome is unknown", async () => {
         const moved = withAccounts([C1, C2])
         moved.world.door.call.mockRejectedValueOnce(failedWith("not_sent"))
-        await expect(moved.world.runner.run(toolOf(TOOL.paymentLinkCreate))).resolves.toEqual({
+        await expect(moved.world.runner.run(toolOf(TOOL.paymentRequestCreate))).resolves.toEqual({
             road: "tool",
             value: { value: 1 },
             via: C2,
@@ -623,7 +633,7 @@ describe("ToolRunnerService accounts", () => {
         const stopped = withAccounts([C1, C2])
         const unknown = failedWith("unknown")
         stopped.world.door.call.mockRejectedValueOnce(unknown)
-        await expect(stopped.world.runner.run(toolOf(TOOL.paymentLinkCreate))).rejects.toBe(unknown)
+        await expect(stopped.world.runner.run(toolOf(TOOL.paymentRequestCreate))).rejects.toBe(unknown)
         expect(stopped.world.door.call).toHaveBeenCalledTimes(1)
     })
 
@@ -649,7 +659,7 @@ describe("ToolRunnerService accounts", () => {
             params: { tool: "t", fingerprint: "f", reason: "ask_mode", args: "{}" },
         })
         asked.world.door.call.mockRejectedValueOnce(ask)
-        await expect(asked.world.runner.run(toolOf(TOOL.paymentLinkCreate))).rejects.toBe(ask)
+        await expect(asked.world.runner.run(toolOf(TOOL.paymentRequestCreate))).rejects.toBe(ask)
         expect(asked.world.door.call).toHaveBeenCalledTimes(1)
     })
 
@@ -667,7 +677,7 @@ describe("ToolRunnerService accounts", () => {
     it("judges an effect on its account, hands the executor the account, and audits where it ran", async () => {
         const { world } = withAccounts([{ provider: "smtp", connectionId: "bank-1" }])
 
-        const answer = await world.runner.run(effectOf({ orderId: "o-1" }, { effect: TOOL.paymentLinkCreate }))
+        const answer = await world.runner.run(effectOf({ orderId: "o-1" }, { effect: TOOL.paymentRequestCreate }))
 
         expect(answer).toEqual({ road: "effect", subject: SENT, via: { provider: "smtp", connectionId: "bank-1" } })
         expect(world.door.effectRight.mock.calls[0]).toEqual([

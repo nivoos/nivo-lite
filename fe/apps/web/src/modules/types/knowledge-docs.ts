@@ -52,6 +52,17 @@ export interface DocHeadView {
     /** The command that reads the document again; null where nothing can be read again (the base knowledge, a reader who may not write). */
     readonly reindex: { readonly label: string; readonly isPending: boolean; readonly isDisabled: boolean } | null
     readonly menu: ReadonlyArray<DocMenuItemView>
+    /** The command that moves the document to the other area (who reads it), with its confirmation; null where the area cannot be changed (a reader who may not write, the base knowledge). */
+    readonly area: {
+        readonly label: string
+        readonly isPending: boolean
+        readonly confirm: {
+            readonly title: string
+            readonly description: string
+            readonly confirmLabel: string
+            readonly cancelLabel: string
+        }
+    } | null
     /** The confirmation of the delete command; null where the document cannot be deleted. */
     readonly remove: {
         readonly title: string
@@ -229,6 +240,7 @@ export interface KnowledgeDocsView {
         readonly isWaiting: boolean
         readonly hasAside: boolean
         readonly isRemoveOpen: boolean
+        readonly isAreaOpen: boolean
         readonly canAdd: boolean
         readonly addHref: string
         readonly addLabel: string
@@ -247,6 +259,8 @@ export interface KnowledgeDocsView {
         readonly menu: (id: string) => void
         readonly removeOpenChange: (isOpen: boolean) => void
         readonly remove: () => Promise<void>
+        readonly areaOpenChange: (isOpen: boolean) => void
+        readonly area: () => Promise<void>
         readonly closeAside: () => void
         readonly idea: (ideaId: string, menuId: string) => void
         readonly moreIdeas: () => void

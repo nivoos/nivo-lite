@@ -18,6 +18,11 @@ export interface AwaitingOrder {
     readonly amountVnd: number | null
     /** Its customer, or null. */
     readonly contactId: string | null
+    /**
+     * What a payment of it carries as its `payKey` (R111): the reference of its payment request when the order keeps one (the provider's
+     * paid event carries that reference), else its code (a bank transfer that names the order writes the code in its words).
+     */
+    readonly payKey: string
 }
 
 /** The orders that wait for their money. */
@@ -36,6 +41,7 @@ const awaitingOrder: NodeSchema<AwaitingOrder> = z.object({
     orderNo: z.string().min(1).max(MAX_ID),
     amountVnd: z.number().int().min(0).nullable(),
     contactId: z.string().min(1).max(MAX_ID).nullable(),
+    payKey: z.string().min(1).max(MAX_ID),
 })
 
 const output: NodeSchema<AwaitingOrdersOutput> = z.object({
@@ -48,27 +54,8 @@ const LIST = {
     where: { op: "eq", field: "status", value: ORDER_AWAITING },
     order: [["createdAt", "desc"]],
     limit: ORDERS_MAX,
-    fields: ["orderNo", "amountVnd", "contactId"],
+    fields: ["orderNo", "amountVnd", "contactId", "paymentRequestRef"],
 }
-
-/**
- * The same list narrowed to orders whose person is still a live contact: the contact field compared with the page's people (`in`). The
- * engine reads a contact filter THROUGH its contacts (E-FIX6, DEF-6): an erased contact (or an id merged into an erased one) stands for no
- * id, so an order of an erased person is not found, while its record keeps the reference (`onContactDelete: "clear"`).
- */
-const liveListOf = (contactIds: ReadonlyArray<string>) => ({
-    type: SALES_ORDER_ENTITY,
-    where: {
-        op: "and",
-        of: [
-            { op: "eq", field: "status", value: ORDER_AWAITING },
-            { op: "in", field: "contactId", values: [...contactIds] },
-        ],
-    },
-    order: [["createdAt", "desc"]],
-    limit: ORDERS_MAX,
-    fields: ["orderNo"],
-})
 
 /** One page of the record list. */
 const pageShape = z.object({
@@ -80,6 +67,7 @@ const pageShape = z.object({
                     orderNo: z.string().min(1).max(MAX_ID),
                     amountVnd: z.number().int().min(0).nullish(),
                     contactId: z.string().min(1).max(MAX_ID).nullish(),
+                    paymentRequestRef: z.string().min(1).max(MAX_ID).nullish(),
                 }),
             }),
         )
@@ -88,9 +76,10 @@ const pageShape = z.object({
 
 /**
  * `sales.awaiting-orders` (Don cho tien): lists the `blocks-core.sales.order` records that wait for their money (`nivo.tool.record.list`, status
- * `confirmed`, newest first, one page) for the graph's match to compare a credit with, item by item, in its own expressions. An order whose
- * person was erased is left out (DEF-6, R41 Q11): a second read of the same page through the contact field, which the engine answers only
- * for live contacts; an order with no person stays. Plain logic: it decides nothing, it compares nothing.
+ * `confirmed`, newest first, one page) for the graph's match to compare a credit with, item by item, in its own expressions; each order's
+ * `payKey` is what a payment of it carries (R111: its request's reference when it keeps one, else its code). An order of an
+ * erased person is not listed: the order type takes the default contact rule, so the engine soft-deletes the order with the contact and no
+ * read finds it (DEF-6, R41 Q11: its credit is a stranger credit). Plain logic: it decides nothing, it compares nothing.
  */
 export const salesAwaitingOrdersNode: TemplateNode<typeof input, typeof output> = defineTemplateNode({
     id: "sales.awaiting-orders",
@@ -111,17 +100,9 @@ export const salesAwaitingOrdersNode: TemplateNode<typeof input, typeof output> 
             orderNo: record.values.orderNo,
             amountVnd: record.values.amountVnd ?? null,
             contactId: record.values.contactId ?? null,
+            payKey: record.values.paymentRequestRef ?? record.values.orderNo,
         }))
-        // An order of an ERASED person is never offered (R41 Q11, DEF-6): a credit naming it is a stranger credit, the team is told and the
-        // order is not paid. Which people are live is the engine's answer to a read through the contact field, never decided here.
-        const people = [...new Set(orders.flatMap((order) => (order.contactId === null ? [] : [order.contactId])))]
-        if (people.length === 0) return { orders }
-        const live = pageShape.safeParse(
-            valueOrCannot(context, TOOL.recordList, await context.tools.call(TOOL.recordList, liveListOf(people))),
-        )
-        if (!live.success) return context.fail({ kind: "cannot", why: `${TOOL.recordList} answered an unknown shape` })
-        const kept = new Set(live.data.records.map((record) => record.id))
-        return { orders: orders.filter((order) => order.contactId === null || kept.has(order.orderId)) }
+        return { orders }
     },
     examples: [
         {
@@ -134,19 +115,8 @@ export const salesAwaitingOrdersNode: TemplateNode<typeof input, typeof output> 
                     args: LIST,
                     answer: answered({
                         records: [
-                            { id: "o2", values: { orderNo: "DH-20261113-0002", amountVnd: 9000, contactId: "contact-2" } },
-                            { id: "o1", values: { orderNo: "DH-20261113-0001", amountVnd: 4500, contactId: "contact-1" } },
-                        ],
-                        next: null,
-                    }),
-                },
-                {
-                    id: TOOL.recordList,
-                    args: liveListOf(["contact-2", "contact-1"]),
-                    answer: answered({
-                        records: [
-                            { id: "o2", values: { orderNo: "DH-20261113-0002" } },
-                            { id: "o1", values: { orderNo: "DH-20261113-0001" } },
+                            { id: "o2", values: { orderNo: "DH-20261113-0002", amountVnd: 9000, contactId: "contact-2", paymentRequestRef: "1789000000002" } },
+                            { id: "o1", values: { orderNo: "DH-20261113-0001", amountVnd: 4500, contactId: "contact-1", paymentRequestRef: null } },
                         ],
                         next: null,
                     }),
@@ -154,38 +124,8 @@ export const salesAwaitingOrdersNode: TemplateNode<typeof input, typeof output> 
             ],
             output: {
                 orders: [
-                    { orderId: "o2", orderNo: "DH-20261113-0002", amountVnd: 9000, contactId: "contact-2" },
-                    { orderId: "o1", orderNo: "DH-20261113-0001", amountVnd: 4500, contactId: "contact-1" },
-                ],
-            },
-        },
-        {
-            name: "an order of an erased person is not offered (its credit is a stranger's); an order with no person stays",
-            params: {},
-            input: {},
-            tools: [
-                {
-                    id: TOOL.recordList,
-                    args: LIST,
-                    answer: answered({
-                        records: [
-                            { id: "o3", values: { orderNo: "DH-20261113-0003", amountVnd: 7000, contactId: null } },
-                            { id: "o2", values: { orderNo: "DH-20261113-0002", amountVnd: 9000, contactId: "contact-erased" } },
-                            { id: "o1", values: { orderNo: "DH-20261113-0001", amountVnd: 4500, contactId: "contact-1" } },
-                        ],
-                        next: null,
-                    }),
-                },
-                {
-                    id: TOOL.recordList,
-                    args: liveListOf(["contact-erased", "contact-1"]),
-                    answer: answered({ records: [{ id: "o1", values: { orderNo: "DH-20261113-0001" } }], next: null }),
-                },
-            ],
-            output: {
-                orders: [
-                    { orderId: "o3", orderNo: "DH-20261113-0003", amountVnd: 7000, contactId: null },
-                    { orderId: "o1", orderNo: "DH-20261113-0001", amountVnd: 4500, contactId: "contact-1" },
+                    { orderId: "o2", orderNo: "DH-20261113-0002", amountVnd: 9000, contactId: "contact-2", payKey: "1789000000002" },
+                    { orderId: "o1", orderNo: "DH-20261113-0001", amountVnd: 4500, contactId: "contact-1", payKey: "DH-20261113-0001" },
                 ],
             },
         },

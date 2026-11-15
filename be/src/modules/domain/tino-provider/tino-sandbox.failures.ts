@@ -1,5 +1,6 @@
 import { TinoError, TinoErrorCode } from "@modules/integrations/tino"
 import { tinoFailureOf } from "./tino-domain-registrar.service"
+import type { TinoCaseEffect } from "./tino-sandbox.catalogue"
 
 /** What the sandbox says when a call times out (the cause the live client wraps from its transport). */
 const NO_ANSWER = "sandbox: no answer in time"
@@ -26,3 +27,20 @@ export const tinoUnreachable = (): Error => failureOf(TinoErrorCode.Unreachable,
 
 /** Tino refused the token at its gateway (401 `invalid_token`): nothing was sent (proof `not_sent`). */
 export const tinoAuthRefused = (): Error => failureOf(TinoErrorCode.AuthFailed, "invalid_token")
+
+/**
+ * The failure a case's effect throws BEFORE anything is applied (a refusal at the gateway, a server error, no answer), or null for an
+ * effect that is not one of them (the service handles `refused`, `not_found`, `applied_timeout` and `empty` itself). Tino publishes no 429.
+ */
+export const tinoFailureOfEffect = (effect: TinoCaseEffect | undefined): Error | null => {
+    switch (effect) {
+        case "auth":
+            return tinoAuthRefused()
+        case "server":
+            return tinoServerError()
+        case "timeout":
+            return tinoUnreachable()
+        default:
+            return null
+    }
+}

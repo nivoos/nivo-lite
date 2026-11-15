@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { CALLS_PAGE } from "@/modules/sandbox"
+import { CALLS_PAGE, SANDBOX_LATE_START, type SandboxDeliveryMode } from "@/modules/sandbox"
 
 /** What the person did on the open account that is gone when another account opens. */
 interface AccountScoped {
@@ -12,7 +12,9 @@ interface AccountScoped {
     readonly isKeyRevealed: boolean
     /** The purpose a next case is picked for; null = every call. */
     readonly scope: string | null
-    readonly dropWebhook: boolean
+    readonly mode: SandboxDeliveryMode
+    readonly lateAmount: number
+    readonly lateUnit: string
 }
 
 /** What the open account holds that the person changes: the inputs they typed, how much of the log is drawn and whether the key shows. */
@@ -26,19 +28,26 @@ export interface SandboxAccountState {
     readonly moreCalls: () => void
     readonly setKeyRevealed: (isRevealed: boolean) => void
     readonly setScope: (scope: string | null) => void
-    /** Whether a send leaves the webhook out ("Không gửi webhook"). */
-    readonly dropWebhook: boolean
-    readonly setDropWebhook: (isDropped: boolean) => void
+    /** How the next send delivers the event (`once` = as the case says). */
+    readonly mode: SandboxDeliveryMode
+    /** The interval of `late`: an amount and its unit. */
+    readonly lateAmount: number
+    readonly lateUnit: string
+    readonly setMode: (mode: SandboxDeliveryMode) => void
+    readonly setLateAmount: (amount: number) => void
+    readonly setLateUnit: (unit: string) => void
 }
 
-/** The start of an account: nothing typed, one page of the log, the key hidden. */
+/** The start of an account: nothing typed, one page of the log, the key hidden, events delivered once. */
 const startOf = (accountId: string | null): AccountScoped => ({
     accountId,
     edits: {},
     callsShown: CALLS_PAGE,
     isKeyRevealed: false,
     scope: null,
-    dropWebhook: false,
+    mode: "once",
+    lateAmount: SANDBOX_LATE_START.amount,
+    lateUnit: SANDBOX_LATE_START.unit,
 })
 
 /**
@@ -54,8 +63,12 @@ export const useSandboxAccountState = (accountId: string | null): SandboxAccount
         callsShown: current.callsShown,
         isKeyRevealed: current.isKeyRevealed,
         scope: current.scope,
-        dropWebhook: current.dropWebhook,
-        setDropWebhook: (isDropped) => change({ dropWebhook: isDropped }),
+        mode: current.mode,
+        lateAmount: current.lateAmount,
+        lateUnit: current.lateUnit,
+        setMode: (mode) => change({ mode }),
+        setLateAmount: (lateAmount) => change({ lateAmount }),
+        setLateUnit: (lateUnit) => change({ lateUnit }),
         setInput: (name, value) => change({ edits: { ...current.edits, [name]: value } }),
         moreCalls: () => change({ callsShown: current.callsShown + CALLS_PAGE }),
         setKeyRevealed: (isRevealed) => change({ isKeyRevealed: isRevealed }),

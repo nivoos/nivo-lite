@@ -25,8 +25,23 @@ export interface HandBackEvent {
 }
 
 /**
+ * The verb of the event a key took: the key's one verb, or, for a key listing several (one meaning on several channels, concept templates
+ * rule 12), the event's own `verb` member (every event of the one pipeline names its verb) when the key lists it; null otherwise.
+ */
+const takenVerbOf = (entry: unknown, event: Readonly<Record<string, unknown>>): string | null => {
+    const verbs: unknown = isRecord(entry) ? entry.verbs : undefined
+    if (!Array.isArray(verbs)) return null
+    const listed = verbs.filter((verb: unknown): verb is string => typeof verb === "string")
+    const [only, ...more] = listed
+    if (only === undefined) return null
+    if (more.length === 0) return only
+    const named = event.verb
+    return typeof named === "string" && listed.includes(named) ? named : null
+}
+
+/**
  * The event a wait's output names, or null when it names none (its `timeout` route, an output that is no wait's, a key its triggers do
- * not list, a verb the engine does not know, an event with no id). `on` is the wait's triggers as its params hold them.
+ * not list, a verb the engine does not know, an event with no id). `on` is the wait's keys as its params hold them (each with its verbs).
  */
 export const handBackEventOf = (output: unknown, on: unknown): HandBackEvent | null => {
     if (!isRecord(output)) return null
@@ -34,7 +49,8 @@ export const handBackEventOf = (output: unknown, on: unknown): HandBackEvent | n
     const { event } = output
     if (typeof key !== "string" || key === WAIT_TIMEOUT_ROUTE || !isRecord(event) || !Array.isArray(on)) return null
     const entry: unknown = on.find((one: unknown) => isRecord(one) && one.key === key)
-    const verb = isRecord(entry) && typeof entry.verb === "string" ? (triggerSpecOf(entry.verb)?.verb ?? null) : null
+    const taken = takenVerbOf(entry, event)
+    const verb = taken === null ? null : (triggerSpecOf(taken)?.verb ?? null)
     const { eventId, accountId } = event
     if (verb === null || typeof eventId !== "string" || eventId === "") return null
     return { verb, eventId, accountId: typeof accountId === "string" && accountId !== "" ? accountId : null }

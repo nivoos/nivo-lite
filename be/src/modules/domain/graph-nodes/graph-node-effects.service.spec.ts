@@ -260,11 +260,15 @@ describe("GraphNodeEffectsService.once, D.1: the run, the step, the arguments an
 describe("GraphNodeEffectsService.once, an outcome nobody knows", () => {
     const unknown = (code: string): Error => Object.assign(new Error("sent, no answer"), { code })
 
-    it.each([...OUTCOME_UNKNOWN_CODES])("keeps a call that ended with %s and rethrows it untouched", async (code: string) => {
+    it.each([...OUTCOME_UNKNOWN_CODES])("keeps a call that ended with %s and rethrows its code with the acts made (E-FIX12 A-3)", async (code: string) => {
         const { service, store } = await build()
         const thrown = unknown(code)
 
-        await expect(service.once(WS, INSIDE, STEP_CALL, jest.fn().mockRejectedValue(thrown))).rejects.toBe(thrown)
+        await expect(service.once(WS, INSIDE, STEP_CALL, jest.fn().mockRejectedValue(thrown))).rejects.toMatchObject({
+            code,
+            params: { made: 1 },
+            cause: thrown,
+        })
 
         expect(store.insert).toHaveBeenCalledWith(WS, {
             effectKey: `call:${STEP_CALL.key}`,
@@ -274,7 +278,7 @@ describe("GraphNodeEffectsService.once, an outcome nobody knows", () => {
             args: null,
             subjectEntity: OUTCOME_UNKNOWN_KIND,
             subjectId: code,
-            facts: { code },
+            facts: { code, made: 1 },
         })
     })
 
@@ -298,7 +302,10 @@ describe("GraphNodeEffectsService.once, an outcome nobody knows", () => {
 
         store.insert.mockRejectedValue(new Error("db down"))
         const thrown = unknown("tool_outcome_unknown")
-        await expect(service.once(WS, INSIDE, STEP_CALL, jest.fn().mockRejectedValue(thrown))).rejects.toBe(thrown)
+        await expect(service.once(WS, INSIDE, STEP_CALL, jest.fn().mockRejectedValue(thrown))).rejects.toMatchObject({
+            code: "tool_outcome_unknown",
+            cause: thrown,
+        })
     })
 })
 
@@ -312,7 +319,7 @@ describe("GraphNodeEffectsService.recordsOf", () => {
         ])
 
         await expect(service.recordsOf(WS, { runId: RUN, stepKey: "match" }, ["nivo.tool.customer.message.send"])).resolves.toEqual([
-            { effect: "nivo.tool.customer.message.send", args, subject: { kind: "message", id: "m-1" }, at: AT },
+            { effect: "nivo.tool.customer.message.send", args, subject: { kind: "message", id: "m-1" }, at: AT, key: "call:run:0" },
         ])
         expect(store.ofStep).toHaveBeenCalledWith(WS, RUN, "match", 100)
     })
@@ -377,12 +384,12 @@ describe("GraphNodeEffectsService.once, INTENT BEFORE ACT (QB-P3 rule I-1)", () 
         const { service, store } = await build()
         const thrown = Object.assign(new Error("sent, no answer"), { code })
 
-        await expect(service.once(WS, OUTSIDE, CALL, jest.fn().mockRejectedValue(thrown))).rejects.toBe(thrown)
+        await expect(service.once(WS, OUTSIDE, CALL, jest.fn().mockRejectedValue(thrown))).rejects.toMatchObject({ code, cause: thrown })
 
         expect(store.resettle).toHaveBeenCalledWith(WS, "call:run:0", INTENT_KIND, {
             subjectEntity: OUTCOME_UNKNOWN_KIND,
             subjectId: code,
-            facts: { code },
+            facts: { code, made: 1 },
         })
         expect(store.release).not.toHaveBeenCalled()
     })
@@ -486,5 +493,52 @@ describe("GraphNodeEffectsService.once, through the platform's ONE rule book (QB
         await expect(service.once(WS, TOOL.customerMessageSend, CALL, act)).rejects.toMatchObject({ code: "tool_outcome_unknown" })
 
         expect(act).toHaveBeenCalledTimes(1)
+    })
+})
+
+describe("E-FIX12 rule A-2 / A-3: the open acts of a step, and how many times an act was made under its key", () => {
+    it("lists the step's OPEN acts of repeatable tools with their recorded call key and arguments; settled, unrepeatable or keyless ones not", async () => {
+        const { service, store } = await build()
+        const args = { conversationId: "c-1", text: "Cam on chi" }
+        store.ofStep.mockResolvedValue([
+            recordedAs(OUTCOME_UNKNOWN_KIND, "delivery_outcome_unknown", TOOL.customerMessageSend, { effectKey: `call:${RUN}:thank:aa`, args }),
+            recordedAs("message", "m-1", TOOL.customerMessageSend, { effectKey: `call:${RUN}:thank:bb`, args }),
+            recordedAs(INTENT_KIND, INTENT_KIND, "nivo.tool.agent.tag", { effectKey: `call:${RUN}:thank:cc`, args: { orderId: "o-1" } }),
+            recordedAs(INTENT_KIND, INTENT_KIND, TOOL.customerMessageSend, { effectKey: "dedupe:biz-1", args }),
+            recordedAs(OUTCOME_UNKNOWN_KIND, "delivery_outcome_unknown", TOOL.customerMessageSend, { effectKey: `call:${RUN}:thank:dd` }),
+        ])
+
+        await expect(service.openActsOf(WS, { runId: RUN, stepKey: "thank" })).resolves.toEqual([
+            { effect: TOOL.customerMessageSend, call: { key: `${RUN}:thank:aa`, dedupeKey: null }, args },
+        ])
+    })
+
+    it("an unknown act made again under its key counts one more act, kept on the row and named on the failure", async () => {
+        const { service, store } = await build()
+        store.byKey.mockResolvedValue(
+            recordedAs(OUTCOME_UNKNOWN_KIND, "delivery_outcome_unknown", TOOL.customerMessageSend, { facts: { code: "delivery_outcome_unknown", made: 3 } }),
+        )
+        const again = Object.assign(new Error("sent, no answer"), { code: "delivery_outcome_unknown" })
+
+        await expect(service.once(WS, TOOL.customerMessageSend, CALL, jest.fn().mockRejectedValue(again))).rejects.toMatchObject({
+            code: "delivery_outcome_unknown",
+            params: { made: 4 },
+        })
+        expect(store.resettle).toHaveBeenLastCalledWith(WS, "call:run:0", INTENT_KIND, {
+            subjectEntity: OUTCOME_UNKNOWN_KIND,
+            subjectId: "delivery_outcome_unknown",
+            facts: { code: "delivery_outcome_unknown", made: 4 },
+        })
+    })
+
+    it("a second kind of act (a write that is not repeatable): the kept unknown answers its count, nothing acts", async () => {
+        const { service, store } = await build()
+        store.byKey.mockResolvedValue(
+            recordedAs(OUTCOME_UNKNOWN_KIND, "tool_outcome_unknown", "nivo.tool.agent.tag", { facts: { code: "tool_outcome_unknown", made: 1 } }),
+        )
+        const act = jest.fn()
+
+        await expect(service.once(WS, "nivo.tool.agent.tag", CALL, act)).rejects.toMatchObject({ params: { made: 1 } })
+        expect(act).not.toHaveBeenCalled()
     })
 })

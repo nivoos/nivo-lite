@@ -1,8 +1,6 @@
 import type { ReactElement } from "react"
 import type { Metadata } from "next"
 import { getTranslations } from "next-intl/server"
-import { notFound } from "next/navigation"
-import { MODULE_REGISTRY, answersCustomersOf, hasReplyLimitsOf, isModuleKey } from "@/modules/catalog"
 import { AgentGeneralPageBase } from "./component"
 
 /** What the route hands the page: the type and the instance of the url. */
@@ -19,18 +17,13 @@ export const agentGeneralMetadata = async (): Promise<Metadata> => {
 
 /** The "Chung" section of Setup for one instance: the cards read the instance in the browser; the page knows only the type. */
 export const AgentGeneralPage = async (props: AgentGeneralPageProps): Promise<ReactElement> => {
-    if (!isModuleKey(props.module)) notFound()
-    const def = MODULE_REGISTRY[props.module]
     const t = await getTranslations("modulesCore")
     return (
         <AgentGeneralPageBase
             props={{
                 module: props.module,
                 installationId: props.installationId,
-                glyph: def.glyph,
-                hasReplyLimits: hasReplyLimitsOf(props.module),
                 activityTitle: t("activityTitle"),
-                answersCustomers: answersCustomersOf(props.module),
             }}
         />
     )
@@ -44,10 +37,7 @@ export const AgentGeneralLoadingPage = async (): Promise<ReactElement> => {
             props={{
                 module: undefined,
                 installationId: undefined,
-                glyph: undefined,
-                hasReplyLimits: undefined,
                 activityTitle: t("activityTitle"),
-                answersCustomers: undefined,
             }}
         />
     )

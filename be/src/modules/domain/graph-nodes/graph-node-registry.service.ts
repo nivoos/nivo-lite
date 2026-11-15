@@ -9,6 +9,7 @@ import {
 import { EntityNodePortsService } from "@modules/domain/entity-engine"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { GraphNodesError, GraphNodesErrorCode } from "./errors/graph-nodes.error"
+import { finalRefusalConflictsOf, undeclaredWritesOf } from "./tool-declarations.policy"
 import { InjectGraphNodesOptions } from "./graph-nodes.decorators"
 import { GraphNodesLogEvent } from "./graph-nodes.log-events"
 import type { GraphNodesOptions } from "./graph-nodes.options"
@@ -39,6 +40,13 @@ export class GraphNodeRegistryService implements OnApplicationBootstrap {
         entityPorts: EntityNodePortsService,
     ) {
         this.index = nodeIndexOf(options.install)
+        // E-FIX12 gate: a tool whose write is undeclared (or declared against its core spec) is refused at boot, never guessed at run time.
+        const [undeclared] = undeclaredWritesOf(this.index)
+        if (undeclared !== undefined)
+            throw new GraphNodesError({ code: GraphNodesErrorCode.WriteUndeclared, params: { tool: undeclared.tool, why: undeclared.why } })
+        const [conflict] = finalRefusalConflictsOf(this.index)
+        if (conflict !== undefined)
+            throw new GraphNodesError({ code: GraphNodesErrorCode.FinalRefusalConflict, params: { tool: conflict.tool, why: conflict.why } })
         this.words = options.install.words
         for (const port of entityPorts.ports()) this.addDataPort(port)
         for (const problem of nodeListProblems(options.install)) {

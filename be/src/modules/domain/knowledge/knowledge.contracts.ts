@@ -183,7 +183,7 @@ export interface ReadText {
 export type ReadOutcome = Outcome<ReadText, string>
 
 /** What one run of the indexing job did with its source. */
-export type IndexOutcome = "indexed" | "skipped" | "failed" | "blocked"
+export type IndexOutcome = "indexed" | "skipped" | "failed" | "blocked" | "origin_gone"
 
 /** What the indexing job is told about one delivery. */
 export interface IndexRun {

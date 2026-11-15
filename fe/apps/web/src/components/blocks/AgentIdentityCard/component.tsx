@@ -1,5 +1,5 @@
 import { SlotView } from "@nivo-lite/agent-sdk/client"
-import type { DataSlot, ModuleIconName, SlotLabels } from "@/modules/types"
+import type { DataSlot, SlotLabels } from "@/modules/types"
 import { AvatarEditor } from "@/components/composites/AvatarEditor"
 import { FieldBlock } from "@/components/frames/FieldBlock"
 import { AgentMark } from "../../leaves/AgentMark"
@@ -32,7 +32,6 @@ export interface IdentityEditorView {
 export interface AgentIdentityCardBaseProps {
     readonly props: {
         readonly title: string
-        readonly glyph: ModuleIconName
         readonly module: string
         readonly isDisabled: boolean
         readonly editor: IdentityEditorView

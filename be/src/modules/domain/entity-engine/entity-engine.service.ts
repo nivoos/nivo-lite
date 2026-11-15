@@ -28,6 +28,7 @@ import { listRecords } from "./policies/list-records.policy"
 import { mintScopedTx } from "./policies/scoped-tx.policy"
 import type { AgentScope, ScopedTx } from "./policies/scoped-tx.contracts"
 import type { RecordContactsPort } from "./record-contacts.port"
+import { recordSeqsOf } from "./policies/record-seqs.policy"
 
 /** What an agent's deletion takes with it: its records by declared type (a type with none is left out) and the files they hold. */
 export interface AgentFootprint {
@@ -43,6 +44,9 @@ export interface AgentFootprint {
 const CURSOR_KEY_LABEL = "entity-engine.cursor"
 
 const UUID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu
+
+/** Work run on a scoped transaction's own connection outside the engine scope (`EntityEngineService.outsideScope`). */
+export type OutsideScopeWork<T> = (manager: EntityManager) => Promise<T>
 
 @Injectable()
 /**
@@ -98,6 +102,21 @@ export class EntityEngineService {
         }
     }
 
+    /**
+     * Runs `work` on the scoped transaction's OWN connection OUTSIDE the engine scope (`engine_scope_leave`: the session role, which reads
+     * the core tables the scope role has no grant on), then enters the scope again for the same workspace, even when `work` throws. What a
+     * scoped write or read needs of a core capability (the contacts a contact field is proved against) is read so, on the connection that
+     * may hold the write's locks, never on a second connection of the pool (concept outbox-job rule 12).
+     */
+    async outsideScope<T>(tx: ScopedTx, work: OutsideScopeWork<T>): Promise<T> {
+        await callDbFunction(tx.manager, "public.engine_scope_leave", [])
+        try {
+            return await work(tx.manager)
+        } finally {
+            await callDbFunction(tx.manager, "public.engine_scope_enter", [tx.workspaceId])
+        }
+    }
+
     /** The declaration of an entity, or the engine error of a name the catalog does not hold. */
     definition(name: string): EntityDefinition {
         const entity = this.catalog.get(name)
@@ -111,13 +130,18 @@ export class EntityEngineService {
         return await this.failures.reading(entity, () => getRecord(tx, this.definition(entity).name, id))
     }
 
+    /** The stream positions of records of one type, by id (concept agent-data rule 5); an id with none is absent. */
+    async seqsOf(tx: ScopedTx, entity: string, ids: ReadonlyArray<string>): Promise<ReadonlyMap<string, string>> {
+        return await this.failures.reading(entity, () => recordSeqsOf(tx, this.definition(entity).name, ids))
+    }
+
     /**
      * One page of a query. `scope` binds the cursor to its list (`cursorScopeOf`): a cursor minted for another list, or forged, is
      * refused. Rows carry their toOne joins and the toMany records included for them (one extra statement per include).
      */
     async list(tx: ScopedTx, asked: Query, scope: string): Promise<ListPage> {
         this.assertQuery(asked)
-        const query = await this.followingMerges(tx.workspaceId, asked)
+        const query = await this.followingMerges(tx, asked)
         const after = query.page.after === undefined ? null : this.positionOf(query.page.after, scope)
         const found = await this.failures.reading(query.from, () => listRecords(tx, this.catalog, { query, after }))
         const page = found.slice(0, query.page.size)
@@ -158,7 +182,7 @@ export class EntityEngineService {
     /** The groups and measures of an aggregate. */
     async aggregate(tx: ScopedTx, asked: Aggregate): Promise<ReadonlyArray<AggregateRow>> {
         this.assertQuery(asked)
-        const aggregate = await this.followingMerges(tx.workspaceId, asked)
+        const aggregate = await this.followingMerges(tx, asked)
         return await this.failures.reading(aggregate.from, () => aggregateRecords(tx, this.catalog, aggregate))
     }
 
@@ -167,13 +191,15 @@ export class EntityEngineService {
      * keeps the contact id it was written with, and a merge is followed at read time, never by rewriting rows. Unchanged when the tree
      * filters no contact field or no contacts port is bound.
      */
-    private async followingMerges<T extends Query | Aggregate>(workspaceId: string, tree: T): Promise<T> {
+    private async followingMerges<T extends Query | Aggregate>(tx: ScopedTx, tree: T): Promise<T> {
         const entity = this.catalog.get(tree.from)
         const { where } = tree
         if (entity === undefined || where === undefined || this.contacts === undefined) return tree
         const ids = [...new Set(contactFilterValuesOf(entity, where))]
         if (ids.length === 0) return tree
-        const aliases = await this.contacts.aliasesOf(workspaceId, ids)
+        const { contacts } = this
+        // On the read's own connection, outside the scope (the scope role reads no contacts): never a second connection of the pool.
+        const aliases = await this.outsideScope(tx, (manager) => contacts.aliasesOf(tx.workspaceId, ids, manager))
         return { ...tree, where: contactFilterOf(entity, where, aliases) }
     }
 

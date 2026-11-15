@@ -33,6 +33,20 @@ export type FactSubjectType =
 /** Who may read a Second Brain fact. */
 export type FactScope = "public" | "internal" | "restricted"
 
+/** A document a module suggests the shop to add to its knowledge; never a requirement. */
+export interface ModuleKnowledgeIdea {
+    /** The stable idea key; the same key declared by several modules is one suggestion. */
+    readonly key: string
+    /** What the document is about, as a short title. */
+    readonly topic: Bilingual
+    /** What to write in it. */
+    readonly hint: Bilingual
+    /** The business types it fits; absent means any. */
+    readonly businessTypes?: ReadonlyArray<string> | undefined
+    /** It fits every agent of the module's kind of work: it ranks after the specific ideas. Absent: it does not. */
+    readonly general?: boolean | undefined
+}
+
 /** One category the catalogue groups modules by. */
 export interface ModuleCategory {
     /** The stable category key. */
@@ -152,6 +166,8 @@ export interface ModuleDefinition {
     readonly available: boolean
     /** The folder of the NIVO base knowledge for the module. */
     readonly knowledgeFolder: string
+    /** The documents the module suggests the shop to add to its knowledge; none when absent. */
+    readonly knowledgeIdeas?: ReadonlyArray<ModuleKnowledgeIdea> | undefined
     /** The key of the module's workbench, when it has one. */
     readonly workbench: string | null
     /** The key of the module's extra settings, when it has any. */

@@ -1,4 +1,4 @@
-import type { AgentModule, BatchMeta, ChosenLink, LinkInput, QueueItem } from "@/modules/documents"
+import type { BatchMeta, ChosenLink, LinkInput, QueueItem, UploadArea } from "@/modules/documents"
 import type { ClipboardEvent } from "react"
 
 /** What was skipped in an archive: its name and how many entries could not be read. */
@@ -81,8 +81,10 @@ export interface AddPreset {
 export interface BatchOptionFields {
     readonly topic: string
     readonly tags: string
-    readonly module: AgentModule | "all"
+    readonly module: string
     readonly instanceId: string | null
+    /** The area the batch goes to; internal until the owner chooses public. */
+    readonly visibility: UploadArea
 }
 
 /** What the batch options give the drawer. */
@@ -92,6 +94,7 @@ export interface BatchOptions extends BatchOptionFields {
     readonly setTopic: (value: string) => void
     readonly setTags: (value: string) => void
     readonly pickModule: (value: string | null) => void
+    readonly pickVisibility: (value: string) => void
     /** The options in the form a send needs. */
     readonly meta: () => BatchMeta
 }

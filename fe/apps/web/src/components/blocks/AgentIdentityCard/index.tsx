@@ -1,17 +1,15 @@
 "use client"
 
 import { useAgentRoute } from "@/hooks/installations"
-import type { ModuleIconName } from "@/modules/types"
 import { useTranslations } from "next-intl"
 import { useAgentInstallation, useAgentPictureEdit, useAgentRights } from "@/hooks/agentSettings"
 import { mapSlot, useSlotLabels } from "@/hooks/slot"
 import { AgentIdentityCardBase, type IdentityView } from "./component"
 
-/** The agent the card dresses: the instance of the url, and the glyph of its type. */
+/** The agent the card dresses: the instance of the url. */
 type AgentIdentityCardProps = {
     readonly installationId?: string | undefined
     readonly module?: string | undefined
-    readonly glyph?: ModuleIconName | undefined
 }
 
 const PLACEHOLDER: IdentityView = {
@@ -39,7 +37,6 @@ export const AgentIdentityCard = (props: AgentIdentityCardProps) => {
         <AgentIdentityCardBase
             props={{
                 title: tg("sublabelPicture"),
-                glyph: props.glyph ?? route.glyph,
                 module: route.module,
                 isDisabled: !canEdit || picture.isBusy,
                 editor: { ...picture.editor, pickLabel: tc("pictureUpload"), removeLabel: tg("useSprout"), isRemoveCompact: true },

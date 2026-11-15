@@ -2,6 +2,7 @@ import { Injectable, Optional } from "@nestjs/common"
 import type { GraphSpec } from "@nivo-lite/agent-sdk/graph"
 import type { ScopedTx } from "@modules/domain/entity-engine"
 import { GraphNodeRegistryService } from "@modules/domain/graph-nodes"
+import { INSTALLED } from "@modules/domain/installed-plugins"
 import { AgentWorkflowRecordsService } from "./agent-workflow-records.service"
 import { AgentGraphsService } from "./agent-graphs.service"
 import { jsonOf } from "./agent-graphs.mapper"
@@ -152,7 +153,12 @@ export class AgentWorkflowStoreService {
     ): Promise<void> {
         const all = await this.callablesOf(tx, together)
         const saver = { agentId: workflow.agentId, moduleKey: graph.moduleKey, key: workflow.key }
-        const own = callContractProblems(saver, graph, all.map((entry) => entry.callable))
+        const own = callContractProblems(
+            saver,
+            graph,
+            all.map((entry) => entry.callable),
+            (moduleKey, workflowKey) => INSTALLED.templatesOf(moduleKey).some((template) => template.id === `${moduleKey}.${workflowKey}`),
+        )
         const broken = brokenCallersOf(
             saver,
             graph,

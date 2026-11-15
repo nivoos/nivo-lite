@@ -1,9 +1,7 @@
 import { Injectable } from "@nestjs/common"
 import { LATEST_VERSION } from "@nivo-lite/agent-sdk/graph"
-import type { EntityManager } from "typeorm"
 import { WORKFLOW_CALL_TRIGGER } from "@modules/domain/agent-schedules/workflow-call.trigger"
 import { ProviderTriggersService } from "@modules/domain/provider-triggers"
-import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { payloadOfJob, type ClaimedJob } from "@modules/platform/jobs"
 import { DELIVER_WORKFLOW_START_JOB } from "@modules/queues/workflow-start"
 import { AgentGraphsError, AgentGraphsErrorCode } from "./errors/agent-graphs.error"
@@ -18,42 +16,38 @@ import { AgentGraphsError, AgentGraphsErrorCode } from "./errors/agent-graphs.er
  */
 export class AgentWorkflowStartDeliveryService {
     constructor(
-        @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
         private readonly triggers: ProviderTriggersService,
     ) {}
 
     /**
-     * Delivers the start the claimed job names (its payload was checked against the job's declaration by the runner). The delivery and
-     * its verdict are one transaction: a start no live registration of the agent took THROWS inside it, so nothing is claimed and a resume
+     * Delivers the start the claimed job names (its payload was checked against the job's declaration by the runner). A start no live
+     * registration of the agent took THROWS (its delivery wrote nothing), so nothing is claimed and a resume
      * can deliver it once the workflow runs again; a repeat of a start already delivered is a normal end.
      */
     async deliverJob(job: ClaimedJob): Promise<void> {
         const start = payloadOfJob(DELIVER_WORKFLOW_START_JOB, job)
         const event = WORKFLOW_CALL_TRIGGER.translate({ key: start.key, params: start.inputs }, { connectionId: null })
         if (event === null) return
-        await this.entityManager.transaction(async (tx) => {
-            const result = await this.triggers.deliver(
+        // Prepared with no transaction open, committed in one of its own (concept outbox-job rule 12). A start no registration took
+        // wrote nothing in it (a call feeds no stream and counts on no switch), so the throw after it claims nothing either.
+        const result = await this.triggers.deliverAlone({
+            workspaceId: start.workspaceId,
+            declaration: WORKFLOW_CALL_TRIGGER,
+            connectionId: null,
+            agentId: start.agentId,
+            events: [
                 {
-                    workspaceId: start.workspaceId,
-                    declaration: WORKFLOW_CALL_TRIGGER,
-                    connectionId: null,
-                    agentId: start.agentId,
-                    events: [
-                        {
-                            event,
-                            pin: { workflow: start.workflowKey, version: LATEST_VERSION },
-                            actorMemberId: start.memberId,
-                        },
-                    ],
+                    event,
+                    pin: { workflow: start.workflowKey, version: LATEST_VERSION },
+                    actorMemberId: start.memberId,
                 },
-                tx,
-            )
-            if (result.status !== "delivered" || (result.woken.length === 0 && result.repeats === 0)) {
-                throw new AgentGraphsError({
-                    code: AgentGraphsErrorCode.WorkflowStartUntaken,
-                    params: { agentId: start.agentId, workflow: start.workflowKey },
-                })
-            }
+            ],
         })
+        if (result.status !== "delivered" || (result.woken.length === 0 && result.repeats === 0)) {
+            throw new AgentGraphsError({
+                code: AgentGraphsErrorCode.WorkflowStartUntaken,
+                params: { agentId: start.agentId, workflow: start.workflowKey },
+            })
+        }
     }
 }

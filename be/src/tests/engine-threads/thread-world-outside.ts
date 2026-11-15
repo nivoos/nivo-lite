@@ -31,6 +31,8 @@ import {
     ToolRunnerService,
 } from "@modules/domain/tools"
 import { AccountAttachmentsService, type ProviderAttachmentView } from "@modules/domain/tool-grants"
+import type { ToolCallResult, ToolFailure, ToolReceiptsService } from "@modules/domain/tool-receipts"
+import { mutatesBySpec } from "@modules/domain/tool-specs"
 import { AiService, type AiAgentTurns, type AiTurnRequest } from "@modules/integrations/ai"
 import { CLOCK, type Clock } from "@modules/platform/clock"
 import { LOGGER, type Logger } from "@modules/platform/logging"
@@ -394,6 +396,14 @@ export interface Rights {
     readonly answers?: Map<string, Array<unknown>>
     /** Every call the door's tool road was asked, in order, each attempt with the account it was handed (null: none). */
     readonly asked?: Array<ToolAsked>
+    /**
+     * The gateway's durable receipt (the REAL `ToolReceiptsService`, `tool-receipts-memory.builder.ts`) put behind the scripted WRITES of
+     * the door's tool road, as the app's gateway puts it behind every write: a call asked again under a key answers what the key kept
+     * when it settled, and is made again when it did not (RETRY-FIX). Absent: the scripted answers are given as they come.
+     */
+    readonly receipts?: ToolReceiptsService
+    /** Every scripted write the connector behind the receipt actually made (absent: not counted). */
+    readonly acted?: Array<ToolAsked>
 }
 
 /** One call the world's door was asked on the tool road. */
@@ -535,6 +545,8 @@ const toolCallOf = async (rights: Rights, call: NodeToolCall, store?: Outside["s
         })
     await Promise.resolve()
     const scripted = rights.answers?.get(call.tool) ?? []
+    if (scripted.length > 0 && rights.receipts !== undefined && mutatesBySpec(call.tool) === true)
+        return receiptAnswerOf(rights, rights.receipts, call, scripted)
     if (scripted.length > 0) {
         const next: unknown = scripted.length > 1 ? scripted.shift() : scripted[0]
         if (next instanceof Error) throw next
@@ -546,6 +558,37 @@ const toolCallOf = async (rights: Rights, call: NodeToolCall, store?: Outside["s
             : worldReadOf(store, call.tool, call.args, leadOfTurn(store, turnOfToken(call.token)), contactOfTurn(store, turnOfToken(call.token)), chat, turnOfToken(call.token), now(), call.key)
     if (read !== null) return doorAnswerOf(read)
     return structuredClone(call.tool === TOOL.brainChangePropose ? FILED : SEARCH)
+}
+
+/** The failure codes of a gateway result (`ToolFailure`), as the world's scripted errors name them in `reason`. */
+const GATEWAY_FAILURES: ReadonlyArray<ToolFailure> = ["unavailable", "tool_error", "unknown_outcome", "not_granted", "idempotency_key_required"]
+
+/** The gateway result a scripted answer stands for: a value is `ok`; an error names its failure by its `reason` (else `unavailable`). */
+const resultOfScripted = (next: unknown): ToolCallResult => {
+    if (!(next instanceof Error)) return { ok: true, value: { ...(typeof next === "object" && next !== null ? next : {}) } }
+    const reason: unknown = next instanceof GraphNodesError ? next.params.reason : undefined
+    return { ok: false, code: GATEWAY_FAILURES.find((one) => one === reason) ?? "unavailable", detail: next.message }
+}
+
+/**
+ * A scripted write behind the gateway's durable receipt: the connector (the next scripted answer) runs only when the receipt lets it
+ * (a first call, or a key whose kept result did not settle); the door then answers the result as the real door does (`failureOf`: a
+ * failure is `GRAPH_NODES_TOOL_FAILED` with the gateway's code as its reason).
+ */
+const receiptAnswerOf = async (
+    rights: Rights,
+    receipts: ToolReceiptsService,
+    call: NodeToolCall,
+    scripted: Array<unknown>,
+): Promise<unknown> => {
+    const workspaceId = turnOfToken(call.token)?.workspaceId ?? ""
+    const result = await receipts.run(workspaceId, `${call.tool}:${call.key}`, () => {
+        rights.acted?.push({ tool: call.tool, args: structuredClone(call.args), key: call.key, connectionId: call.account?.connectionId ?? null })
+        const next: unknown = scripted.length > 1 ? scripted.shift() : scripted[0]
+        return Promise.resolve(resultOfScripted(next))
+    })
+    if (result.ok) return structuredClone(result.value)
+    throw new GraphNodesError({ code: GraphNodesErrorCode.ToolFailed, params: { tool: call.tool, reason: result.code } })
 }
 
 /**

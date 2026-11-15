@@ -51,6 +51,7 @@ export class BankFeedReceiptsService {
                 content: reading.content,
                 eventId: reading.eventId,
                 fallbackBankName: "payOS",
+                ...(reading.requestRef === undefined ? {} : { requestRef: reading.requestRef }),
                 ...bankFactsOfCredit(reading),
             },
         ])

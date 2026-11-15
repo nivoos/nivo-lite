@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation"
 import { useState } from "react"
 import { useCatalogEntries, useInstallations, type CatalogRole } from "@/hooks/installations"
 import { suggestedHandleOf } from "@/modules/agentAvatar"
-import { isModuleKey, type ModuleKey } from "@/modules/catalog"
+import { useModuleCatalog } from "@/hooks/moduleCatalog"
 import { instancesOf, type Installation } from "@/modules/installations"
 import { CREATE_AGENT_PARAM, roleOfParam, startValueOf } from "./agentCreate.shared"
 
@@ -13,7 +13,7 @@ export interface AgentCreateForm {
     readonly isOpen: boolean
     readonly isRoleOpen: boolean
     readonly roles: ReadonlyArray<CatalogRole>
-    readonly role: ModuleKey | null
+    readonly role: string | null
     readonly setRole: (value: string | null) => void
     readonly name: string
     readonly setName: (value: string) => void
@@ -37,12 +37,13 @@ const suggestedStartOf = (siblings: ReadonlyArray<Installation>): string => {
 export const useAgentCreateForm = (): AgentCreateForm => {
     const param = useSearchParams().get(CREATE_AGENT_PARAM)
     const { roles } = useCatalogEntries()
+    const { modules } = useModuleCatalog()
     const { installations } = useInstallations()
-    const [chosenRole, setChosenRole] = useState<ModuleKey | null>(null)
+    const [chosenRole, setChosenRole] = useState<string | null>(null)
     const [name, setName] = useState("")
     const [typedHandle, setTypedHandle] = useState<string | null>(null)
     const [startValue, setStartValue] = useState<string | null>(null)
-    const fromParam = roleOfParam(param, isModuleKey)
+    const fromParam = roleOfParam(param, (key) => modules[key] !== undefined)
     const role = fromParam ?? chosenRole
     const siblings = role === null || installations === undefined ? [] : instancesOf(installations, role)
     return {
@@ -51,7 +52,7 @@ export const useAgentCreateForm = (): AgentCreateForm => {
         roles,
         role,
         setRole: (value) => {
-            setChosenRole(value !== null && isModuleKey(value) ? value : null)
+            setChosenRole(value !== null && modules[value] !== undefined ? value : null)
             setStartValue(null)
         },
         name,

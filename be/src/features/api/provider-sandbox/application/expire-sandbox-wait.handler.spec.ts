@@ -1,5 +1,5 @@
 import { mock } from "@starci/jest-preset"
-import type { ThreadWaitExpiryService } from "@modules/domain/agent-threads"
+import type { ThreadParkedDeadlinesService } from "@modules/domain/agent-threads"
 import type { ProviderSandboxAccountsService } from "@modules/domain/provider-sandbox"
 import type { Logger } from "@modules/platform/logging"
 import { ExpireSandboxWaitCommand } from "./provider-sandbox.commands"
@@ -15,7 +15,7 @@ const expireOf = () =>
 /** The handler over mocked doors. */
 const handlerOf = () => {
     const accounts = mock<ProviderSandboxAccountsService>()
-    const expiry = mock<ThreadWaitExpiryService>()
+    const expiry = mock<ThreadParkedDeadlinesService>()
     accounts.assertManager.mockResolvedValue(undefined)
     return { accounts, expiry, handler: new ExpireSandboxWaitHandler(mock<Logger>(), accounts, expiry) }
 }
@@ -23,19 +23,19 @@ const handlerOf = () => {
 describe("ExpireSandboxWaitHandler", () => {
     it("checks the gate as the signed-in person, then expires the wait and answers the run", async () => {
         const { accounts, expiry, handler } = handlerOf()
-        expiry.expireNow.mockResolvedValue("admitted")
+        expiry.fireNow.mockResolvedValue("admitted")
 
         const result = await handler.execute(expireOf())
 
         expect(accounts.assertManager).toHaveBeenCalledWith({ principalId: "user-1", workspaceId: "ws-1" })
-        expect(expiry.expireNow).toHaveBeenCalledWith("ws-1", "run-1")
+        expect(expiry.fireNow).toHaveBeenCalledWith("ws-1", "run-1")
         expect(result).toEqual({ runId: "run-1", outcome: "admitted" })
-        expect(accounts.assertManager.mock.invocationCallOrder[0]).toBeLessThan(expiry.expireNow.mock.invocationCallOrder[0] ?? 0)
+        expect(accounts.assertManager.mock.invocationCallOrder[0]).toBeLessThan(expiry.fireNow.mock.invocationCallOrder[0] ?? 0)
     })
 
     it.each(["closed", "moved", "early", "refused"] as const)("refuses RunNotWaiting with the engine's word %p", async (outcome) => {
         const { expiry, handler } = handlerOf()
-        expiry.expireNow.mockResolvedValue(outcome)
+        expiry.fireNow.mockResolvedValue(outcome)
 
         await expect(handler.execute(expireOf())).rejects.toMatchObject({
             code: "PROVIDER_SANDBOX_RUN_NOT_WAITING",
@@ -48,6 +48,6 @@ describe("ExpireSandboxWaitHandler", () => {
         accounts.assertManager.mockRejectedValue({ code: "PROVIDER_SANDBOX_OFF" })
 
         await expect(handler.execute(expireOf())).rejects.toMatchObject({ code: "PROVIDER_SANDBOX_OFF" })
-        expect(expiry.expireNow).not.toHaveBeenCalled()
+        expect(expiry.fireNow).not.toHaveBeenCalled()
     })
 })

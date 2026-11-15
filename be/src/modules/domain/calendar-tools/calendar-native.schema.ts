@@ -1,6 +1,7 @@
 import { z } from "zod"
 import type { ToolJson } from "@modules/domain/tools"
-import { clockMinutesOf, knownZone } from "./calendar-slots.policy"
+import { isKnownTimeZone } from "@modules/domain/workspace-settings"
+import { clockMinutesOf } from "./calendar-slots.policy"
 
 /**
  * The bounded arguments of the generic calendar tools. The provider documents few bounds (cited where they exist); a bound it does not
@@ -29,7 +30,7 @@ const MOMENT_MAX = 64
 const GUEST_MAX = 320
 const CLOCK_MAX = 5
 
-const ZONE = z.string().min(1).max(64).refine(knownZone, { message: "unknown time zone" })
+const ZONE = z.string().min(1).max(64).refine(isKnownTimeZone, { message: "unknown time zone" })
 const MOMENT = z.iso.datetime({ offset: true }).max(MOMENT_MAX)
 const calendarId = z
     .string()

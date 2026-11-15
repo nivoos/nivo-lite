@@ -1,4 +1,5 @@
 import type { ModuleServer, ModuleTemplate } from "@nivo-lite/agent-sdk/module"
+import { knowledgeIdeasOf } from "../../../shared/modules/knowledge-ideas/knowledge-ideas"
 import { HIRING_COPY as copy } from "./copy"
 
 /** The hiring module: its copy, agent and setup gates. */
@@ -19,6 +20,7 @@ export const HIRING_TEMPLATE: ModuleTemplate = {
     includedWithWorkspace: false,
     available: true,
     knowledgeFolder: "hiring",
+    knowledgeIdeas: knowledgeIdeasOf(["hiring_roles", "hiring_process", "hiring_benefits", "hiring_salary_bands", "brand_voice"]),
     workbench: "hiring",
     settingsExtras: null,
     requires: {

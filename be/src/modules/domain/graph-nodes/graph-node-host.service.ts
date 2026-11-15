@@ -4,6 +4,8 @@ import {
     NodeRunError,
     effectAnswerOf,
     guidedModelRequest,
+    isBusinessFailure,
+    isNodeConfused,
     runNode,
     runTemplateNode,
     toolAnswerOf,
@@ -60,7 +62,9 @@ import { conditionBranchOf } from "./template-condition.policy"
 import { runDayOf, runIdOfKey, runItemOf, splitTemplateBindings } from "./template-run.policy"
 import { missOfAnswer, withMiss, type HostedNodeRun, type StepMiss } from "./step-misses.policy"
 import { failureAfterWrites, writesNotedOf } from "./node-writes.policy"
+import { actRefusalsKeptOf } from "./act-refusals.policy"
 import { workspacePoliciesTextOf } from "./workspace-policies.policy"
+import { stretchStartOf } from "@modules/domain/tools/step-receipts.policy"
 
 /** The ledger entry that holds a template node's run step instant (`ctx.run.at`): written once per run step, read on every re-run. */
 /**
@@ -73,6 +77,18 @@ const STEP_INSTANT = "engine.step-instant"
 
 /** The ledger entry that holds a template node's run step day (`ctx.run.day`): fixed with the instant, so a re-run never moves it. */
 const STEP_DAY = "engine.step-day"
+
+/**
+ * The engine's own ledger id of one model turn of a node run (E-FIX12 rule A-6): kept per attempt and position with its purpose and
+ * answer, beside the step's acts, so a run that continues an attempt replays the answers that made its recorded acts. A value, no act.
+ */
+const MODEL_TURN = "engine.model-turn"
+
+/** One model turn an earlier attempt of the step recorded: its purpose and its answer. */
+interface RecordedTurn {
+    readonly purpose: string
+    readonly answer: unknown
+}
 
 /** The call the workspace's policies (L2) are kept under in a run's turn record, so a restart of the visit replays the same L2. */
 const WORKSPACE_POLICIES_CALL = "workspace-policies"
@@ -141,6 +157,16 @@ const askedFingerprintOf = (cause: unknown): string | null => {
     const { fingerprint } = cause.params
     return typeof fingerprint === "string" && fingerprint !== "" ? fingerprint : null
 }
+
+/**
+ * True for an end of a node run whose words a retry continues (RETRY-FIX, one retry road): the run FAILED where it acted or tried to
+ * (an act refused, failed, not sent or of unknown outcome; a throw) or ASKED a person (an approval ask), so the model turns that made its
+ * intent are kept and every retry without a person's words (a Retry, a deadline's `timeout`) makes the same calls with the same
+ * arguments under the same keys. An approval that expired (`timeout`) is a refusal of THAT call: a model asked afresh writes other words,
+ * which is another call and another card, forever; the recorded turns make the same call, which the refusal answers. Never the node's own
+ * typed end (its `cannot`, its AI's confusion: a decision of the words, which a retry asks afresh).
+ */
+const continuedOnRetry = (cause: unknown): boolean => !isBusinessFailure(cause) && !isNodeConfused(cause)
 
 /** One attempt of a run step: the step's key, and when this attempt began. */
 interface Attempt {
@@ -219,7 +245,9 @@ export class GraphNodeHostService implements OnModuleInit {
             step: input.step,
             approved: input.approved ?? NONE_APPROVED,
         })
-        const ports = this.takesTurns(input.nodeId) ? { ...own, agent: this.agentOf(scope, input.record, asks) } : own
+        const turns = await this.recordedModelOf(own.model, turn.workspaceId, input, attempt)
+        const recorded = { ...own, model: turns.model }
+        const ports = this.takesTurns(input.nodeId) ? { ...recorded, agent: this.agentOf(scope, input.record, asks) } : recorded
         // Every model call of the node is booked to its step and agent (owner: "the model and the credits on every node"); a step blocks-core
         // declares a chat turn is booked as one, to the message it answers.
         const work = nodeWorkOf(input.key, turn.agentId, declaredWorkOf(input.nodeId), input.input)
@@ -238,13 +266,23 @@ export class GraphNodeHostService implements OnModuleInit {
                 },
                 // Rule Q-2 / R79: the answered non-repeatable writes of this run, so a failure after one is an unknown outcome. L2 of the
                 // node's model calls: the workspace's policies (no door call: the engine's own read, outside the step's calls).
-                { ...writesNotedOf(input.replay === undefined ? ports : input.replay(ports), wrote), policies: this.policiesOf(turn, input.record) },
+                // E-FIX12 rule A-1: a refusal its tool declares as the outside's "no" to an act that left stops the node (`asks`).
+                {
+                    ...actRefusalsKeptOf(writesNotedOf(input.replay === undefined ? ports : input.replay(ports), wrote), asks),
+                    policies: this.policiesOf(turn, input.record),
+                },
             ),
         ).catch((cause: unknown) => {
             throw asks[0] ?? failureAfterWrites(cause, wrote)
+        }).catch(async (cause: unknown) => {
+            await turns.keptIfUnsettled(cause)
+            throw cause
         })
         const [ask] = asks
-        if (ask !== undefined) throw ask
+        if (ask !== undefined) {
+            await turns.keptIfUnsettled(ask)
+            throw ask
+        }
         return ran
     }
 
@@ -276,8 +314,11 @@ export class GraphNodeHostService implements OnModuleInit {
             approved: input.approved ?? NONE_APPROVED,
             road,
         })
-        const withAgent = this.takesTurns(input.nodeId) ? { ...own, agent: this.agentOf(scope, input.record, asks) } : own
-        const ports = writesNotedOf(input.replay === undefined ? withAgent : input.replay(withAgent), wrote)
+        const turns = await this.recordedModelOf(own.model, turn.workspaceId, input, attempt)
+        const recorded = { ...own, model: turns.model }
+        const withAgent = this.takesTurns(input.nodeId) ? { ...recorded, agent: this.agentOf(scope, input.record, asks) } : recorded
+        // E-FIX12 rule A-1: a refusal its tool declares as the outside's "no" to an act that left stops the node (`asks`).
+        const ports = actRefusalsKeptOf(writesNotedOf(input.replay === undefined ? withAgent : input.replay(withAgent), wrote), asks)
         const bound = splitTemplateBindings(node, input.params, input.input)
         const at = await this.stepInstantOf(turn.workspaceId, input.key)
         const day = await this.stepDayOf(turn.workspaceId, input.key, at)
@@ -313,7 +354,7 @@ export class GraphNodeHostService implements OnModuleInit {
                         const told = toolAnswerOf(answer)
                         if (!told.ok && isOutcomeUnknownCode(told.refusal))
                             asks.push(new EffectOutcomeUnknownError({ code: told.refusal, params: { effect: id } }))
-                        withMiss(misses, missOfAnswer(id, answer))
+                        withMiss(misses, missOfAnswer(id, answer, installed.effects.get(id) ?? installed.tools.get(id)))
                         return answer
                     },
                     model: ports.model,
@@ -325,10 +366,59 @@ export class GraphNodeHostService implements OnModuleInit {
             ),
         ).catch((cause: unknown) => {
             throw asks[0] ?? failureAfterWrites(cause, wrote)
+        }).catch(async (cause: unknown) => {
+            await turns.keptIfUnsettled(cause)
+            throw cause
         })
         const [ask] = asks
-        if (ask !== undefined) throw ask
+        if (ask !== undefined) {
+            await turns.keptIfUnsettled(ask)
+            throw ask
+        }
         return misses.length === 0 ? ran : { ...ran, misses }
+    }
+
+    /**
+     * E-FIX12 rule A-2: the open acts of the run step of `input` (each act still unknown, of a tool that declares itself `repeatable`,
+     * with the arguments and the key the ledger kept for it) made AGAIN, exactly as they were recorded, through the step's own door (the
+     * same rights, account, approval and ledger as the node's call), with NO model call and no node code. An automatic retry of a step
+     * whose act ended with its outcome unknown makes this first: the act of a step position is its recorded intent, never words a model
+     * writes again. Throws what stops the step (the act still unknown, refused for good, waiting for a person); answers how many acts it
+     * made again (0: none was open). The node then runs to finish the step, and its write at that position is answered by the receipt.
+     */
+    async remake(input: NodeRunInput): Promise<number> {
+        const turn = await this.withSubject(input.turn)
+        const runId = runIdOfKey(input.key)
+        const open = await this.effects.openActsOf(turn.workspaceId, { runId, stepKey: input.key.slice(runId.length + 1) })
+        const installed = this.registry.installed()
+        const acts = open.flatMap((act) => {
+            const effect = installed.effects.get(act.effect)
+            return effect === undefined ? [] : [{ ...act, definition: effect }]
+        })
+        if (acts.length === 0) return 0
+        const asks: Array<StopsTheNode> = []
+        const own = this.portsOf(
+            turn,
+            { workspaceId: turn.workspaceId, locale: turn.locale, model: declaredModelOf(input.nodeId, input.model) },
+            {
+                approval: input.approval ?? null,
+                asks,
+                attempt: { step: input.key, startedAt: this.clock.now().toISOString() },
+                step: input.step,
+                approved: input.approved ?? NONE_APPROVED,
+                road: { declined: input.declined ?? NONE_DECLINED },
+            },
+        )
+        const ports = actRefusalsKeptOf(own, asks)
+        for (const act of acts) {
+            const subject = await ports.execute(act.definition, act.args, act.call)
+            // A refusal fact whose code says its outcome is unknown stops the step like a thrown one (R74).
+            const told = toolAnswerOf(subject)
+            if (!told.ok && isOutcomeUnknownCode(told.refusal))
+                asks.push(new EffectOutcomeUnknownError({ code: told.refusal, params: { effect: act.effect } }))
+            stopDecided(asks)
+        }
+        return acts.length
     }
 
     /**
@@ -379,6 +469,91 @@ export class GraphNodeHostService implements OnModuleInit {
             return ports.execute(effect, Object.fromEntries(Object.entries(data)), { key, dedupeKey: null }).then(effectAnswerOf)
         }
         return ports.callTool(installed.tools.get(id) ?? toolOfId(id), args, key)
+    }
+
+    /**
+     * E-FIX12 rule A-6 + RETRY-FIX: the node run's model with its turns kept in memory, and written to the effect ledger (per attempt and
+     * position, with their purpose) only when the run ends unsettled where it acted (`keptIfUnsettled`, `continuedOnRetry`: an act of
+     * unknown outcome, refused, failed or not sent): those are the words that made the intent. On a run that continues that attempt
+     * (`modelReplay`: every retry without a person's words) each turn is answered by position with what the latest earlier attempt of the
+     * present stretch (after the newest words of a person) recorded while the purpose matches: no model call, the same words, so the same
+     * acts under the same keys (a settled one answered by its receipt, an unsettled one made again) and an output that states what was
+     * done. A turn of another purpose, or one the attempt did not record, is asked live and every later one too. A record that cannot be
+     * written never fails the step. The host's own agent loop (`AGENT_LOOP`) is not covered: its turns go through `agentOf`.
+     */
+    private async recordedModelOf(
+        model: NodeHostPorts["model"],
+        workspaceId: string,
+        input: NodeRunInput,
+        attempt: Attempt,
+    ): Promise<{ readonly model: NodeHostPorts["model"]; readonly keptIfUnsettled: (cause: unknown) => Promise<void> }> {
+        const runId = runIdOfKey(input.key)
+        const place = { runId, stepKey: input.key.slice(runId.length + 1) }
+        const stretch = stretchStartOf(input.turn.founderAnswers)
+        const earlier = input.modelReplay === true ? await this.earlierTurnsOf(workspaceId, place, attempt.startedAt, stretch) : []
+        const state = { live: false }
+        const seen: Array<RecordedTurn> = []
+        const turn = async <T>(purpose: string, ask: () => Promise<T>, fit: (answer: unknown) => T): Promise<T> => {
+            const kept = state.live ? undefined : earlier[seen.length]
+            const replayed = kept !== undefined && kept.purpose === purpose && kept.answer !== undefined
+            if (!replayed) state.live = true
+            const answer = replayed ? fit(kept.answer) : await ask()
+            seen.push({ purpose, answer })
+            return answer
+        }
+        const keptIfUnsettled = async (cause: unknown): Promise<void> => {
+            if (!continuedOnRetry(cause)) return
+            for (const [position, one] of seen.entries()) {
+                await this.effects
+                    .once(
+                        workspaceId,
+                        MODEL_TURN,
+                        { key: `${input.key}:model:${attempt.startedAt}:${String(position)}`, dedupeKey: null },
+                        () => Promise.resolve({ kind: "model-turn", id: String(position), facts: { answer: one.answer } }),
+                        { args: { attempt: attempt.startedAt, position, purpose: one.purpose }, place },
+                    )
+                    .catch(() => undefined)
+            }
+        }
+        return {
+            model: {
+                text: (request) =>
+                    turn(request.purpose, () => model.text(request), (answer) => (typeof answer === "string" ? answer : String(answer))),
+                json: (schema, request) => turn(request.purpose, () => model.json(schema, request), (answer) => fittedAnswerOf(schema, answer)),
+            },
+            keptIfUnsettled,
+        }
+    }
+
+    /**
+     * The model turns the latest earlier attempt of a run step recorded in the present stretch (begun after `stretch`, the newest words of
+     * a person: what came before them is no intent any more), by position; none when no such attempt recorded any.
+     */
+    private async earlierTurnsOf(
+        workspaceId: string,
+        place: { readonly runId: string; readonly stepKey: string },
+        current: string,
+        stretch: number | null,
+    ): Promise<ReadonlyArray<RecordedTurn | undefined>> {
+        const records = await this.effects.recordsOf(workspaceId, place, [MODEL_TURN])
+        const attempts = records.flatMap((record) => {
+            const at: unknown = record.args?.attempt
+            if (typeof at !== "string" || at === current) return []
+            const began = Date.parse(at)
+            return stretch === null || (Number.isFinite(began) && began > stretch) ? [at] : []
+        })
+        const latest = attempts.toSorted().at(-1)
+        if (latest === undefined) return []
+        const turns: Array<RecordedTurn | undefined> = []
+        for (const record of records) {
+            const position: unknown = record.args?.position
+            const purpose: unknown = record.args?.purpose
+            if (record.args?.attempt !== latest || typeof position !== "number" || typeof purpose !== "string") continue
+            const facts: unknown = record.subject.facts
+            const answer: unknown = typeof facts === "object" && facts !== null ? Reflect.get(facts, "answer") : undefined
+            turns[position] = { purpose, answer }
+        }
+        return turns
     }
 
     /** The run step's instant: the first attempt's clock, kept in the ledger under the step's key, so every re-run reads the same instant. */

@@ -9,7 +9,7 @@ export const metaEventRowsOf = (event: MetaEvent): ReadonlyArray<AccountDataInpu
 
 /**
  * What the account keeps of one event beside it: the person of a direct message or a postback (`meta.user`, by their page / Instagram scoped
- * id), and the text of a direct message (`meta.message`, by the event key). Comments and mentions keep nothing here: they live with the
+ * id), and a direct message with any content (`meta.message`, by the event key: its words, empty for parts only, and its parts). Comments and mentions keep nothing here: they live with the
  * Page's comments.
  */
 export const metaDerivedRowsOf = (event: MetaEvent): ReadonlyArray<AccountDataInput> => {
@@ -23,7 +23,9 @@ export const metaDerivedRowsOf = (event: MetaEvent): ReadonlyArray<AccountDataIn
             ...(event.sender_name === null ? {} : { name: event.sender_name }),
         },
     }
-    if (event.kind !== "dm" || event.text === null || event.text === "") return [user]
+    // A DM with any content (words or a part) is a message the account keeps; one with neither keeps only its person.
+    const parts = event.attachments ?? []
+    if (event.kind !== "dm" || ((event.text === null || event.text === "") && parts.length === 0)) return [user]
     const message: AccountDataInput = {
         type: metaMessage.name,
         value: {
@@ -32,7 +34,8 @@ export const metaDerivedRowsOf = (event: MetaEvent): ReadonlyArray<AccountDataIn
             platform: event.platform,
             userId: person,
             direction: "in",
-            text: event.text,
+            text: event.text ?? "",
+            ...(parts.length === 0 ? {} : { attachments: parts.map((part) => ({ type: part.type, url: part.url, name: part.name })) }),
             at: new Date(event.timestamp).toISOString(),
         },
     }

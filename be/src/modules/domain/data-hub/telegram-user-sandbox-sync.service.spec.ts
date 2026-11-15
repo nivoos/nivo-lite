@@ -9,6 +9,7 @@ import type { DataConnection, DataSyncContext, DataSyncResult } from "./data-hub
 import { TELEGRAM_WIZARD_TEXT } from "./messages/telegram-user-wizard.messages"
 import {
     TELEGRAM_USER_CASE,
+    TELEGRAM_USER_LEFT_CHAT_ID,
     TELEGRAM_USER_PER_CHAT_LIMIT,
     TELEGRAM_USER_SANDBOX_CASES,
     TELEGRAM_USER_SANDBOX_CATALOGUE,
@@ -148,6 +149,30 @@ describe("TelegramUserSandboxSyncService", () => {
         expect(kept).toEqual([])
     })
 
+    it("TELEGRAM_USER-7: a chat the owner left is skipped without a word (no cursor, no rows), as the live client skips a chat missing from the dialogs; the other chats are brought", async () => {
+        const { sandbox, pull, idsOf } = setup()
+        await sandbox.setNextCase(ACCOUNT, "pull", TELEGRAM_USER_CASE.chatGone)
+
+        const result = await pull()
+
+        // The group of regulars (GROUP) is gone: only the private chat is read, and its cursor moves; the run has no note (a skipped chat is not a failure).
+        expect(idsOf()).toEqual([`${PRIVATE}:1`, `${PRIVATE}:2`])
+        expect(result).toEqual({ rows: 2, meta: { [`cursor:${PRIVATE}`]: "2" } })
+        expect(GROUP).toBe(TELEGRAM_USER_LEFT_CHAT_ID)
+    })
+
+    it("every case is tagged with the outcome of the situation it makes: the revoked session and the missing app credentials refused, Telegram not answering transient, the rest ok", () => {
+        expect(Object.fromEntries(TELEGRAM_USER_SANDBOX_CASES.map((one) => [one.id, one.outcome]))).toEqual({
+            "TELEGRAM_USER-1": "ok",
+            "TELEGRAM_USER-2": "ok",
+            "TELEGRAM_USER-3": "ok",
+            "TELEGRAM_USER-4": "refused",
+            "TELEGRAM_USER-5": "refused",
+            "TELEGRAM_USER-6": "transient",
+            "TELEGRAM_USER-7": "ok",
+        })
+    })
+
     it("stops early when the run's time budget is spent, keeping what was read", async () => {
         const { service, contextOf, kept } = setup()
         let reads = 0
@@ -201,8 +226,8 @@ describe("TelegramUserSandboxSyncService", () => {
         expect(registry.portFor({ provider: "telegram_user", sandbox: false })).toBe(live)
     })
 
-    it("has unique TELEGRAM_USER-<n> ids 1..6, exactly one default case, all for the pull operation", () => {
-        expect(TELEGRAM_USER_SANDBOX_CASES.map((one) => one.id)).toEqual(Array.from({ length: 6 }, (_, index) => `TELEGRAM_USER-${String(index + 1)}`))
+    it("has unique TELEGRAM_USER-<n> ids 1..7, exactly one default case, all for the pull operation", () => {
+        expect(TELEGRAM_USER_SANDBOX_CASES.map((one) => one.id)).toEqual(Array.from({ length: 7 }, (_, index) => `TELEGRAM_USER-${String(index + 1)}`))
         expect(TELEGRAM_USER_SANDBOX_CASES.filter((one) => one.default === true).map((one) => one.id)).toEqual(["TELEGRAM_USER-1"])
         expect(TELEGRAM_USER_SANDBOX_CASES.every((one) => one.operation === "pull" && one.inbound === undefined && one.label.length > 0)).toBe(true)
         expect(TELEGRAM_USER_SANDBOX_CATALOGUE.provider).toBe("telegram_user")

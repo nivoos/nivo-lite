@@ -64,6 +64,11 @@ export interface AgentWakeContext {
      * never a silent `no_waiter`.
      */
     readonly unclaimed?: "true"
+    /**
+     * The run whose step WROTE the data this event reports (a record write event, concept agent-data rule 4): the waits never offer the
+     * event back to that run.
+     */
+    readonly writerRunId?: string
     /** The customer conversation. */
     readonly conversationId?: string
     /** The message that woke the agent. */

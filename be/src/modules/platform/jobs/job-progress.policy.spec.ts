@@ -12,6 +12,7 @@ import {
     jobProgressTopicOfName,
     type JobProgressRow,
 } from "./job-progress.policy"
+import { closedErrorOf } from "./parked-job-resume.policy"
 
 const row = (changes: Partial<JobProgressRow> = {}): JobProgressRow => ({
     id: "j-1",
@@ -24,6 +25,7 @@ const row = (changes: Partial<JobProgressRow> = {}): JobProgressRow => ({
     progressLabel: null,
     progressAt: null,
     progressRetryAt: null,
+    error: null,
     updatedAt: new Date("2026-11-14T10:00:00.000Z"),
     ...changes,
 })
@@ -94,6 +96,9 @@ describe("frameOfRow", () => {
         expect(frameOfRow(row({ status: "done" }))?.state).toBe("done")
         expect(frameOfRow(row({ status: "failed" }))?.state).toBe("retry")
         expect(frameOfRow(row({ status: "running" }))?.state).toBe("running")
+        // A person's close ends the chain: it is `closed`, never the `retry` a job handed back to its queue shows (status `failed`, no error).
+        expect(frameOfRow(row({ status: "failed", error: closedErrorOf("old payment") }))?.state).toBe("closed")
+        expect(frameOfRow(row({ status: "failed", error: "boom" }))?.state).toBe("retry")
         const parked = frameOfRow(row({ status: "failed_awaiting_fix", failureClass: "config" }))
         expect(parked).toMatchObject({ state: "dead_letter", failureClass: "config" })
     })

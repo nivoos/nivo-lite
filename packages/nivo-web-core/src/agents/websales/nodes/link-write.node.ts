@@ -70,7 +70,8 @@ const linkedSchema = z.looseObject({ outcome: z.literal("linked") })
  * `linked` / `none`. The agent picks the ONE clear candidate or none (its code must be a candidate's: an exact check); the node writes
  * the contact's outside identity (`contact.identity.link`, kind `external`, internal; NIVO's own tool, so the node lists no
  * provider for it) and the picked code is the customer once the tool answers `linked`.
- * It opens no customer. A person who declines the link made a decision: route `declined` (never a failure, and not `none`, which would
+ * Mode `ask`: a customer's outside identity put on a contact is decided by a person (the tool refuses `ask_only` for a call nobody approved),
+ * so every link waits on an approval card; at `auto` the road could never run. It opens no customer. A person who declines the link made a decision: route `declined` (never a failure, and not `none`, which would
  * tell the team no customer was clearly the lead); the graph posts the team's notice and ends `declined`. Any other refusal stops
  * (`cannot`, with the refusal).
  */
@@ -79,7 +80,7 @@ export const websalesLinkWriteNode: TemplateNode<typeof input, typeof output> = 
     title: websalesText("node.link-write.title"),
     description: { vi: "Li\u00ean k\u1ebft ng\u01b0\u1eddi \u0111ang nh\u1eafn v\u1edbi kh\u00e1ch h\u00e0ng r\u00f5 r\u00e0ng nh\u1ea5t trong h\u1ec7 th\u1ed1ng, ho\u1eb7c b\u00e1o kh\u00f4ng c\u00f3 kh\u00e1ch n\u00e0o ph\u00f9 h\u1ee3p.", en: "Links the person chatting to the one clearly matching customer in the system, or reports that none fits." },
     tools: [TOOL.contactIdentityLink],
-    mode: "auto",
+    mode: "ask",
     accounts: [],
     input,
     output,

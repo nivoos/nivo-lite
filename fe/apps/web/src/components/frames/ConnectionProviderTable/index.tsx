@@ -1,6 +1,5 @@
 import { Avatar, Badge, Cluster, DataTable, EmptyNotice, Link, Section, Stack, Text } from "@starci/grammar/common"
 import { AgentKindMark } from "@/components/branches/AgentKindMark"
-import { isModuleKey } from "@/modules/catalog"
 import type { ConnectionAgentUse, ConnectionProviderRow } from "@/modules/types"
 import { nivoIconSource } from "@/components/leaves/Icon"
 
@@ -34,7 +33,7 @@ interface AgentUseProps {
 /** One agent of the cell: its kind mark, its name and what it uses the account for. */
 const AgentUse = (props: AgentUseProps) => (
     <Cluster gap="inline" align="center" wrap={false}>
-        {isModuleKey(props.use.module) ? <AgentKindMark module={props.use.module} /> : null}
+        <AgentKindMark module={props.use.module} glyph={props.use.glyph} />
         <Stack gap="identity" align="start">
             <Text>{props.use.name}</Text>
             <Text size="xs" tone="muted">

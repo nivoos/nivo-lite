@@ -81,6 +81,9 @@ describe("provider-sandbox mapper", () => {
             direction: "inbound",
             operation: null,
             isDefault: false,
+            outcome: null,
+            polled: false,
+            delivery: null,
             trigger: "money.received",
             inputs: [{ name: "amount", label: "Amount", kind: "integer", example: "1000" }],
         })
@@ -90,6 +93,9 @@ describe("provider-sandbox mapper", () => {
             direction: "outbound",
             operation: "transfer",
             isDefault: true,
+            outcome: null,
+            polled: false,
+            delivery: null,
             trigger: null,
             inputs: [],
         })
@@ -105,6 +111,8 @@ describe("provider-sandbox mapper", () => {
                     { path: "api/x", status: 204, body: undefined },
                 ],
                 webhookDropped: false,
+                mode: "once",
+                lateBySeconds: 0,
             }),
         ).toEqual({
             caseId: "SEPAY-1",
@@ -114,18 +122,22 @@ describe("provider-sandbox mapper", () => {
                 { path: "api/x", status: 204, bodyJson: null },
             ],
             webhookDropped: false,
+            mode: "once",
+            lateBySeconds: 0,
         })
     })
 
     it("maps a send that dropped its webhook: no delivery, the flag set; and the input's flag into the request", () => {
-        expect(toSandboxSendResultType({ caseId: "SEPAY-1", input: {}, deliveries: [], webhookDropped: true })).toEqual({
+        expect(toSandboxSendResultType({ caseId: "SEPAY-1", input: {}, deliveries: [], webhookDropped: true, mode: "withheld", lateBySeconds: 0 })).toEqual({
             caseId: "SEPAY-1",
             inputs: [],
             deliveries: [],
             webhookDropped: true,
+            mode: "withheld",
+            lateBySeconds: 0,
         })
-        expect(toSendSandboxCaseRequest("ws-1", { connectionId: "c-1", caseId: "SEPAY-1", dropWebhook: true })).toMatchObject({ dropWebhook: true })
-        expect(toSendSandboxCaseRequest("ws-1", { connectionId: "c-1", caseId: "SEPAY-1" })).toMatchObject({ dropWebhook: false })
+        expect(toSendSandboxCaseRequest("ws-1", { connectionId: "c-1", caseId: "SEPAY-1", dropWebhook: true })).toMatchObject({ mode: "withheld" })
+        expect(toSendSandboxCaseRequest("ws-1", { connectionId: "c-1", caseId: "SEPAY-1" })).not.toHaveProperty("mode")
     })
 
     it("maps an account without secrets, and passes the provider key on (the domain refuses a provider with no sandbox)", () => {

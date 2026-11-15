@@ -112,6 +112,14 @@ const server = (): ModuleServer => ({
         includedWithWorkspace: false,
         available: true,
         knowledgeFolder: FIXTURE_MODULE,
+        knowledgeIdeas: [
+            {
+                key: "desk_escalation",
+                topic: { vi: "Khi nao chuyen phieu", en: "When to escalate a ticket" },
+                hint: { vi: "Phieu nao can nguoi that.", en: "Which tickets need a person." },
+                businessTypes: ["services"],
+            },
+        ],
         workbench: null,
         settingsExtras: null,
         requires: { capabilities: ["customer_chat"], connections: [] },

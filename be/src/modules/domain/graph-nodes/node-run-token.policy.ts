@@ -29,8 +29,17 @@ const isClaims = (value: unknown): value is NodeRunClaims => {
         textOrNull(claims.memberId) &&
         SCOPES.has(claims.scope) &&
         typeof claims.expiresAt === "number" &&
-        (claims.step === undefined || isStep(claims.step))
+        (claims.step === undefined || isStep(claims.step)) &&
+        (claims.personRetry === undefined || claims.personRetry === true) &&
+        (claims.subject === undefined || isSubject(claims.subject))
     )
+}
+
+/** True when a value is a run's subject as the host signs it. */
+const isSubject = (value: unknown): boolean => {
+    if (typeof value !== "object" || value === null) return false
+    const subject: Partial<Record<"kind" | "id", unknown>> = value
+    return typeof subject.kind === "string" && subject.kind !== "" && typeof subject.id === "string" && subject.id !== ""
 }
 
 /** The claims a body text holds, or null when it is no JSON claims object. */

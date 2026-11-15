@@ -57,6 +57,9 @@ export const paymentGraph: TemplateGraph = defineTemplateGraph({
             en: "When the bank reports money in: matches it to the renewal request or the purchase awaiting payment by its payment code and exact amount, records it paid in the CRM, tells the team, then hands on to the provider renewal or to Sales",
         },
         version: 12,
+        // Active at the seed (owner 2026-11-15: both packages tested on NIVO Sandbox accounts; NWC-LEAD found the graph complete: every
+        // step's node, tool and hand-off target exists). The original JSON template had no `seedActive` (drafts).
+        seedActive: true,
         publishedAt: "2026-11-14T22:00:00.000Z",
         notes: {
             vi: "R68: ghi nhận tiền bị từ chối duyệt thì hệ thống tự báo đội kèm mã dịch vụ hoặc mã đơn mua và kết thúc bị từ chối; quy trình chỉ còn các bước nghiệp vụ",

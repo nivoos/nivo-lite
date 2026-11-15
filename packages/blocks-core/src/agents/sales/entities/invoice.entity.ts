@@ -24,8 +24,8 @@ const invoiceFields: InvoiceFields = {
     invoiceNo: field.sequence({ format: "HD-{yyyy}{mm}-{n:4}", resets: "month" }),
     /** The order this invoice bills (a plain id: no read joins it). */
     orderId: field.uuid({ nullable: true }),
-    /** The person billed (the core contact); cleared when the contact is deleted, the invoice stays in the books. */
-    contactId: field.contact({ nullable: true, onContactDelete: "clear" }),
+    /** The person billed (the core contact); the invoice is soft-deleted with the contact (the row stays, every read leaves it out). */
+    contactId: field.contact({ nullable: true }),
     amountVnd: field.moneyVnd(),
     status: field.enum({ of: INVOICE_STATUSES, default: { literal: "draft" } }),
     dueAt: field.timestamptz({ nullable: true }),

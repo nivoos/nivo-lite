@@ -107,7 +107,7 @@ describe("FACEBOOK / INSTAGRAM message: the person's line (owner ruling R26)", (
             text: "Shop còn hoa không?",
             at: "2026-11-14T02:00:00.000Z",
         })
-        expect(realFacebook.line).toBe(metaLineOf)
+        expect(realFacebook.feeds).toEqual({ stream: "lines", line: metaLineOf })
     })
 
     it("gives no line for the release door's resume (no key)", () => {

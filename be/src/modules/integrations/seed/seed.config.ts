@@ -12,7 +12,7 @@ const GIT_KEYS: ReadonlyArray<string> = [
 
 /**
  * Reads the settings of the data standard git layer: `SEED_STANDARD_CACHE` (default: `<os tmpdir>/starci-seed-standards`), the identity
- * `SOPS_AGE_KEY` (`EnvSource` reads a mounted `SOPS_AGE_KEY_FILE` into it) and the git author. Every key is optional so unrelated commands
+ * `SOPS_AGE_KEY` (`EnvSource` reads a mounted `SOPS_AGE_KEY_FILE` into it) the git author and `DATABASE_OWNER_URL` (the database owner role of the whole-database backup store). Every key is optional so unrelated commands
  * boot without them.
  */
 export const parseSeedConfig = (env: EnvSource): DataSeedOptions =>
@@ -20,4 +20,5 @@ export const parseSeedConfig = (env: EnvSource): DataSeedOptions =>
         cache: env.optional("SEED_STANDARD_CACHE"),
         identity: env.optional("SOPS_AGE_KEY"),
         git: GIT_KEYS.map((key) => ({ key, value: env.optional(key) })),
+        backupDatabase: env.optional("DATABASE_OWNER_URL"),
     })

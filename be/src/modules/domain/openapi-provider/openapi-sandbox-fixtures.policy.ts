@@ -19,8 +19,9 @@ const misfitOf = (operation: PinnedOperation, name: string, answer: ProviderSand
 }
 
 /**
- * The sandbox fixtures a package's provider template ships (`ProviderTemplate.sandbox`, keyed by the operation's ONE name), read for the
- * engine's OpenAPI sandbox: keyed by the pinned document's own operation id (what a call carries), each answer judged against the
+ * The sandbox of a package's provider template: the document it pins (what the generic store derives every operation from) and the
+ * declarations it ships (`ProviderTemplate.sandbox`, keyed by the operation's ONE name), read for the engine's OpenAPI sandbox: keyed by
+ * the pinned document's own operation id (what a call carries), each answer judged against the
  * response schema the document declares for its status, by the same judge a live answer meets (`violationOf`). An operation the document
  * does not serve, and two names of one operation id, are misfits. The default answer of an operation that `keeps` is NOT judged whole:
  * a call's body is laid over it, so it may leave out what the document requires (its refusal and failure answers are judged).
@@ -30,7 +31,7 @@ export const sandboxFixturesOf = (template: ProviderTemplate): SandboxFixturesRe
     const declared = Object.entries(template.sandbox ?? {})
     const reading = readDocument(JSON.stringify(template.openapi), connector)
     if (!reading.ok) {
-        return { fixtures: { connector, operations: {} }, problems: [`document: ${reading.problem}`] }
+        return { fixtures: { connector, document: null, operations: {} }, problems: [`document: ${reading.problem}`] }
     }
     const operations: Record<string, OpenApiSandboxOperationFixture> = {}
     const problems: Array<string> = []
@@ -55,5 +56,5 @@ export const sandboxFixturesOf = (template: ProviderTemplate): SandboxFixturesRe
             if (problem !== null) problems.push(problem)
         }
     }
-    return { fixtures: { connector, operations }, problems }
+    return { fixtures: { connector, document: reading.document, operations }, problems }
 }

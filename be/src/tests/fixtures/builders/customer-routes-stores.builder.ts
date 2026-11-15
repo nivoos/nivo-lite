@@ -13,7 +13,7 @@ import type {
     LineWindowAsk,
 } from "@modules/domain/customer-routes/customer-line-store.port"
 import type { CustomerRouteStore, HeldRoutesPage, NewCustomerRoute, RouteHold, StoredCustomerRoute } from "@modules/domain/customer-routes/customer-route-store.port"
-import type { StreamCursorStore } from "@modules/domain/customer-routes/stream-cursor-store.port"
+import type { StreamCursorStore, StreamRef } from "@modules/domain/customer-routes/stream-cursor-store.port"
 import { seqAfter } from "@modules/domain/customer-routes/stream-cursor.policy"
 
 // THE CUSTOMER ROUTES AND THE DELIVERY LEDGER IN MEMORY: the doubles of the stores of public.customer_routes and
@@ -324,18 +324,25 @@ export class MemoryCustomerLineStore implements CustomerLineStore {
 }
 
 /**
- * The stream cursor of the routes over memory (rule QB-P5 C-4), with the table's rule: one pending read per route (the same call keeps its
- * newest line, another call replaces it); the end of a step folds the pending reads of its calls into the cursor, the greater of the two.
+ * The stream cursors over memory (concept agent-data rules 5, 8, 9), with the table's rule: one row per (consumer agent, stream, subject);
+ * one pending read per row (the same call keeps its newest item, another call replaces it); the end of a step folds the pending reads of its
+ * calls into the cursor, the greater of the two; a merge joins the rows of one subject into another's.
  */
 export class MemoryStreamCursorStore implements StreamCursorStore {
-    /** Per route: the cursor and the pending read. */
+    /** Per `<agent>|<stream>|<subject>`: the cursor and the pending read. */
     readonly rows = new Map<string, { consumed: string | null; read: { by: string; seq: string } | null }>()
 
-    noteRead(_workspaceId: string, routeId: string, by: string, seq: string): Promise<boolean> {
-        const row = this.rows.get(routeId) ?? { consumed: null, read: null }
+    /** The row key of a ref. */
+    static keyOf(ref: StreamRef): string {
+        return `${ref.agentId}|${ref.stream}|${ref.subject}`
+    }
+
+    noteRead(_workspaceId: string, ref: StreamRef, by: string, seq: string): Promise<void> {
+        const key = MemoryStreamCursorStore.keyOf(ref)
+        const row = this.rows.get(key) ?? { consumed: null, read: null }
         row.read = row.read?.by === by ? { by, seq: this.greater(row.read.seq, seq) } : { by, seq }
-        this.rows.set(routeId, row)
-        return Promise.resolve(true)
+        this.rows.set(key, row)
+        return Promise.resolve()
     }
 
     consume(_workspaceId: string, prefix: string): Promise<number> {
@@ -349,8 +356,23 @@ export class MemoryStreamCursorStore implements StreamCursorStore {
         return Promise.resolve(moved)
     }
 
-    cursorOf(_workspaceId: string, routeId: string): Promise<string | null> {
-        return Promise.resolve(this.rows.get(routeId)?.consumed ?? null)
+    cursorOf(_workspaceId: string, ref: StreamRef): Promise<string | null> {
+        return Promise.resolve(this.rows.get(MemoryStreamCursorStore.keyOf(ref))?.consumed ?? null)
+    }
+
+    merge(_workspaceId: string, from: string, into: string): Promise<number> {
+        let joined = 0
+        for (const [key, row] of [...this.rows.entries()]) {
+            const [agentId = "", stream = "", subject = ""] = key.split("|")
+            if (subject !== from) continue
+            const target = MemoryStreamCursorStore.keyOf({ agentId, stream, subject: into })
+            const kept = this.rows.get(target) ?? { consumed: null, read: null }
+            kept.consumed = row.consumed === null ? kept.consumed : this.greater(kept.consumed, row.consumed)
+            this.rows.set(target, kept)
+            this.rows.delete(key)
+            joined += 1
+        }
+        return Promise.resolve(joined)
     }
 
     private greater(left: string | null, right: string): string {

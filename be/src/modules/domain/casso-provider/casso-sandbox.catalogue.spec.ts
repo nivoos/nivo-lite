@@ -30,16 +30,20 @@ const stateOf = async (sandbox: ReturnType<typeof sandboxServiceOf>["sandbox"]):
     sandbox.call(ACCOUNT, "peek", {}, { answer: (state) => state.read(CASSO_SANDBOX_MOVEMENTS_STATE, "") })
 
 describe("CASSO_SANDBOX_CATALOGUE (owner ruling R62)", () => {
-    it("holds exactly CASSO-1..7, all inbound on Casso's real route, each taking { content, amount }, no prefill (Casso has no payment instruction)", () => {
+    it("holds exactly CASSO-1..11, all inbound on Casso's real route, each taking { content, amount } but the two that need no input (CASSO-8 the error notice, CASSO-9 the malformed body), no prefill (Casso has no payment instruction)", () => {
         expect(CASSO_SANDBOX_CATALOGUE.provider).toBe("casso")
-        expect(CASSO_SANDBOX_CATALOGUE.cases.map((one) => one.id)).toEqual(["CASSO-1", "CASSO-2", "CASSO-3", "CASSO-4", "CASSO-5", "CASSO-6", "CASSO-7"])
+        expect(CASSO_SANDBOX_CATALOGUE.cases.map((one) => one.id)).toEqual(["CASSO-1", "CASSO-2", "CASSO-3", "CASSO-4", "CASSO-5", "CASSO-6", "CASSO-7", "CASSO-8", "CASSO-9", "CASSO-10", "CASSO-11"])
         expect(CASSO_SANDBOX_CATALOGUE.prefill).toBeUndefined()
         for (const one of CASSO_SANDBOX_CATALOGUE.cases) {
             expect(one.inbound?.path("conn-9")).toBe("api/connections/casso/conn-9")
-            expect(one.inbound?.inputs.map((field) => [field.name, field.kind])).toEqual([
-                ["content", "text"],
-                ["amount", "integer"],
-            ])
+            expect(one.inbound?.inputs.map((field) => [field.name, field.kind])).toEqual(
+                ["CASSO-8", "CASSO-9"].includes(one.id)
+                    ? []
+                    : [
+                          ["content", "text"],
+                          ["amount", "integer"],
+                      ],
+            )
             expect(one.label.toLowerCase()).not.toContain("order")
         }
     })

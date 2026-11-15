@@ -13,10 +13,12 @@ const missingOf = (
     environment: DataBackupEnvironment | undefined,
     checkout: string | undefined,
     listed: string | undefined,
+    database: boolean,
 ): ReadonlyArray<string> => [
     ...(environment === undefined ? ["DATA_BACKUP_ENV (dev or prod)"] : []),
     ...(checkout === undefined ? ["DATA_BACKUP_CHECKOUT"] : []),
     ...(listed === undefined ? ["DATA_BACKUP_RECIPIENTS"] : []),
+    ...(database ? [] : ["DATABASE_OWNER_URL"]),
 ]
 
 /**
@@ -25,15 +27,18 @@ const missingOf = (
  */
 export const backupConfigOf = (values: DataBackupValues): DataBackupConfig => {
     const { checkout, recipients: listed } = values
-    if (values.environment === undefined && checkout === undefined && listed === undefined) {
+    if (values.environment === undefined && checkout === undefined && listed === undefined && !values.database) {
         return {
             enabled: false,
-            reason: "DATA_BACKUP_ENV, DATA_BACKUP_CHECKOUT and DATA_BACKUP_RECIPIENTS are not declared",
+            reason: "DATA_BACKUP_ENV, DATA_BACKUP_CHECKOUT, DATA_BACKUP_RECIPIENTS and DATABASE_OWNER_URL are not declared",
         }
     }
     const environment = ENVIRONMENTS.find((candidate) => candidate === values.environment)
-    if (environment === undefined || checkout === undefined || listed === undefined) {
-        return { enabled: false, reason: `${missingOf(environment, checkout, listed).join(", ")} missing or invalid` }
+    if (environment === undefined || checkout === undefined || listed === undefined || !values.database) {
+        return {
+            enabled: false,
+            reason: `${missingOf(environment, checkout, listed, values.database).join(", ")} missing or invalid`,
+        }
     }
     const recipients = listed
         .split(",")
@@ -51,11 +56,14 @@ export const backupConfigOf = (values: DataBackupValues): DataBackupConfig => {
 /** The driver id of an environment's backup repository. */
 export const backupDriverIdOf = (environment: DataBackupEnvironment): string => `nivo-lite-seed-backup-${environment}`
 
-/** The one data set of this deployment (`nivo-lite`): its copy is held by the environment's own backup repository driver (R108). */
+/**
+ * The one data set of this deployment (`nivo-lite`): the WHOLE deployment, the whole relational database (`database-all`) and every
+ * bucket it owns (`storage-all`); its copy is held by the environment's own backup repository driver (R108).
+ */
 export const dataSetOf = (driverId: string): DataSetDeclaration => ({
     id: "nivo-lite",
     purpose: "seed-backup",
-    stores: ["database", "storage"],
+    stores: ["database-all", "storage-all"],
     drivers: [driverId],
     everyMinutes: 1440,
 })

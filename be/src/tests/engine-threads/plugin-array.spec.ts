@@ -339,6 +339,23 @@ describe("a private plugin's modules are open only to the enterprise workspaces 
         expect(toModuleDefinitionType(sales!).plugin).toEqual({ key: "core", label: { vi: "Nivo", en: "Nivo" } })
     })
 
+    it("serves the knowledge ideas each module declares, and an empty list for a module that declares none", async () => {
+        const { access } = await world()
+        const open = (await access.catalogFor("u-1", WS_ENTERPRISE)).modules
+        const shown = open.map((module) => toModuleDefinitionType(module))
+        const fixture = shown.find((module) => module.key === FIXTURE_MODULE)
+        expect(fixture?.knowledgeIdeas).toEqual([
+            {
+                key: "desk_escalation",
+                topic: { vi: "Khi nao chuyen phieu", en: "When to escalate a ticket" },
+                hint: { vi: "Phieu nao can nguoi that.", en: "Which tickets need a person." },
+                businessTypes: ["services"],
+                general: false,
+            },
+        ])
+        expect(toModuleDefinitionType({ ...open[0]!, knowledgeIdeas: undefined }).knowledgeIdeas).toEqual([])
+    })
+
     it("answers the not-found of an unknown key when a workspace that may not see the module reads it", async () => {
         const { access } = await world()
         await expect(access.findFor("u-1", FIXTURE_MODULE, WS_ORDINARY)).rejects.toMatchObject({ code: ModulesErrorCode.NotFound })

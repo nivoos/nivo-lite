@@ -81,6 +81,9 @@ export interface StoredAt {
     readonly id: string
 }
 
+/** The ids a passage write answered, or null when the write found its document deleted meanwhile and wrote nothing. */
+export type MaybeStoredAt = ReadonlyArray<StoredAt> | null
+
 /** A passage to store at a fixed place in its source. */
 export interface PlacedChunkDraft extends ChunkDraft {
     /** The order of the passage in its source (from 0). */

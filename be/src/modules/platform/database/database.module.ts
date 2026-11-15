@@ -9,6 +9,8 @@ import { PRIMARY_CONNECTION } from "./primary.connection"
 import { AFTER_COMMIT, PRIMARY_ENTITY_MANAGER, RATE_LIMIT_STORE } from "./primary.decorators"
 import { PostgresRateLimitStoreClient } from "./postgres-rate-limit-store.client"
 import { SeedRunnerService } from "./seed-runner.service"
+import { DEFAULT_POOL_BOUND } from "./primary.config"
+import { poolOptionsOf, typeAcquireFailures } from "./pool-bound.client"
 
 /** The token each declared connection provides its shared EntityManager under. */
 type EntityManagerToken = typeof PRIMARY_ENTITY_MANAGER
@@ -16,13 +18,26 @@ type EntityManagerToken = typeof PRIMARY_ENTITY_MANAGER
 /** Token of the provider that subscribes the after-commit capability to the primary connection. */
 const AFTER_COMMIT_SUBSCRIPTION: unique symbol = Symbol("platform.database.after-commit-subscription")
 
+/** Token of the provider that types the primary connection's acquire failures (`typeAcquireFailures`); nothing injects it. */
+const ACQUIRE_BOUND: unique symbol = Symbol("platform.database.acquire-bound")
+
+/** Types the primary pool's acquire failures once its data source is open (THE BOUND, D3-W1-6). */
+const primaryAcquireBound = {
+    provide: ACQUIRE_BOUND,
+    inject: [getDataSourceToken(PRIMARY_CONNECTION)],
+    useFactory: (source: DataSource): boolean => {
+        typeAcquireFailures(source)
+        return true
+    },
+}
+
 const ENTITY_MANAGER_TOKENS: ReadonlyMap<string, EntityManagerToken> = new Map<string, EntityManagerToken>([
     [PRIMARY_CONNECTION, PRIMARY_ENTITY_MANAGER],
 ])
 
 @Module({})
 /**
- * Opens each named PostgreSQL connection and exposes its shared EntityManager mapping the entities the app passes in (`PRIMARY_ENTITIES`); schema changes stay in `db/migrations` and `synchronize` is off.
+ * Opens each named PostgreSQL connection, bounded (`DatabasePoolBound`), and exposes its shared EntityManager mapping the entities the app passes in (`PRIMARY_ENTITIES`); schema changes stay in `db/migrations` and `synchronize` is off.
  */
 export class DatabaseModule extends ConfigurableModuleClass {
     /** Registers the capability once per app with the connections it opens. */
@@ -76,7 +91,8 @@ export class DatabaseModule extends ConfigurableModuleClass {
                         // A first start brings the database up beside the app: keep retrying for about 30 s while it accepts its first connection.
                         retryAttempts: 10,
                         retryDelay: 3000,
-                        extra: { types: options.typeParsers() },
+                        // THE BOUND (D3-W1-6): pool size, acquire wait, lock wait and idle transaction, so the app never stands still.
+                        extra: { types: options.typeParsers(), ...poolOptionsOf(connection.bound ?? DEFAULT_POOL_BOUND) },
                     })
                 }),
             ],
@@ -85,6 +101,7 @@ export class DatabaseModule extends ConfigurableModuleClass {
                 ...managers,
                 { provide: RATE_LIMIT_STORE, useClass: PostgresRateLimitStoreClient },
                 ...afterCommit,
+                ...(hasPrimary ? [primaryAcquireBound] : []),
                 MigrationRunnerService,
                 SeedRunnerService,
             ],

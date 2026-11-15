@@ -46,8 +46,9 @@ export class AgentScheduleFireService {
             return false
         }
         const next = await this.schedules.nextOf(AGENT_SCHEDULE_FIRE_QUEUE, agentTriggerSchedulerId(trigger.id))
+        const prepared = await this.clockTicks.prepareSlot(payload.workspaceId, trigger, slot, null)
         await this.entityManager.transaction(async (tx) => {
-            await this.clockTicks.deliverSlot(tx, payload.workspaceId, trigger, slot, null)
+            await this.clockTicks.commit(tx, prepared)
             await this.triggers.recordFire(tx, trigger.id, new Date(Number(slot)), next)
         })
         return true
@@ -65,7 +66,8 @@ export class AgentScheduleFireService {
         if (trigger.nextRunAt?.getTime() !== slot.getTime()) return "not_scheduled"
         if (!(await this.sync.workIsOn(workspaceId, trigger.agentId))) return "not_scheduled"
         const key = String(slot.getTime())
-        const delivered = await this.entityManager.transaction((tx) => this.clockTicks.deliverSlot(tx, workspaceId, trigger, key, memberId))
+        const prepared = await this.clockTicks.prepareSlot(workspaceId, trigger, key, memberId)
+        const delivered = await this.entityManager.transaction((tx) => this.clockTicks.commit(tx, prepared))
         if (delivered === "untaken") return "not_scheduled"
         return delivered
     }

@@ -1,4 +1,4 @@
-// Writes the agent graph files of the dev seed (.starcistacks/dev/seeds/data/graphs/<module>.json) as the newest version of the PRIMARY
+// Writes the generated primary graph files (be/src/tests/fixtures/graphs/<module>.json: specs, `reset-workflows` and the seed-graphs check read them; no seed step does) as the newest version of the PRIMARY
 // workflow template of each module AS THE ENGINE INSTALLS IT: `INSTALLED.templates()` of the back end (be/src/modules/domain/installed-plugins),
 // the one road every template takes into a workspace. A module's template agent (`templateAgents`, GraphSpec `@2`) reaches it through the
 // adapter `installed-plugins/template-graph-adapter.policy.ts` (each graph a workflow template, the agent's `primary` the primary one);
@@ -27,7 +27,7 @@ const { INSTALLED } = require(path.join(BE, "src", "modules", "domain", "install
 const { latestTemplateVersion } = require("@nivo-lite/agent-sdk/template")
 const { graphSpecSchema } = require("@nivo-lite/agent-sdk/graph")
 
-const GRAPHS = path.join(".starcistacks", "dev", "seeds", "data", "graphs")
+const GRAPHS = path.join("be", "src", "tests", "fixtures", "graphs")
 const check = process.argv.includes("--check")
 
 /** The graph installing the module's template agent publishes as its primary workflow, or null when the module has no primary template. */

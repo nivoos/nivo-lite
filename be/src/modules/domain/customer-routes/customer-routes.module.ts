@@ -15,6 +15,8 @@ import { CustomerRoutesService } from "./customer-routes.service"
 import { STREAM_CURSOR_STORE } from "./stream-cursor-store.port"
 import { TypeormStreamCursorStore } from "./stream-cursor-store.typeorm"
 import { StreamCursorService } from "./stream-cursor.service"
+// The port file, not the barrel (the barrel loads the contacts page, which reaches modules not yet loaded).
+import { CONTACT_SUBJECTS } from "@modules/domain/contacts/contact-subjects.port"
 
 @Module({})
 /**
@@ -47,6 +49,8 @@ export class CustomerRoutesModule extends ConfigurableModuleClass {
                 TypeormStreamCursorStore,
                 { provide: STREAM_CURSOR_STORE, useExisting: TypeormStreamCursorStore },
                 StreamCursorService,
+                // A contact merge joins the consumers' positions on the id that goes (concept agent-data rule 8).
+                { provide: CONTACT_SUBJECTS, useExisting: StreamCursorService },
             ],
             exports: [
                 CustomerRoutesService,
@@ -58,6 +62,7 @@ export class CustomerRoutesModule extends ConfigurableModuleClass {
                 CUSTOMER_LINE_STORE,
                 StreamCursorService,
                 STREAM_CURSOR_STORE,
+                CONTACT_SUBJECTS,
             ],
         }
     }

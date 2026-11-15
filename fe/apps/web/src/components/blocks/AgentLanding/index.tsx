@@ -1,12 +1,12 @@
 "use client"
 
 import { useTranslations } from "next-intl"
-import { useAgentLanding, type ModuleKey } from "@/hooks/installations"
+import { useAgentLanding } from "@/hooks/installations"
 import { AgentLandingBase } from "./component"
 
 /** What the bare url hands the block: the type and the instance of the url. */
 interface AgentLandingProps {
-    readonly module: ModuleKey
+    readonly module: string
     readonly installationId: string
 }
 

@@ -2,7 +2,7 @@ import { z } from "zod"
 import { TRIGGER as TRIGGERS } from "@nivo-lite/agent-sdk/names"
 import { defineTemplateGraph, endRound, loop, node, outcome, present, ref, trigger, wait, waitFor } from "@nivo-lite/agent-sdk/template"
 import type { AgentRunsService } from "@modules/domain/agent-runs"
-import { ThreadWaitExpiryService } from "@modules/domain/agent-threads"
+import { ThreadParkedDeadlinesService } from "@modules/domain/agent-threads"
 import { INSTALLED, graphOfSpecV2 } from "@modules/domain/installed-plugins"
 import { NOTE_WRITE, writeAutoNode } from "@tests/fixtures/builders/engine-core-plugin.builder"
 import { jobRecordingOutbox } from "@tests/fixtures/builders/queue-job-outbox.builder"
@@ -10,7 +10,7 @@ import { CONV, WS, drain, startThread, threadDbOf, type ThreadDb } from "./threa
 import { coreProcessOf, noteActsOf, threadOf } from "./thread-world-core"
 
 // SANDBOX "EXPIRE THIS RUN'S WAIT NOW" (owner rulings R62 + R66; worker SBX-2): "not paid" is TIME, so the dev Sandbox page's button
-// runs the REAL deadline road for a run parked at a wait (`ThreadWaitExpiryService.expireNow` -> `ThreadDeadlinesService.fireNow` with the
+// runs the REAL deadline road for a run parked at a wait (`ThreadParkedDeadlinesService.fireNow` -> `ThreadDeadlinesService.fireNow` with the
 // wait's own deadline payload -> `ThreadWaitsService.timedOut`). The graph is a sale's payment wait in miniature, generic: a loop of at
 // most 6 rounds, each a `wait` for the customer's line (standing in for the bank credit) with a timeout whose road writes a reminder;
 // the loop running out writes `unpaid`. Real: the thread engine, the loop, the wait, the deadline road, the drain. Faked: the outside
@@ -85,19 +85,19 @@ const parkedSale = async () => {
     })
     if (woken.error !== null) throw woken.error
     const runId = woken.runId ?? ""
-    // The world's run store is a double without the wait-mark query: the list's own query is the store's (not reachable here).
+    // The world's run store is a double without the in-flight query: the list's own query is the store's (not reachable here).
     const runs = {
-        parkedAtWait: async () => {
+        inFlightThreads: async () => {
             const run = await process.runs.runOf(WS, runId)
             return run === null ? [] : [run]
         },
     } as unknown as AgentRunsService
     if (process.deadlines === undefined) throw new Error("the world has no deadlines")
-    const expiry = new ThreadWaitExpiryService(runs, process.deadlines, process.threads)
+    const expiry = new ThreadParkedDeadlinesService(runs, process.deadlines, process.stops, process.threads)
     /** Expires the wait now through the real road, then drains the wake it wrote. */
     const expire = async () => {
         const from = db.wakes.length
-        const firing = await expiry.expireNow(WS, runId)
+        const firing = await expiry.fireNow(WS, runId)
         await drain(process, from)
         return firing
     }
@@ -113,6 +113,7 @@ describe("sandbox: expire this run's wait now (the real deadline road)", () => {
         expect(parked).toHaveLength(1)
         expect(parked[0]).toMatchObject({
             runId,
+            kind: "wait",
             parkKey: "pay[r1].hold",
             waitsFor: [{ key: "line", verb: expect.any(String) }],
             dueAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/u),

@@ -29,9 +29,12 @@ export type {
     DataKindDefinition,
     EffectConfig,
     EffectDefinition,
+    RefusalDeclarations,
     ToolConfig,
     ToolDefinition,
 } from "./effect.types"
+export type { RefusalProblem, RefusalProblemCode } from "./tool-refusals"
+export { finalRefusalsOf, refusalProblemsOf } from "./tool-refusals"
 export type {
     EffectCall,
     NodeAgentCallAnswer,

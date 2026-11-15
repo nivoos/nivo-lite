@@ -2,6 +2,7 @@ import { AIMessageChunk } from "@langchain/core/messages"
 import { mock } from "@starci/jest-preset"
 import { TOOL } from "@nivo-lite/agent-sdk/names"
 import { AiTasksService } from "@modules/domain/ai-tasks"
+import { AiUsageEventsService, UsageGateService } from "@modules/domain/ai-usage-events"
 import type { ConnectionRecord, ConnectionsService } from "@modules/domain/connections"
 import {
     MODEL_SANDBOX_CASE,
@@ -15,8 +16,10 @@ import { ModelLiveRunnerService } from "../../modules/domain/model-provider/mode
 import type { AiChatModel, AiRunner, ChainReply } from "../../modules/domain/model-provider/model-provider.contracts"
 import { AiService } from "@modules/integrations/ai"
 import type { Clock } from "@modules/platform/clock"
+import type { MessageCatalog } from "@modules/platform/i18n"
 import type { Logger } from "@modules/platform/logging"
 import type { Timer } from "@modules/platform/retry"
+import type { EntityManager } from "typeorm"
 import { sandboxServiceOf } from "@tests/fixtures/builders/provider-sandbox.builder"
 import { ANSWER, ANSWER_NODE, AGENT_FIRST_TRY_MS, AGENT_RETRY_MS, CORE, UNDERSTAND, WS, actsOf, customerWrites, processOf, stopsOf, threadDbOf } from "./thread-world"
 import { coreReport } from "./thread-world-w8-wakes"
@@ -76,8 +79,26 @@ const endpointOf = () => {
     return { endpoint, reached }
 }
 
+/**
+ * THE REAL METER PATH: the usage gate over the one writer of `ai_usage_events` (pricing, estimates, the failed-try rule); only the row
+ * insert is caught here. The month's level cannot be read (no query double): the meter fails open, as it does when that read fails.
+ */
+const realMeterOf = () => {
+    const rows = new Array<Readonly<Record<string, unknown>>>()
+    const entityManager = mock<EntityManager>({
+        insert: jest.fn((_entity: unknown, row: Readonly<Record<string, unknown>>) => {
+            rows.push(row)
+            return Promise.resolve({ identifiers: [], generatedMaps: [], raw: [] })
+        }),
+    })
+    const catalog = mock<MessageCatalog>({ get: () => "" })
+    const events = new AiUsageEventsService(entityManager, mock<Logger>(), catalog)
+    jest.spyOn(events, "blockedBy").mockResolvedValue(null)
+    return { gate: new UsageGateService(events, catalog), rows }
+}
+
 /** The REAL model door over the account route, with the workspace's sandbox model account picked `caseId` for the ANSWER purpose. */
-const doorWith = async (caseId: ModelSandboxCaseId) => {
+const doorWith = async (caseId: ModelSandboxCaseId, metered?: ReturnType<typeof realMeterOf>) => {
     const { sandbox } = sandboxServiceOf(MODEL_ACCOUNT)
     await sandbox.setNextCase(MODEL_ACCOUNT, ANSWER, caseId)
     const registry = new ModelProviderRegistryService()
@@ -99,7 +120,8 @@ const doorWith = async (caseId: ModelSandboxCaseId) => {
             return () => undefined
         },
     })
-    const meter = mock<ConstructorParameters<typeof AiTasksService>[2]>({ blockedBy: () => Promise.resolve(null), record: jest.fn(() => Promise.resolve()) })
+    const meter: ConstructorParameters<typeof AiTasksService>[2] =
+        metered?.gate ?? mock<ConstructorParameters<typeof AiTasksService>[2]>({ blockedBy: () => Promise.resolve(null), record: jest.fn(() => Promise.resolve()) })
     const tasks = new AiTasksService(
         { timeoutMs: 30_000, nodeTimeoutMs: AGENT_FIRST_TRY_MS, nodeRetryTimeoutMs: AGENT_RETRY_MS, endpoint: mock(), providers: { anthropic: true, openrouter: false } },
         ai,
@@ -109,7 +131,7 @@ const doorWith = async (caseId: ModelSandboxCaseId) => {
         mock(),
         mock(),
     )
-    return { door: tasks, sandbox, reached, meter }
+    return { door: tasks, sandbox, reached, meter: meter as jest.Mocked<ConstructorParameters<typeof AiTasksService>[2]> }
 }
 
 describe("the model sandbox on a graph node's agent turn (second kind)", () => {
@@ -137,6 +159,32 @@ describe("the model sandbox on a graph node's agent turn (second kind)", () => {
         expect(model.reached).toEqual({ chat: 1, turn: 0, purposes: [UNDERSTAND] })
         expect(actsOf(db, TOOL.customerMessageSend)).toEqual([])
         expect((await process.threads.stateOf({ workspaceId: WS, runId }))?.status).toBe("stopped")
+    })
+
+    it("MODEL-4 on the REAL meter path: the faulted tries left no request and book NOTHING; the pass-through is booked as a real call", async () => {
+        const db = threadDbOf()
+        const metered = realMeterOf()
+        const model = await doorWith(MODEL_SANDBOX_CASE.timedOut, metered)
+        const process = await processOf(db, { model: model.door, agentLoop: [ANSWER_NODE] })
+
+        await customerWrites(process, "Shop mo cua may gio?")
+
+        // Three faulted tries of the answer step, none of which reached the endpoint (no outside request left).
+        expect(await model.sandbox.calls(MODEL_ACCOUNT, ANSWER)).toHaveLength(3)
+        expect(model.reached).toEqual({ chat: 1, turn: 0, purposes: [UNDERSTAND] })
+        // The meter holds exactly the pass-through (MODEL-1 for the understand step): the real model, its reported tokens, priced
+        // (2 USD / 10 USD per million: 10 in + 5 out), not estimated, no failure. No row for a faulted try, estimated or not.
+        expect(metered.rows).toEqual([
+            expect.objectContaining({
+                model: "claude-sonnet-5-5",
+                promptTokens: 10,
+                completionTokens: 5,
+                costUsd: "0.00007",
+                estimated: false,
+                purpose: UNDERSTAND,
+                failure: null,
+            }),
+        ])
     })
 
     it("MODEL-7: the turn says `confused` in the loop's own protocol: the step ends as the AI's confusion, nothing sent", async () => {

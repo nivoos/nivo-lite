@@ -280,6 +280,7 @@ const chunksOf = (world: World): KnowledgeChunksService => {
 /** The source, state, fact and extraction reads the critic makes about the document. */
 const readsOf = (world: World) => {
     const states = mock<KnowledgeSourcesReadService>()
+    states.holds.mockResolvedValue(true)
     states.statesOf.mockImplementation(() =>
         Promise.resolve([
             { id: SRC, title: fx.title, visibility: world.visibility, status: "ready", contentHash: null },

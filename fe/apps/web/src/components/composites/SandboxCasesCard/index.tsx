@@ -1,5 +1,17 @@
-import { Checkbox, Cluster, Input, Stack, SurfaceCard, Text, type BadgeData, type ListRowData } from "@starci/grammar/common"
+import {
+    Cluster,
+    Input,
+    NumberField,
+    Select,
+    Stack,
+    SurfaceCard,
+    Text,
+    type BadgeData,
+    type HeaderZone,
+    type ListRowData,
+} from "@starci/grammar/common"
 import { sandboxCardStateOf } from "@/components/branches/SandboxCardState"
+import { SANDBOX_LATE_UNIT_IDS } from "@/modules/sandbox"
 import type { DataSlot, SandboxCaseRowView, SandboxCasesData, SandboxCopy, SandboxPendingView } from "@/modules/types"
 
 /** What the cases card draws and does. */
@@ -9,7 +21,9 @@ interface SandboxCasesCardProps {
     readonly pending: SandboxPendingView
     readonly on: {
         readonly setInput: (name: string, value: string) => void
-        readonly setDropWebhook: (isDropped: boolean) => void
+        readonly setMode: (mode: string) => void
+        readonly setLateAmount: (amount: number) => void
+        readonly setLateUnit: (unit: string) => void
         readonly send: (caseId: string) => void
         readonly choose: (caseId: string) => void
         readonly retry: () => void
@@ -25,20 +39,37 @@ const PLACEHOLDER: SandboxCasesData = {
         operation: null,
         isDefault: false,
         isNext: false,
+        delivery: null,
+        modes: [],
     })),
     fields: [],
-    dropWebhook: false,
+    modeChoices: [],
+    mode: "once",
+    lateAmount: 1,
+    lateUnit: "hours",
     latestLine: null,
     nextLines: [],
     scope: null,
 }
 
 /** No case at all. */
-const NONE: SandboxCasesData = { rows: [], fields: [], dropWebhook: false, latestLine: null, nextLines: [], scope: null }
+const NONE: SandboxCasesData = {
+    rows: [],
+    fields: [],
+    modeChoices: [],
+    mode: "once",
+    lateAmount: 1,
+    lateUnit: "hours",
+    latestLine: null,
+    nextLines: [],
+    scope: null,
+}
 
 /** The plain Badges a case wears: the default one of an outbound operation, and the one the account answers next. */
 const badgesOf = (row: SandboxCaseRowView, copy: SandboxCopy["cases"]): ListRowData["badges"] => {
     const badges: Array<BadgeData> = []
+    // An inbound case that is itself a name for a delivery mode (twice, late): the card says which, since it is sent as it is.
+    if (row.delivery !== null) badges.push({ label: copy.deliveryBadge(row.delivery) })
     if (row.isDefault) badges.push({ label: copy.defaultBadge })
     if (row.isNext) badges.push({ label: copy.nextBadge })
     const [first, second] = badges
@@ -47,15 +78,18 @@ const badgesOf = (row: SandboxCaseRowView, copy: SandboxCopy["cases"]): ListRowD
 }
 
 /** One case as a row: its label over its id (and, for an outbound case, what it answers), and its one command: send it, or choose it as the next. */
-const rowOf = (row: SandboxCaseRowView, props: SandboxCasesCardProps): ListRowData => {
+const rowOf = (row: SandboxCaseRowView, props: SandboxCasesCardProps, mode: string): ListRowData => {
     const isInbound = row.direction === "inbound"
+    const isBlocked = isInbound && !row.modes.includes(mode)
     const badges = badgesOf(row, props.copy.cases)
     return {
         id: row.id,
         title: row.label,
         description: (
             <Text as="span" size="xs" tone="muted">
-                {row.operation === null ? row.id : `${row.id} · ${row.operation}`}
+                {[row.id, row.operation, isBlocked ? props.copy.cases.modeBlocked : null]
+                    .filter((part) => part !== null)
+                    .join(" · ")}
             </Text>
         ),
         ...(badges === undefined ? {} : { badges }),
@@ -64,7 +98,7 @@ const rowOf = (row: SandboxCaseRowView, props: SandboxCasesCardProps): ListRowDa
             label: isInbound ? props.copy.cases.sendLabel : props.copy.cases.pickLabel,
             press: () => (isInbound ? props.on.send(row.id) : props.on.choose(row.id)),
             isPending: isInbound ? props.pending.sendingId === row.id : props.pending.choosingId === row.id,
-            isDisabled: !isInbound && row.isNext,
+            isDisabled: isBlocked || (!isInbound && row.isNext),
         },
     }
 }
@@ -73,6 +107,50 @@ const rowOf = (row: SandboxCaseRowView, props: SandboxCasesCardProps): ListRowDa
 interface SandboxCasesHeaderProps {
     readonly data: SandboxCasesData
     readonly card: SandboxCasesCardProps
+}
+
+/** The interval of a `late` send: an amount and its unit (the frame holds no preset, so the page asks for the number). */
+const LateInterval = (props: SandboxCasesHeaderProps) => {
+    const copy = props.card.copy.cases
+    return (
+        <Cluster gap="inline" align="end" label={copy.lateAmountLabel}>
+            <NumberField
+                id="sandbox-late-amount"
+                label={copy.lateAmountLabel}
+                size="sm"
+                minValue={1}
+                value={props.data.lateAmount}
+                onValueChange={props.card.on.setLateAmount}
+            />
+            <Select
+                label={copy.lateUnitLabel}
+                size="sm"
+                value={props.data.lateUnit}
+                onValueChange={(unit) => {
+                    if (unit !== null) props.card.on.setLateUnit(unit)
+                }}
+                options={SANDBOX_LATE_UNIT_IDS.map((unit) => ({ id: unit, label: copy.lateUnits[unit] ?? unit }))}
+            />
+            <Text size="xs" tone="muted">
+                {copy.lateHint}
+            </Text>
+        </Cluster>
+    )
+}
+
+/** The delivery switch: the modes the cases offer as primary tabs (two to four), the first row of the card; none when fewer than two. */
+const deliveryZoneOf = (data: SandboxCasesData, card: SandboxCasesCardProps): HeaderZone | null => {
+    const [first, second, third, fourth] = data.modeChoices.map((id) => ({ id, label: card.copy.cases.modes[id] ?? id }))
+    if (first === undefined || second === undefined) return null
+    const items = third === undefined ? ([first, second] as const) : fourth === undefined ? ([first, second, third] as const) : ([first, second, third, fourth] as const)
+    return {
+        kind: "switch",
+        label: card.copy.cases.deliveryLabel,
+        title: card.copy.cases.deliveryLabel,
+        items,
+        selectedKey: data.mode,
+        onSelect: card.on.setMode,
+    }
 }
 
 /** The inputs the inbound cases take and the lines that say what the agent asked for last and which case answers next. */
@@ -88,14 +166,7 @@ const HeaderFields = (props: SandboxCasesHeaderProps) => (
                 {line}
             </Text>
         ))}
-        {props.data.rows.some((row) => row.direction === "inbound") ? (
-            <Checkbox
-                label={props.card.copy.cases.dropWebhookLabel}
-                description={props.card.copy.cases.dropWebhookHint}
-                isSelected={props.data.dropWebhook}
-                onSelectedChange={props.card.on.setDropWebhook}
-            />
-        ) : null}
+        {props.data.mode === "late" ? <LateInterval {...props} /> : null}
         {props.data.fields.length === 0 ? null : (
             <Cluster gap="inline" align="end" label={props.card.copy.cases.inputsLabel}>
                 {props.data.fields.map((field) => (
@@ -126,11 +197,17 @@ export const SandboxCasesCard = (props: SandboxCasesCardProps) => {
         retryLabel: props.copy.retryLabel,
         onRetry: props.on.retry,
     })
-    const hasHeader =
+    const delivery = state.isLoading ? null : deliveryZoneOf(state.data, props)
+    const hasFields =
         !state.isLoading &&
-        (state.data.rows.some((row) => row.direction === "inbound") ||
-            state.data.fields.length > 0 ||
-            state.data.latestLine !== null || state.data.nextLines.length > 0)
+        (state.data.fields.length > 0 ||
+            state.data.latestLine !== null ||
+            state.data.nextLines.length > 0 ||
+            state.data.mode === "late")
+    const headers: ReadonlyArray<HeaderZone> = [
+        ...(delivery === null ? [] : [delivery]),
+        ...(hasFields ? [{ kind: "custom" as const, children: <HeaderFields data={state.data} card={props} /> }] : []),
+    ]
     return (
         <SurfaceCard
             kind="list"
@@ -138,10 +215,8 @@ export const SandboxCasesCard = (props: SandboxCasesCardProps) => {
             headingLevel={2}
             isLoading={state.isLoading}
             {...(state.error === undefined ? {} : { error: state.error })}
-            {...(hasHeader
-                ? { headers: [{ kind: "custom" as const, children: <HeaderFields data={state.data} card={props} /> }] }
-                : {})}
-            items={state.data.rows.map((row) => rowOf(row, props))}
+            {...(headers.length === 0 ? {} : { headers })}
+            items={state.data.rows.map((row) => rowOf(row, props, state.data.mode))}
             empty={<Text tone="muted">{props.copy.cases.empty}</Text>}
         />
     )

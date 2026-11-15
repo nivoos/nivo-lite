@@ -17,13 +17,14 @@ export const DATABASE_CASE = {
     everyTableFails: "DATABASE-5",
     loginRefused: "DATABASE-6",
     unreachable: "DATABASE-7",
+    bigTable: "DATABASE-8",
 } as const
 
 /**
  * The moments of the sandbox database (R60: a fixed history, the same on every machine). A case reads the database AS OF a moment: the
  * latest version of every row whose `asOf` is not later than it.
  */
-export const DATABASE_AS_OF = { first: 1, newOrders: 2, changedRow: 3 } as const
+export const DATABASE_AS_OF = { first: 1, newOrders: 2, changedRow: 3, bigTable: 4 } as const
 
 /** One version of a row of the sandbox database: from which moment it reads, when it changed at the source and its columns. */
 interface RowVersion {
@@ -52,6 +53,29 @@ export const databaseTableKey = (table: Pick<SandboxTable, "schema" | "table">):
 
 /** The meta key one table's cursor is kept under, as the live sync does (`cursor:<schema>.<table>`). */
 export const databaseCursorKey = (table: Pick<SandboxTable, "schema" | "table">): string => `cursor:${databaseTableKey(table)}`
+
+/**
+ * The most rows one pull takes of one table: the live reader's own bound (`DATABASE_MAX_ROWS`, integrations/data-sources
+ * database-session.contracts.ts: a spec holds the two equal). The cursor then moves to the newest row taken and the next pull brings the rest.
+ */
+export const DATABASE_SANDBOX_PAGE_ROWS = 5000
+
+/** How many orders the big table of DATABASE-8 holds beyond the shop's five: more than one pull takes. */
+const BULK_ORDERS = 5200
+
+/** The big table's orders DH2001 .. DH7200, one a minute from 2026-11-09 (all there from the fourth moment). */
+const bulkOrders = (): ReadonlyArray<SandboxRow> =>
+    Array.from({ length: BULK_ORDERS }, (_, index) => {
+        const number = 2001 + index
+        const updatedAt = new Date(Date.UTC(2026, 10, 9, 0, 0, 0) + index * 60_000).toISOString()
+        return {
+            id: String(number),
+            title: `DH${String(number)}`,
+            versions: [
+                { asOf: DATABASE_AS_OF.bigTable, updatedAt, columns: { id: number, order_no: `DH${String(number)}`, customer_id: (index % 3) + 1, status: "new", total: 100_000 + (index % 50) * 1000 } },
+            ],
+        }
+    })
 
 /** The sandbox database's tables: a small shop (customers, orders, products), fixed. */
 export const DATABASE_SANDBOX_TABLES: ReadonlyArray<SandboxTable> = [
@@ -82,6 +106,7 @@ export const DATABASE_SANDBOX_TABLES: ReadonlyArray<SandboxTable> = [
             { id: "1003", title: "DH1003", versions: [{ asOf: 1, updatedAt: "2026-11-01T10:00:00.000Z", columns: { id: 1003, order_no: "DH1003", customer_id: 3, status: "new", total: 480_000 } }] },
             { id: "1004", title: "DH1004", versions: [{ asOf: 2, updatedAt: "2026-11-08T09:00:00.000Z", columns: { id: 1004, order_no: "DH1004", customer_id: 1, status: "new", total: 90_000 } }] },
             { id: "1005", title: "DH1005", versions: [{ asOf: 2, updatedAt: "2026-11-08T09:30:00.000Z", columns: { id: 1005, order_no: "DH1005", customer_id: 2, status: "new", total: 210_000 } }] },
+            ...bulkOrders(),
         ],
     },
     {
@@ -113,7 +138,8 @@ export const databasePullOf = (table: SandboxTable, asOf: number, cursor: string
         const latest = row.versions.filter((version) => version.asOf <= asOf).at(-1)
         return latest !== undefined && (cursor === null || latest.updatedAt > cursor) ? [{ row, latest }] : []
     })
-    const ordered = versions.toSorted((left, right) => left.latest.updatedAt.localeCompare(right.latest.updatedAt))
+    // Oldest change first, at most one page (`DATABASE_SANDBOX_PAGE_ROWS`): the cursor then stands at the newest row taken, the next pull brings the rest.
+    const ordered = versions.toSorted((left, right) => left.latest.updatedAt.localeCompare(right.latest.updatedAt)).slice(0, DATABASE_SANDBOX_PAGE_ROWS)
     const rows = ordered.map(({ row, latest }): DataRecordInput => ({
         externalId: row.id,
         title: row.title,
@@ -138,37 +164,50 @@ export const DATABASE_SANDBOX_CASES: ReadonlyArray<SandboxCase> = [
         id: DATABASE_CASE.firstRead,
         label: "A first read: the shop's 3 customers, 3 orders (DH1001-DH1003) and 3 products are brought; each table's cursor moves to its newest change",
         operation: DATABASE_PULL_OPERATION,
+        outcome: "ok",
         default: true,
     },
     {
         id: DATABASE_CASE.newOrders,
         label: "New orders: two orders (DH1004, DH1005) arrived after the last cursor; only they are brought (a first read brings everything up to them)",
         operation: DATABASE_PULL_OPERATION,
+        outcome: "ok",
     },
     {
         id: DATABASE_CASE.changedRow,
         label: "A changed row: order DH1002 was marked paid after it was first read; the same row comes again with the new status (the hub updates it, adds none)",
         operation: DATABASE_PULL_OPERATION,
+        outcome: "ok",
     },
     {
         id: DATABASE_CASE.oneTableFails,
         label: "One table fails: the orders table is refused (permission denied); customers and products are brought, the run's note names the table",
         operation: DATABASE_PULL_OPERATION,
+        outcome: "ok",
     },
     {
         id: DATABASE_CASE.everyTableFails,
         label: "Every table fails: nothing can be read; the run fails with the first table's reason",
         operation: DATABASE_PULL_OPERATION,
+        outcome: "refused",
     },
     {
         id: DATABASE_CASE.loginRefused,
         label: "The login is refused: the database rejects the user and password before any table is read",
         operation: DATABASE_PULL_OPERATION,
+        outcome: "refused",
     },
     {
         id: DATABASE_CASE.unreachable,
         label: "The database cannot be reached: the connection times out, nothing is read",
         operation: DATABASE_PULL_OPERATION,
+        outcome: "transient",
+    },
+    {
+        id: DATABASE_CASE.bigTable,
+        label: "A big table: the orders table holds 5,205 orders; one pull takes the oldest 5,000 (the live bound) and moves the cursor to the newest taken, the next pull brings the other 205",
+        operation: DATABASE_PULL_OPERATION,
+        outcome: "ok",
     },
 ]
 

@@ -2,7 +2,7 @@ import { DomainError, type ErrorKind } from "@modules/platform/errors"
 
 /** Codes of the connection-poll capability. */
 export enum ConnectionPollErrorCode {
-    /** The provider's rate limit leaves no call for this connection yet: the poll ends and is planned again at the time named in the params as `waitMs`. */
+    /** The provider's rate limit leaves no call for this connection yet: the poll ends and is planned again once the window named in the params as `waitMs` has passed (information for the schedule, not a failure of the provider). */
     Deferred = "CONNECTION_POLL_DEFERRED",
     /** A live account's provider has no poll receiver registered although the schedule holds it: a wiring error. */
     ReceiverMissing = "CONNECTION_POLL_RECEIVER_MISSING",

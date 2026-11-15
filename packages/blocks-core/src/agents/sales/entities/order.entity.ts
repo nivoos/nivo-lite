@@ -76,6 +76,7 @@ type OrderFields = {
     readonly deliveryAddress: FieldDef<"text", true>
     readonly deliveryAt: FieldDef<"text", true>
     readonly qrConnectionId: FieldDef<"uuid", true>
+    readonly paymentRequestRef: FieldDef<"text", true>
     readonly paidConnectionId: FieldDef<"uuid", true>
     readonly amountVnd: FieldDef<"money_vnd", true>
     readonly status: FieldDef<"enum", false>
@@ -88,8 +89,8 @@ type OrderFields = {
 
 const orderFields: OrderFields = {
     orderNo: field.sequence({ format: "DH-{yyyy}{mm}{dd}-{n:4}", resets: "day" }),
-    /** The person who bought (the core contact). A deleted contact leaves the order in the books with no person (`clear`). */
-    contactId: field.contact({ nullable: true, onContactDelete: "clear" }),
+    /** The person who bought (the core contact). A deleted contact SOFT-deletes the order with it (the default rule): the row stays, every read leaves it out. */
+    contactId: field.contact({ nullable: true }),
     items: field.jsonb({ shape: ORDER_ITEMS_SHAPE }),
     itemsText: field.text({ maxLength: MAX_BODY, searchable: true, default: "empty" }),
     note: field.text({ maxLength: MAX_BODY, searchable: true, default: "empty" }),
@@ -103,6 +104,12 @@ const orderFields: OrderFields = {
     deliveryAt: field.text({ maxLength: MAX_LINE, nullable: true }),
     /** The account the payment QR was drawn on (the shop's default receiving account at that moment). */
     qrConnectionId: field.uuid({ nullable: true }),
+    /**
+     * The money provider's own reference of the payment request made for the order (`nivo.tool.payment.request.create` answered
+     * `requestRef`, owner ruling R111): the pay loop reads the request by it, a cancel withdraws it, and the provider's paid event carries the
+     * same value. Null when the provider keeps no request (a bank-transfer instruction) or none was made.
+     */
+    paymentRequestRef: field.text({ maxLength: 100, nullable: true }),
     /** The account the money that paid the order actually came into (the settling transaction's account). */
     paidConnectionId: field.uuid({ nullable: true }),
     amountVnd: field.moneyVnd({ nullable: true }),
@@ -143,4 +150,8 @@ export const orderEntity: EntityDefinition<OrderFields> = defineEntity({
             refusal: "order-amount-negative",
         },
     ],
+    // A write of an order is an event keyed by the order itself (never a person: concept agent-data rule 7), overwritten state (the newest
+    // write wins; the run re-reads the record), carrying its `status`: a sale parked for the money wakes at once when a person cancels or
+    // settles the order on the workbench (`sales.consult` v33, key `ordered`).
+    events: { subject: "id", combine: "latest", members: ["status"] },
 })

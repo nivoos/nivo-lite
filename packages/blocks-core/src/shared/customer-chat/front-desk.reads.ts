@@ -18,8 +18,12 @@ const URL_MAX = 2000
 export interface ThreadFile {
     /** The address the model host can fetch, or null when the file was not kept. */
     readonly url: string | null
-    /** Its type (`image/jpeg`). */
+    /** Why the shop could not keep it (a typed reason such as `fetch_failed`), present only when `url` is null: data a step can speak about. */
+    readonly notKept?: string | null | undefined
+    /** Its type (`image/jpeg`; `text/uri-list`, `text/vcard`, `application/geo+json` for a part with no file). */
     readonly contentType: string
+    /** For a file that was not kept, its name; for a part with no file (`notKept: no_file`), its content as the channel sent it. */
+    readonly name?: string | undefined
 }
 
 /** A line of the conversation, as `nivo.tool.conversation.message.list` answers it. */
@@ -52,7 +56,7 @@ const threadAnswer = z.object({
             text: z.string(),
             at: z.string().max(MAX_ID),
             files: z
-                .array(z.object({ url: z.string().max(URL_MAX).nullable(), contentType: z.string().max(MAX_ID) }))
+                .array(z.object({ url: z.string().max(URL_MAX).nullable(), notKept: z.string().max(MAX_ID).nullish(), contentType: z.string().max(MAX_ID), name: z.string().max(URL_MAX).optional() }))
                 .optional(),
         }),
     ),
@@ -182,7 +186,7 @@ export const threadFactSchema: z.ZodType<ThreadFact, ThreadFact> = z.object({
     text: z.string().max(LINE_MAX * 30),
     at: z.string().max(MAX_ID),
     files: z
-        .array(z.object({ url: z.string().max(URL_MAX).nullable(), contentType: z.string().max(MAX_ID) }))
+        .array(z.object({ url: z.string().max(URL_MAX).nullable(), notKept: z.string().max(MAX_ID).nullish(), contentType: z.string().max(MAX_ID), name: z.string().max(URL_MAX).optional() }))
         .max(RECENT_LINES_MAX)
         .optional(),
 })
@@ -204,5 +208,5 @@ export const recentLinesOf = (facts: ReadonlyArray<ThreadFact>): ReadonlyArray<T
             role: fact.role,
             text: fact.text,
             at: fact.at,
-            ...(fact.files === undefined ? {} : { files: fact.files.map((file) => ({ url: file.url, contentType: file.contentType })) }),
+            ...(fact.files === undefined ? {} : { files: fact.files.map((file) => ({ url: file.url, ...(file.notKept == null ? {} : { notKept: file.notKept }), contentType: file.contentType, ...(file.name === undefined ? {} : { name: file.name }) })) }),
         }))

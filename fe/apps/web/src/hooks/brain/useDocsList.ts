@@ -1,5 +1,6 @@
 "use client"
 
+import { useModuleLabels } from "@/hooks/moduleCatalog"
 import { useTranslations } from "next-intl"
 import { useDocsAddress } from "@/hooks/knowledge"
 import { useSlotLabels } from "@/hooks/slot"
@@ -39,6 +40,7 @@ export interface DocsListView {
 export const useDocsList = (input: DocsListInput): DocsListView => {
     const t = useTranslations("knowledge")
     const labels = useSlotLabels()
+    const modules = useModuleLabels()
     const address = useDocsAddress()
     const { selection, row } = input
     const tab: DocTabId = selection.kind === "nivo" ? "nivo" : address.tab
@@ -62,6 +64,7 @@ export const useDocsList = (input: DocsListInput): DocsListView => {
         query: address.query,
         module: address.module,
         labels,
+        modules: modules.choices,
     })
     return { list, tab, chosen, selectedId }
 }

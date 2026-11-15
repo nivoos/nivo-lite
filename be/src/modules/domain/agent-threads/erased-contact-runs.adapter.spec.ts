@@ -35,6 +35,18 @@ describe("ErasedContactRunsAdapter (CONTACT_RUNS, ruling R37: the runs of a dele
         ])
     })
 
+    it("also ends the runs whose SUBJECT is a record the erase hid (a record keyed by itself: concept agent-data), beside the person's", async () => {
+        const { adapter, erased } = build([route("route-1", "c-1")])
+
+        await adapter.erasing(TX, "ws-1", ["c-1"], [{ type: "blocks-core.sales.order", id: "order-1" }])
+
+        expect(erased.ended).toHaveBeenCalledWith(TX, "ws-1", [
+            { kind: "contactId", id: "c-1" },
+            { kind: "routeId", id: "route-1" },
+            { kind: "data.subject", id: "order-1" },
+        ])
+    })
+
     it("still ends the runs keyed on the person when they hold no route", async () => {
         const { adapter, erased } = build([])
 

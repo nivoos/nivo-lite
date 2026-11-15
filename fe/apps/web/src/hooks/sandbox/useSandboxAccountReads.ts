@@ -8,10 +8,10 @@ import {
     useQuerySandboxLatestRequestSwr,
     useQuerySandboxNextCasesSwr,
 } from "@/hooks/swr"
-import { callsDataOf, casesDataOf, scopeOf, type SandboxWords } from "@/modules/sandbox"
+import { callsDataOf, casesDataOf, outcomeRowsOf, scopeOf, type SandboxWords } from "@/modules/sandbox"
 import { slotOfSandboxRead } from "./sandbox.shared"
 import type { SandboxAccountState } from "./useSandboxAccountState"
-import type { DataSlot, SandboxCallsData, SandboxCasesData } from "@/modules/types"
+import type { DataSlot, SandboxCallsData, SandboxCasesData, SandboxOutcomesData } from "@/modules/types"
 
 /** The account the blocks are read for: its id and the provider whose cases it answers. */
 interface SandboxReadAccount {
@@ -22,6 +22,7 @@ interface SandboxReadAccount {
 /** What the open account holds, one slot per block, and the ways to read a block again. */
 export interface SandboxAccountReads {
     readonly cases: DataSlot<SandboxCasesData>
+    readonly outcomes: DataSlot<SandboxOutcomesData>
     readonly calls: DataSlot<SandboxCallsData>
     readonly key: DataSlot<string>
     /** The cases once read: a send takes its inputs from them. */
@@ -55,12 +56,15 @@ export const useSandboxAccountReads = (
                   next.data,
                   latest.data,
                   state.edits,
-                  state.dropWebhook,
+                  { mode: state.mode, lateAmount: state.lateAmount, lateUnit: state.lateUnit },
                   words,
                   scopeOf(account?.provider ?? "", calls.data, state.scope, words),
               )
+    const outcomesData: SandboxOutcomesData | undefined =
+        cases.data === undefined || next.data === undefined ? undefined : { rows: outcomeRowsOf(cases.data, next.data) }
     return {
         cases: slotOfReads([cases, next, latest], () => casesData),
+        outcomes: slotOfReads([cases, next], () => outcomesData),
         calls: mapSlot(slotOfSandboxRead(calls), (wire) =>
             callsDataOf(wire, state.callsShown, account?.provider ?? "", words),
         ),

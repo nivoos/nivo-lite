@@ -101,6 +101,7 @@ export const webmailHearNode: TemplateNode<z.ZodType<HearInput>, z.ZodType<HearO
         tools: [TOOL.conversationMessageList],
         mode: "auto",
         accounts: [],
+        readsHeldEvents: true,
         params,
         input,
         output,

@@ -858,7 +858,8 @@ export class ThreadApprovalsService {
         try {
             // The card names the account the call was asked on: bound as the asking step's call when the turn carries its step.
             const seen = step.turn.step === undefined ? CARD_SEEN : seenAtStep("approval_card", step.turn.step)
-            const [bound] = await accounts.boundAccountsOf(step.workspaceId, step.agentId, ask.tool, seen)
+            // Named with its run, so the card names the account the runner hands first: the run's own (its trigger's, its person's route's).
+            const [bound] = await accounts.boundAccountsOf(step.workspaceId, step.agentId, ask.tool, seen, { runId: step.turn.turnId })
             if (bound === undefined) return { kind: "read", words: null }
             const board = await accounts.board(step.workspaceId)
             const attached = board.attachments.find((one) => one.connectionId === bound.connectionId)

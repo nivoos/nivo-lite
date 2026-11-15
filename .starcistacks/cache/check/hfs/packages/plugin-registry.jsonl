@@ -1,11 +1,12 @@
-{"data":{},"findings":[],"hash":"4158612dc7da7d6923b89f864caf857e375dc970373be5c09652b04e2e032951","path":"packages/plugin-registry/package.json","step":"file-rules"}
+{"data":{},"findings":[],"hash":"cf53895146df1d4b6ae9ca3295cb6f002f885781dd303f3c06a79fcf2c598f40","path":"packages/plugin-registry/package.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"b5d8e057b664485b179178e64dc014279dc1cdb814e020e7d4d57dbd9a39136f","path":"packages/plugin-registry/src/client/blocks.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"15bca59c24f9b743b140d81297a232609701d9c02d19e93508ca63292f27943e","path":"packages/plugin-registry/src/client/index.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"10384b171c9385767eef53ee6f6a365b0b8a416a08ddfb226dd8754c243e5989","path":"packages/plugin-registry/src/client/kit.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"fe1236d3ba8719e587e568b4e85034f38bbda107d2069d7e2c2513b18ebc7e8b","path":"packages/plugin-registry/src/index.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"4e977b3d9cd186a499b5e9e806b9ba7b314a0a4ae62f4f548476543c21fd76c2","path":"packages/plugin-registry/src/installed.spec.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"3ae44ccf3af17a3fcc5a3f5ea193ac0387580d916f10b1f267fd98d02106804f","path":"packages/plugin-registry/src/installed.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"10817c2ac94924eef4472c4045b0bec7e2aa0b47a94579db9d04797c3316776c","path":"packages/plugin-registry/src/installed.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"3d736c663240c9ad4d410be1da980b05c6ddc066b0513c08454cbf1a9e558bc0","path":"packages/plugin-registry/src/kit/index.ts","step":"file-rules"}
+{"findings":[{"column":0,"line":0,"message":"packages/plugin-registry/src/kit/index.ts belongs to no slot of ext/manifest.json packages[\"packages/plugin-registry\"]; place it in a declared slot or declare the slot (R382)","path":"packages/plugin-registry/src/kit/index.ts","rule":"HFS_PACKAGE_SLOT_UNPLACED"}],"hash":"3aa870218ca90af2a2d2562ea11ae0e42d6831a3ec23007b15382698eaf26ad8","path":"packages/plugin-registry/src/kit/index.ts","step":"hfs"}
 {"data":{},"findings":[],"hash":"e073dc144c9177e9691f467a521a506db87ddac1c708fe91198e8f279e1374d3","path":"packages/plugin-registry/tsconfig.build.client.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"66314054d762b348398a6a37df4ac2f38d62313344feb66defe84b62999e6e8b","path":"packages/plugin-registry/tsconfig.build.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"97700f24f69aece26bafaddb3f20912d23cf0b06408178e009128325544b0d61","path":"packages/plugin-registry/tsconfig.json","step":"file-rules"}

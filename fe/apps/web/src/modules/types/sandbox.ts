@@ -34,9 +34,32 @@ export interface SandboxCopy {
         readonly defaultBadge: string
         readonly nextBadge: string
         readonly inputsLabel: string
-        readonly dropWebhookLabel: string
-        readonly dropWebhookHint: string
+        /** The title and the accessible name of the delivery switch; the words of each mode (the frame's `once`, `twice`, `withheld`, `late`). */
+        readonly deliveryLabel: string
+        readonly modes: Readonly<Record<string, string>>
+        /** What the case says it is a name for: "Delivered {mode}". */
+        readonly deliveryBadge: (mode: string) => string
+        /** Why a case cannot be sent in the chosen mode (12, muted). */
+        readonly modeBlocked: string
+        /** The interval of `late`: its label, its unit picker's label, the words of each unit and the line that gives the bound. */
+        readonly lateAmountLabel: string
+        readonly lateUnitLabel: string
+        readonly lateUnits: Readonly<Record<string, string>>
+        readonly lateHint: string
         readonly errorTitle: string
+    }
+    /** The card that sets, per operation, the outcome of the account's next outbound calls. */
+    readonly outcomes: {
+        readonly title: string
+        readonly hint: string
+        readonly selectLabel: (operation: string) => string
+        /** The words of each outcome (the frame's `ok`, `refused`, ...); an outcome without words is drawn as its key. */
+        readonly names: Readonly<Record<string, string>>
+        /** "Now: {outcome}. It stays until you change it." / "Now: case {id}, not an outcome." */
+        readonly nowLine: (outcome: string) => string
+        readonly nowCaseLine: (caseId: string) => string
+        readonly backLabel: string
+        readonly placeholder: string
     }
     readonly calls: {
         readonly title: string
@@ -153,6 +176,26 @@ export interface SandboxCaseRowView {
     readonly isDefault: boolean
     /** An outbound case the account answers next. */
     readonly isNext: boolean
+    /** The mode an inbound case is a name for (`twice`, `late`); null when it is delivered once. */
+    readonly delivery: string | null
+    /** The delivery modes the case allows (inbound only; none for an outbound case). */
+    readonly modes: ReadonlyArray<string>
+}
+
+/** One outbound operation whose next outcome the page sets. */
+export interface SandboxOutcomeRowView {
+    readonly operation: string
+    /** The outcomes its cases are tagged with, in the frame's order: what the picker offers. */
+    readonly options: ReadonlyArray<string>
+    /** The outcome it answers now; null when the next case carries no generic outcome. */
+    readonly current: string | null
+    /** The case it answers now. */
+    readonly caseId: string | null
+}
+
+/** The outcomes block of the open account: one row per operation that offers a choice. */
+export interface SandboxOutcomesData {
+    readonly rows: ReadonlyArray<SandboxOutcomeRowView>
 }
 
 /** One input an inbound case takes, with the value the form holds. */
@@ -183,8 +226,13 @@ export interface SandboxScopeView {
 export interface SandboxCasesData {
     readonly rows: ReadonlyArray<SandboxCaseRowView>
     readonly fields: ReadonlyArray<SandboxInputView>
-    /** Whether the next send leaves the webhook out (the checkbox in the header zone). */
-    readonly dropWebhook: boolean
+    /** The delivery modes the cases offer (the switch in the header zone); none when no case is inbound. */
+    readonly modeChoices: ReadonlyArray<string>
+    /** The mode the next send uses. */
+    readonly mode: string
+    /** The interval of `late`, as the person set it. */
+    readonly lateAmount: number
+    readonly lateUnit: string
     /** "Latest request: ..." (12, muted); null when the agent has asked for nothing yet. */
     readonly latestLine: string | null
     /** One line per outbound operation with the case it answers next. */
@@ -253,6 +301,8 @@ export interface SandboxPendingView {
     readonly sendingId: string | null
     /** The outbound case being chosen. */
     readonly choosingId: string | null
+    /** The operation whose outcome is being set. */
+    readonly outcomeOperation: string | null
     /** The run whose wait is being ended. */
     readonly expiringId: string | null
     readonly isClearing: boolean
@@ -286,6 +336,7 @@ export interface SandboxPanesBaseProps {
         /** The question before an agent is taken off the account; null when none is asked. */
         readonly detachAsk: SandboxDetachAsk | null
         readonly cases: DataSlot<SandboxCasesData>
+        readonly outcomes: DataSlot<SandboxOutcomesData>
         readonly calls: DataSlot<SandboxCallsData>
         readonly webhookKey: SandboxKeyView
         readonly waiting: DataSlot<ReadonlyArray<SandboxWaitingRowView>>
@@ -319,9 +370,13 @@ export interface SandboxPanesBaseProps {
         readonly setName: (value: string) => void
         readonly submitOpen: () => void
         readonly setInput: (name: string, value: string) => void
-        readonly setDropWebhook: (isDropped: boolean) => void
+        readonly setMode: (mode: string) => void
+        readonly setLateAmount: (amount: number) => void
+        readonly setLateUnit: (unit: string) => void
         readonly send: (caseId: string) => void
         readonly choose: (caseId: string) => void
+        /** Sets the outcome of the next outbound calls of an operation (sticky); `ok` takes it back to the default. */
+        readonly setOutcome: (operation: string, outcome: string) => void
         /** Picks the width the next case applies to: `*` for every call, else a purpose of the call log. */
         readonly chooseScope: (scopeId: string) => void
         readonly moreCalls: () => void

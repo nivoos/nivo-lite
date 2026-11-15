@@ -10,9 +10,20 @@ export interface ContactRunsPort {
     /**
      * Ends, in the deletion's own database transaction and BEFORE the contacts are marked deleted, EVERYTHING pending for the contacts (the
      * contact and every id merged into it) or one of their routes (R72 Q1): the runs parked on them, the wakes still waiting in their
-     * scopes, the timers armed for them; answers how many runs it ended.
+     * scopes, the timers armed for them; answers the runs it ended.
      */
-    erasing(tx: EntityManager, workspaceId: string, contactIds: ReadonlyArray<string>): Promise<number>
+    erasing(
+        tx: EntityManager,
+        workspaceId: string,
+        contactIds: ReadonlyArray<string>,
+        /** The records the erase soft-deleted before (concept agent-data, "Contact and subject"): a run whose subject is one of them ends too. */
+        hidden?: ReadonlyArray<{ readonly type: string; readonly id: string }>,
+    ): Promise<ReadonlyArray<string>>
+    /**
+     * Once the deletion COMMITTED: the open stops of the runs `erasing` ended close with their runs (resolved, the card rewritten with no
+     * live button, the owner's item withdrawn). Not inside the deletion: those are writes of their own. Answers how many stops closed.
+     */
+    stopsClosed(workspaceId: string, runIds: ReadonlyArray<string>): Promise<number>
 }
 
 /** The injection token of the runs of a contact being deleted. */

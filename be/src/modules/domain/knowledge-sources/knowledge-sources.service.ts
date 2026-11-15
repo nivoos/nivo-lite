@@ -331,6 +331,11 @@ export class KnowledgeSourcesService {
         return row === null ? null : toSourceRecord(row)
     }
 
+    /** Whether the source of the workspace still exists: the cheap check a job that derives data from it makes before and after it writes (the row is not read). */
+    exists(workspaceId: string, sourceId: string): Promise<boolean> {
+        return this.entityManager.exists(KnowledgeSourceEntity, { where: { id: sourceId, workspaceId } })
+    }
+
     /** The bytes of an uploaded document; null when the object is not in storage. Any other storage failure is thrown for the queue to retry. */
     async readUpload(path: string): Promise<MaybeUploadedFile> {
         const stored = await this.storage.download(KNOWLEDGE_UPLOAD_BUCKET, path)

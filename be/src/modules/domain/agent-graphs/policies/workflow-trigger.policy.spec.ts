@@ -445,7 +445,7 @@ describe("the verbs a graph listens to: its head triggers and its waits", () => 
                     on: [
                         {
                             key: "done",
-                            verb: "nivo.trigger.video.render.completed",
+                            verbs: ["nivo.trigger.video.render.completed"],
                             match: [
                                 {
                                     member: "renderId",
@@ -454,22 +454,26 @@ describe("the verbs a graph listens to: its head triggers and its waits", () => 
                                 },
                             ],
                         },
-                        { key: "said", verb: "nivo.trigger.zalo.message.received" },
-                        { key: "again", verb: "nivo.trigger.video.render.completed" },
+                        // One meaning (a person's line) through two channels: one key listing both verbs.
+                        { key: "said", verbs: ["nivo.trigger.zalo.message.received", "nivo.trigger.telegram.message.received"] },
+                        // A record-keyed meaning (a record write of a type, no person): the second kind.
+                        { key: "ordered", verbs: ["nivo.trigger.record.written"], where: [{ param: "data.type", op: "equals", value: "fixture.request" }] },
                     ],
                     timeout: { minutes: 30 },
                 },
-                routes: { done: "end", said: "end", again: "end", timeout: "end" },
+                routes: { done: "end", said: "end", ordered: "end", timeout: "end" },
             },
             { key: "end", kind: "output", step: "stop" },
         ],
     }
 
-    it("reads every verb a `wait` step lists (`params.on[].verb`), each once, and none of a graph with no wait", async () => {
+    it("reads every verb a `wait` step's keys list (`params.on[].verbs`), each once, and none of a graph with no wait", async () => {
         const subject = await buildPolicy()
         expect(subject.waitVerbsOf(waiting)).toEqual([
             "nivo.trigger.video.render.completed",
             "nivo.trigger.zalo.message.received",
+            "nivo.trigger.telegram.message.received",
+            "nivo.trigger.record.written",
         ])
         expect(subject.waitVerbsOf(graphOf([zalo("z")]))).toEqual([])
     })
@@ -480,6 +484,8 @@ describe("the verbs a graph listens to: its head triggers and its waits", () => 
             "nivo.trigger.workflow.called",
             "nivo.trigger.video.render.completed",
             "nivo.trigger.zalo.message.received",
+            "nivo.trigger.telegram.message.received",
+            "nivo.trigger.record.written",
         ])
     })
 })

@@ -31,6 +31,7 @@ export { useMutateCreateWorkspaceSwr, useMutateDecideBrainFactSwr, useMutateDeci
 export { useMutateDecideSetupCardSwr, useMutateDecideAgentRunStepSwr } from "./api"
 export { useMutateDeleteConnectionSwr } from "./api"
 export { useMutateDeleteKnowledgeSourceSwr } from "./api"
+export { useMutateUpdateKnowledgeSourceSwr } from "./api"
 export { useMutateDisconnectConnectionSwr, useMutateDisconnectDriveSwr, useMutateDismissKnowledgeGapSwr } from "./api"
 export { useMutateEnqueueKnowledgeSourceSwr } from "./api"
 export { useMutateFinishWebhookConnectionSwr } from "./api"
@@ -292,7 +293,7 @@ export {
     QUERY_SANDBOX_LATEST_REQUEST_SWR_KEY,
 } from "./api"
 export { QUERY_SANDBOX_NEXT_CASES_SWR_KEY, QUERY_SANDBOX_WAITING_RUNS_SWR_KEY } from "./api"
-export { useMutateOpenSandboxAccountSwr, useMutateSendSandboxCaseSwr, useMutateSetSandboxNextCaseSwr } from "./api"
+export { useMutateOpenSandboxAccountSwr, useMutateSendSandboxCaseSwr, useMutateSetSandboxNextCaseSwr, useMutateSetSandboxNextOutcomeSwr } from "./api"
 export { useMutateResetSandboxAccountSwr, useMutateExpireSandboxWaitSwr } from "./api"
 export { useMutateAttachSandboxAccountSwr, useMutateDetachSandboxAccountSwr } from "./api"
 export { QUERY_PROVIDER_RIGHTS_SWR_KEY, useMutateSetAgentProviderDefaultSwr } from "./api"

@@ -1,5 +1,7 @@
 /** Log events of the accuracy and conflict checks of the fact reading (BG2; the coordinator may fold them into `BrainLogEvent`). */
 export enum FactReadingLogEvent {
+    /** The document was deleted while its truths job ran: the job stopped, took back what it filed and ended `origin_gone` (fields: the source id). */
+    OriginGone = "brain.extraction.origin_gone",
     /** A window's answer held facts its text does not support (no quote, a quote not in the text, a quote without the value): dropped and counted. */
     FactsUngrounded = "brain.extraction.facts_ungrounded",
     /**

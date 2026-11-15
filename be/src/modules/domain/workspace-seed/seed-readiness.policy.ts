@@ -50,7 +50,9 @@ export const covers = (account: SetAccount, providerKey: string): boolean => {
  *    that takes payments has a bank account, a graph that writes mail a mailbox;
  * 6. when an agent is the front door of a customer channel, the seed holds a usable account of at least one such channel (an entrance);
  * 7. the agents have knowledge to answer from: at least one document or one truth;
- * 8. every live account names its secret members and each EXISTS in the sealed file (by name; never decrypted).
+ * 8. every live account names its secret members and each EXISTS in the sealed file (by name; never decrypted);
+ * 9. every sandbox account is of a kind an agent of the standard accepts (so the seed attaches it), and every account a node setting names
+ *    is usable in the place (so it is attached to that node's agent before the setting is sent).
  * Answers what is missing, one line each; empty = READY.
  */
 export const readinessOf = (
@@ -123,11 +125,39 @@ export const readinessOf = (
             }
         }
     }
+    const accepted = new Set(
+        profile.agents.flatMap((agent) =>
+            installed.templatesOf(agent.module).flatMap((template) =>
+                latestTemplateVersion(template).graph.nodes.flatMap((node) => (node.accounts ?? []).flatMap((entry) => (entry.provider === null ? [] : [entry.provider]))),
+            ),
+        ),
+    )
+    for (const agent of profile.agents) for (const channel of installed.inboundChannelsOf(agent.module)) accepted.add(channel)
+    for (const account of profile.accounts.filter((one) => one.sandbox)) {
+        if (![...accepted].some((provider) => covers(account, provider))) missing.push(`sandbox account ${account.key}: no agent of the standard accepts ${account.provider} (it would be attached to none)`)
+    }
+    for (const setting of profile.nodeSettings) {
+        for (const key of setting.accounts ?? []) {
+            const account = profile.accounts.find((one) => one.key === key)
+            if (account !== undefined && !usable(account)) missing.push(`node setting ${setting.workflow}/${setting.node}: account ${key} is not usable here (it would not be attached to ${setting.module})`)
+        }
+    }
     if (profile.agents.length > 0 && profile.documents.length === 0 && profile.truths.length === 0 && profile.generators.length === 0) {
         missing.push("knowledge: no document and no truth for the agents to answer from")
     }
     return missing
 }
+
+/** For each live account whose secret members are not all set: the sandbox account of its kind the workspace uses instead (local only). */
+export const sandboxTwinsOf = (profile: SetProfile, sealed: SealedNames, place: EnterpriseSeedPlace): ReadonlyArray<string> =>
+    place !== "local"
+        ? []
+        : profile.accounts
+              .filter((account) => !account.sandbox && account.secrets.some((member) => sealed?.[account.key]?.[member] !== "set"))
+              .flatMap((account) => {
+                  const twin = profile.accounts.find((one) => one.sandbox && one.provider === account.provider)
+                  return twin === undefined ? [] : [`account ${account.key} (${account.provider}): credentials not set: sandbox twin ${twin.key} in use`]
+              })
 
 /** The one line a dry run and the check print: READY yes, or no with what is missing. */
 export const readyLineOf = (name: string, missing: ReadonlyArray<string>): string =>

@@ -370,6 +370,14 @@ export interface TemplateNodeConfig<
     readonly requires?: ReadonlyArray<ToolId> | undefined
     /** The output member that names the route, and the route names. */
     readonly routes?: TemplateRoutes<O, R> | undefined
+    /**
+     * `true` when the node's step READS the events of the run's subject that are held behind the run (E-FIX12 rule A-7;
+     * `runs-and-queue` rule 3): the consuming read of the subject's stream, which hands them to the step as `ctx.run.queue` and whose
+     * read the step's end consumes. Generic words, valid for both data sources (customer lines and records): the node does not say which.
+     * Absent: the step is a plain step, and a visit of it that runs again after a person's decision takes no held event: they go to the
+     * run's next wait that lists them, else start the next run. Only `true` is written (`NODE_HELD_READS_INVALID`).
+     */
+    readonly readsHeldEvents?: true | undefined
     /** Lead facts its output proves, by fact then the dotted output path. */
     readonly facts?: Readonly<Partial<Record<LeadFact, string>>> | undefined
     /** Output members holding a secret or personal data, by dotted path. */

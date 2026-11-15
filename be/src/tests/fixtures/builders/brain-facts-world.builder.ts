@@ -300,6 +300,7 @@ const scriptMisc = (d: FactsDoubles, world: FactsWorld, source: SourceRecord): v
     parts.wholeOf.mockResolvedValue([DOC_SOURCE])
     indexing.sourceForFacts.mockResolvedValue(source)
     sources.sourceOf.mockResolvedValue(source)
+    sources.exists.mockResolvedValue(true)
     usage.blockedBy.mockResolvedValue(false)
     queue.enqueueFactsNext.mockResolvedValue(undefined)
     vectors.checkSameMeaning.mockResolvedValue({ judged: 0, flagged: 0 })

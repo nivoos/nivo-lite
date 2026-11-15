@@ -8,7 +8,7 @@ import { I18nModule } from "@modules/platform/i18n"
 import { ErrorsModule } from "@modules/platform/errors"
 import { CqrsModule } from "@modules/platform/cqrs"
 import { HttpSecurityModule } from "@modules/platform/http-security"
-import { DatabaseModule, PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
+import { DatabaseModule, PRIMARY_ENTITY_MANAGER, typedDatabaseFailure } from "@modules/platform/database"
 import { PRIMARY_ENTITIES } from "@modules/platform/database/entities"
 import { EventBusModule } from "@modules/platform/event-bus"
 import { QueueModule } from "@modules/platform/queue"
@@ -85,6 +85,7 @@ export const platformModules = (options: ApiOptions): Array<DynamicModule> => [
             REALTIME_ERROR_KINDS,
             OBJECT_STORAGE_ERROR_KINDS,
         ],
+        typers: [typedDatabaseFailure],
     }),
     CqrsModule.register({ isGlobal: true }),
     HttpSecurityModule.register({ isGlobal: true, ...options.httpSecurity }),

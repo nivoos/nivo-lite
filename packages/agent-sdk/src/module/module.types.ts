@@ -110,6 +110,23 @@ export interface ModuleTemplateTrigger {
 }
 
 /**
+ * A document the module's agent works better with, suggested to the shop to teach it: a suggestion to add something to the knowledge,
+ * never a requirement. A module declares it; the host serves it with the catalogue and draws it, and holds none of it.
+ */
+export interface ModuleKnowledgeIdea {
+    /** The stable idea key; the same key declared by several modules is one suggestion. */
+    readonly key: string
+    /** What the document is about, as a short title. */
+    readonly topic: Bilingual
+    /** What to write in it. */
+    readonly hint: Bilingual
+    /** The business types it fits; absent means any. */
+    readonly businessTypes?: ReadonlyArray<string> | undefined
+    /** It fits every agent of the module's kind of work, not the module's own: it ranks after the specific ideas. Absent: it does not. */
+    readonly general?: boolean | undefined
+}
+
+/**
  * The template of a module: the catalogue entry, the agent, the setup gates, and the actions and commands its seed graph is built from.
  * It is data only; the host derives the seed graph from it under its own checks.
  */
@@ -151,6 +168,8 @@ export interface ModuleTemplate {
     readonly available: boolean
     /** The folder of the NIVO base knowledge for the module. */
     readonly knowledgeFolder: string
+    /** The documents the module suggests the shop to add to its knowledge; none when absent. */
+    readonly knowledgeIdeas?: ReadonlyArray<ModuleKnowledgeIdea> | undefined
     /** The key of the module's workbench, when it has one; the workbench registration carries the same key. */
     readonly workbench: string | null
     /** The key of the module's extra settings, when it has any. */

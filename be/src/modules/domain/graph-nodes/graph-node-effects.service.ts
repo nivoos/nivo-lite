@@ -37,6 +37,16 @@ export const ledgerKeyOf = (call: EffectCall): string => {
     return key.length <= KEY_MAX ? key : `digest:${createHash("sha256").update(key).digest("hex")}`
 }
 
+/** The prefix of a ledger key made from a run step's own call key (`ledgerKeyOf`). */
+const CALL_KEY_PREFIX = "call:"
+
+/**
+ * The call a ledger key was made from, when it can be read back: a run step's own call key (`call:<key>`) is that call with no business
+ * key. A business key (`dedupe:`) or a digest of a key too long names no call key: null.
+ */
+export const callOfLedgerKey = (ledgerKey: string): EffectCall | null =>
+    ledgerKey.startsWith(CALL_KEY_PREFIX) ? { key: ledgerKey.slice(CALL_KEY_PREFIX.length), dedupeKey: null } : null
+
 /** The kind a ledger record names as its subject when its act ended with an outcome nobody knows (see `OUTCOME_UNKNOWN_CODES`). */
 export const OUTCOME_UNKNOWN_KIND = "outcome-unknown"
 
@@ -186,6 +196,30 @@ export interface LedgerRecord {
     readonly subject: SubjectRef
     /** When it was kept (ISO text): just after the act. */
     readonly at: string
+    /** The ledger key it is kept under (`call:<run>:<step>:<digest>`, `dedupe:<key>`). */
+    readonly key: string
+}
+
+/**
+ * An act of a run step still OPEN in the ledger (an intent with no result, or an outcome kept unknown) of a tool that declares itself
+ * `repeatable`, with what makes it again exactly: its call key and the arguments it was made with (E-FIX12 rule A-2).
+ */
+export interface OpenAct {
+    /** The effect. */
+    readonly effect: string
+    /** The call it was made under (the same ledger key, the same send key). */
+    readonly call: EffectCall
+    /** The arguments it was made with. */
+    readonly args: Readonly<Record<string, unknown>>
+}
+
+/** The member of an open row's facts that counts how many times its act was made under its key (E-FIX12 rule A-3). */
+export const ACTS_MADE = "made"
+
+/** How many times the act of an open row was made under its key, as the row counts it (1 when it does not count). */
+const madeOf = (row: StoredEffect | null): number => {
+    const made: unknown = row?.facts?.[ACTS_MADE]
+    return typeof made === "number" && Number.isInteger(made) && made > 0 ? made : 1
 }
 
 /** Where a call is made and with what, as its caller knows it. */
@@ -194,6 +228,8 @@ export interface CallRecord {
     readonly args?: Readonly<Record<string, unknown>> | undefined
     /** The run and the step; absent, read from the call key (`placeOf`). */
     readonly place?: CallPlace | undefined
+    /** True when a PERSON's Retry decided a lost act of this key (outcome unknown, declared `person`) is made again under the same key. */
+    readonly decided?: true | undefined
 }
 
 /** The code a throw carries: a domain error's, or the `code` member of another object; null when it carries none. */
@@ -209,7 +245,11 @@ const unknownCodeOf = (cause: unknown): string | null => {
 }
 
 /** The row of a call whose act ended with an outcome nobody knows: its code as the subject. */
-const unknownSubjectOf = (code: string): EffectResettle => ({ subjectEntity: OUTCOME_UNKNOWN_KIND, subjectId: code, facts: { code } })
+const unknownSubjectOf = (code: string, made: number): EffectResettle => ({
+    subjectEntity: OUTCOME_UNKNOWN_KIND,
+    subjectId: code,
+    facts: { code, [ACTS_MADE]: made },
+})
 
 /** The state the shared effect rules read of a ledger row: an intent, an outcome kept unknown, or a settled act. */
 const stateOf = (row: StoredEffect): EffectLedgerRow["state"] => {
@@ -276,6 +316,8 @@ class NodeEffectLedger implements EffectLedger {
     private found: StoredEffect | null = null
     /** True while the key holds a row (found, or the intent this call wrote). */
     private written: boolean
+    /** How many times this key's act was made, this call's act included (E-FIX12 rule A-3): 1 for a first act, one more per act again. */
+    made = 1
 
     constructor(private readonly call: NodeLedgerCall) {
         this.written = call.held === true
@@ -310,6 +352,8 @@ class NodeEffectLedger implements EffectLedger {
     async reopen(key: string): Promise<void> {
         const { store, workspaceId, effect, logger } = this.call
         logger.info(GraphNodesLogEvent.EffectReplayed, { workspaceId, effect, again: true })
+        // The act is made once more under the same key: the row's count of acts goes on from what it kept (a lost intent counts as one).
+        this.made = madeOf(this.found) + 1
         if (this.found === null || stateOf(this.found) !== "unknown") return
         await store.resettle(workspaceId, key, OUTCOME_UNKNOWN_KIND, {
             subjectEntity: INTENT_KIND,
@@ -333,8 +377,8 @@ class NodeEffectLedger implements EffectLedger {
         if (code === null) return
         const { store, workspaceId, values } = this.call
         const kept = this.written
-            ? store.resettle(workspaceId, key, INTENT_KIND, unknownSubjectOf(code))
-            : store.insert(workspaceId, { ...values, ...unknownSubjectOf(code) })
+            ? store.resettle(workspaceId, key, INTENT_KIND, unknownSubjectOf(code, this.made))
+            : store.insert(workspaceId, { ...values, ...unknownSubjectOf(code, this.made) })
         await kept.catch(() => false)
     }
 
@@ -360,8 +404,20 @@ class NodeEffectLedger implements EffectLedger {
         }
         const stored = this.found?.subjectId
         const code = isOutcomeUnknownCode(stored) ? stored : EffectOutcomeUnknownCode.Tool
-        return new EffectOutcomeUnknownError({ code, params: { effect: effect.name } })
+        return new EffectOutcomeUnknownError({ code, params: { effect: effect.name, [ACTS_MADE]: madeOf(this.found) } })
     }
+}
+
+/**
+ * An outcome-unknown failure of an act with the count of acts its ledger row kept (E-FIX12 rule A-3: the facts a stop is written from
+ * say how many times the act left, never a guess); any other failure, or one that already counts, as it was.
+ */
+const withActsMade = (cause: unknown, made: number): unknown => {
+    const code = thrownCodeOf(cause)
+    if (!isOutcomeUnknownCode(code)) return cause
+    const params = isDomainError(cause) ? cause.params : {}
+    if (ACTS_MADE in params) return cause
+    return new EffectOutcomeUnknownError({ code, params: { ...params, [ACTS_MADE]: made }, cause })
 }
 
 @Injectable()
@@ -399,12 +455,31 @@ export class GraphNodeEffectsService {
             args: ledgerJsonOf(record.args),
         }
         const ledger = this.ledgerOf(workspaceId, effect, values, { outside: actsOutside(effect), repeatable })
-        return new EffectLedgerRules(ledger).once(ledgerKey, declarationOf(effect, repeatable), {
-            act,
-            keep: keptSubjectOf,
-            from: subjectOfKept,
-            // A refusal is an answer, not an act: nothing is kept under the key, so the call asked again later is really made again.
-            nothingDone: isRefused,
+        try {
+            return await new EffectLedgerRules(ledger).once(ledgerKey, declarationOf(effect, repeatable), {
+                act,
+                keep: keptSubjectOf,
+                from: subjectOfKept,
+                // A refusal is an answer, not an act: nothing is kept under the key, so the call asked again later is really made again.
+                nothingDone: isRefused,
+                ...(record.decided === true ? { decided: true as const } : {}),
+            })
+        } catch (cause) {
+            throw withActsMade(cause, ledger.made)
+        }
+    }
+
+    /**
+     * The acts of a run step still OPEN in the ledger (an intent with no result, or an outcome kept unknown) whose tool declares itself
+     * `repeatable` and whose call and arguments the ledger kept (E-FIX12 rule A-2), oldest first: what an automatic retry of the step
+     * makes again, exactly, before anything else. Settled acts, acts of other tools and acts kept under a business key are not listed.
+     */
+    async openActsOf(workspaceId: string, place: CallPlace): Promise<ReadonlyArray<OpenAct>> {
+        const rows = await this.store.ofStep(workspaceId, place.runId, place.stepKey, STEP_RECORDS_READ)
+        return rows.flatMap((row) => {
+            const call = callOfLedgerKey(row.effectKey)
+            if (stateOf(row) === "done" || repeatableBySpec(row.effectId) !== true || call === null || row.args === null) return []
+            return [{ effect: row.effectId, call, args: row.args }]
         })
     }
 
@@ -435,7 +510,7 @@ export class GraphNodeEffectsService {
             const kept = keptOf(row)
             return !effects.includes(kept.effect)
                 ? []
-                : [{ effect: kept.effect, args: row.args, subject: kept.subject, at: row.createdAt }]
+                : [{ effect: kept.effect, args: row.args, subject: kept.subject, at: row.createdAt, key: row.effectKey }]
         })
     }
 

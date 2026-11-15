@@ -1,5 +1,6 @@
 import type { SandboxCasesQuery, SandboxLatestRequestQuery, SandboxNextCasesQuery } from "@/modules/api"
 import type { SandboxCasesData, SandboxInputView, SandboxScopeView } from "@/modules/types"
+import { deliveryChoicesOf, deliveryModesOf } from "./sandbox.modes"
 import { SANDBOX_SCOPE_ALL } from "./sandbox.purposes"
 import { SANDBOX_JOIN, type SandboxWords } from "./sandbox.words"
 
@@ -30,6 +31,13 @@ const shownOf = (latest: LatestWire, inputs: ReadonlyArray<InputWire>, words: Sa
         .filter((value) => value !== "")
 }
 
+/** What the person chose for the next send: the delivery mode and the interval of `late`. */
+export interface SandboxSendChoice {
+    readonly mode: string
+    readonly lateAmount: number
+    readonly lateUnit: string
+}
+
 /**
  * The cases block of one account: its cases (the next one of each outbound operation marked), the inputs the inbound cases take
  * (each with what the person typed, else what the agent's latest request held), and the lines that say so.
@@ -39,7 +47,7 @@ export const casesDataOf = (
     next: SandboxNextCasesQuery["sandboxNextCases"],
     latest: LatestWire,
     edits: Readonly<Record<string, string>>,
-    dropWebhook: boolean,
+    send: SandboxSendChoice,
     words: SandboxWords,
     scope: SandboxScopeView | null,
 ): SandboxCasesData => {
@@ -58,6 +66,8 @@ export const casesDataOf = (
             direction: one.direction === "inbound" ? "inbound" : "outbound",
             operation: one.operation ?? null,
             isDefault: one.isDefault,
+            delivery: one.delivery ?? null,
+            modes: one.direction === "inbound" ? deliveryModesOf({ delivery: one.delivery ?? null, polled: one.polled }) : [],
             // The back end names only the every-call pick: with one purpose chosen no row claims to be the next.
             isNext:
                 one.direction !== "inbound" &&
@@ -65,7 +75,12 @@ export const casesDataOf = (
                 next.some((entry) => entry.operation === one.operation && entry.caseId === one.id),
         })),
         fields,
-        dropWebhook,
+        modeChoices: deliveryChoicesOf(
+            cases.filter((one) => one.direction === "inbound").map((one) => ({ delivery: one.delivery ?? null, polled: one.polled })),
+        ),
+        mode: send.mode,
+        lateAmount: send.lateAmount,
+        lateUnit: send.lateUnit,
         latestLine: shown.length === 0 ? null : words.latest(shown.join(SANDBOX_JOIN)),
         nextLines: next.map((entry) => words.next(entry.operation, entry.caseId)),
         scope,

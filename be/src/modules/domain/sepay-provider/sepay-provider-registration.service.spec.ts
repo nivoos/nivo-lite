@@ -2,7 +2,7 @@ import { Test } from "@nestjs/testing"
 import { mock } from "@starci/jest-preset"
 import {
     BankTransactionsRegistryService,
-    PaymentInstructionRegistryService,
+    PaymentRequestRegistryService,
     PollReceiverRegistryService,
 } from "@modules/domain/provider-registry"
 import { SandboxCatalogueRegistryService } from "@modules/domain/provider-sandbox"
@@ -10,6 +10,7 @@ import { SepayBankTransactionsService } from "./sepay-bank-transactions.service"
 import { SepayTransactionReceiverService } from "./sepay-transaction-receiver.service"
 import { SepayFeedWebhookService } from "./sepay-feed-webhook.service"
 import { SepayPaymentInstructionService } from "./sepay-payment-instruction.service"
+import { SepayPaymentRequestAdapter } from "./sepay-payment-request.adapter"
 import { SEPAY_SANDBOX_CATALOGUE } from "./sepay-sandbox.catalogue"
 import { SepaySandboxBankTransactionsService } from "./sepay-sandbox-bank-transactions.service"
 import { SepaySandboxTransactionReceiverService } from "./sepay-sandbox-transaction-receiver.service"
@@ -20,20 +21,20 @@ import { SepayProviderRegistrationService } from "./sepay-provider-registration.
 const build = async () => {
     const receivers = mock<PollReceiverRegistryService>()
     const transactions = mock<BankTransactionsRegistryService>()
-    const instructions = mock<PaymentInstructionRegistryService>()
+    const requests = new PaymentRequestRegistryService()
     const receiver = mock<SepayTransactionReceiverService>()
     const lister = mock<SepayBankTransactionsService>()
-    const instruction = mock<SepayPaymentInstructionService>()
+    const instruction = mock<SepayPaymentInstructionService>({ provider: "sepay" })
     const receiverSandbox = mock<SepaySandboxTransactionReceiverService>()
     const listerSandbox = mock<SepaySandboxBankTransactionsService>()
-    const instructionSandbox = mock<SepaySandboxPaymentInstructionService>()
+    const instructionSandbox = mock<SepaySandboxPaymentInstructionService>({ provider: "sepay" })
     const catalogues = mock<SandboxCatalogueRegistryService>()
     const moduleRef = await Test.createTestingModule({
         providers: [
             SepayProviderRegistrationService,
             { provide: PollReceiverRegistryService, useValue: receivers },
             { provide: BankTransactionsRegistryService, useValue: transactions },
-            { provide: PaymentInstructionRegistryService, useValue: instructions },
+            { provide: PaymentRequestRegistryService, useValue: requests },
             { provide: SepayTransactionReceiverService, useValue: receiver },
             { provide: SepayBankTransactionsService, useValue: lister },
             { provide: SepayPaymentInstructionService, useValue: instruction },
@@ -47,7 +48,7 @@ const build = async () => {
         service: moduleRef.get(SepayProviderRegistrationService),
         receivers,
         transactions,
-        instructions,
+        requests,
         receiver,
         lister,
         instruction,
@@ -66,7 +67,13 @@ describe("SepayProviderRegistrationService.onModuleInit", () => {
 
         expect(built.receivers.register).toHaveBeenCalledWith({ live: built.receiver, sandbox: built.receiverSandbox })
         expect(built.transactions.register).toHaveBeenCalledWith({ live: built.lister, sandbox: built.listerSandbox })
-        expect(built.instructions.register).toHaveBeenCalledWith({ live: built.instruction, sandbox: built.instructionSandbox })
+        // The payment request (R111): the SePay adapter over the live instruction for a live account, over the sandbox twin for a sandbox one.
+        const live = built.requests.portFor({ provider: "sepay", sandbox: false })
+        const sandbox = built.requests.portFor({ provider: "sepay", sandbox: true })
+        expect(live).toBeInstanceOf(SepayPaymentRequestAdapter)
+        expect(sandbox).toBeInstanceOf(SepayPaymentRequestAdapter)
+        expect(live).not.toBe(sandbox)
+        expect(live?.get).toBeUndefined()
         expect(built.catalogues.register).toHaveBeenCalledWith(SEPAY_SANDBOX_CATALOGUE)
     })
 })
