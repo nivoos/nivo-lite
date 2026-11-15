@@ -5,11 +5,24 @@ import {
     type ScriptedRunnerRun,
     type ScriptedToolAnswer,
 } from "@tests/fixtures/builders/cells.builder"
-import { controlCells, crmCells, definitionOf, moneyCells, scopeOf } from "@tests/fixtures/builders/cells-executor.builder"
+import {
+    controlCells,
+    crmCells,
+    definitionOf,
+    moneyCells,
+    scopeOf,
+} from "@tests/fixtures/builders/cells-executor.builder"
 import type { Clock } from "@modules/platform/clock"
 import type { Logger } from "@modules/platform/logging"
 import type { CellLedger } from "./cell-ledger.port"
-import type { CellDefinitionView, CellOutcome, ExecuteRequest, ExecuteResult, JsonValue, RunnerLimits } from "./cells.contracts"
+import type {
+    CellDefinitionView,
+    CellOutcome,
+    ExecuteRequest,
+    ExecuteResult,
+    JsonValue,
+    RunnerLimits,
+} from "./cells.contracts"
 import { CELL_CAUSE, CellExecutorService, REFUSAL_CLASS_FACT } from "./cell-executor.service"
 import { CellExpressionPolicy } from "./cell-expression.policy"
 import { CellJsonSchemaPolicy } from "./cell-json-schema.policy"
@@ -19,7 +32,14 @@ import { CellsError, CellsErrorCode } from "./errors/cells.error"
 import { MemoryCellLedgerClient } from "./memory-cell-ledger.client"
 import { MemoryCellMeterClient } from "./memory-cell-meter.client"
 
-const LIMITS: RunnerLimits = { memoryBytes: 64 << 20, stackBytes: 1 << 20, cpuMs: 2000, wallMs: 10_000, outputBytes: 262_144, maxCalls: 50 }
+const LIMITS: RunnerLimits = {
+    memoryBytes: 64 << 20,
+    stackBytes: 1 << 20,
+    cpuMs: 2000,
+    wallMs: 10_000,
+    outputBytes: 262_144,
+    maxCalls: 50,
+}
 const NOW = "2026-11-15T01:00:00.000Z"
 
 interface World {
@@ -60,14 +80,28 @@ const worldOf = (answers: Readonly<Record<string, ScriptedToolAnswer>> = {}, han
     const now = jest.fn((): Date => new Date(NOW))
     const clock: Clock = { now }
     const logger: Logger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
-    const executor = new CellExecutorService(reader, runner, ledger, meter, door, LIMITS, clock, logger, new CellExpressionPolicy(), new CellJsonSchemaPolicy())
+    const executor = new CellExecutorService(
+        reader,
+        runner,
+        ledger,
+        meter,
+        door,
+        { runnerLimits: LIMITS, runnerPoolSize: 1, runnerEntry: "" },
+        clock,
+        logger,
+        new CellExpressionPolicy(),
+        new CellJsonSchemaPolicy(),
+    )
     return { executor, reader, runner, door, ledger: real, meter, logger, events, now }
 }
 
 /** Adds a definition (with its source text when it has a stored source) and answers the row a request names. */
 const add = (world: World, view: CellDefinitionView, source?: string): CellDefinitionView => {
     const sourceSha256 = source === undefined ? view.sourceSha256 : world.reader.addSource(source).sha256
-    return world.reader.addDefinition({ ...view, sourceSha256: source === undefined && view.sourceSha256 === "to-be-set" ? null : sourceSha256 })
+    return world.reader.addDefinition({
+        ...view,
+        sourceSha256: source === undefined && view.sourceSha256 === "to-be-set" ? null : sourceSha256,
+    })
 }
 
 const request = (view: CellDefinitionView, input: JsonValue, over: Partial<ExecuteRequest> = {}): ExecuteRequest => ({
@@ -107,7 +141,10 @@ describe("CellExecutorService on demo-money (an outside write, not repeatable, s
         expect(again.outcome).toEqual({ kind: "ok", output: { payKey: "DH1001" } })
         expect(again.calls).toEqual([])
         expect(world.door.calls).toHaveLength(1)
-        expect(world.logger.info).toHaveBeenCalledWith(CellsLogEvent.Replayed, expect.objectContaining({ stepKey: "step-1" }))
+        expect(world.logger.info).toHaveBeenCalledWith(
+            CellsLogEvent.Replayed,
+            expect.objectContaining({ stepKey: "step-1" }),
+        )
     })
 
     it("a read has no intent: it runs each time", async () => {
@@ -122,18 +159,29 @@ describe("CellExecutorService on demo-money (an outside write, not repeatable, s
     it("refuses an input outside its schema before anything runs: no intent, no door call", async () => {
         const world = worldOf({ [moneyCells.create.key]: created })
         add(world, moneyCells.create)
-        await expect(world.executor.execute(request(moneyCells.create, { payKey: 5, amount: 1 }))).rejects.toMatchObject({
+        await expect(
+            world.executor.execute(request(moneyCells.create, { payKey: 5, amount: 1 })),
+        ).rejects.toMatchObject({
             code: CellsErrorCode.InputInvalid,
             params: { path: "/payKey" },
         })
-        await expect(world.executor.execute(request(moneyCells.create, "text"))).rejects.toMatchObject({ code: CellsErrorCode.InputInvalid, params: { path: "/" } })
+        await expect(world.executor.execute(request(moneyCells.create, "text"))).rejects.toMatchObject({
+            code: CellsErrorCode.InputInvalid,
+            params: { path: "/" },
+        })
         expect(world.events).toEqual([])
         expect(world.door.calls).toEqual([])
     })
 
     it("refuses a config outside the config schema", async () => {
         const world = worldOf()
-        const strict = add(world, definitionOf({ kind: "tool", key: "demo.configured", version: 1 }, { configSchema: { type: "object", required: ["mode"], properties: { mode: { type: "string" } } } }))
+        const strict = add(
+            world,
+            definitionOf(
+                { kind: "tool", key: "demo.configured", version: 1 },
+                { configSchema: { type: "object", required: ["mode"], properties: { mode: { type: "string" } } } },
+            ),
+        )
         await expect(world.executor.execute(request(strict, {}, { config: {} }))).rejects.toMatchObject({
             code: CellsErrorCode.InputInvalid,
             params: { path: "config/" },
@@ -142,9 +190,13 @@ describe("CellExecutorService on demo-money (an outside write, not repeatable, s
 
     it("an unknown or unpublished cell is CELLS_UNKNOWN", async () => {
         const world = worldOf()
-        await expect(world.executor.execute(request(moneyCells.create, payInput))).rejects.toMatchObject({ code: CellsErrorCode.Unknown })
+        await expect(world.executor.execute(request(moneyCells.create, payInput))).rejects.toMatchObject({
+            code: CellsErrorCode.Unknown,
+        })
         add(world, { ...moneyCells.create, reviewState: "draft" })
-        await expect(world.executor.execute(request(moneyCells.create, payInput))).rejects.toMatchObject({ code: CellsErrorCode.Unknown })
+        await expect(world.executor.execute(request(moneyCells.create, payInput))).rejects.toMatchObject({
+            code: CellsErrorCode.Unknown,
+        })
     })
 
     it("a retired cell still runs: a pinned run finishes", async () => {
@@ -165,7 +217,9 @@ describe("CellExecutorService on demo-money (an outside write, not repeatable, s
     })
 
     it("a refusal of an outside write is one stop; the key is released so Retry acts again", async () => {
-        const world = worldOf({ [moneyCells.create.key]: { ok: false, refusal: "bank_declined", facts: { bank: "x" } } })
+        const world = worldOf({
+            [moneyCells.create.key]: { ok: false, refusal: "bank_declined", facts: { bank: "x" } },
+        })
         add(world, moneyCells.create)
         const first = await world.executor.execute(request(moneyCells.create, payInput))
         expect(first.outcome).toEqual({ kind: "refused", code: "bank_declined", facts: { bank: "x" } })
@@ -178,12 +232,18 @@ describe("CellExecutorService on demo-money (an outside write, not repeatable, s
         const world = worldOf({ [moneyCells.create.key]: { ok: false, refusal: "mystery" } })
         add(world, moneyCells.create)
         const result = await world.executor.execute(request(moneyCells.create, payInput))
-        expect(result.outcome).toEqual({ kind: "failed", why: "permanent", cause: { code: CellsErrorCode.RefusalUndeclared, detail: "mystery" } })
+        expect(result.outcome).toEqual({
+            kind: "failed",
+            why: "permanent",
+            cause: { code: CellsErrorCode.RefusalUndeclared, detail: "mystery" },
+        })
         expect(result.verdict).toEqual({ kind: "stop", why: "failed" })
     })
 
     it("a transient answer retries and releases the key", async () => {
-        const world = worldOf({ [moneyCells.create.key]: { ok: false, refusal: "http_503", facts: { [REFUSAL_CLASS_FACT]: "transient" } } })
+        const world = worldOf({
+            [moneyCells.create.key]: { ok: false, refusal: "http_503", facts: { [REFUSAL_CLASS_FACT]: "transient" } },
+        })
         add(world, moneyCells.create)
         const first = await world.executor.execute(request(moneyCells.create, payInput))
         expect(first.outcome).toEqual({ kind: "transient", cause: { code: "http_503" } })
@@ -193,7 +253,9 @@ describe("CellExecutorService on demo-money (an outside write, not repeatable, s
     })
 
     it("an unknown outcome is confirmed by the declared read, and the key stays open: it never acts again by itself", async () => {
-        const world = worldOf({ [moneyCells.create.key]: { ok: false, refusal: "timeout", facts: { [REFUSAL_CLASS_FACT]: "unknown" } } })
+        const world = worldOf({
+            [moneyCells.create.key]: { ok: false, refusal: "timeout", facts: { [REFUSAL_CLASS_FACT]: "unknown" } },
+        })
         add(world, moneyCells.create)
         const first = await world.executor.execute(request(moneyCells.create, payInput))
         expect(first.outcome.kind).toBe("unknown")
@@ -208,8 +270,13 @@ describe("CellExecutorService on demo-money (an outside write, not repeatable, s
     })
 
     it("an unknown outcome of a write that declares neither repeatable nor confirmBy stops for a person", async () => {
-        const world = worldOf({ "demo.bare": { ok: false, refusal: "timeout", facts: { [REFUSAL_CLASS_FACT]: "unknown" } } })
-        const bare = add(world, definitionOf({ kind: "tool", key: "demo.bare", version: 1 }, { semantics: { mutates: true } }))
+        const world = worldOf({
+            "demo.bare": { ok: false, refusal: "timeout", facts: { [REFUSAL_CLASS_FACT]: "unknown" } },
+        })
+        const bare = add(
+            world,
+            definitionOf({ kind: "tool", key: "demo.bare", version: 1 }, { semantics: { mutates: true } }),
+        )
         const result = await world.executor.execute(request(bare, {}))
         expect(result.verdict).toEqual({ kind: "stop", why: "outcome_unknown", retry: "after_take_over" })
     })
@@ -224,16 +291,25 @@ describe("CellExecutorService on demo-money (an outside write, not repeatable, s
 
     it("an output outside the schema of a read is failed permanent", async () => {
         const world = worldOf({ "demo.reader": { ok: true, value: "text" } })
-        const reader = add(world, definitionOf({ kind: "tool", key: "demo.reader", version: 1 }, { outputSchema: { type: "object" } }))
+        const reader = add(
+            world,
+            definitionOf({ kind: "tool", key: "demo.reader", version: 1 }, { outputSchema: { type: "object" } }),
+        )
         const result = await world.executor.execute(request(reader, {}))
-        expect(result.outcome).toEqual({ kind: "failed", why: "permanent", cause: { code: CellsErrorCode.OutputInvalid, detail: "/" } })
+        expect(result.outcome).toEqual({
+            kind: "failed",
+            why: "permanent",
+            cause: { code: CellsErrorCode.OutputInvalid, detail: "/" },
+        })
         expect(result.verdict).toEqual({ kind: "stop", why: "failed" })
     })
 
     it("a throw from the door is classed by typed members: outcomeUnknown, transient, anything else failed", async () => {
-        const thrower = (cause: unknown): ScriptedToolAnswer => () => {
-            throw cause
-        }
+        const thrower =
+            (cause: unknown): ScriptedToolAnswer =>
+            () => {
+                throw cause
+            }
         const unknown = Object.assign(new Error("lost"), { outcomeUnknown: 1 })
         const transient = Object.assign(new Error("busy"), { transient: true })
         const cases: ReadonlyArray<readonly [unknown, CellOutcome["kind"]]> = [
@@ -259,7 +335,9 @@ describe("CellExecutorService on demo-crm-lead (repeatable write with a replay k
         const world = worldOf({
             [crmCells.createLead.key]: () => {
                 sent += 1
-                return sent === 1 ? { ok: false, refusal: "timeout", facts: { [REFUSAL_CLASS_FACT]: "unknown" } } : { ok: true, value: { leadId: "L1" } }
+                return sent === 1
+                    ? { ok: false, refusal: "timeout", facts: { [REFUSAL_CLASS_FACT]: "unknown" } }
+                    : { ok: true, value: { leadId: "L1" } }
             },
         })
         add(world, crmCells.createLead)
@@ -281,7 +359,10 @@ describe("CellExecutorService on demo-crm-lead (repeatable write with a replay k
         add(world, crmCells.createLead)
         await world.executor.execute(request(crmCells.createLead, leadInput))
         await world.executor.execute(request(crmCells.createLead, { name: "Binh" }))
-        await world.executor.execute({ ...request(crmCells.createLead, leadInput), scope: scopeOf({ stepKey: "step-2" }) })
+        await world.executor.execute({
+            ...request(crmCells.createLead, leadInput),
+            scope: scopeOf({ stepKey: "step-2" }),
+        })
         await world.executor.execute({ ...request(crmCells.createLead, leadInput), scope: scopeOf({ runId: "run-2" }) })
         expect(world.door.calls).toHaveLength(4)
     })
@@ -308,17 +389,27 @@ describe("CellExecutorService on demo-crm-lead (repeatable write with a replay k
         expect(result.verdict).toEqual({ kind: "stop", why: "credits_exhausted" })
         expect(world.door.calls).toEqual([])
         expect(world.meter.bookings()).toEqual([])
-        expect(world.logger.warn).toHaveBeenCalledWith(CellsLogEvent.CreditsExhausted, expect.objectContaining({ workspaceId: "ws-1" }))
+        expect(world.logger.warn).toHaveBeenCalledWith(
+            CellsLogEvent.CreditsExhausted,
+            expect.objectContaining({ workspaceId: "ws-1" }),
+        )
     })
 
     it("a metered run books the usage it reported and draws the pool down", async () => {
-        const world = worldOf({ [crmCells.complete.key]: { ok: true, value: { text: "hi" }, usage: { units: 120, unit: "token" } } })
+        const world = worldOf({
+            [crmCells.complete.key]: { ok: true, value: { text: "hi" }, usage: { units: 120, unit: "token" } },
+        })
         add(world, crmCells.complete)
         world.meter.fund("ws-1", 1000)
         const result = await world.executor.execute(request(crmCells.complete, { prompt: "hello" }))
         expect(result.verdict).toEqual({ kind: "continue" })
         expect(world.meter.bookings()).toEqual([
-            { workspaceId: "ws-1", cell: { kind: "tool", key: "demo.model.complete", version: 1 }, usage: { units: 120 }, billed: true },
+            {
+                workspaceId: "ws-1",
+                cell: { kind: "tool", key: "demo.model.complete", version: 1 },
+                usage: { units: 120 },
+                billed: true,
+            },
         ])
         expect(world.meter.balanceOf("ws-1")).toBe(880)
     })
@@ -330,15 +421,35 @@ describe("CellExecutorService on demo-crm-lead (repeatable write with a replay k
         const result = await world.executor.execute(request(crmCells.complete, { prompt: "hello" }))
         expect(result.outcome.kind).toBe("refused")
         expect(world.meter.bookings()).toEqual([
-            { workspaceId: "ws-1", cell: { kind: "tool", key: "demo.model.complete", version: 1 }, usage: { units: 0 }, billed: false },
+            {
+                workspaceId: "ws-1",
+                cell: { kind: "tool", key: "demo.model.complete", version: 1 },
+                usage: { units: 0 },
+                billed: false,
+            },
         ])
         expect(world.meter.balanceOf("ws-1")).toBe(1000)
     })
 
     it("a fixed price per unit books one unit at that price; a reported price with no figures books zero", async () => {
-        const world = worldOf({ "demo.fixed": { ok: true, value: {} }, "demo.silent": { ok: true, value: { text: "x", usage: "n/a" } } })
-        const fixed = add(world, definitionOf({ kind: "tool", key: "demo.fixed", version: 1 }, { semantics: { mutates: false, metered: { usage: "units", price: { usdPerUnit: 0.01 } } } }))
-        const silent = add(world, definitionOf({ kind: "tool", key: "demo.silent", version: 1 }, { semantics: { mutates: false, metered: { usage: "tokens", price: "reported" } } }))
+        const world = worldOf({
+            "demo.fixed": { ok: true, value: {} },
+            "demo.silent": { ok: true, value: { text: "x", usage: "n/a" } },
+        })
+        const fixed = add(
+            world,
+            definitionOf(
+                { kind: "tool", key: "demo.fixed", version: 1 },
+                { semantics: { mutates: false, metered: { usage: "units", price: { usdPerUnit: 0.01 } } } },
+            ),
+        )
+        const silent = add(
+            world,
+            definitionOf(
+                { kind: "tool", key: "demo.silent", version: 1 },
+                { semantics: { mutates: false, metered: { usage: "tokens", price: "reported" } } },
+            ),
+        )
         world.meter.fund("ws-1", 10)
         await world.executor.execute(request(fixed, {}))
         await world.executor.execute(request(silent, {}))
@@ -348,7 +459,10 @@ describe("CellExecutorService on demo-crm-lead (repeatable write with a replay k
     it("a sandbox world is not metered", async () => {
         const world = worldOf({ [crmCells.complete.key]: { ok: true, value: { text: "hi" } } })
         add(world, crmCells.complete)
-        const result = await world.executor.execute({ ...request(crmCells.complete, { prompt: "p" }), scope: scopeOf({ world: "sandbox" }) })
+        const result = await world.executor.execute({
+            ...request(crmCells.complete, { prompt: "p" }),
+            scope: scopeOf({ world: "sandbox" }),
+        })
         expect(result.verdict).toEqual({ kind: "continue" })
         expect(world.meter.bookings()).toEqual([])
     })
@@ -360,19 +474,25 @@ describe("CellExecutorService on demo-crm-lead (repeatable write with a replay k
         jest.spyOn(world.meter, "book").mockRejectedValue(new Error("books down"))
         const result = await world.executor.execute(request(crmCells.complete, { prompt: "p" }))
         expect(result.verdict).toEqual({ kind: "continue" })
-        expect(world.logger.error).toHaveBeenCalledWith(CellsLogEvent.BookingFailed, expect.any(Error), expect.objectContaining({ workspaceId: "ws-1" }))
+        expect(world.logger.error).toHaveBeenCalledWith(
+            CellsLogEvent.BookingFailed,
+            expect.any(Error),
+            expect.objectContaining({ workspaceId: "ws-1" }),
+        )
     })
 })
 
 describe("CellExecutorService on stored sources (the same road as a declarative cell)", () => {
-    const askToPay = (tools: ReadonlyArray<string> = [moneyCells.create.key]): ScriptedRunnerRun => async (run, door) => {
-        let call = 0
-        for (const tool of tools) {
-            call += 1
-            await door.call(call, tool, payInput)
+    const askToPay =
+        (tools: ReadonlyArray<string> = [moneyCells.create.key]): ScriptedRunnerRun =>
+        async (run, door) => {
+            let call = 0
+            for (const tool of tools) {
+                call += 1
+                await door.call(call, tool, payInput)
+            }
+            return { type: "done", id: run.id, output: { payKey: "DH1001" } }
         }
-        return { type: "done", id: run.id, output: { payKey: "DH1001" } }
-    }
 
     it("runs a node source: intent first, the source's calls go through the door and are recorded, facts come from the clock", async () => {
         const world = worldOf({ [moneyCells.create.key]: created }, askToPay())
@@ -380,7 +500,9 @@ describe("CellExecutorService on stored sources (the same road as a declarative 
         const result = await world.executor.execute(request(moneyCells.askToPay, payInput))
         expect(result.outcome).toEqual({ kind: "ok", output: { payKey: "DH1001" } })
         expect(result.verdict).toEqual({ kind: "continue" })
-        expect(result.calls).toEqual([{ call: 1, tool: moneyCells.create.key, args: payInput, answer: { ok: true, value: { payKey: "DH1001" } } }])
+        expect(result.calls).toEqual([
+            { call: 1, tool: moneyCells.create.key, args: payInput, answer: { ok: true, value: { payKey: "DH1001" } } },
+        ])
         expect(world.events).toEqual(["intent", `run:${moneyCells.create.key}`])
         const run = world.runner.runs[0]
         expect(run).toMatchObject({ entry: "run", source: "function run(){}", input: payInput, limits: LIMITS })
@@ -401,8 +523,14 @@ describe("CellExecutorService on stored sources (the same road as a declarative 
     it("takes the clock and the random from the request when given; else once from the clock port and records them with the intent", async () => {
         const world = worldOf({}, (run) => Promise.resolve({ type: "done", id: run.id, output: {} }))
         const node = add(world, definitionOf({ kind: "node", key: "demo.facts", version: 1 }), "x")
-        await world.executor.execute(request(node, {}, { facts: { now: "2020-02-03T04:05:06.000Z", randomSeed: "seed-9" } }))
-        expect(world.runner.runs[0]?.facts).toMatchObject({ at: "2020-02-03T04:05:06.000Z", day: "2020-02-03", randomSeed: "seed-9" })
+        await world.executor.execute(
+            request(node, {}, { facts: { now: "2020-02-03T04:05:06.000Z", randomSeed: "seed-9" } }),
+        )
+        expect(world.runner.runs[0]?.facts).toMatchObject({
+            at: "2020-02-03T04:05:06.000Z",
+            day: "2020-02-03",
+            randomSeed: "seed-9",
+        })
         expect(world.now).not.toHaveBeenCalled()
         await world.executor.execute(request(node, {}))
         world.now.mockReturnValue(new Date("2030-01-01T00:00:00.000Z"))
@@ -435,7 +563,14 @@ describe("CellExecutorService on stored sources (the same road as a declarative 
                 return { type: "done", id: run.id, output: {} }
             },
         )
-        const node = add(world, definitionOf({ kind: "node", key: "demo.sum", version: 1 }, { semantics: { mutates: false, tools: ["demo.t"], metered: { usage: "tokens", price: "reported" } } }), "x")
+        const node = add(
+            world,
+            definitionOf(
+                { kind: "node", key: "demo.sum", version: 1 },
+                { semantics: { mutates: false, tools: ["demo.t"], metered: { usage: "tokens", price: "reported" } } },
+            ),
+            "x",
+        )
         world.meter.fund("ws-1", 100)
         await world.executor.execute(request(node, {}))
         expect(world.meter.bookings().map((booking) => booking.usage)).toEqual([{ units: 10 }])
@@ -459,8 +594,22 @@ describe("CellExecutorService on stored sources (the same road as a declarative 
 
     it("a cell's own timeout may only lower the wall clock limit", async () => {
         const world = worldOf({}, (run) => Promise.resolve({ type: "done", id: run.id, output: {} }))
-        const short = add(world, definitionOf({ kind: "node", key: "demo.short", version: 1 }, { semantics: { mutates: false, timeoutMs: 500 } }), "x")
-        const long = add(world, definitionOf({ kind: "node", key: "demo.long", version: 1 }, { semantics: { mutates: false, timeoutMs: 600_000 } }), "y")
+        const short = add(
+            world,
+            definitionOf(
+                { kind: "node", key: "demo.short", version: 1 },
+                { semantics: { mutates: false, timeoutMs: 500 } },
+            ),
+            "x",
+        )
+        const long = add(
+            world,
+            definitionOf(
+                { kind: "node", key: "demo.long", version: 1 },
+                { semantics: { mutates: false, timeoutMs: 600_000 } },
+            ),
+            "y",
+        )
         await world.executor.execute(request(short, {}))
         await world.executor.execute(request(long, {}))
         expect(world.runner.runs.map((run) => run.limits.wallMs)).toEqual([500, 10_000])
@@ -479,10 +628,17 @@ describe("CellExecutorService on stored sources (the same road as a declarative 
             const world = worldOf({ "nivo.tool.secret.read": { ok: true, value: "secret" } }, handler)
             add(world, moneyCells.askToPay, "function run(){}")
             const result = await world.executor.execute(request(moneyCells.askToPay, payInput))
-            expect(result.outcome).toEqual({ kind: "failed", why: "permanent", cause: { code: CellsErrorCode.ToolUndeclared, detail: "nivo.tool.secret.read" } })
+            expect(result.outcome).toEqual({
+                kind: "failed",
+                why: "permanent",
+                cause: { code: CellsErrorCode.ToolUndeclared, detail: "nivo.tool.secret.read" },
+            })
             expect(result.verdict).toEqual({ kind: "stop", why: "failed" })
             expect(world.door.calls).toEqual([])
-            expect(world.logger.warn).toHaveBeenCalledWith(CellsLogEvent.ToolUndeclared, { cell: "node:demo.ask-to-pay@1", tool: "nivo.tool.secret.read" })
+            expect(world.logger.warn).toHaveBeenCalledWith(CellsLogEvent.ToolUndeclared, {
+                cell: "node:demo.ask-to-pay@1",
+                tool: "nivo.tool.secret.read",
+            })
         }
     })
 
@@ -497,7 +653,15 @@ describe("CellExecutorService on stored sources (the same road as a declarative 
         for (const [answer, kind, verdict] of answers) {
             const world = worldOf({}, () => Promise.resolve(answer))
             add(world, moneyCells.askToPay, "function run(){}")
-            const withConfirm = { ...moneyCells.askToPay, semantics: { ...moneyCells.askToPay.semantics, confirmBy: moneyCells.create.semantics.confirmBy as NonNullable<CellDefinitionView["semantics"]["confirmBy"]> } }
+            const withConfirm = {
+                ...moneyCells.askToPay,
+                semantics: {
+                    ...moneyCells.askToPay.semantics,
+                    confirmBy: moneyCells.create.semantics.confirmBy as NonNullable<
+                        CellDefinitionView["semantics"]["confirmBy"]
+                    >,
+                },
+            }
             add(world, withConfirm, "function run(){}")
             const result = await world.executor.execute(request(withConfirm, payInput))
             expect([outcomeKind(result), result.verdict.kind]).toEqual([kind, verdict])
@@ -505,11 +669,12 @@ describe("CellExecutorService on stored sources (the same road as a declarative 
     })
 
     it("tells the failure causes apart", async () => {
-        const causes: ReadonlyArray<readonly [Awaited<ReturnType<ScriptedRunnerRun>>, string, "limits" | "permanent"]> = [
-            [{ type: "failed", id: "x", why: "limits", detail: "cpu" }, CellsErrorCode.RunnerLimits, "limits"],
-            [{ type: "failed", id: "x", why: "thrown", detail: "boom" }, CELL_CAUSE.sourceThrown, "permanent"],
-            [{ type: "failed", id: "x", why: "syntax", detail: "bad" }, CellsErrorCode.SourceSyntax, "permanent"],
-        ]
+        const causes: ReadonlyArray<readonly [Awaited<ReturnType<ScriptedRunnerRun>>, string, "limits" | "permanent"]> =
+            [
+                [{ type: "failed", id: "x", why: "limits", detail: "cpu" }, CellsErrorCode.RunnerLimits, "limits"],
+                [{ type: "failed", id: "x", why: "thrown", detail: "boom" }, CELL_CAUSE.sourceThrown, "permanent"],
+                [{ type: "failed", id: "x", why: "syntax", detail: "bad" }, CellsErrorCode.SourceSyntax, "permanent"],
+            ]
         for (const [answer, code, why] of causes) {
             const world = worldOf({}, () => Promise.resolve(answer))
             add(world, moneyCells.askToPay, "function run(){}")
@@ -519,7 +684,9 @@ describe("CellExecutorService on stored sources (the same road as a declarative 
     })
 
     it("a node that ended on a business ending is unsuccessful and kept", async () => {
-        const world = worldOf({}, (run) => Promise.resolve({ type: "ended", id: run.id, reason: "cannot", why: "no stock" }))
+        const world = worldOf({}, (run) =>
+            Promise.resolve({ type: "ended", id: run.id, reason: "cannot", why: "no stock" }),
+        )
         add(world, moneyCells.askToPay, "function run(){}")
         const first = await world.executor.execute(request(moneyCells.askToPay, payInput))
         expect(first.verdict).toEqual({ kind: "unsuccessful", reason: "cannot" })
@@ -529,13 +696,20 @@ describe("CellExecutorService on stored sources (the same road as a declarative 
 
     it("a re-run after a retry replays the tool answers the first run recorded: the write is not sent twice", async () => {
         let attempts = 0
-        const world = worldOf({ [moneyCells.create.key]: created, [moneyCells.read.key]: { ok: true, value: {} } }, async (run, door) => {
-            await door.call(1, moneyCells.create.key, payInput)
-            attempts += 1
-            if (attempts === 1) throw Object.assign(new Error("worker lost"), { transient: true })
-            return { type: "done", id: run.id, output: { payKey: "DH1001" } }
-        })
-        add(world, { ...moneyCells.askToPay, semantics: { ...moneyCells.askToPay.semantics, tools: [moneyCells.create.key] } }, "function run(){}")
+        const world = worldOf(
+            { [moneyCells.create.key]: created, [moneyCells.read.key]: { ok: true, value: {} } },
+            async (run, door) => {
+                await door.call(1, moneyCells.create.key, payInput)
+                attempts += 1
+                if (attempts === 1) throw Object.assign(new Error("worker lost"), { transient: true })
+                return { type: "done", id: run.id, output: { payKey: "DH1001" } }
+            },
+        )
+        add(
+            world,
+            { ...moneyCells.askToPay, semantics: { ...moneyCells.askToPay.semantics, tools: [moneyCells.create.key] } },
+            "function run(){}",
+        )
         const first = await world.executor.execute(request(moneyCells.askToPay, payInput))
         expect(first.verdict).toEqual({ kind: "retry" })
         const second = await world.executor.execute(request(moneyCells.askToPay, payInput))
@@ -550,7 +724,9 @@ describe("CellExecutorService on stored sources (the same road as a declarative 
             {
                 [moneyCells.create.key]: () => {
                     busy += 1
-                    return busy === 1 ? { ok: false, refusal: "busy", facts: { [REFUSAL_CLASS_FACT]: "transient" } } : { ok: true, value: { payKey: "DH1001" } }
+                    return busy === 1
+                        ? { ok: false, refusal: "busy", facts: { [REFUSAL_CLASS_FACT]: "transient" } }
+                        : { ok: true, value: { payKey: "DH1001" } }
                 },
             },
             async (run, door) => {
@@ -559,9 +735,17 @@ describe("CellExecutorService on stored sources (the same road as a declarative 
                 return { type: "done", id: run.id, output: { payKey: "DH1001" } }
             },
         )
-        add(world, { ...moneyCells.askToPay, semantics: { ...moneyCells.askToPay.semantics, tools: [moneyCells.create.key] } }, "function run(){}")
-        expect((await world.executor.execute(request(moneyCells.askToPay, payInput))).verdict).toEqual({ kind: "retry" })
-        expect((await world.executor.execute(request(moneyCells.askToPay, payInput))).verdict).toEqual({ kind: "continue" })
+        add(
+            world,
+            { ...moneyCells.askToPay, semantics: { ...moneyCells.askToPay.semantics, tools: [moneyCells.create.key] } },
+            "function run(){}",
+        )
+        expect((await world.executor.execute(request(moneyCells.askToPay, payInput))).verdict).toEqual({
+            kind: "retry",
+        })
+        expect((await world.executor.execute(request(moneyCells.askToPay, payInput))).verdict).toEqual({
+            kind: "continue",
+        })
         expect(world.door.calls).toHaveLength(2)
     })
 
@@ -581,7 +765,14 @@ describe("CellExecutorService on stored sources (the same road as a declarative 
             for (let call = 1; call <= 10_001; call += 1) await door.call(call, "demo.t", { call })
             return { type: "done", id: run.id, output: {} }
         })
-        const node = add(world, definitionOf({ kind: "node", key: "demo.many", version: 1 }, { semantics: { mutates: false, tools: ["demo.t"] } }), "x")
+        const node = add(
+            world,
+            definitionOf(
+                { kind: "node", key: "demo.many", version: 1 },
+                { semantics: { mutates: false, tools: ["demo.t"] } },
+            ),
+            "x",
+        )
         await world.executor.execute(request(node, {}))
         await world.executor.execute({ ...request(node, {}), scope: scopeOf({ stepKey: "again" }) })
         expect(world.door.calls).toHaveLength(20_002)
@@ -589,18 +780,31 @@ describe("CellExecutorService on stored sources (the same road as a declarative 
 })
 
 describe("CellExecutorService on control cells (data, evaluated by the interpreter)", () => {
-    const state = { trigger: { amount: 350000 }, steps: {}, vars: { count: { value: 2, by: "s0", at: "t0" } }, item: null }
+    const state = {
+        trigger: { amount: 350000 },
+        steps: {},
+        vars: { count: { value: 2, by: "s0", at: "t0" } },
+        item: null,
+    }
 
     it("core.if takes the yes branch, and `unknown` takes the no branch", async () => {
         const world = worldOf()
         const view = add(world, controlCells.ifCell)
         const yes = await world.executor.execute(
-            request(view, state, { config: { when: { op: "gte", ref: { $ref: "trigger.amount" }, value: 300000 }, yes: "ship", no: "stop" } }),
+            request(view, state, {
+                config: {
+                    when: { op: "gte", ref: { $ref: "trigger.amount" }, value: 300000 },
+                    yes: "ship",
+                    no: "stop",
+                },
+            }),
         )
         expect(yes.outcome).toEqual({ kind: "ok", output: { truth: true, branch: "yes", next: "ship" } })
         expect(yes.verdict).toEqual({ kind: "continue" })
         const unsure = await world.executor.execute(
-            request(view, state, { config: { when: { op: "gt", ref: { $ref: "trigger.amount" }, value: "text" }, yes: "ship", no: "stop" } }),
+            request(view, state, {
+                config: { when: { op: "gt", ref: { $ref: "trigger.amount" }, value: "text" }, yes: "ship", no: "stop" },
+            }),
         )
         expect(unsure.outcome).toEqual({ kind: "ok", output: { truth: "unknown", branch: "no", next: "stop" } })
         expect(world.events).toEqual([])
@@ -611,9 +815,20 @@ describe("CellExecutorService on control cells (data, evaluated by the interpret
     it("core.if with a missing or invalid condition is failed permanent", async () => {
         const world = worldOf()
         const view = add(world, controlCells.ifCell)
-        for (const config of [undefined, { when: { op: "bogus" }, yes: "a" }, { when: { not: { not: { not: { not: { not: { op: "present", ref: { $ref: "trigger.a" } } } } } } }, yes: "a" }]) {
+        for (const config of [
+            undefined,
+            { when: { op: "bogus" }, yes: "a" },
+            {
+                when: { not: { not: { not: { not: { not: { op: "present", ref: { $ref: "trigger.a" } } } } } } },
+                yes: "a",
+            },
+        ]) {
             const result = await world.executor.execute(request(view, state, config === undefined ? {} : { config }))
-            expect(result.outcome).toEqual({ kind: "failed", why: "permanent", cause: { code: CELL_CAUSE.expressionInvalid } })
+            expect(result.outcome).toEqual({
+                kind: "failed",
+                why: "permanent",
+                cause: { code: CELL_CAUSE.expressionInvalid },
+            })
             expect(result.verdict).toEqual({ kind: "stop", why: "failed" })
         }
     })
@@ -624,7 +839,13 @@ describe("CellExecutorService on control cells (data, evaluated by the interpret
         const result = await world.executor.execute(
             request(view, state, {
                 scope: scopeOf({ stepKey: "remember" }),
-                config: { set: { paid: { op: "gte", ref: { $ref: "trigger.amount" }, value: 300000 }, count: { $ref: "vars.count" }, tag: "vip" } },
+                config: {
+                    set: {
+                        paid: { op: "gte", ref: { $ref: "trigger.amount" }, value: 300000 },
+                        count: { $ref: "vars.count" },
+                        tag: "vip",
+                    },
+                },
             }),
         )
         expect(result.outcome).toEqual({
@@ -644,14 +865,22 @@ describe("CellExecutorService on control cells (data, evaluated by the interpret
         const world = worldOf()
         const view = add(world, controlCells.setCell)
         const result = await world.executor.execute(request(view, state, { config: {} }))
-        expect(result.outcome).toEqual({ kind: "failed", why: "permanent", cause: { code: CELL_CAUSE.expressionInvalid } })
+        expect(result.outcome).toEqual({
+            kind: "failed",
+            why: "permanent",
+            cause: { code: CELL_CAUSE.expressionInvalid },
+        })
     })
 
     it("a control kind phase 0 does not interpret answers a typed failure, never runs", async () => {
         const world = worldOf()
         const view = add(world, controlCells.loopCell)
         const result = await world.executor.execute(request(view, state, { config: {} }))
-        expect(result.outcome).toEqual({ kind: "failed", why: "permanent", cause: { code: CELL_CAUSE.controlNotInterpreted } })
+        expect(result.outcome).toEqual({
+            kind: "failed",
+            why: "permanent",
+            cause: { code: CELL_CAUSE.controlNotInterpreted },
+        })
         expect(result.verdict).toEqual({ kind: "stop", why: "failed" })
     })
 })

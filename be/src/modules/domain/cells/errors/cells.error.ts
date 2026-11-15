@@ -48,6 +48,8 @@ export enum CellsErrorCode {
     VarUndeclared = "CELLS_VAR_UNDECLARED",
     /** Two parallel branches write the same variable in one super-step and it declares no merge (`graph`, `name`, `steps`). CELLS-DECISIONS D1. */
     VarWriteConflict = "CELLS_VAR_WRITE_CONFLICT",
+    /** The module was registered to execute cells without a tool door: there is no default door, so registration refuses it (`module`). */
+    ToolDoorMissing = "CELLS_TOOL_DOOR_MISSING",
 }
 
 /** How each cells code travels. */
@@ -75,6 +77,7 @@ export const CELLS_ERROR_KINDS: Record<CellsErrorCode, ErrorKind> = {
     [CellsErrorCode.PackageInvalid]: "invalid",
     [CellsErrorCode.VarUndeclared]: "invalid",
     [CellsErrorCode.VarWriteConflict]: "conflict",
+    [CellsErrorCode.ToolDoorMissing]: "internal",
 }
 
 /** The one error class of the cells capability. */

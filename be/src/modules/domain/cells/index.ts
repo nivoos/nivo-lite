@@ -40,6 +40,7 @@ export type {
     ReviewState,
     RunStateRegion,
     RunVariable,
+    RunnerCapability,
     RunnerFacts,
     RunnerInbound,
     RunnerLimits,
@@ -73,6 +74,7 @@ export {
     CELL_READER,
     CELL_RUNNER,
     CELL_TOOL_DOOR,
+    CELLS_OPTIONS,
     InjectCellDefinitionsWriter,
     InjectCellExecutor,
     InjectCellLedger,
@@ -80,13 +82,21 @@ export {
     InjectCellReader,
     InjectCellRunner,
     InjectCellToolDoor,
+    InjectCellsOptions,
 } from "./cells.decorators"
 export { CELLS_ERROR_KINDS, CellsError, CellsErrorCode } from "./errors/cells.error"
 export { CELLS_MESSAGES } from "./messages/cells.messages"
 // Each slice adds ONLY its own block below, under its own heading, and nothing else in this file.
 // S1 (storage and reader):
 export { CellDefinitionsService } from "./cell-definitions.service"
-export { canonicalJsonOf, definitionHashOf, documentHashOf, graphRefTextOf, refTextOf, sha256Of } from "./cell-hash.policy"
+export {
+    canonicalJsonOf,
+    definitionHashOf,
+    documentHashOf,
+    graphRefTextOf,
+    refTextOf,
+    sha256Of,
+} from "./cell-hash.policy"
 export type { DefinitionContent } from "./cell-hash.policy"
 export { CELL_CACHE_LIMITS, CellReaderService } from "./cell-reader.service"
 export {
@@ -103,17 +113,29 @@ export type { CellSeedRequest, CellSeedView } from "./cell-seed.service"
 export { CellValidationService } from "./cell-validation.service"
 export type { AcceptedCells } from "./cell-validation.service"
 export { cellRefText, graphRefText, readCellPackage, readPackageManifest } from "./cell-package-files.mapper"
-export type { CellPackageContent, CellPackageFiles, PackageCell, PackageFault, PackageGraph } from "./cell-package-files.mapper"
+export type {
+    CellPackageContent,
+    CellPackageFiles,
+    PackageCell,
+    PackageFault,
+    PackageGraph,
+} from "./cell-package-files.mapper"
 // S3 (runner):
 export { CellRunnerClient, CAPABILITIES_BY_KIND, limitsHeldTo, readDirsOf, spawnPlanOf } from "./cell-runner.client"
-export type { CellRunRequest, CellRunnerClientOptions } from "./cell-runner.client"
+export type { CellRunnerClientOptions } from "./cell-runner.client"
 export { parseCellsConfig } from "./cells.config"
 // S4 (executor, adapters, module wiring):
-export { CELLS_RUNNER_LIMITS, CELL_CAUSE, CellExecutorService, InjectCellsRunnerLimits, REFUSAL_CLASS_FACT } from "./cell-executor.service"
+export { CELL_CAUSE, CellExecutorService, REFUSAL_CLASS_FACT } from "./cell-executor.service"
 export { CellExpressionPolicy, EXPRESSION_MAX_DEPTH, isStoredExpr, isStoredRef } from "./cell-expression.policy"
 export type { BoundLimits, ExpressionScope, IfConfig, IfDecision } from "./cell-expression.policy"
 export { CellJsonSchemaPolicy } from "./cell-json-schema.policy"
-export { CREDITS_EXHAUSTED_CODE, isDeclaredRefusal, isFinalRefusal, verdictOf, writesOutside } from "./cell-verdict.policy"
+export {
+    CREDITS_EXHAUSTED_CODE,
+    isDeclaredRefusal,
+    isFinalRefusal,
+    verdictOf,
+    writesOutside,
+} from "./cell-verdict.policy"
 export { CellsLogEvent } from "./cells.log-events"
 export type { CellsPortOverrides } from "./cells.module"
 export { MemoryCellLedgerClient } from "./memory-cell-ledger.client"
@@ -121,6 +143,16 @@ export { MemoryCellMeterClient } from "./memory-cell-meter.client"
 export type { MeterBookingView } from "./memory-cell-meter.client"
 // S5 (test kit):
 export { PROOF_CASES } from "./cell-proof.contracts"
-export type { CellProof, CellProofWorld, CellProofWorlds, ProofBooking, ProofCaseId, ProofCaseResult, ProofDoorCall, ProofObservation, ProofToolReply } from "./cell-proof.contracts"
+export type {
+    CellProof,
+    CellProofWorld,
+    CellProofWorlds,
+    ProofBooking,
+    ProofCaseId,
+    ProofCaseResult,
+    ProofDoorCall,
+    ProofObservation,
+    ProofToolReply,
+} from "./cell-proof.contracts"
 export { CELL_PROOF_WORLDS, InjectCellProofWorlds } from "./cell-proof.decorators"
 export { CellProofService } from "./cell-proof.service"

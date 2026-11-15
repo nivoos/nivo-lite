@@ -6,7 +6,8 @@ import type { CellsErrorCode } from "./errors/cells.error"
  */
 
 /** Any JSON value. Cells stand alone, so this is their own copy of the shape (the isolation gate forbids the agent-sdk one). */
-export type JsonValue = string | number | boolean | null | ReadonlyArray<JsonValue> | { readonly [member: string]: JsonValue }
+export type JsonValue =
+    string | number | boolean | null | ReadonlyArray<JsonValue> | { readonly [member: string]: JsonValue }
 
 /** A JSON object. */
 export type JsonObject = { readonly [member: string]: JsonValue }
@@ -157,9 +158,7 @@ export interface CellExample {
     readonly facts?: Partial<RunnerFacts>
     readonly tools?: ReadonlyArray<{ readonly id: string; readonly args?: JsonValue; readonly answer: ToolAnswer }>
     readonly expect:
-        | { readonly ok: JsonValue }
-        | { readonly ending: "cannot" | "declined" }
-        | { readonly refused: string }
+        { readonly ok: JsonValue } | { readonly ending: "cannot" | "declined" } | { readonly refused: string }
 }
 
 /** A cell as the engine reads it (never an entity). */
@@ -263,6 +262,8 @@ export type CellGraphStep =
 /** The config of `core.set` (D1): each name is a variable the graph declares; the value is a ref, an expression or a literal. */
 export interface CoreSetConfig {
     readonly set: Readonly<Record<string, RefOrValue | StoredExpr>>
+    /** The step that follows; absent: the set ends its region. */
+    readonly next?: string
 }
 
 /** V1's stored GraphSpec shape; node steps carry an exact cell version. */
@@ -359,21 +360,44 @@ export type RunnerInbound =
           readonly input: JsonValue
           readonly facts: RunnerFacts
           readonly limits: RunnerLimits
+          /** What the guest is given beside its input (`tool` gives `tool()` and `say()`); decided by the client from the cell kind, never by the source. */
+          readonly capabilities: ReadonlyArray<RunnerCapability>
       }
     | { readonly type: "answer"; readonly id: string; readonly call: number; readonly answer: JsonValue }
     | { readonly type: "check"; readonly id: string; readonly source: string }
 
 /** The messages the runner process sends back (JSON lines on stdout, CELLS-PLAN 4.3). */
 export type RunnerOutbound =
-    | { readonly type: "call"; readonly id: string; readonly call: number; readonly tool: string; readonly args: JsonValue }
+    | {
+          readonly type: "call"
+          readonly id: string
+          readonly call: number
+          readonly tool: string
+          readonly args: JsonValue
+      }
     | { readonly type: "say"; readonly id: string; readonly call: number; readonly request: JsonValue }
     | { readonly type: "done"; readonly id: string; readonly output: JsonValue }
     | { readonly type: "ended"; readonly id: string; readonly reason: "cannot"; readonly why: string }
-    | { readonly type: "failed"; readonly id: string; readonly why: "limits" | "thrown" | "syntax" | "output"; readonly detail: string }
+    | {
+          readonly type: "failed"
+          readonly id: string
+          readonly why: "limits" | "thrown" | "syntax" | "output"
+          readonly detail: string
+      }
     | { readonly type: "checked"; readonly id: string; readonly problems: ReadonlyArray<string> }
 
-/** The run request a runner takes. */
-export type RunnerRunRequest = Extract<RunnerInbound, { readonly type: "run" }>
+/** A way out a run may be given; phase 0 has `tool` only (a provider kind adds its own names, e.g. `http`, in the client's table and nowhere else). */
+export type RunnerCapability = "tool"
+
+/**
+ * The run request the `CellRunner` port takes: the wire `run` without its capabilities (the client decides them from `cellKind`), plus the tools the
+ * cell declares (`semantics.tools`). No declared tool means no tool call: every `tool()` of the source is refused `CELLS_TOOL_UNDECLARED`.
+ */
+export type RunnerRunRequest = Omit<Extract<RunnerInbound, { readonly type: "run" }>, "capabilities"> & {
+    readonly declaredTools?: ReadonlyArray<string>
+    /** The kind of the cell; absent: by entry (`run` gets `tool`, `translate` nothing). */
+    readonly cellKind?: CellKind
+}
 
 /** The terminal answers of a run. */
 export type RunnerRunResult = Extract<RunnerOutbound, { readonly type: "done" | "ended" | "failed" }>
@@ -399,6 +423,8 @@ export interface CellFile {
     readonly semantics: CellSemantics
     readonly body?: JsonObject
     readonly source?: string
+    /** The TypeScript authoring file beside `source` (D3): it must exist, it is never loaded or stored; its reference is the source row's `authorRef`. */
+    readonly origin?: string
     readonly examples?: ReadonlyArray<CellExample>
     /** `retired` retires the version; absent means `approved` (the seed publishes). CHOICE of slice 0. */
     readonly reviewState?: ReviewState
@@ -452,8 +478,14 @@ export interface ValidatedGraph extends GraphRef {
 export interface SeedReport {
     readonly created: ReadonlyArray<string>
     readonly unchanged: ReadonlyArray<string>
-    readonly refused: ReadonlyArray<{ readonly ref: string; readonly code: CellsErrorCode; readonly params: JsonObject }>
+    readonly refused: ReadonlyArray<{
+        readonly ref: string
+        readonly code: CellsErrorCode
+        readonly params: JsonObject
+    }>
     readonly notInPackage: ReadonlyArray<string>
+    /** The versions the package files mark `retired` that this apply moved to `retired` (or found retired). */
+    readonly retired: ReadonlyArray<string>
 }
 
 /** The receipt of an applied package commit. */

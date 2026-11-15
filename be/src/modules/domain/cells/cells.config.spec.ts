@@ -13,6 +13,7 @@ describe("parseCellsConfig", () => {
                 maxCalls: 50,
             },
             runnerPoolSize: 2,
+            runnerEntry: expect.stringMatching(/packages[\\/]cell-runner[\\/]dist\/main\.js$/u),
         })
     })
 
@@ -26,6 +27,7 @@ describe("parseCellsConfig", () => {
                 CELLS_RUNNER_OUTPUT_BYTES: "4000",
                 CELLS_RUNNER_MAX_CALLS: "7",
                 CELLS_RUNNER_POOL_SIZE: "4",
+                CELLS_RUNNER_ENTRY: "/opt/runner/main.js",
             }),
         )
         expect(options).toEqual({
@@ -38,6 +40,7 @@ describe("parseCellsConfig", () => {
                 maxCalls: 7,
             },
             runnerPoolSize: 4,
+            runnerEntry: "/opt/runner/main.js",
         })
     })
 })

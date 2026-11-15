@@ -6,6 +6,7 @@ import type { CellRunner, RunnerDoor } from "./cell-runner.port"
 import type {
     CellKind,
     JsonValue,
+    RunnerCapability,
     RunnerInbound,
     RunnerLimits,
     RunnerOutbound,
@@ -28,17 +29,12 @@ export interface CellRunnerClientOptions {
     readonly nodeBinary?: string
     /** The old space of the child's host engine in MB (the WebAssembly memory is limited separately by `memoryBytes`). */
     readonly heapMb?: number
-}
-
-/** A run request as the executor gives it: the slice-0 request plus the tools the cell declared (`semantics.tools`). No declared tool means no tool call. */
-export type CellRunRequest = Omit<RunnerRunRequest, "capabilities"> & {
-    readonly declaredTools?: ReadonlyArray<string> | undefined
-    /** The kind of the cell being run; the client decides the capabilities of the run from it. Absent: by entry (`run` gets `tool`, `translate` none). */
-    readonly cellKind?: CellKind | undefined
+    /** The process starter; Node's `spawn` when absent (a spec passes a recording wrapper to see the options that reach it). */
+    readonly spawnProcess?: typeof spawn
 }
 
 /** The capabilities each cell kind is offered. Phase 0 has `tool` only; a provider will add `http` and small crypto here, and nowhere else. */
-export const CAPABILITIES_BY_KIND: Readonly<Partial<Record<CellKind, ReadonlyArray<string>>>> = {
+export const CAPABILITIES_BY_KIND: Readonly<Partial<Record<CellKind, ReadonlyArray<RunnerCapability>>>> = {
     node: ["tool"],
     tool: ["tool"],
     operation: [],
@@ -46,17 +42,12 @@ export const CAPABILITIES_BY_KIND: Readonly<Partial<Record<CellKind, ReadonlyArr
     provider: ["tool"],
 }
 
-const capabilitiesOf = (request: CellRunRequest): ReadonlyArray<string> =>
+const capabilitiesOf = (request: RunnerRunRequest): ReadonlyArray<RunnerCapability> =>
     request.cellKind === undefined
         ? request.entry === "run"
             ? ["tool"]
             : []
         : (CAPABILITIES_BY_KIND[request.cellKind] ?? [])
-
-/** The messages the client sends: slice 0's, with the capabilities a run is given (a request to widen the slice-0 type is in the notes). */
-type ChildInbound =
-    | RunnerInbound
-    | (Extract<RunnerInbound, { readonly type: "run" }> & { readonly capabilities: ReadonlyArray<string> })
 
 type RunnerChild = ChildProcessByStdio<Writable, Readable, Readable>
 
@@ -123,7 +114,10 @@ export const readDirsOf = (entry: string): ReadonlyArray<string> => {
     return dirs
 }
 
-/** The command, arguments and spawn options of a runner process. Pure, so a spec can inspect them: the environment is EMPTY and the permission model is on. */
+/**
+ * The command, arguments and spawn options of a runner process. Pure, so a spec can inspect them: the environment is EMPTY, the permission model is on,
+ * the pipes are the only channel, and on Windows the child opens no console window (`windowsHide`), attached to the api (`detached: false`).
+ */
 export const spawnPlanOf = (
     options: Pick<CellRunnerClientOptions, "entry" | "readDirs" | "nodeBinary" | "heapMb">,
 ): {
@@ -134,6 +128,7 @@ export const spawnPlanOf = (
         readonly cwd: string
         readonly stdio: ["pipe", "pipe", "pipe"]
         readonly windowsHide: true
+        readonly detached: false
     }
 } => ({
     command: options.nodeBinary ?? process.execPath,
@@ -144,7 +139,13 @@ export const spawnPlanOf = (
         "--disallow-code-generation-from-strings",
         options.entry,
     ],
-    spawnOptions: { env: {}, cwd: dirOf(options.entry), stdio: ["pipe", "pipe", "pipe"], windowsHide: true },
+    spawnOptions: {
+        env: {},
+        cwd: dirOf(options.entry),
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
+        detached: false,
+    },
 })
 
 /** What one live runner process is to the client. */
@@ -184,12 +185,12 @@ export class CellRunnerClient implements CellRunner {
         for (const slot of this.spares.splice(0)) this.kill(slot)
     }
 
-    async run(request: CellRunRequest, door: RunnerDoor): Promise<RunnerRunResult> {
+    async run(request: RunnerRunRequest, door: RunnerDoor): Promise<RunnerRunResult> {
         if (sha256Of(request.source) !== request.sha256) {
             throw new CellsError({ code: CellsErrorCode.SourceHashMismatch, params: { sha256: request.sha256 } })
         }
         const limits = limitsHeldTo(request.limits, this.options.limits)
-        const message: ChildInbound = {
+        const message: RunnerInbound = {
             type: "run",
             id: this.id(),
             entry: request.entry,
@@ -273,7 +274,7 @@ export class CellRunnerClient implements CellRunner {
     /** The one place a process is started: the empty environment, the permission flags, the read set. */
     private start(): Slot {
         const plan = spawnPlanOf(this.options)
-        const child = spawn(plan.command, plan.args, plan.spawnOptions)
+        const child = (this.options.spawnProcess ?? spawn)(plan.command, plan.args, plan.spawnOptions)
         const slot: Slot = { child, alive: true }
         child.on("exit", () => {
             slot.alive = false
@@ -288,7 +289,7 @@ export class CellRunnerClient implements CellRunner {
 
     private converse(
         slot: Slot,
-        first: ChildInbound,
+        first: RunnerInbound,
         limits: RunnerLimits,
         declared: ReadonlySet<string>,
         door: RunnerDoor | null,
@@ -335,7 +336,7 @@ export class CellRunnerClient implements CellRunner {
                 timer = null
             }
 
-            const send = (message: ChildInbound): void => {
+            const send = (message: RunnerInbound): void => {
                 child.stdin.write(`${JSON.stringify(message)}\n`)
             }
 

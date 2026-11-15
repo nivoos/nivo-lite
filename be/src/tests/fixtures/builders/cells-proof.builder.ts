@@ -1,6 +1,12 @@
 import { readdirSync, readFileSync } from "node:fs"
 import { join, posix } from "node:path"
-import type { CellProofWorld, CellProofWorlds, ProofDoorCall, ProofObservation, ProofToolReply } from "@modules/domain/cells/cell-proof.contracts"
+import type {
+    CellProofWorld,
+    CellProofWorlds,
+    ProofDoorCall,
+    ProofObservation,
+    ProofToolReply,
+} from "@modules/domain/cells/cell-proof.contracts"
 import { CellExecutorService } from "@modules/domain/cells/cell-executor.service"
 import { CellExpressionPolicy } from "@modules/domain/cells/cell-expression.policy"
 import { CellJsonSchemaPolicy } from "@modules/domain/cells/cell-json-schema.policy"
@@ -29,7 +35,14 @@ import { MemoryCellReader, sha256Of } from "./cells.builder"
  */
 
 /** The limits of a proof world: small, so an endless loop or a runaway allocation ends within a second or two. */
-export const PROOF_LIMITS: RunnerLimits = { memoryBytes: 32 << 20, stackBytes: 1 << 20, cpuMs: 500, wallMs: 1500, outputBytes: 262_144, maxCalls: 50 }
+export const PROOF_LIMITS: RunnerLimits = {
+    memoryBytes: 32 << 20,
+    stackBytes: 1 << 20,
+    cpuMs: 500,
+    wallMs: 1500,
+    outputBytes: 262_144,
+    maxCalls: 50,
+}
 
 const NOW = new Date("2026-01-02T03:04:05.000Z")
 
@@ -86,7 +99,7 @@ class ProofWorld implements CellProofWorld {
             new MemoryCellLedgerClient(),
             this.meter,
             this.door,
-            limits,
+            { runnerLimits: limits, runnerPoolSize: 1, runnerEntry: "" },
             { now: () => NOW },
             { info: () => undefined, warn: () => undefined, error: () => undefined },
             new CellExpressionPolicy(),
@@ -167,9 +180,11 @@ const viewOf = (cell: PackageCell, packageKey: string): CellDefinitionView => ({
 /** Reads a fixture package folder (`cells.package.yaml`, `cells/**`, `graphs/**`) into rows and sources, from its files alone. */
 export const fixturePackageOf = (root: string): FixturePackage => {
     const content = readCellPackage(filesOf(root))
-    if (content.faults.length > 0) throw new Error(`fixture package ${root} has faults: ${JSON.stringify(content.faults)}`)
+    if (content.faults.length > 0)
+        throw new Error(`fixture package ${root} has faults: ${JSON.stringify(content.faults)}`)
     const sources = new Map<string, string>()
-    for (const cell of content.cells) if (cell.sourceText !== null) sources.set(sha256Of(cell.sourceText), cell.sourceText)
+    for (const cell of content.cells)
+        if (cell.sourceText !== null) sources.set(sha256Of(cell.sourceText), cell.sourceText)
     return { key: content.manifest.key, rows: content.cells.map((cell) => viewOf(cell, content.manifest.key)), sources }
 }
 

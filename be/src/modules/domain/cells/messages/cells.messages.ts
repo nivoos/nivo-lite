@@ -17,7 +17,8 @@ export const CELLS_MESSAGES: MessageBundle = {
         "errors.CELLS_TOOL_UNDECLARED": "Cell {{ref}} gọi công cụ {{tool}} mà nó chưa khai báo.",
         "errors.CELLS_REFUSAL_UNDECLARED": "Cell {{ref}} trả lý do từ chối {{code}} mà nó chưa khai báo.",
         "errors.CELLS_GRAPH_REF_UNKNOWN": "Bước {{step}} của đồ thị {{graph}} gọi cell {{ref}} không tồn tại.",
-        "errors.CELLS_GRAPH_ROUTE_MISSING": "Bước {{step}} của đồ thị {{graph}} có nhánh {{route}} không dẫn đến bước nào.",
+        "errors.CELLS_GRAPH_ROUTE_MISSING":
+            "Bước {{step}} của đồ thị {{graph}} có nhánh {{route}} không dẫn đến bước nào.",
         "errors.CELLS_GRAPH_CYCLE": "Đồ thị {{graph}} có vòng lặp ngoài khối lặp tại bước {{step}}.",
         "errors.CELLS_EXPR_INVALID": "Biểu thức sai tại {{path}}: {{reason}}.",
         "errors.CELLS_EXAMPLE_FAILED": "Ví dụ {{example}} của cell {{ref}} không cho ra kết quả mong đợi.",
@@ -25,7 +26,9 @@ export const CELLS_MESSAGES: MessageBundle = {
         "errors.CELLS_RUNNER_CRASHED": "Tiến trình chạy mã của cell {{ref}} đã dừng bất thường.",
         "errors.CELLS_PACKAGE_INVALID": "Tệp {{file}} của gói bị thiếu hoặc sai: {{reason}}.",
         "errors.CELLS_VAR_UNDECLARED": "Bước {{step}} của đồ thị {{graph}} dùng biến {{name}} mà đồ thị chưa khai báo.",
-        "errors.CELLS_VAR_WRITE_CONFLICT": "Các bước {{steps}} của đồ thị {{graph}} cùng ghi biến {{name}} song song mà biến chưa khai báo cách gộp.",
+        "errors.CELLS_VAR_WRITE_CONFLICT":
+            "Các bước {{steps}} của đồ thị {{graph}} cùng ghi biến {{name}} song song mà biến chưa khai báo cách gộp.",
+        "errors.CELLS_TOOL_DOOR_MISSING": "Mô-đun {{module}} chạy cell nhưng chưa được gắn cửa công cụ.",
     },
     en: {
         "errors.CELLS_UNKNOWN": "Cell {{ref}} was not found.",
@@ -42,14 +45,18 @@ export const CELLS_MESSAGES: MessageBundle = {
         "errors.CELLS_TOOL_UNDECLARED": "Cell {{ref}} called the tool {{tool}}, which it did not declare.",
         "errors.CELLS_REFUSAL_UNDECLARED": "Cell {{ref}} answered the refusal code {{code}}, which it did not declare.",
         "errors.CELLS_GRAPH_REF_UNKNOWN": "Step {{step}} of graph {{graph}} names cell {{ref}}, which does not exist.",
-        "errors.CELLS_GRAPH_ROUTE_MISSING": "Step {{step}} of graph {{graph}} has a route {{route}} that leads to no step.",
+        "errors.CELLS_GRAPH_ROUTE_MISSING":
+            "Step {{step}} of graph {{graph}} has a route {{route}} that leads to no step.",
         "errors.CELLS_GRAPH_CYCLE": "Graph {{graph}} has a cycle outside a loop at step {{step}}.",
         "errors.CELLS_EXPR_INVALID": "The expression is invalid at {{path}}: {{reason}}.",
         "errors.CELLS_EXAMPLE_FAILED": "Example {{example}} of cell {{ref}} did not give its expected result.",
         "errors.CELLS_RUNNER_LIMITS": "The source of cell {{ref}} went past its limit {{limit}}.",
         "errors.CELLS_RUNNER_CRASHED": "The process running the source of cell {{ref}} stopped unexpectedly.",
         "errors.CELLS_PACKAGE_INVALID": "The package file {{file}} is missing or malformed: {{reason}}.",
-        "errors.CELLS_VAR_UNDECLARED": "Step {{step}} of graph {{graph}} uses the variable {{name}}, which the graph does not declare.",
-        "errors.CELLS_VAR_WRITE_CONFLICT": "Steps {{steps}} of graph {{graph}} write the variable {{name}} in parallel and it declares no merge.",
+        "errors.CELLS_VAR_UNDECLARED":
+            "Step {{step}} of graph {{graph}} uses the variable {{name}}, which the graph does not declare.",
+        "errors.CELLS_VAR_WRITE_CONFLICT":
+            "Steps {{steps}} of graph {{graph}} write the variable {{name}} in parallel and it declares no merge.",
+        "errors.CELLS_TOOL_DOOR_MISSING": "Module {{module}} executes cells but no tool door was bound.",
     },
 }

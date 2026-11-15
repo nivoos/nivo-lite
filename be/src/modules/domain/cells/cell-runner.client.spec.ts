@@ -1,16 +1,15 @@
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { parse } from "yaml"
-import type { JsonValue, RunnerLimits, ToolAnswer } from "./cells.contracts"
+import type { JsonValue, RunnerLimits, RunnerRunRequest, ToolAnswer } from "./cells.contracts"
 import { sha256Of } from "./cell-hash.policy"
 import {
     CellRunnerClient,
     limitsHeldTo,
     readDirsOf,
     spawnPlanOf,
-    type CellRunRequest,
     type CellRunnerClientOptions,
 } from "./cell-runner.client"
 import type { RunnerDoor } from "./cell-runner.port"
@@ -40,7 +39,7 @@ const options = (over: Partial<CellRunnerClientOptions> = {}): CellRunnerClientO
     ...over,
 })
 
-const requestOf = (source: string, over: Partial<CellRunRequest> = {}): CellRunRequest => ({
+const requestOf = (source: string, over: Partial<RunnerRunRequest> = {}): RunnerRunRequest => ({
     type: "run",
     id: "ignored",
     entry: "run",
@@ -208,7 +207,7 @@ describe("CellRunnerClient (real process, real QuickJS)", () => {
     describe("limits end typed within the wall limit", () => {
         const failing = async (
             source: string,
-            over: Partial<CellRunRequest> = {},
+            over: Partial<RunnerRunRequest> = {},
             client = clientOf(),
         ): Promise<unknown> => {
             const started = Date.now()
@@ -418,7 +417,7 @@ describe("CellRunnerClient (real process, real QuickJS)", () => {
                     {
                         ...requestOf(source, { entry: kind === "trigger" ? "translate" : "run", input: example.input }),
                         cellKind: kind,
-                        declaredTools: cell.semantics.tools,
+                        declaredTools: cell.semantics.tools ?? [],
                     },
                     door,
                 )
@@ -716,6 +715,35 @@ describe("CellRunnerClient (real process, real QuickJS)", () => {
     })
 
     describe("the outer layers", () => {
+        it("starts the child hidden (no console window on Windows), attached, piped, and these options reach spawn", async () => {
+            const plan = spawnPlanOf(options())
+            expect(plan.spawnOptions).toMatchObject({
+                windowsHide: true,
+                detached: false,
+                stdio: ["pipe", "pipe", "pipe"],
+            })
+            const seen: Array<unknown> = []
+            const recording = ((
+                command: string,
+                args: ReadonlyArray<string>,
+                spawnOptions: Parameters<typeof spawn>[2],
+            ) => {
+                seen.push(spawnOptions)
+                return spawn(command, args, spawnOptions)
+            }) as typeof spawn
+            await expect(
+                new CellRunnerClient({ ...options(), spawnProcess: recording }).check("function run() { return 1 }"),
+            ).resolves.toEqual([])
+            expect(seen).toEqual([
+                expect.objectContaining({
+                    windowsHide: true,
+                    detached: false,
+                    env: {},
+                    stdio: ["pipe", "pipe", "pipe"],
+                }),
+            ])
+        })
+
         it("starts the child with an empty environment and Node's permission model", () => {
             const plan = spawnPlanOf(options())
             expect(plan.spawnOptions.env).toEqual({})

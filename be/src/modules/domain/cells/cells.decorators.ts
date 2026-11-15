@@ -6,6 +6,13 @@ import type { CellMeter } from "./cell-meter.port"
 import type { CellReader } from "./cell-reader.port"
 import type { CellRunner } from "./cell-runner.port"
 import type { CellToolDoor } from "./cell-tool-door.port"
+import type { CellsOptions } from "./cells.options"
+
+/** Token of the cells options (the module binds what `register` was given). */
+export const CELLS_OPTIONS: unique symbol = Symbol("domain.cells.options")
+
+/** Injects the cells options. Parameter type: CellsOptions. */
+export const InjectCellsOptions = (): TypedParameterDecorator<CellsOptions> => injector<CellsOptions>(CELLS_OPTIONS)
 
 /** Token of the cell reader. */
 export const CELL_READER: unique symbol = Symbol("domain.cells.reader")

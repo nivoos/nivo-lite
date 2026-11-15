@@ -1,6 +1,5 @@
 import { Injectable } from "@nestjs/common"
 import { InjectClock, type Clock } from "@modules/platform/clock"
-import { injector, type TypedParameterDecorator } from "@modules/platform/composition"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { CellExpressionPolicy, isStoredExpr, type ExpressionScope, type IfConfig } from "./cell-expression.policy"
 import { canonicalJsonOf, refTextOf, sha256Of } from "./cell-hash.policy"
@@ -11,8 +10,22 @@ import type { CellRunner, RunnerDoor } from "./cell-runner.port"
 import type { CellLedger } from "./cell-ledger.port"
 import type { CellMeter } from "./cell-meter.port"
 import type { CellToolDoor } from "./cell-tool-door.port"
-import { CREDITS_EXHAUSTED_CODE, isDeclaredRefusal, isFinalRefusal, verdictOf, writesOutside } from "./cell-verdict.policy"
-import { InjectCellLedger, InjectCellMeter, InjectCellReader, InjectCellRunner, InjectCellToolDoor } from "./cells.decorators"
+import {
+    CREDITS_EXHAUSTED_CODE,
+    isDeclaredRefusal,
+    isFinalRefusal,
+    verdictOf,
+    writesOutside,
+} from "./cell-verdict.policy"
+import {
+    InjectCellLedger,
+    InjectCellMeter,
+    InjectCellReader,
+    InjectCellRunner,
+    InjectCellsOptions,
+    InjectCellToolDoor,
+} from "./cells.decorators"
+import type { CellsOptions } from "./cells.options"
 import type {
     CellDefinitionView,
     CellOutcome,
@@ -26,6 +39,7 @@ import type {
     RunFacts,
     RunnerFacts,
     RunnerLimits,
+    RunnerRunRequest,
     RunnerRunResult,
     ToolAnswer,
     ToolUsage,
@@ -33,12 +47,6 @@ import type {
 } from "./cells.contracts"
 import { CellsLogEvent } from "./cells.log-events"
 import { CellsError, CellsErrorCode } from "./errors/cells.error"
-
-/** Token of the default limits every source run is held to (the module binds `CellsOptions.runnerLimits`). */
-export const CELLS_RUNNER_LIMITS: unique symbol = Symbol("domain.cells.runner-limits")
-
-/** Injects the default runner limits. Parameter type: RunnerLimits. */
-export const InjectCellsRunnerLimits = (): TypedParameterDecorator<RunnerLimits> => injector<RunnerLimits>(CELLS_RUNNER_LIMITS)
 
 /** The member of a refusal's `facts` that marks its class when it is not a business refusal: `transient` or `unknown` (typed, never read from words). */
 export const REFUSAL_CLASS_FACT = "class"
@@ -123,7 +131,7 @@ export class CellExecutorService implements CellExecutor {
         @InjectCellLedger() private readonly ledger: CellLedger,
         @InjectCellMeter() private readonly meter: CellMeter,
         @InjectCellToolDoor() private readonly door: CellToolDoor,
-        @InjectCellsRunnerLimits() private readonly limits: RunnerLimits,
+        @InjectCellsOptions() private readonly options: CellsOptions,
         @InjectClock() private readonly clock: Clock,
         @InjectLogger() private readonly logger: Logger,
         private readonly expressions: CellExpressionPolicy,
@@ -136,7 +144,9 @@ export class CellExecutorService implements CellExecutor {
             throw new CellsError({ code: CellsErrorCode.Unknown, params: { ref: refTextOf(request.cell) } })
         }
         this.checkIn(definition, request)
-        const ran = isControlKind(definition.kind) ? this.control(definition, request) : await this.work(definition, request)
+        const ran = isControlKind(definition.kind)
+            ? this.control(definition, request)
+            : await this.work(definition, request)
         const verdict = verdictOf(definition.semantics, ran.outcome)
         this.logger.info(CellsLogEvent.Executed, {
             cell: refTextOf(request.cell),
@@ -156,7 +166,8 @@ export class CellExecutorService implements CellExecutor {
         if (path !== null) throw new CellsError({ code: CellsErrorCode.InputInvalid, params: { ref, path } })
         if (request.config === undefined) return
         const configPath = this.schemas.problemOf(ref, definition.configSchema, request.config)
-        if (configPath !== null) throw new CellsError({ code: CellsErrorCode.InputInvalid, params: { ref, path: `config${configPath}` } })
+        if (configPath !== null)
+            throw new CellsError({ code: CellsErrorCode.InputInvalid, params: { ref, path: `config${configPath}` } })
     }
 
     /** A control cell: data evaluated by the interpreter. Its input is the run memory, its config the cell settings of the step. */
@@ -164,18 +175,46 @@ export class CellExecutorService implements CellExecutor {
         const scope = request.input as unknown as ExpressionScope
         if (definition.kind === "core.if") {
             const config = request.config
-            if (!isRecord(config) || !isStoredExpr(config.when) || this.expressions.problemsOf(config.when).length > 0) {
+            if (
+                !isRecord(config) ||
+                !isStoredExpr(config.when) ||
+                this.expressions.problemsOf(config.when).length > 0
+            ) {
                 return { outcome: failedOf("permanent", CELL_CAUSE.expressionInvalid), calls: [] }
             }
             const decision = this.expressions.decide(config as unknown as IfConfig, scope)
-            return { outcome: { kind: "ok", output: { truth: decision.truth, branch: decision.branch, next: decision.next } }, calls: [] }
+            return {
+                outcome: {
+                    kind: "ok",
+                    output: { truth: decision.truth, branch: decision.branch, next: decision.next },
+                },
+                calls: [],
+            }
         }
         if (definition.kind === "core.set") {
             if (!isRecord(request.config) || !isRecord(request.config.set)) {
                 return { outcome: failedOf("permanent", CELL_CAUSE.expressionInvalid), calls: [] }
             }
-            const update = this.expressions.setVariables(request.config as unknown as CoreSetConfig, scope, request.scope.stepKey, this.clock.now().toISOString())
-            return { outcome: { kind: "ok", output: { vars: Object.fromEntries(Object.entries(update).map(([name, variable]) => [name, { value: variable.value, by: variable.by, at: variable.at }])) } }, calls: [] }
+            const update = this.expressions.setVariables(
+                request.config as unknown as CoreSetConfig,
+                scope,
+                request.scope.stepKey,
+                this.clock.now().toISOString(),
+            )
+            return {
+                outcome: {
+                    kind: "ok",
+                    output: {
+                        vars: Object.fromEntries(
+                            Object.entries(update).map(([name, variable]) => [
+                                name,
+                                { value: variable.value, by: variable.by, at: variable.at },
+                            ]),
+                        ),
+                    },
+                },
+                calls: [],
+            }
         }
         return { outcome: failedOf("permanent", CELL_CAUSE.controlNotInterpreted), calls: [] }
     }
@@ -185,7 +224,10 @@ export class CellExecutorService implements CellExecutor {
         const { semantics } = definition
         const metered = semantics.metered !== undefined && request.scope.world === "live"
         if (metered && !(await this.meter.allows(request.scope.workspaceId, request.cell, null))) {
-            this.logger.warn(CellsLogEvent.CreditsExhausted, { cell: refTextOf(request.cell), workspaceId: request.scope.workspaceId })
+            this.logger.warn(CellsLogEvent.CreditsExhausted, {
+                cell: refTextOf(request.cell),
+                workspaceId: request.scope.workspaceId,
+            })
             return { outcome: failedOf("limits", CREDITS_EXHAUSTED_CODE), calls: [] }
         }
         const key = this.intentKeyOf(request)
@@ -205,11 +247,16 @@ export class CellExecutorService implements CellExecutor {
                 ranNow = true
                 const ran = await this.run(definition, request, key)
                 calls.push(...ran.calls)
-                if (ran.outcome.kind === "ok" || ran.outcome.kind === "ending" || ran.outcome.kind === "refused-final") return ran.outcome
+                if (ran.outcome.kind === "ok" || ran.outcome.kind === "ending" || ran.outcome.kind === "refused-final")
+                    return ran.outcome
                 throw new UnsettledAct(ran, definition.semantics.repeatable !== true)
             })
             if (replayed) {
-                this.logger.info(CellsLogEvent.Replayed, { cell: refTextOf(request.cell), runId: request.scope.runId, stepKey: request.scope.stepKey })
+                this.logger.info(CellsLogEvent.Replayed, {
+                    cell: refTextOf(request.cell),
+                    runId: request.scope.runId,
+                    stepKey: request.scope.stepKey,
+                })
                 return { outcome, calls: [], ranNow: false }
             }
             return { outcome, calls, ranNow }
@@ -235,10 +282,16 @@ export class CellExecutorService implements CellExecutor {
     }
 
     /** A cell with no stored source is served by the tool door under its own key (the engine primitives and providers sit behind it). */
-    private async runDeclared(definition: CellDefinitionView, request: ExecuteRequest, key: string): Promise<CellOutcome> {
+    private async runDeclared(
+        definition: CellDefinitionView,
+        request: ExecuteRequest,
+        key: string,
+    ): Promise<CellOutcome> {
         const answer = await this.door.call(request.scope, definition.key, request.input, { key })
         const outcome = this.outcomeOfAnswer(definition, answer, key)
-        return outcome.kind === "ok" && answer.ok && answer.usage !== undefined ? { ...outcome, usage: usageOf(answer.usage) } : outcome
+        return outcome.kind === "ok" && answer.ok && answer.usage !== undefined
+            ? { ...outcome, usage: usageOf(answer.usage) }
+            : outcome
     }
 
     /** A cell with a stored source goes through the isolated runner; every call the source makes comes back through this door. */
@@ -276,11 +329,11 @@ export class CellExecutorService implements CellExecutor {
             waiting: 0,
             workspace: { id: request.scope.workspaceId },
         }
-        // The runner client reads two members beyond the slice-0 request: the tools the cell declared and its kind (CellRunRequest of S3).
-        const run = {
-            type: "run" as const,
+        // The declared tools are the only ones the source reaches; the kind decides what the guest is given (CELLS-PLAN 4.1, the contract's RunnerRunRequest).
+        const run: RunnerRunRequest = {
+            type: "run",
             id: key,
-            entry: definition.kind === "trigger" ? ("translate" as const) : ("run" as const),
+            entry: definition.kind === "trigger" ? "translate" : "run",
             source: source.text,
             sha256: source.sha256,
             input: request.input,
@@ -309,11 +362,18 @@ export class CellExecutorService implements CellExecutor {
     /** The limits of a run: the defaults, and a cell's own timeout may only go lower. */
     private limitsOf(definition: CellDefinitionView): RunnerLimits {
         const own = definition.semantics.timeoutMs
-        return own === undefined ? this.limits : { ...this.limits, wallMs: Math.min(this.limits.wallMs, own) }
+        const limits = this.options.runnerLimits
+        return own === undefined ? limits : { ...limits, wallMs: Math.min(limits.wallMs, own) }
     }
 
     /** A tool call of a source: a settled answer recorded under this key is replayed on a re-run, never sent again. */
-    private async recordedCall(request: ExecuteRequest, key: string, call: number, tool: string, args: JsonValue): Promise<ToolAnswer> {
+    private async recordedCall(
+        request: ExecuteRequest,
+        key: string,
+        call: number,
+        tool: string,
+        args: JsonValue,
+    ): Promise<ToolAnswer> {
         const id = `${key}:${String(call)}:${tool}:${canonicalJsonOf(args)}`
         const kept = this.recorded.get(id)
         if (kept !== undefined) return kept
@@ -353,10 +413,13 @@ export class CellExecutorService implements CellExecutor {
             if (cause.code === CellsErrorCode.RunnerLimits) return failedOf("limits", cause.code)
             if (cause.code === CellsErrorCode.RunnerCrashed) return { kind: "transient", cause: { code: cause.code } }
             const tool = cause.params.tool
-            return typeof tool === "string" ? failedOf("permanent", cause.code, tool) : failedOf("permanent", cause.code)
+            return typeof tool === "string"
+                ? failedOf("permanent", cause.code, tool)
+                : failedOf("permanent", cause.code)
         }
         if (Reflect.get(Object(cause), "outcomeUnknown") === 1) return { kind: "unknown", key }
-        if (Reflect.get(Object(cause), "transient") === true) return { kind: "transient", cause: { code: CELL_CAUSE.thrown } }
+        if (Reflect.get(Object(cause), "transient") === true)
+            return { kind: "transient", cause: { code: CELL_CAUSE.thrown } }
         return failedOf("permanent", CELL_CAUSE.thrown)
     }
 
@@ -366,7 +429,9 @@ export class CellExecutorService implements CellExecutor {
         if (outcome.kind === "ok") {
             const path = this.schemas.problemOf(refTextOf(ref), definition.outputSchema, outcome.output)
             if (path === null) return outcome
-            return writesOutside(definition.semantics) ? { kind: "unknown", key } : failedOf("permanent", CellsErrorCode.OutputInvalid, path)
+            return writesOutside(definition.semantics)
+                ? { kind: "unknown", key }
+                : failedOf("permanent", CellsErrorCode.OutputInvalid, path)
         }
         return unreadable && writesOutside(definition.semantics) ? { kind: "unknown", key } : outcome
     }
@@ -378,7 +443,10 @@ export class CellExecutorService implements CellExecutor {
         try {
             await this.meter.book(request.scope.workspaceId, request.cell, usage, billed)
         } catch (cause: unknown) {
-            this.logger.error(CellsLogEvent.BookingFailed, cause, { cell: refTextOf(request.cell), workspaceId: request.scope.workspaceId })
+            this.logger.error(CellsLogEvent.BookingFailed, cause, {
+                cell: refTextOf(request.cell),
+                workspaceId: request.scope.workspaceId,
+            })
         }
     }
 
@@ -392,7 +460,9 @@ export class CellExecutorService implements CellExecutor {
 
     /** The key of an act: `<run>:<step>:<digest of the cell, input and config>` (V1's call digest). */
     private intentKeyOf(request: ExecuteRequest): string {
-        const digest = sha256Of(canonicalJsonOf({ cell: request.cell, input: request.input, config: request.config ?? null }))
+        const digest = sha256Of(
+            canonicalJsonOf({ cell: request.cell, input: request.input, config: request.config ?? null }),
+        )
         return `${request.scope.runId}:${request.scope.stepKey}:${digest}`
     }
 }
