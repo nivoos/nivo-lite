@@ -3,7 +3,7 @@
 import { useLocale, useTranslations } from "next-intl"
 import { useEffect, useMemo, useRef } from "react"
 import { useAgentRuns, type AgentRunsData } from "@/hooks/agentRuns"
-import { useAgentWorkflows, useWorkflowWrites } from "@/hooks/agentWorkflows"
+import { useAgentWorkflows, useWorkflowRunControl, useWorkflowWrites, type WorkflowRunControl } from "@/hooks/agentWorkflows"
 import { useWorkflowSteps, type WorkflowSteps } from "@/hooks/workflowSteps"
 import { paramLabelOf } from "@/modules/plugin-registry"
 import { useWorkflowId } from "./useWorkflowId"
@@ -24,6 +24,8 @@ export interface WorkflowDetail {
     readonly sync: () => void
     /** True while one of the writes of this page is on its way. */
     readonly isWriting: boolean
+    /** The stop, start and end-all commands and the dialog they open. */
+    readonly runControl: WorkflowRunControl
     readonly retry: () => void
 }
 
@@ -38,6 +40,7 @@ export const useWorkflowDetail = (module: string, installationId: string, key: s
         if (workflowId !== "") select(workflowId)
     }, [select, workflowId])
     const writes = useWorkflowWrites(installationId, workflows)
+    const runControl = useWorkflowRunControl(installationId, workflows.refresh)
     const runs = useAgentRuns(module, installationId)
     // The setter of the filter is made again on every render; the effect must run only when the workflow changes.
     const setRunsFilter = useRef(runs.setFilter)
@@ -87,6 +90,7 @@ export const useWorkflowDetail = (module: string, installationId: string, key: s
         setStatus: writes.setStatus,
         sync: writes.sync,
         isWriting: writes.isWriting,
+        runControl,
         retry: () => void workflows.refresh(),
     }
 }

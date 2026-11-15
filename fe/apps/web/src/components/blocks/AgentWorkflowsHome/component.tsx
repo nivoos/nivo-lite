@@ -1,5 +1,6 @@
 import { Pane, PaneGrid, PaneSection } from "@starci/grammar/common"
 import { SlotView } from "@nivo-lite/agent-sdk/client"
+import { WorkflowRunDialog } from "@/components/composites/WorkflowRunDialog"
 import { AgentWorkflowTable, type AgentWorkflowTableCopy } from "@/components/composites/AgentWorkflowTable"
 import { PaneHead } from "@/components/composites/PaneHead"
 import { WorkflowReadinessCard, type WorkflowReadinessCardCopy } from "@/components/composites/WorkflowReadinessCard"
@@ -8,6 +9,7 @@ import {
     type AgentWorkflowCreateDrawerCopy,
 } from "@/components/frames/AgentWorkflowCreateDrawer"
 import { WorkflowPickDrawer, type WorkflowPickDrawerCopy, type WorkflowPickDrawerView } from "@/components/frames/WorkflowPickDrawer"
+import type { WorkflowRunAsk, WorkflowStopChoice } from "@/hooks/agentWorkflows"
 import type {
     DataSlot,
     ReadinessPickView,
@@ -44,8 +46,13 @@ export interface AgentWorkflowsHomeBaseProps {
         readonly readiness: ReadonlyArray<ReadinessRowView> | undefined
         readonly canPick: boolean
         readonly pick: WorkflowPickDrawerView
+        /** The open dialog of the run commands (stop, start again); null while none is. */
+        readonly runAsk: WorkflowRunAsk | null
     }
     readonly on: {
+        readonly runAsk: (ask: WorkflowRunAsk) => void
+        readonly runClose: () => void
+        readonly runConfirm: (choice: WorkflowStopChoice) => Promise<void>
         readonly retry: () => void
         readonly createOpen: () => void
         readonly createClose: () => void
@@ -74,12 +81,19 @@ export const AgentWorkflowsHomeBase = (props: AgentWorkflowsHomeBaseProps) => {
                             labels={slotLabels}
                             onRetry={props.on.retry}
                             render={(rows, isLoading) => (
-                                <AgentWorkflowTable props={{ copy: copy.table, rows, isLoading }} />
+                                <AgentWorkflowTable
+                                    props={{ copy: copy.table, rows, isLoading }}
+                                    on={{ ask: props.on.runAsk }}
+                                />
                             )}
                         />
                     </PaneSection>
                 </Pane>
             </PaneGrid>
+            <WorkflowRunDialog
+                props={{ copy: copy.table.run, ask: props.props.runAsk }}
+                on={{ close: props.on.runClose, confirm: props.on.runConfirm }}
+            />
             <WorkflowPickDrawer props={{ copy: copy.pick, pick: props.props.pick }} />
             <SlotView
                 slot={props.props.templates}

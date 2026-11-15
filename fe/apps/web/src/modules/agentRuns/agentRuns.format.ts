@@ -11,6 +11,7 @@ const STATUS_TONES: Readonly<Record<RunStatus, BadgeTone>> = {
     scheduled: "neutral",
     running: "accent",
     waiting: "warning",
+    paused: "warning",
     done: "success",
     failed: "danger",
     cancelled: "neutral",
@@ -33,7 +34,7 @@ export const stepToneOf = (status: RunStepStatus): BadgeTone => STEP_TONES[statu
 
 /** The statuses the wire may carry, narrowed; a status this build does not know reads as running so the run is still listed. */
 export const runStatusOf = (status: string): RunStatus => {
-    const known: ReadonlyArray<RunStatus> = ["queued", "scheduled", "running", "waiting", "done", "failed", "cancelled"]
+    const known: ReadonlyArray<RunStatus> = ["queued", "scheduled", "running", "waiting", "paused", "done", "failed", "cancelled"]
     return known.find((entry) => entry === status) ?? "running"
 }
 

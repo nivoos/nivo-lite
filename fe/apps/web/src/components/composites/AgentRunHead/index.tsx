@@ -1,24 +1,12 @@
-import { AlertDialog, Button, Cluster, DropdownMenu, Heading, Icon, Stack, Text } from "@starci/grammar/common"
-import { AgentRunStatusMark, nivoIconSource } from "@/components/leaves/Icon"
+import { Badge, Button, Cluster, DropdownMenu, Heading, Stack, Text } from "@starci/grammar/common"
+import { RunDoorActions } from "@/components/composites/RunDoorActions"
+import { AgentRunStatusMark } from "@/components/leaves/Icon"
 import type { RunHeadView, RunSwitchView } from "@/modules/types"
-
-/** The words of the command that stops a run. */
-interface AgentRunCancelCopy {
-    readonly label: string
-    readonly dialogTitle: string
-    readonly note: string
-    readonly keepLabel: string
-    readonly confirmLabel: string
-}
 
 /** The words of the head card of a run. */
 export interface AgentRunHeadCopy {
     readonly ariaLabel: string
-    readonly resume: string
     readonly switchLabel: string
-    readonly isResuming: boolean
-    readonly isCancelling: boolean
-    readonly cancel: AgentRunCancelCopy
 }
 
 /** What the head card draws and what it does. */
@@ -30,41 +18,15 @@ interface AgentRunHeadProps {
         readonly isLoading: boolean
     }
     readonly on: {
-        readonly resume: () => void
-        readonly cancel: () => void
+        /** A command on the run was answered: the page reads the run again. */
+        readonly done: () => void
     }
 }
 
-/** What the retry command draws. */
-interface ResumeButtonProps {
-    readonly label: string
-    /** Another command of the page is the one primary: this one is a plain button. */
-    readonly isNeutral: boolean
-    readonly isPending: boolean
-    readonly onPress: () => void
-}
-
-/** The command that runs a stopped run again: the page's one primary (with its icon), or neutral when another command holds that place. */
-const ResumeButton = (props: ResumeButtonProps) =>
-    props.isNeutral ? (
-        <Button intent="neutral" isPending={props.isPending} onPress={props.onPress}>
-            {props.label}
-        </Button>
-    ) : (
-        <Button
-            intent="commit"
-            startContent={<Icon source={nivoIconSource("retry", "leading")} />}
-            isPending={props.isPending}
-            onPress={props.onPress}
-        >
-            {props.label}
-        </Button>
-    )
-
 /**
  * The head of a run, on the well and in no card: its title and id, where it stands (an outline mark and the word), the line of when and
- * on what it ran, the quick switch to the runs that are running now, the neutral command that stops a run, and the retry command, the
- * ONE primary of the page, when the run failed and may run again from its failed step.
+ * on what it ran, the quick switch to the runs that are running now, and the neutral commands on a run in flight: Pause or Resume and
+ * End run (each end and pause behind its dialog). A live status (running, paused) is a Badge with a dot; any other is the outline mark.
  */
 export const AgentRunHead = (props: AgentRunHeadProps) => {
     const { copy, head, switches } = props.props
@@ -75,10 +37,16 @@ export const AgentRunHead = (props: AgentRunHeadProps) => {
                     <Cluster gap="inline">
                         <Heading level={2}>{head.title}</Heading>
                         <Text tone="muted">{`#${head.shortId}`}</Text>
-                        <Cluster gap="identity" wrap={false}>
-                            <AgentRunStatusMark props={{ status: head.status, label: head.statusLabel }} />
-                            <Text>{head.statusLabel}</Text>
-                        </Cluster>
+                        {head.status === "running" || head.status === "paused" ? (
+                            <Badge isDot tone={head.statusTone}>
+                                {head.statusLabel}
+                            </Badge>
+                        ) : (
+                            <Cluster gap="identity" wrap={false}>
+                                <AgentRunStatusMark props={{ status: head.status, label: head.statusLabel }} />
+                                <Text>{head.statusLabel}</Text>
+                            </Cluster>
+                        )}
                     </Cluster>
                     <Text size="xs" tone="muted">
                         {head.meta}
@@ -92,27 +60,15 @@ export const AgentRunHead = (props: AgentRunHeadProps) => {
                             trigger={<Button intent="neutral">{copy.switchLabel}</Button>}
                         />
                     )}
-                    {head.canCancel ? (
-                        <AlertDialog
-                            title={copy.cancel.dialogTitle}
-                            tone="negative"
-                            cancelLabel={copy.cancel.keepLabel}
-                            confirmLabel={copy.cancel.confirmLabel}
-                            isConfirmPending={copy.isCancelling}
-                            onConfirm={props.on.cancel}
-                            trigger={<Button intent="neutral">{copy.cancel.label}</Button>}
-                        >
-                            <Text size="sm">{copy.cancel.note}</Text>
-                        </AlertDialog>
-                    ) : null}
-                    {head.canResume ? (
-                        <ResumeButton
-                            label={copy.resume}
-                            isNeutral={head.isRetryNeutral}
-                            isPending={copy.isResuming}
-                            onPress={props.on.resume}
-                        />
-                    ) : null}
+                    <RunDoorActions
+                        runId={head.id}
+                        canPause={head.canPause}
+                        canResume={head.canResume}
+                        canCancel={head.canCancel}
+                        hasCustomer={head.hasCustomer}
+                        subtitle={head.workflowName}
+                        onDone={props.on.done}
+                    />
                 </Cluster>
             </Cluster>
         </Stack>

@@ -4,7 +4,13 @@ import { useAgentRoute } from "@/hooks/installations"
 import { useTranslations } from "next-intl"
 import { useMemo, useState } from "react"
 import { usePaneCopy } from "@/hooks/paneFrame"
-import { agentRunGridOf, useAgentRunAiCalls, useAgentRunDetail, useAgentRunReads, useRunAsideWide } from "@/hooks/agentRuns"
+import {
+    agentRunGridOf,
+    useAgentRunAiCalls,
+    useAgentRunDetail,
+    useAgentRunReads,
+    useRunAsideWide,
+} from "@/hooks/agentRuns"
 import { useOverviewPhone } from "@/hooks/overview"
 import { useSlotLabels } from "@/hooks/slot"
 import { EMPTY_STEPS_MAP } from "@/hooks/workflowSteps"
@@ -33,9 +39,10 @@ const PLACEHOLDER: RunDetailView = {
         stepCount: 0,
         versionLabel: "",
         workflowHref: "",
-        isRetryNeutral: false,
         canResume: false,
+        canPause: false,
         canCancel: false,
+        hasCustomer: false,
     },
     figures: [
         { id: "trigger", term: "", value: "", href: "" },
@@ -82,15 +89,7 @@ const copyOf = (t: Words): AgentRunPanesCopy => ({
     stepEmpty: t("stepEmpty"),
     head: {
         ariaLabel: t("headLabel"),
-        resume: t("resume"),
         switchLabel: t("switchLabel"),
-        cancel: {
-            label: t("cancelRun"),
-            dialogTitle: t("cancelTitle"),
-            note: t("cancelNote"),
-            keepLabel: t("cancelKeep"),
-            confirmLabel: t("cancelRun"),
-        },
     },
     params: {
         pick: t("stepEmpty"),
@@ -143,8 +142,6 @@ export const AgentRunPanes = (props: AgentRunPanesProps) => {
                 slotLabels: slotLabels(t("runMissing")),
                 isPhone,
                 isMissing: run.isMissing,
-                isResuming: run.isResuming,
-                isCancelling: run.isCancelling,
                 isDeciding: run.isDeciding,
                 isAsideOpen,
                 asideHead: {
@@ -176,8 +173,7 @@ export const AgentRunPanes = (props: AgentRunPanesProps) => {
                     if (!isWide) setIsAsideOpen(true)
                 },
                 asideOpenChange: setIsAsideOpen,
-                resume: run.resume,
-                cancel: run.cancel,
+                done: run.reload,
                 decide: run.decide,
                 retry: run.reload,
             }}

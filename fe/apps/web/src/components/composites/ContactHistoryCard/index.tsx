@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { SlotView, type SlotLabels } from "@nivo-lite/agent-sdk/client"
 import { Button, Cluster, Divider, Link, MessageBubble, Stack, SurfaceCard, Text } from "@starci/grammar/common"
+import { RunDoorActions } from "@/components/composites/RunDoorActions"
 import { ChatMessageFiles } from "@/components/leaves/ChatMessageFiles"
 import { nivoIconSource } from "@/components/leaves/Icon"
 import { ThreadOrderCard } from "@/components/branches/ThreadOrderCard"
@@ -116,13 +117,28 @@ const Shell = (props: ShellProps) => (
         label={props.copy.historyTitle}
         headingLevel={2}
         {...(props.count === undefined ? {} : { count: props.count })}
-        {...(props.history.workbenchHref === null
+        {...(props.history.workbenchHref === null && props.history.runs.length === 0
             ? {}
             : {
                   labelEnd: (
-                      <Link variant="head" href={props.history.workbenchHref}>
-                          {props.copy.historyWorkbench}
-                      </Link>
+                      <Cluster gap="inline">
+                          {props.history.workbenchHref === null ? null : (
+                              <Link variant="head" href={props.history.workbenchHref}>
+                                  {props.copy.historyWorkbench}
+                              </Link>
+                          )}
+                          {props.history.runs.map((run) => (
+                              <RunDoorActions
+                                  key={run.runId}
+                                  runId={run.runId}
+                                  canPause={run.status !== "paused"}
+                                  canResume={run.status === "paused"}
+                                  canCancel
+                                  hasCustomer
+                                  onDone={props.history.onRunsChanged}
+                              />
+                          ))}
+                      </Cluster>
                   ),
               })}
         headers={[

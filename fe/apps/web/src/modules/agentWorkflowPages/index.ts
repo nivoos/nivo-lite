@@ -65,6 +65,7 @@ export const tableRowOf = (input: TableRowInput): WorkflowTableRowView => {
         runs7d: null,
         statusLabel: row.statusLabel,
         statusTone: row.statusTone,
+        run: row.run,
     }
 }
 

@@ -302,6 +302,8 @@ export type {
 export type {
     WorkflowCreateView,
     WorkflowDetailView,
+    WorkflowRunCopy,
+    WorkflowRunView,
     WorkflowDiffReadView,
     WorkflowDiffGrantView,
     WorkflowDiffStepView,

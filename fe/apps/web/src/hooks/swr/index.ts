@@ -175,7 +175,7 @@ export { QUERY_SEPAY_CONNECTION_SWR_KEY } from "./api"
 export { useQueryTelegramConnectionPageSwr } from "./api"
 export { useMutateCloseAgentTaskSwr, useMutateRemoveAgentTriggerSwr } from "./api"
 export { useMutateSaveAgentTriggerSwr, useMutateSetAgentWorkSwr, useMutateSetWorkspaceAgentWorkSwr } from "./api"
-export { useQueryAgentRunSwr, useQueryAgentRunsSwr, useQueryAgentRunAiCallsSwr } from "./api"
+export { useQueryAgentRunSwr, useQueryAgentRunsSwr, useQueryAgentRunAiCallsSwr, QUERY_AGENT_RUNS_SWR_KEY } from "./api"
 export {
     useMutateResumeAgentRunSwr,
     useMutateCancelAgentRunSwr,

@@ -1,7 +1,19 @@
+import { useTranslations } from "next-intl"
 import { useState } from "react"
-import { Cluster, EmptyNotice, Link, SurfaceCard, Text, type HeaderZone, type TableRowData } from "@starci/grammar/common"
+import { useSWRConfig } from "swr"
+import {
+    Cluster,
+    EmptyNotice,
+    Link,
+    SurfaceCard,
+    Text,
+    type HeaderZone,
+    type TableRowData,
+} from "@starci/grammar/common"
+import { RunDoorActions } from "@/components/composites/RunDoorActions"
 import { AgentRunStatusMark, nivoIconSource } from "@/components/leaves/Icon"
 import { ALL } from "@/hooks/agentRuns"
+import { QUERY_AGENT_RUNS_SWR_KEY } from "@/hooks/swr"
 import type { RunsTableCopy, RunChipView, RunRowView, RunWorkflowView, RunsFilter, RunsView } from "@/modules/types"
 
 /** How many runs a page of the table holds. */
@@ -27,7 +39,7 @@ interface AgentRunsListTableProps {
 }
 
 /** The cells of one run: its number (a link), the workflow it ran, when it began, how long it took, and how it ended (an outline mark and the word). */
-const rowOf = (row: RunRowView): TableRowData => ({
+const rowOf = (row: RunRowView, endLabel: string, onDone: () => void): TableRowData => ({
     id: row.id,
     href: row.href,
     cells: {
@@ -45,6 +57,20 @@ const rowOf = (row: RunRowView): TableRowData => ({
                 <Text>{row.statusLabel}</Text>
             </Cluster>
         ),
+        actions: row.canCancel ? (
+            <Cluster gap="inline" wrap={false}>
+                <RunDoorActions
+                    runId={row.id}
+                    canPause={row.canPause}
+                    canResume={row.canResume}
+                    canCancel={row.canCancel}
+                    hasCustomer={row.hasCustomer}
+                    subtitle={row.workflowName}
+                    endLabel={endLabel}
+                    onDone={onDone}
+                />
+            </Cluster>
+        ) : null,
     },
 })
 
@@ -72,45 +98,48 @@ const ATTENTION: ReadonlySet<string> = new Set(["waiting", "failed"])
 const headersOf = (props: AgentRunsListTableProps): ReadonlyArray<HeaderZone> => {
     const { copy, view, filter, workflows } = props.props
     return [
-                {
-                    kind: "filter",
-                    label: copy.statusFilter,
-                    items: view.tabs.map((chip) => ({
-                        id: chip.value,
-                        label: chip.label,
-                        count: chip.count,
-                        ...(ATTENTION.has(chip.value) && chip.count > 0 ? { isAttention: true } : {}),
-                    })),
-                    selectedKey: filter.tab,
-                    onSelect: props.on.tab,
-                },
-                {
-                    kind: "search",
-                    label: copy.searchLabel,
-                    placeholder: copy.searchPlaceholder,
-                    clearLabel: copy.searchClear,
-                    value: filter.query,
-                    onChange: (query) => props.on.filter({ query }),
-                    filters: [
-                        ...(workflows === null
-                            ? []
-                            : [
-                                  selectOf(
-                                      copy.workflowFilter,
-                                      workflows.map((workflow) => ({
-                                          id: workflow.key,
-                                          label: workflow.key === ALL ? (view.sources[0]?.label ?? workflow.label) : workflow.label,
-                                      })),
-                                      filter.workflow,
-                                      (workflow) => props.on.filter({ workflow }),
-                                  ),
-                              ]),
-                        selectOf(copy.sourceFilter, optionsOf(view.sources), filter.source, (source) =>
-                            props.on.filter({ source }),
-                        ),
-                    ],
-                },
-            ]
+        {
+            kind: "filter",
+            label: copy.statusFilter,
+            items: view.tabs.map((chip) => ({
+                id: chip.value,
+                label: chip.label,
+                count: chip.count,
+                ...(ATTENTION.has(chip.value) && chip.count > 0 ? { isAttention: true } : {}),
+            })),
+            selectedKey: filter.tab,
+            onSelect: props.on.tab,
+        },
+        {
+            kind: "search",
+            label: copy.searchLabel,
+            placeholder: copy.searchPlaceholder,
+            clearLabel: copy.searchClear,
+            value: filter.query,
+            onChange: (query) => props.on.filter({ query }),
+            filters: [
+                ...(workflows === null
+                    ? []
+                    : [
+                          selectOf(
+                              copy.workflowFilter,
+                              workflows.map((workflow) => ({
+                                  id: workflow.key,
+                                  label:
+                                      workflow.key === ALL
+                                          ? (view.sources[0]?.label ?? workflow.label)
+                                          : workflow.label,
+                              })),
+                              filter.workflow,
+                              (workflow) => props.on.filter({ workflow }),
+                          ),
+                      ]),
+                selectOf(copy.sourceFilter, optionsOf(view.sources), filter.source, (source) =>
+                    props.on.filter({ source }),
+                ),
+            ],
+        },
+    ]
 }
 
 /**
@@ -120,6 +149,10 @@ const headersOf = (props: AgentRunsListTableProps): ReadonlyArray<HeaderZone> =>
  */
 export const AgentRunsListTable = (props: AgentRunsListTableProps) => {
     const { copy, view } = props.props
+    const t = useTranslations("runDoor")
+    const { mutate } = useSWRConfig()
+    // A pause, resume or end reads every list of runs again, so no row keeps a button for a state the run no longer has.
+    const reload = (): void => void mutate((key) => Array.isArray(key) && key[0] === QUERY_AGENT_RUNS_SWR_KEY)
     const [ownPage, setOwnPage] = useState(1)
     const page = props.props.page ?? ownPage
     const onPage = props.on.page ?? setOwnPage
@@ -142,8 +175,9 @@ export const AgentRunsListTable = (props: AgentRunsListTableProps) => {
                 { id: "started", label: copy.started, priority: "low", width: "fit" },
                 { id: "duration", label: copy.duration, priority: "low", width: "fit" },
                 { id: "result", label: copy.result, width: "fit" },
+                { id: "actions", label: copy.actions, width: "fit" },
             ]}
-            rows={shown.map((row) => rowOf(row))}
+            rows={shown.map((row) => rowOf(row, t("endConfirm"), reload))}
             footers={
                 pageCount > 1
                     ? [

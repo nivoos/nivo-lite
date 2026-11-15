@@ -136,6 +136,10 @@ export interface TeamChatStopCardView {
     readonly key: string
     /** The mark of the agent beside the card. */
     readonly mark: TeamChatMarkView
+    /** The card is still open: the run waits on a person and may be paused or ended from here (false once it is resolved). */
+    readonly isOpen: boolean
+    /** The run talks to a customer in a conversation: ending it may tell the customer. */
+    readonly hasCustomer: boolean
     /** Grows with every rewrite: a new revision clears what the viewer typed. */
     readonly revision: number
     /** The muted line under the card: the time, and how many times it stopped. */
@@ -188,4 +192,6 @@ export interface TeamChatStopHandlers {
     /** The run and step of the card whose action is in flight (`runId:stepKey`), or null. */
     readonly pendingKey: string | null
     readonly onAction: (card: TeamChatStopCardView, action: TeamChatStopAction) => void
+    /** The run of a card was paused, resumed or ended from the card: the thread is read again, so the card is drawn anew. */
+    readonly onRunChanged: () => void
 }

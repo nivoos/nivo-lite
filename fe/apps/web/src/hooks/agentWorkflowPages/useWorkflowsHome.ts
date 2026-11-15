@@ -6,7 +6,9 @@ import {
     useAgentWorkflows,
     useWorkflowContext,
     useWorkflowCreate,
+    useWorkflowRunControl,
     type WorkflowCreateData,
+    type WorkflowRunControl,
 } from "@/hooks/agentWorkflows"
 import { slotOfSwr } from "@/hooks/slot"
 import { useQueryAgentWorkflowGraphSwr, useQueryAgentWorkflowsSwr } from "@/hooks/swr"
@@ -18,6 +20,8 @@ import type { DataSlot, WorkflowTableRowView } from "@/modules/types"
 export interface WorkflowsHome {
     readonly slot: DataSlot<ReadonlyArray<WorkflowTableRowView>>
     readonly create: WorkflowCreateData
+    /** The stop and start commands of a row and the dialog they open. */
+    readonly runControl: WorkflowRunControl
     readonly retry: () => void
 }
 
@@ -35,6 +39,7 @@ export const useWorkflowsHome = (module: string, installationId: string): Workfl
         refresh: workflows.refresh,
         onCreated: workflows.select,
     })
+    const runControl = useWorkflowRunControl(installationId, workflows.refresh)
     const rows = useMemo(
         () =>
             read.data?.map((workflow) =>
@@ -54,6 +59,7 @@ export const useWorkflowsHome = (module: string, installationId: string): Workfl
             isLoading: read.isLoading,
         }),
         create,
+        runControl,
         retry: () => void read.mutate(),
     }
 }

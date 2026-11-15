@@ -1,10 +1,11 @@
 "use client"
 
+import { useWorkflowRunCopy } from "@/hooks/agentWorkflows"
 import { useAgentRoute } from "@/hooks/installations"
 import { useTranslations } from "next-intl"
 import { useWorkflowReadiness, useWorkflowsHome } from "@/hooks/agentWorkflowPages"
 import { useSlotLabels } from "@/hooks/slot"
-import type { PaneGridLayout, WorkflowTableRowView } from "@/modules/types"
+import type { PaneGridLayout, WorkflowRunCopy, WorkflowTableRowView } from "@/modules/types"
 import { AgentWorkflowsHomeBase, type AgentWorkflowsHomeCopy } from "./component"
 
 /** The instance whose workflows the table lists. */
@@ -33,6 +34,7 @@ const PLACEHOLDER: ReadonlyArray<WorkflowTableRowView> = [
         runs7d: null,
         statusLabel: "-",
         statusTone: "neutral",
+        run: { status: "draft", isPrimary: false, version: 0, runsInFlight: 0, eventsHeld: 0, eventsSkipped: 0 },
     },
 ]
 
@@ -40,7 +42,7 @@ type PageWords = ReturnType<typeof useTranslations<"agentWorkflowPages">>
 type MakerWords = ReturnType<typeof useTranslations<"agentWorkflows">>
 
 /** The words of the tab that do not come from the data. */
-const copyOf = (t: PageWords, td: MakerWords): AgentWorkflowsHomeCopy => ({
+const copyOf = (t: PageWords, td: MakerWords, run: WorkflowRunCopy): AgentWorkflowsHomeCopy => ({
     paneLabel: t("paneLabel"),
     title: t("tableTitle"),
     create: t("create"),
@@ -57,6 +59,7 @@ const copyOf = (t: PageWords, td: MakerWords): AgentWorkflowsHomeCopy => ({
         none: t("none"),
         empty: t("empty"),
         emptyBody: t("emptyBody"),
+        run,
     },
     drawer: {
         title: td("createTitle"),
@@ -90,12 +93,13 @@ export const AgentWorkflowsHome = (props: AgentWorkflowsHomeProps) => {
     const t = useTranslations("agentWorkflowPages")
     const td = useTranslations("agentWorkflows")
     const slotLabels = useSlotLabels()
+    const runCopy = useWorkflowRunCopy()
     const home = useWorkflowsHome(route.module, route.installationId)
     const readiness = useWorkflowReadiness(route.installationId)
     return (
         <AgentWorkflowsHomeBase
             props={{
-                copy: copyOf(t, td),
+                copy: copyOf(t, td, runCopy),
                 slot: home.slot,
                 placeholder: PLACEHOLDER,
                 grid: GRID,
@@ -105,8 +109,12 @@ export const AgentWorkflowsHome = (props: AgentWorkflowsHomeProps) => {
                 readiness: readiness.rows,
                 canPick: readiness.isOwner,
                 pick: readiness.pick,
+                runAsk: home.runControl.ask,
             }}
             on={{
+                runAsk: home.runControl.open,
+                runClose: home.runControl.close,
+                runConfirm: home.runControl.confirm,
                 retry: home.retry,
                 createOpen: home.create.open,
                 createClose: home.create.close,

@@ -274,9 +274,10 @@ const headOf = (wire: AgentRunWire, context: RunDetailContext): RunHeadView => {
         stepCount: row.stepTotal,
         versionLabel: row.versionNumber === null ? "" : context.t("versionChip", { version: row.versionNumber }),
         workflowHref: row.workflowName === null || row.workflowName === undefined ? "" : context.workflowHrefOf(row.workflowKey),
-        isRetryNeutral: wire.decision !== null,
         canResume: wire.canResume,
+        canPause: wire.canPause,
         canCancel: wire.canCancel,
+        hasCustomer: runSourceOf(row.source) === "customer",
     }
 }
 

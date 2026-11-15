@@ -17,6 +17,8 @@ export interface TeamChatStopsView {
     /** The card whose action is in flight (`runId:stepKey`), or null. */
     readonly pendingKey: string | null
     readonly act: (card: TeamChatStopCardView, action: TeamChatStopAction) => Promise<void>
+    /** Reads the thread again: after a pause, resume or end of a run made from a card. */
+    readonly changed: () => void
 }
 
 /** The decide door's outcomes that mean the stop is closed by this action; the others say the engine is applying one already. */
@@ -54,7 +56,8 @@ export const useTeamChatStops = (onChanged: () => void): TeamChatStopsView => {
     const release = useMutateReleaseConversationSwr(workspaceId)
     const [pendingKey, setPendingKey] = useState<string | null>(null)
     const failed = (error: unknown): void => {
-        const description = isRefusedByBackend(error) && error instanceof Error ? error.message : t("stopCard.failedText")
+        const description =
+            isRefusedByBackend(error) && error instanceof Error ? error.message : t("stopCard.failedText")
         toast.danger(t("stopCard.failedTitle"), { description })
     }
     const run = async (card: TeamChatStopCardView, action: TeamChatStopAction): Promise<void> => {
@@ -97,6 +100,7 @@ export const useTeamChatStops = (onChanged: () => void): TeamChatStopsView => {
     return {
         isOwner: member === null || member.role === "owner",
         pendingKey,
+        changed: onChanged,
         act: async (card, action) => {
             setPendingKey(card.key)
             try {

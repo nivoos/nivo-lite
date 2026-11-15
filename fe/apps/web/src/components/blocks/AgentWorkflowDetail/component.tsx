@@ -1,6 +1,8 @@
 import { Pane, PaneGrid, PaneSection } from "@starci/grammar/common"
 import { SlotView } from "@nivo-lite/agent-sdk/client"
+import { WorkflowRunDialog } from "@/components/composites/WorkflowRunDialog"
 import { WorkflowStepDrawer } from "@/components/composites/WorkflowStepDrawer"
+import type { WorkflowRunAsk, WorkflowStopChoice } from "@/hooks/agentWorkflows"
 import type {
     DataSlot,
     PaneGridLayout,
@@ -37,8 +39,13 @@ export interface AgentWorkflowDetailBaseProps {
         readonly slotLabels: SlotLabels
         /** True while a write of this page (turn on, pause, update from the template) is on its way. */
         readonly isWriting: boolean
+        /** The open dialog of the run commands (stop, start again, end all runs); null while none is. */
+        readonly runAsk: WorkflowRunAsk | null
     }
     readonly on: {
+        readonly runAsk: (ask: WorkflowRunAsk) => void
+        readonly runClose: () => void
+        readonly runConfirm: (choice: WorkflowStopChoice) => Promise<void>
         readonly retry: () => void
         readonly step: (action: StepAction) => void
         readonly rollback: (number: number) => void
@@ -70,8 +77,10 @@ export const AgentWorkflowDetailBase = (props: AgentWorkflowDetailBaseProps) => 
                             <>
                                 <DetailHead
                                     view={view}
+                                    copy={copy.run}
                                     isLoading={isLoading}
                                     onToggle={props.on.toggle}
+                                    onAsk={props.on.runAsk}
                                     isWriting={props.props.isWriting}
                                 />
                                 <PaneSection gap="section">
@@ -111,6 +120,10 @@ export const AgentWorkflowDetailBase = (props: AgentWorkflowDetailBaseProps) => 
                 </Pane>
             </PaneGrid>
             <WorkflowStepDrawer view={props.props.drawer} onAction={props.on.step} />
+            <WorkflowRunDialog
+                props={{ copy: copy.run, ask: props.props.runAsk }}
+                on={{ close: props.on.runClose, confirm: props.on.runConfirm }}
+            />
         </>
     )
 }

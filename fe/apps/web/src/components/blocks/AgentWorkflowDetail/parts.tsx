@@ -18,8 +18,10 @@ import type {
     WorkflowDetailView,
     WorkflowNoticeView,
     WorkflowOverviewView,
+    WorkflowRunCopy,
     WorkflowStatus,
 } from "@/modules/types"
+import type { WorkflowRunAsk, WorkflowRunAskKind } from "@/hooks/agentWorkflows"
 
 /** The tab of the page of a workflow that is open. */
 export type DetailTab = "io" | "map" | "versions" | "runs"
@@ -40,41 +42,72 @@ export interface AgentWorkflowDetailCopy {
     readonly overview: AgentWorkflowOverviewCopy
     readonly versions: AgentWorkflowVersionTableCopy
     readonly runs: RunsTableCopy
+    readonly run: WorkflowRunCopy
 }
 
-/** What the head of the page needs: the workflow and the command. */
+/** What the head of the page needs: the workflow and the commands. */
 interface DetailHeadProps {
     readonly view: WorkflowDetailView
+    readonly copy: WorkflowRunCopy
     readonly isLoading: boolean
-    /** Turns the workflow on (draft, paused) or pauses it (active). */
+    /** Turns a draft on. */
     readonly onToggle: (status: WorkflowStatus) => void
+    /** Opens the dialog of stopping, starting again or ending every run in flight. */
+    readonly onAsk: (ask: WorkflowRunAsk) => void
     readonly isWriting: boolean
 }
 
-/** The head of the page: name, version and status, and the one command: turn on or pause. */
+/**
+ * The head of the page: name, where it stands (running, stopped) with its line, and the commands: stop or start again, and end all
+ * runs in flight while some are. The primary workflow cannot be stopped, so it has no stop; a draft has the one turn-on command.
+ */
 export const DetailHead = (props: DetailHeadProps) => {
-    const { view } = props
+    const { view, copy } = props
+    const { head } = view
+    const ask = (kind: WorkflowRunAskKind) => () =>
+        props.onAsk({ kind, workflow: { id: head.id, name: head.name, run: head.run } })
+    const status = head.status === "active" ? copy.statusActive : head.status === "paused" ? copy.statusPaused : head.statusLabel
+    const line = copy.line(head.run, true)
     return (
         <PaneHead
-            title={view.head.name}
+            title={head.name}
             headingLevel={1}
-            description={view.head.facts}
+            description={line === "" ? head.facts : line}
             status={
-                <Badge tone={view.head.statusTone} isDot>
-                    {view.head.statusLabel}
+                <Badge tone={head.statusTone} isDot>
+                    {status}
                 </Badge>
             }
             isLoading={props.isLoading}
             actions={
-                <Button
-                    intent="neutral"
-                    size="sm"
-                    isPending={props.isWriting}
-                    isDisabled={props.isLoading}
-                    onPress={() => props.onToggle(view.head.toggleTo)}
-                >
-                    {view.head.toggleLabel}
-                </Button>
+                <>
+                    {head.status === "draft" ? (
+                        <Button
+                            intent="neutral"
+                            size="sm"
+                            isPending={props.isWriting}
+                            isDisabled={props.isLoading}
+                            onPress={() => props.onToggle(head.toggleTo)}
+                        >
+                            {head.toggleLabel}
+                        </Button>
+                    ) : null}
+                    {head.status === "active" && !head.run.isPrimary ? (
+                        <Button intent="neutral" size="sm" isDisabled={props.isLoading} onPress={ask("stop")}>
+                            {copy.stop}
+                        </Button>
+                    ) : null}
+                    {head.status === "paused" ? (
+                        <Button intent="neutral" size="sm" isDisabled={props.isLoading} onPress={ask("start")}>
+                            {copy.start}
+                        </Button>
+                    ) : null}
+                    {head.run.runsInFlight > 0 ? (
+                        <Button intent="neutral" size="sm" isDisabled={props.isLoading} onPress={ask("end")}>
+                            {copy.endAll}
+                        </Button>
+                    ) : null}
+                </>
             }
         />
     )

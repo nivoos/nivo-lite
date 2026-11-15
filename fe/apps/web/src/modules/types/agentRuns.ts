@@ -1,7 +1,7 @@
 import type { BadgeTone, FlowGraphEdge, FlowGraphLegendItem, FlowGraphNode, FlowGraphRunStatus } from "@starci/grammar/common"
 
 /** Where a run stands as a person tells it. */
-export type RunStatus = "queued" | "scheduled" | "running" | "waiting" | "done" | "failed" | "cancelled"
+export type RunStatus = "queued" | "scheduled" | "running" | "waiting" | "paused" | "done" | "failed" | "cancelled"
 
 /** Where a step stands as a person tells it. */
 export type RunStepStatus = "pending" | "running" | "waiting" | "done" | "failed"
@@ -35,6 +35,14 @@ export interface RunRowView {
     readonly statusLabel: string
     readonly statusTone: BadgeTone
     readonly href: string
+    /** The run is running or waiting: a person may pause it. */
+    readonly canPause: boolean
+    /** The run is paused: a person may run it on. */
+    readonly canResume: boolean
+    /** The run is in flight (queued, scheduled, running, waiting or paused): a person may end it. */
+    readonly canCancel: boolean
+    /** The run was woken by a customer: ending it may tell the customer. */
+    readonly hasCustomer: boolean
 }
 
 /** One value of a filter and how many runs carry it. */
@@ -183,11 +191,14 @@ export interface RunHeadView {
     readonly versionLabel: string
     /** Where the workflow opens, or empty for a run with none. */
     readonly workflowHref: string
+    /** The run is paused and a person may run it on. */
     readonly canResume: boolean
-    /** Another command of the page is the one primary (a decision the run waits on): the retry is then a neutral button. */
-    readonly isRetryNeutral: boolean
-    /** The run is queued, running or waiting and a person may stop it. */
+    /** The run is running or waiting and a person may pause it. */
+    readonly canPause: boolean
+    /** The run is in flight (running, waiting or paused) and a person may end it. */
     readonly canCancel: boolean
+    /** The run was woken by a customer: ending it may tell the customer. */
+    readonly hasCustomer: boolean
 }
 
 /** One cell of the summary of a run. */
@@ -278,6 +289,8 @@ export interface RunsTableCopy {
     readonly started: string
     readonly duration: string
     readonly result: string
+    /** The head of the column of the commands on a run in flight. */
+    readonly actions: string
     readonly empty: string
     readonly emptyFiltered: string
     readonly pagerLabel: string

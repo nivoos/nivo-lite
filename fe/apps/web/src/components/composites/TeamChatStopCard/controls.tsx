@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { Button, Cluster, Stack, SurfaceCard, Text, Textarea } from "@starci/grammar/common"
 import type { TeamChatStopAction, TeamChatStopCardView } from "@/modules/types"
 import { STOP_ANSWER_CLASS_NAME } from "./classNames"
@@ -49,7 +49,13 @@ export const StopAnswerBox = (props: StopAnswerBoxProps) => {
                         onSubmitShortcut={send}
                     />
                 </div>
-                <Button intent="commit" startGlyph="send" isPending={props.isPending} isDisabled={text.trim() === ""} onPress={send}>
+                <Button
+                    intent="commit"
+                    startGlyph="send"
+                    isPending={props.isPending}
+                    isDisabled={text.trim() === ""}
+                    onPress={send}
+                >
                     {card.labels.send}
                 </Button>
             </Cluster>
@@ -64,22 +70,28 @@ const decisionLabelOf = (card: TeamChatStopCardView, decision: TeamChatStopCardV
 }
 
 /** The decisions row takes the same controls as the answer box. */
-export type StopDecisionsRowProps = Pick<StopAnswerBoxProps, "card" | "isPending" | "act">
+export type StopDecisionsRowProps = Pick<StopAnswerBoxProps, "card" | "isPending" | "act"> & {
+    /** The secondary controls on the run (pause, end) at the right end of the row; none when the card has none. */
+    readonly trailing?: ReactNode
+}
 
-/** The neutral decisions the engine accepts now (retry, take over, skip). */
+/** The neutral decisions the engine accepts now (retry, take over, skip), with the secondary run controls at the right end. */
 export const StopDecisionsRow = (props: StopDecisionsRowProps) => (
-    <Cluster gap="inline" label={props.card.labels.decisionsLabel}>
-        {props.card.decisions.map((decision) => (
-            <Button
-                key={decision}
-                intent="neutral"
-                size="sm"
-                isDisabled={props.isPending}
-                onPress={() => props.act({ kind: "decision", decision })}
-            >
-                {decisionLabelOf(props.card, decision)}
-            </Button>
-        ))}
+    <Cluster gap="inline" justify="between" label={props.card.labels.decisionsLabel}>
+        <Cluster gap="inline">
+            {props.card.decisions.map((decision) => (
+                <Button
+                    key={decision}
+                    intent="neutral"
+                    size="sm"
+                    isDisabled={props.isPending}
+                    onPress={() => props.act({ kind: "decision", decision })}
+                >
+                    {decisionLabelOf(props.card, decision)}
+                </Button>
+            ))}
+        </Cluster>
+        {props.trailing === undefined ? null : <Cluster gap="inline">{props.trailing}</Cluster>}
     </Cluster>
 )
 
@@ -148,6 +160,8 @@ export interface StopApprovalProps {
     readonly lines: TeamChatStopCardView["facts"]
     readonly controls: StopAnswerBoxProps | null
     readonly isOwner: boolean
+    /** The secondary controls on the run (pause, end) at the right end of the control row. */
+    readonly trailing?: ReactNode
 }
 
 /** A leave request: its lines, then Approve for the owner only (a manager sees Refuse and the line that the owner decides). */
@@ -158,32 +172,35 @@ export const StopApproval = (props: StopApprovalProps) => {
             <StopApprovalContent card={card} />
             <StopLinesList label={card.labels.approvalLabel} lines={props.lines} />
             {controls === null || card.verdicts.length === 0 ? null : (
-                <Cluster gap="inline">
-                    {props.isOwner && card.verdicts.includes("approve") ? (
-                        <Button
-                            intent="commit"
-                            size="sm"
-                            isPending={controls.isPending}
-                            onPress={() => controls.act({ kind: "verdict", verdict: "approve" })}
-                        >
-                            {card.labels.approve}
-                        </Button>
-                    ) : null}
-                    {card.verdicts.includes("refuse") ? (
-                        <Button
-                            intent="neutral"
-                            size="sm"
-                            isDisabled={controls.isPending}
-                            onPress={() => controls.act({ kind: "verdict", verdict: "refuse" })}
-                        >
-                            {card.labels.refuse}
-                        </Button>
-                    ) : null}
-                    {props.isOwner ? null : (
-                        <Text size="xs" tone="muted">
-                            {card.labels.ownerOnly}
-                        </Text>
-                    )}
+                <Cluster gap="inline" justify="between">
+                    <Cluster gap="inline">
+                        {props.isOwner && card.verdicts.includes("approve") ? (
+                            <Button
+                                intent="commit"
+                                size="sm"
+                                isPending={controls.isPending}
+                                onPress={() => controls.act({ kind: "verdict", verdict: "approve" })}
+                            >
+                                {card.labels.approve}
+                            </Button>
+                        ) : null}
+                        {card.verdicts.includes("refuse") ? (
+                            <Button
+                                intent="neutral"
+                                size="sm"
+                                isDisabled={controls.isPending}
+                                onPress={() => controls.act({ kind: "verdict", verdict: "refuse" })}
+                            >
+                                {card.labels.refuse}
+                            </Button>
+                        ) : null}
+                        {props.isOwner ? null : (
+                            <Text size="xs" tone="muted">
+                                {card.labels.ownerOnly}
+                            </Text>
+                        )}
+                    </Cluster>
+                    {props.trailing === undefined ? null : <Cluster gap="inline">{props.trailing}</Cluster>}
                 </Cluster>
             )}
         </Stack>

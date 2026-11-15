@@ -2,7 +2,7 @@
 
 import { useFormatter, useTranslations } from "next-intl"
 import { useMemo, useState } from "react"
-import { useQueryContactMessagesSwr } from "@/hooks/swr"
+import { useQueryAgentRunsInFlightSwr, useQueryContactMessagesSwr } from "@/hooks/swr"
 import {
     HISTORY_ALL_KEY,
     historyLinesOf,
@@ -22,6 +22,10 @@ import type {
     ContactHistoryWords,
     DataSlot,
 } from "@/modules/types"
+
+/** The statuses a run in flight may carry; an unknown one reads as running. */
+const runStatusOf = (status: string): "running" | "waiting" | "paused" =>
+    status === "waiting" || status === "paused" ? status : "running"
 
 /** No line read yet. */
 const NO_ROWS: ReadonlyArray<ContactLineWire> = []
@@ -70,7 +74,9 @@ const useHistoryWords = (): ContactHistoryWords => {
                     if (reason === "no_store") return t("historyNotKeptNoStore")
                     if (reason === "store_failed") return t("historyNotKeptStoreFailed")
                     if (reason === "fetch_failed") return t("historyNotKeptFetchFailed")
-                    return reason?.startsWith("refused_") === true ? t("historyNotKeptRefused") : t("historyNotKeptUnknown")
+                    return reason?.startsWith("refused_") === true
+                        ? t("historyNotKeptRefused")
+                        : t("historyNotKeptUnknown")
                 }
                 return t("historyNotKept", { reason: why() })
             },
@@ -133,6 +139,12 @@ export const useContactHistory = (input: ContactHistoryInput): ContactHistory =>
         openId ?? undefined,
         route?.routeId ?? null,
     )
+    // The conversation the runs in flight are read for: the tab's route, or on "all" the most recently active one.
+    const activeRoute = route ?? routes?.[0]
+    const inFlight = useQueryAgentRunsInFlightSwr(
+        input.enabled && openId !== null && activeRoute !== undefined ? activeRoute.routeId : null,
+        openId,
+    )
     const rows = useMemo(
         () => (read.data === undefined ? NO_ROWS : read.data.flatMap((page) => page.rows)),
         [read.data],
@@ -148,6 +160,8 @@ export const useContactHistory = (input: ContactHistoryInput): ContactHistory =>
                       tabs: historyTabsOf(routes ?? [], t("historyTabAll")),
                       selectedKey: key,
                       workbenchHref: workbenchHrefOf(input.workspaceId, route ?? routes?.[0]),
+                      runs: (inFlight.data ?? []).map((run) => ({ runId: run.runId, status: runStatusOf(run.status) })),
+                      onRunsChanged: () => void inFlight.mutate(),
                       thread,
                   },
         selectTab: (next) => {
