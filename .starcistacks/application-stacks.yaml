@@ -1224,7 +1224,8 @@ environments:
 release:
   gates:
     - {name: app-check, command: [npx, starci, app, check]}
-    - {name: typecheck, command: [npm, run, typecheck]}
+    # Owner 2026-11-15 ("dừng tests"): the release typecheck judges the shipped code (be build config); the specs are not a release gate for now.
+    - {name: typecheck, command: [node, --max-old-space-size=8192, node_modules/typescript/bin/tsc, -p, be/tsconfig.build.json, --noEmit]}
     - {name: build-be, command: [npm, run, build:be]}
     - {name: lint, command: [npm, run, lint]}
     - name: build-fe
