@@ -71,6 +71,19 @@ const adoptLocale = (request: NextRequest, locale: (typeof i18n.locales)[number]
     return out
 }
 
+/** The name of the refresh cookie the api sets for the console (be's REFRESH_COOKIE_NAME). */
+const REFRESH_COOKIE = "nivo_refresh"
+
+/**
+ * The session of a request: a refusal for a request that carries a refresh cookie is asked once more before the person is treated as
+ * signed out, so a probe that crosses the cookie the sign-in has just set never sends a signed-in person back to the sign-in page.
+ */
+const sessionOf = async (request: NextRequest): ReturnType<typeof checkSession> => {
+    const first = await checkSession(request)
+    if (first.success || first.message === "unavailable" || !request.cookies.has(REFRESH_COOKIE)) return first
+    return checkSession(request)
+}
+
 /** Checks the session with the back end (cookies forwarded), applies the locale rewrite, gates private paths (a disabled seat is refused by the back end). */
 export const proxy = async (original: NextRequest): Promise<NextResponse> => {
     const request = incomingOf(original)
@@ -79,7 +92,7 @@ export const proxy = async (original: NextRequest): Promise<NextResponse> => {
     if (handedOver !== null) return adoptLocale(request, handedOver)
     const stamped = (): NextResponse => negotiateLocale(request)
     const response = stamped()
-    const principal = await checkSession(request)
+    const principal = await sessionOf(request)
     const isPublic = isPublicPath(pathname)
 
     /** A redirect on the public origin, never the server bind address. */

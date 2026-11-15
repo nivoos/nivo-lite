@@ -1,6 +1,5 @@
 "use client"
 
-import { notFound } from "next/navigation"
 import type { ReactNode } from "react"
 import { useTranslations } from "next-intl"
 import { useConsoleGate } from "@/hooks/console"
@@ -22,11 +21,10 @@ interface ConsoleSessionGateBaseProps {
 const ConsoleSessionGateBase = (props: ConsoleSessionGateBaseProps): ReactNode =>
     props.isReady ? props.content : <output aria-busy="true" aria-label={props.loadingLabel} />
 
-/** Supplies the real session to console readers after workspace bootstrap and redirects have settled; a workspace the person is not a member of answers not found before anything of it renders. */
+/** Supplies the real session to console readers after workspace bootstrap and redirects have settled; a workspace the person is not a member of never renders (the gate sends them to their own). */
 export const ConsoleSession = (props: ConsoleSessionProps) => {
     const t = useTranslations("shell")
     const gate = useConsoleGate()
-    if (gate.isMissing) notFound()
     return (
         <ConsoleSessionContext.Provider value={gate.session}>
             <ConsoleSessionGateBase isReady={gate.isReady} loadingLabel={t("loading")} content={props.children} />
