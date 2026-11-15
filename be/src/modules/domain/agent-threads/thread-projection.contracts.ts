@@ -59,6 +59,11 @@ export interface ThreadStepStopParams extends ThreadStepParams {
     readonly calls: ReadonlyArray<ThreadStepCallParams>
     /** The work item a stop of kind approval waits on, or null; the step then shows as waiting, not failed. */
     readonly waitItemId: string | null
+    /**
+     * True when the step waits for a person's decision on its act (an approval stop) with no work item: the row stays open (running,
+     * holding the stop's code) and shows as waiting, never as failed. Absent: a stop of a step that did not complete (a failure).
+     */
+    readonly awaitsPerson?: true | undefined
 }
 
 /** One fact about a step, as a repair replays them. */

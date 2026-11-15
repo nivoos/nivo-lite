@@ -75,7 +75,8 @@ const recordOrNull = (value: object | null): StepJson | null => (value === null 
 /** The rank a step row already holds within its try; a pending row has none yet. */
 const rankOfRow = (data: StoredStep): Rank | -1 => {
     const status = data.status
-    if (status === "running") return data.waitItemId === null ? RANK.started : RANK.stopped
+    // A running row that holds a stop's code waits for a person (a work item, or an approval with none): it is stopped.
+    if (status === "running") return data.waitItemId === null && data.errorCode === null ? RANK.started : RANK.stopped
     if (status === "failed") return RANK.stopped
     if (status === "done") return RANK.ended
     return -1
@@ -174,7 +175,7 @@ const stepValuesOf = (row: StoredStep | null, fact: StepFact): StepValues | null
             doorCalls: callsOf(fact.calls),
         }
     }
-    const waiting = fact.waitItemId !== null
+    const waiting = fact.waitItemId !== null || fact.awaitsPerson === true
     const status = waiting ? "running" : "failed"
     const endedAt = waiting ? null : endedOf(row, fact, status)
     return {

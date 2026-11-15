@@ -308,6 +308,8 @@ export class ThreadSweepService {
             error: isRecord(data.error) ? data.error : null,
             calls: [],
             waitItemId: textOf(data.waitItemId),
+            // A row kept open on its stop's code waits for a person's decision (an approval): written again as waiting, never as failed.
+            ...(data.status === "running" && textOf(data.errorCode) !== null ? { awaitsPerson: true as const } : {}),
         }
         return this.repaired(ref, await this.projection.repair(ref, { steps: [fact], end: null }))
     }

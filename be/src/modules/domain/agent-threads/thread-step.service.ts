@@ -716,7 +716,8 @@ export class ThreadStepService {
             // A node of a `loop({ until })` round: the round is its item (`r<round>`).
             ...(!inBody && at.until !== undefined && inRound(step, at.until) ? roundInputOf(at.until) : {}),
         }
-        const placed = this.viewOf(at, state, scope, input)
+        const viewed = this.viewOf(at, state, scope, input)
+        const placed: StepView = { ...viewed, attempt: await this.attemptOf(viewed) }
         // Rule Q-2: the automatic retries this step already made ride in the checkpoint (`trouble.retry`), never in memory.
         // ENGINE-FIN (c): BOTH members are carried: a person's Retry names only `retryCode` (no automatic count), and dropping it here made
         // that visit a fresh attempt (a new model wording) instead of the continuation every other retry road is.
@@ -1496,6 +1497,8 @@ export class ThreadStepService {
             error: { code: APPROVAL_ASKED, text: asked.question.reason },
             calls: [],
             waitItemId: null,
+            // The step waits for the owner's approval of its act: it shows as waiting, never as failed (ASK-FIX).
+            awaitsPerson: true,
         })
         const left: ThreadTrouble = { stepKey: view.stepKey, ...nodeKeyIn(view), question: asked.question, locale }
         return { update: { trouble: { ...left } }, goto: FREEZE_NODE }
@@ -1668,8 +1671,19 @@ export class ThreadStepService {
     }
 
     /**
+     * The try of a step visit: one more than the decisions its OWN stop received (every kind: words, Retry, an approval, a decline, a
+     * deadline), so a visit after a decision on this step is always a later try than the one that stopped, and a step that never stopped
+     * is try 1. The count belongs to the step: the words given at another step's stop never raise it, and the gate resetting
+     * `founderAnswers` to the words of the stop it decided never lowers it (ASK-FIX: the approved send's row was kept out as an older try).
+     */
+    private async attemptOf(view: StepView): Promise<number> {
+        const stop = await this.stops.stopOf({ workspaceId: view.workspaceId, runId: view.runId }, view.stepKey)
+        return 1 + (stop?.answers.length ?? 0)
+    }
+
+    /**
      * The step as the old services read it (the lead memory, the conversation lock, the AI core): run, step, the outputs of the steps done
-     * before as `earlier`, and the try (one more than the stop's answers, so a run after a decision is the next try).
+     * before as `earlier`, and the try (`attemptOf` sets it; here one more than the stop's answers).
      */
     private viewOf(at: ThreadStepNode, state: ThreadState, scope: ThreadNodeScope, input: GraphNodeStepInput): StepView {
         const earlier = Object.fromEntries(

@@ -179,7 +179,8 @@ export const recoveredFactsOf = (result: unknown): ReadonlyArray<AgentRunFact> =
 
 /** Where a step stands as a person tells it. */
 export const stepStatusOf = (step: RunStepDetail): RunStepStatus => {
-    if (step.status === "running") return step.waitItemId === null ? "running" : "waiting"
+    // A running step that holds a stop's code waits for a person: on a work item, or on the approval of its act (ASK-FIX).
+    if (step.status === "running") return step.waitItemId === null && step.errorCode === null ? "running" : "waiting"
     return step.status
 }
 

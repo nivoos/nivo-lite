@@ -507,3 +507,43 @@ describe("ThreadProjectionService repair", () => {
         await expect(service.repair(REF, { steps: LIVE, end: null })).resolves.toBe("missing")
     })
 })
+
+describe("ThreadProjectionService: a step waiting on the approval of its act (ASK-FIX)", () => {
+    const asked = (seconds: number, attempt: number): ThreadStepStopParams => ({
+        ...step("tell-order", 1, attempt, seconds),
+        code: "tool_approval_required",
+        error: { code: "tool_approval_required", text: "needs approval" },
+        calls: [],
+        waitItemId: null,
+        awaitsPerson: true,
+    })
+
+    it("shows the asked step open and waiting (never failed), and the approved send closes it as done on the next try", async () => {
+        const store = new Store()
+        openRun(store)
+        const service = await build(store)
+
+        await service.stepStarted(REF, step("tell-order", 1, 1, 0))
+        await expect(service.stepStopped(REF, asked(6, 1))).resolves.toBe("written")
+        expect(store.stepsOf("run-1")[0]?.data).toMatchObject({ status: "running", endedAt: null, errorCode: "tool_approval_required", attempt: 1 })
+        expect(store.get(RUN, "run-1")?.data).toMatchObject({ status: "waiting" })
+        // A replayed stop (crash, sweep repair) keeps the row as it is.
+        await expect(service.stepStopped(REF, asked(7, 1))).resolves.toBe("kept")
+        // The approval is one decision on the step's own stop: the visit after it is try 2, started then ended done.
+        await service.resumed(REF, { at: at(20) })
+        await expect(service.stepStarted(REF, step("tell-order", 1, 2, 21))).resolves.toBe("written")
+        await expect(service.stepEnded(REF, ended("tell-order", 1, 2, 22))).resolves.toBe("written")
+        expect(store.stepsOf("run-1")[0]?.data).toMatchObject({ status: "done", errorCode: null, attempt: 2 })
+    })
+
+    it("keeps a later try's facts out only when they are older: the production sequence (try 2 stopped, try 1 re-ran) stayed failed", async () => {
+        const store = new Store()
+        openRun(store)
+        const service = await build(store)
+        // Before the fix: the first try counted another step's answers (2), the visit after the approval counted 0 (1).
+        await service.stepStarted(REF, step("tell-order", 1, 2, 0))
+        await service.stepStopped(REF, asked(6, 2))
+        await expect(service.stepEnded(REF, ended("tell-order", 1, 1, 22))).resolves.toBe("kept")
+        expect(store.stepsOf("run-1")[0]?.data).toMatchObject({ status: "running", attempt: 2 })
+    })
+})
