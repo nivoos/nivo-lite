@@ -4,6 +4,7 @@ import type { ReactElement } from "react"
 import { SiteLayout, siteLayoutMetadata } from "@/features/layouts/SiteLayout"
 import { LandingProviders } from "./providers"
 import "../globals.css"
+import "@/modules/home/home.css"
 import "@/modules/brand"
 
 /** The viewport of this route segment. */

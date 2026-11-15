@@ -5,6 +5,6 @@ import type { ReactElement } from "react"
 
 /** The public landing page; the bar reads the sign-in state in the browser. */
 export const LandingPage = async (): Promise<ReactElement> => {
-    const t = await getTranslations("landing")
+    const t = await getTranslations("home")
     return <LandingPageBase props={{ mainLabel: t("homeLabel") }} />
 }
