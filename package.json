@@ -1,6 +1,6 @@
 {
   "name": "nivo-lite",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "private": true,
   "packageManager": "npm@11.6.2",
   "workspaces": [
@@ -33,7 +33,7 @@
     "@nivo-lite/nivo-web-core": "*",
     "@nivo-lite/plugin-registry": "*",
     "@starci/ai-router": "0.7.0",
-    "@starci/auth": "0.7.0",
+    "@starci/auth": "0.7.1",
     "@starci/common": "1.1.0",
     "@starci/mail": "0.1.0",
     "@starci/nest-kit": "0.2.1",
