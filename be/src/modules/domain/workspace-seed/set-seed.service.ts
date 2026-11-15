@@ -13,7 +13,7 @@ import {
 import { seededFactsOf, seededSecretOf } from "@modules/domain/channel-connections"
 import type { EnterpriseSeedPlace } from "@modules/domain/channel-provisioning"
 import { ConnectionApiTokenService, randomSecret } from "@modules/domain/connection-secrets"
-import { ConnectionsService, isProvider, type ConnectionRecord } from "@modules/domain/connections"
+import { AccountConnectService, ConnectionsService, isProvider, type ConnectOutcome, type ConnectionRecord } from "@modules/domain/connections"
 import { INSTALLED, customerChannelProviders, inboundChannelsOf } from "@modules/domain/installed-plugins"
 import { ProfileSourcesService } from "@modules/domain/knowledge-sources"
 import { OwnersService } from "@modules/domain/owners"
@@ -28,9 +28,9 @@ import { primaryGraphOf } from "./primary-graph.policy"
 import { attachEveryOf, attachPlanOf } from "./roster-seed.policy"
 import { RosterSeedService } from "./roster-seed.service"
 import { readinessOf, readyLineOf, sealedNamesOf, type ReadinessInstalled } from "./seed-readiness.policy"
-import type { AccountStop, DocumentTexts, ForceKind, SealedValues, SetAccount, SetFact, SetPlan, SetProfile } from "./set-seed.contracts"
-import { connectionIdOf, expandSetProfile, nodeSettingsOf, readSetProfile, standingOf } from "./set-seed.policy"
-import type { SeedNodeDoor } from "./seed-standard.port"
+import type { AccountStop, DocumentTexts, ForceKind, SealedValues, SeedAccountOutcome, SetAccount, SetFact, SetPlan, SetProfile } from "./set-seed.contracts"
+import { connectionIdOf, expandSetProfile, nodeSettingsOf, readSetProfile, standingOf, switchesOf } from "./set-seed.policy"
+import type { SeedNodeDoor, SeedSwitchDoor } from "./seed-standard.port"
 import { InjectWorkspaceSeedOptions } from "./workspace-seed.decorators"
 import type { WorkspaceSeedOptions } from "./workspace-seed.options"
 
@@ -93,6 +93,8 @@ export interface SeedTally {
     byPerson: number
     /** Things the workspace holds that the standard no longer names (never deleted: removal is a person's act). */
     gone: number
+    /** What the seed did to make each LIVE account usable (the provider's connect step through the one door), in the document's order. */
+    accounts: Array<SeedAccountOutcome>
 }
 
 /** What one apply answers: whether it wrote, the workspace (null on a dry run of a workspace not made yet) and the tally. */
@@ -110,6 +112,13 @@ export const tallyLineOf = (tally: SeedTally, mood: string): string =>
 /** Whether a connection's public facts already hold every fact the document gives it. */
 const sameFacts = (held: Readonly<Record<string, string>>, wanted: Readonly<Record<string, string>>): boolean =>
     Object.entries(wanted).every(([name, value]) => held[name] === value)
+
+/** The door's answer as the receipt keeps it: its kind and a typed code (a refusal's), never the cause. */
+const outcomeRowOf = (outcome: ConnectOutcome): Pick<SeedAccountOutcome, "outcome" | "code"> => {
+    if (outcome.kind === "connect_refused") return { outcome: "connect_refused", code: outcome.code }
+    if (outcome.kind === "sandbox") return { outcome: "no_connect_step", code: null }
+    return { outcome: outcome.kind, code: null }
+}
 
 const refused = (field: string): never => {
     throw new WorkspaceSeedError({ code: WorkspaceSeedErrorCode.InputInvalid, params: { field } })
@@ -184,6 +193,7 @@ export class SetSeedService {
         private readonly enterprise: WorkspaceEnterpriseService,
         private readonly sources: ProfileSourcesService,
         private readonly apiTokens: ConnectionApiTokenService,
+        private readonly door: AccountConnectService,
         @Optional() private readonly triggers?: ProviderTriggerStatesService,
         @Optional() private readonly owners?: OwnersService,
     ) {}
@@ -224,7 +234,7 @@ export class SetSeedService {
     async apply(input: SeedApply): Promise<SeedOutcome> {
         const { profile } = input
         const plan = expandSetProfile(profile)
-        const tally: SeedTally = { created: 0, updated: 0, byPerson: 0, gone: 0 }
+        const tally: SeedTally = { created: 0, updated: 0, byPerson: 0, gone: 0, accounts: [] }
         this.checkInstalled(profile)
         profile.documents.forEach((document, index) => (input.texts[document.path] === undefined ? refused(`documents.${String(index)}.path`) : undefined))
         this.printPlan(profile, plan)
@@ -233,8 +243,9 @@ export class SetSeedService {
         const found = await this.ownerIdFor(named, profile, input.ownerEmail ?? null, !input.dry)
         if (found === null) {
             this.printSecrets(profile, input.sealed)
+            this.planConnects(profile, input)
             this.options.print(`${profile.name}: owner account would be created; workspace "${profile.workspaceName}" would be created; dry run: nothing written`)
-            return { changed: false, workspaceId: null, tally: { created: 0, updated: 0, byPerson: 0, gone: 0 } }
+            return { changed: false, workspaceId: null, tally: { created: 0, updated: 0, byPerson: 0, gone: 0, accounts: [] } }
         }
         const ownerId = found
         const held = await this.ownedLive(named, profile.workspaceName, ownerId)
@@ -245,7 +256,7 @@ export class SetSeedService {
             if (existing !== undefined) {
                 await this.openAccounts(profile, existing, ownerId, input, tally, false)
                 await this.writeTruths(profile, plan.facts, existing, input.reseed, tally, false)
-            }
+            } else this.planConnects(profile, input)
             this.options.print(
                 `${profile.name}: workspace "${profile.workspaceName}" ${existing === undefined ? "would be created" : "exists"}; ${tallyLineOf(tally, "would ")}; dry run: nothing written`,
             )
@@ -313,10 +324,19 @@ export class SetSeedService {
      * The door steps of a document in a place, resolved for its workspace: the time zone and each node setting of THAT place
      * (`places.<place>.nodeSettings`, else the document's), its accounts as connection ids in try order.
      */
-    async doorStepsOf(profile: SetProfile, place: EnterpriseSeedPlace, workspaceId: string): Promise<{ readonly timeZone: string | null; readonly nodes: ReadonlyArray<SeedNodeDoor> }> {
+    async doorStepsOf(
+        profile: SetProfile,
+        place: EnterpriseSeedPlace,
+        workspaceId: string,
+    ): Promise<{ readonly timeZone: string | null; readonly nodes: ReadonlyArray<SeedNodeDoor>; readonly switches: ReadonlyArray<SeedSwitchDoor & { readonly account: string }> }> {
         const held = await this.connections.list(workspaceId)
         return {
             timeZone: profile.timeZone,
+            // A switch of an account the workspace does not hold (a live account not created: its secret not set) is not sent.
+            switches: switchesOf(profile, place).flatMap((one) => {
+                const connectionId = this.accountIdOf(profile, one.account, workspaceId, held)
+                return held.some((account) => account.id === connectionId) ? [{ account: one.account, connectionId, trigger: one.trigger, enabled: one.enabled }] : []
+            }),
             nodes: nodeSettingsOf(profile, place).map((setting) => ({
                 module: setting.module,
                 workflow: setting.workflow,
@@ -339,6 +359,13 @@ export class SetSeedService {
             this.options.print(
                 `${profile.name}: node ${setting.workflow}/${setting.node} in ${place}: ${setting.mode === null ? "" : `mode ${setting.mode}, `}accounts ${setting.accounts === null ? "left as the template picks" : `[${accounts.join(", ")}]`}`,
             )
+        }
+    }
+
+    /** One line per trigger switch of a place, for a dry run: the account by key and the state it would be turned to. */
+    printSwitchPlan(profile: SetProfile, place: EnterpriseSeedPlace): void {
+        for (const one of switchesOf(profile, place)) {
+            this.options.print(`${profile.name}: switch ${one.account}/${one.trigger} in ${place}: would be ${one.enabled ? "on" : "off"} (from now; left as it is when already so, or when it has fired and the run is a re-seed)`)
         }
     }
 
@@ -464,18 +491,21 @@ export class SetSeedService {
                     `${profile.name}: live account ${account.key} (${account.provider}) not created: ${secrets.stop} (${secrets.member})` +
                         (twin === undefined ? "" : `; sandbox twin ${twin.key} in use`),
                 )
+                this.noteConnect(profile, tally, account, id, { outcome: "skipped", code: secrets.stop })
                 return
             }
             if (found === undefined) {
                 tally.created += 1
-                if (!write) return
-                if (secrets === null) await this.connections.create({ ...base, id, sandbox: true })
-                else {
-                    await this.connections.create({ ...base, id, secret: seededSecretOf(account.provider, secrets.credential, secrets.webhookSecret, randomSecret) })
-                    if (secrets.apiToken !== undefined) await this.apiTokens.write(id, secrets.apiToken)
+                if (write) {
+                    if (secrets === null) await this.connections.create({ ...base, id, sandbox: true })
+                    else {
+                        await this.connections.create({ ...base, id, secret: seededSecretOf(account.provider, secrets.credential, secrets.webhookSecret, randomSecret) })
+                        if (secrets.apiToken !== undefined) await this.apiTokens.write(id, secrets.apiToken)
+                    }
+                    this.options.print(`${profile.name}: ${secrets === null ? "sandbox account" : "live account"} ${account.key} (${account.provider}) ${id} ${secrets === null ? "opened" : "created, credential sealed by the app"}`)
+                    changed = true
                 }
-                this.options.print(`${profile.name}: ${secrets === null ? "sandbox account" : "live account"} ${account.key} (${account.provider}) ${id} ${secrets === null ? "opened" : "created, credential sealed by the app"}`)
-                changed = true
+                if (secrets !== null) await this.connectLive(profile, tally, account, workspaceId, id, null, { force: true, dry: !write })
                 return
             }
             if (found.name !== account.name || !sameFacts(found.meta, meta)) {
@@ -487,30 +517,96 @@ export class SetSeedService {
                 }
             }
             if (secrets === null) return
-            const stored = await this.connections.readSecret(id)
-            const token = secrets.apiToken === undefined ? undefined : await this.apiTokens.read(id)
-            if (stored?.plain === secrets.credential && (secrets.apiToken === undefined || token === secrets.apiToken)) return
-            const rotated = input.reseed !== null && stored?.sealedAt !== undefined && stored.sealedAt > input.reseed.since
-            if (rotated && input.reseed?.kinds.has("credentials") !== true) {
-                tally.byPerson += 1
-                this.options.print(`${profile.name}: live account ${account.key} (${account.provider}) ${id}: credential changed by a person after the seed: kept`)
-                return
-            }
-            tally.updated += 1
-            if (!write) return
-            if (stored?.plain !== secrets.credential) {
-                const sealed = seededSecretOf(account.provider, secrets.credential, secrets.webhookSecret, randomSecret)
-                await this.connections.writeSecret(id, sealed.plain, account.provider === "sepay" ? sealed.webhookSecret : secrets.webhookSecret)
-            }
-            if (secrets.apiToken !== undefined && token !== secrets.apiToken) await this.apiTokens.write(id, secrets.apiToken)
-            this.options.print(`${profile.name}: live account ${account.key} (${account.provider}) ${id} credential rewritten`)
-            changed = true
+            const rewritten = await this.rewriteCredential(profile, tally, account, secrets, id, input, write)
+            changed = (write && rewritten) || changed
+            // A forced re-seed, or a credential written now, registers again (in place); otherwise a connected account is left as it is.
+            await this.connectLive(profile, tally, account, workspaceId, id, found, { force: rewritten || input.reseed !== null, dry: !write })
         })
         const gone = held.filter((one) => !ids.has(one.id))
         tally.gone += gone.length
         for (const one of gone) this.options.print(`${profile.name}: account ${one.id} (${one.provider}) is no longer in the standard: kept (removal is a person's act)`)
         if (stopped.length > 0) this.options.print(`${profile.name}: ${String(stopped.length)} live accounts not created (credentials not set): ${stopped.join(", ")}`)
         return changed
+    }
+
+    /**
+     * Rewrites a live account's credential IN PLACE when the sealed value differs from the stored one (unless a person sealed another after the
+     * last seed and the force does not name `credentials`). Answers whether it was (or, with `write` off, would be) rewritten.
+     */
+    private async rewriteCredential(
+        profile: SetProfile,
+        tally: SeedTally,
+        account: SetAccount,
+        secrets: Extract<SecretsOf, { readonly ok: true }>,
+        id: string,
+        input: SeedApply,
+        write: boolean,
+    ): Promise<boolean> {
+        const stored = await this.connections.readSecret(id)
+        const token = secrets.apiToken === undefined ? undefined : await this.apiTokens.read(id)
+        if (stored?.plain === secrets.credential && (secrets.apiToken === undefined || token === secrets.apiToken)) return false
+        const rotated = input.reseed !== null && stored?.sealedAt !== undefined && stored.sealedAt > input.reseed.since
+        if (rotated && input.reseed?.kinds.has("credentials") !== true) {
+            tally.byPerson += 1
+            this.options.print(`${profile.name}: live account ${account.key} (${account.provider}) ${id}: credential changed by a person after the seed: kept`)
+            return false
+        }
+        tally.updated += 1
+        if (!write) {
+            this.options.print(`${profile.name}: live account ${account.key} (${account.provider}) ${id}: credential would be rewritten`)
+            return true
+        }
+        if (stored?.plain !== secrets.credential) {
+            const sealed = seededSecretOf(account.provider, secrets.credential, secrets.webhookSecret, randomSecret)
+            await this.connections.writeSecret(id, sealed.plain, account.provider === "sepay" ? sealed.webhookSecret : secrets.webhookSecret)
+        }
+        if (secrets.apiToken !== undefined && token !== secrets.apiToken) await this.apiTokens.write(id, secrets.apiToken)
+        this.options.print(`${profile.name}: live account ${account.key} (${account.provider}) ${id} credential rewritten`)
+        return true
+    }
+
+    /**
+     * Makes a stored (or, dry, about to be stored) live account USABLE through the ONE door (`AccountConnectService`): the step its provider
+     * declares (verify the credential, register what the vendor calls, store the public facts the engine finds the account by), the same step
+     * the console's wizard runs; the seed names no provider. An account a person must still consent to (`pending`) is not asked: its consent
+     * is its connect step. The outcome is printed and kept in the receipt's tally.
+     */
+    private async connectLive(
+        profile: SetProfile,
+        tally: SeedTally,
+        account: SetAccount,
+        workspaceId: string,
+        id: string,
+        found: ConnectionRecord | null,
+        request: { readonly force: boolean; readonly dry: boolean },
+    ): Promise<void> {
+        if (account.pending) {
+            this.noteConnect(profile, tally, account, id, { outcome: "pending_consent", code: null })
+            return
+        }
+        if (!isProvider(account.provider)) return
+        let outcome: ConnectOutcome
+        if (request.dry) outcome = found === null ? this.door.planNew(account.provider) : await this.door.connectAccount(found, request)
+        else outcome = await this.door.connect(workspaceId, id, request)
+        this.noteConnect(profile, tally, account, id, outcomeRowOf(outcome))
+    }
+
+    /** A dry run of a workspace not made yet: what the one door would do for each live account it would create (no vendor call, nothing read). */
+    private planConnects(profile: SetProfile, input: SeedApply): void {
+        const tally: SeedTally = { created: 0, updated: 0, byPerson: 0, gone: 0, accounts: [] }
+        for (const account of profile.accounts.filter((one) => !one.sandbox)) {
+            const id = account.connectionId ?? connectionIdOf(`standard:${profile.name}`, account.key)
+            const secrets = secretsOf(account, input.sealed)
+            if (!secrets.ok) this.noteConnect(profile, tally, account, id, { outcome: "skipped", code: secrets.stop })
+            else if (account.pending) this.noteConnect(profile, tally, account, id, { outcome: "pending_consent", code: null })
+            else if (isProvider(account.provider)) this.noteConnect(profile, tally, account, id, outcomeRowOf(this.door.planNew(account.provider)))
+        }
+    }
+
+    /** Records and prints one live account's connect outcome (names, ids and typed codes only). */
+    private noteConnect(profile: SetProfile, tally: SeedTally, account: SetAccount, id: string, row: Pick<SeedAccountOutcome, "outcome" | "code">): void {
+        tally.accounts.push({ account: account.key, provider: account.provider, connectionId: id, ...row })
+        this.options.print(`${profile.name}: connect ${account.key} (${account.provider}) ${id}: ${row.outcome}${row.code === null ? "" : ` ${row.code}`}`)
     }
 
     /** Installs the agents with their primary graphs, attached BY KIND to the workspace's accounts (live first; sandbox on the local stack only). */

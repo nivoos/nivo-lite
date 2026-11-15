@@ -76,4 +76,17 @@ export interface SeedNodeDoor {
 export interface SeedDoorsPort {
     setTimeZone(workspaceId: string, ownerId: string, timeZone: string): Promise<void>
     setNodeSettings(workspaceId: string, ownerId: string, step: SeedNodeDoor): Promise<void>
+    /**
+     * Turns one trigger switch of an account to the declared state through the one switch door (from now: no catch-up). Answers `set`
+     * when it changed it, `kept` when it already was so, and `used` when it differs but the trigger has fired and `overwriteUsed` is off
+     * (a switch in use is a person's world: a re-seed leaves it).
+     */
+    setSwitch(workspaceId: string, ownerId: string, step: SeedSwitchDoor, overwriteUsed: boolean): Promise<"set" | "kept" | "used">
+}
+
+/** One trigger switch as a door step sends it: the account by connection id, the trigger's name and the declared state. */
+export interface SeedSwitchDoor {
+    readonly connectionId: string
+    readonly trigger: string
+    readonly enabled: boolean
 }

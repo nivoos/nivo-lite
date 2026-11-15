@@ -24,6 +24,7 @@ import {
     type SetPull,
     type SetSay,
     type SetSecretMember,
+    type SetSwitch,
     type SetTarget,
 } from "./set-seed.contracts"
 
@@ -234,6 +235,18 @@ const nodeSettingOf = (raw: unknown, field: string): SetNodeSetting => {
     }
 }
 
+/** A provider trigger's name on an account (`transaction.received`): the switch door judges it against the account's declarations. */
+const TRIGGER_NAME = /^[a-z][a-z0-9_.-]{0,79}$/u
+
+/** One trigger switch: the account's key, the trigger's name and the state it is turned to (a boolean, never implied). */
+const switchOf = (raw: unknown, field: string): SetSwitch => {
+    if (!isRecord(raw)) return invalid(field)
+    const trigger = text(raw.trigger, `${field}.trigger`, 80)
+    if (!TRIGGER_NAME.test(trigger)) invalid(`${field}.trigger`)
+    if (typeof raw.enabled !== "boolean") invalid(`${field}.enabled`)
+    return { account: text(raw.account, `${field}.account`, 40), trigger, enabled: raw.enabled === true }
+}
+
 /** One agent: its module, and the template + version its graph is (both or neither; a workspace seed needs both). */
 const agentOf = (raw: unknown, field: string): SetAgent => {
     if (!isRecord(raw)) return invalid(field)
@@ -322,12 +335,25 @@ const profileOf = (raw: Raw, origin: SeedOrigin | null): SetProfile => {
         if ((setting.accounts ?? []).some((key) => !keys.includes(key))) invalid("nodeSettings.accounts")
         if (!agents.some((agent) => agent.module === setting.module)) invalid("nodeSettings.module")
     }
-    const places = placesOf(raw.places, isSeed, (settings, field) => {
-        for (const setting of settings) {
-            if ((setting.accounts ?? []).some((key) => !keys.includes(key))) invalid(`${field}.accounts`)
-            if (!agents.some((agent) => agent.module === setting.module)) invalid(`${field}.module`)
-        }
-    })
+    if (!isSeed) absentIn(raw, "switches")
+    const judgeSwitches = (switches: ReadonlyArray<SetSwitch>, field: string): void => {
+        if (switches.some((one) => !keys.includes(one.account))) invalid(`${field}.account`)
+        const pairs = switches.map((one) => `${one.account}\n${one.trigger}`)
+        if (new Set(pairs).size !== pairs.length) invalid(`${field}.trigger`)
+    }
+    const switches = list(raw.switches ?? [], "switches").map((item, index) => switchOf(item, `switches.${String(index)}`))
+    judgeSwitches(switches, "switches")
+    const places = placesOf(
+        raw.places,
+        isSeed,
+        (settings, field) => {
+            for (const setting of settings) {
+                if ((setting.accounts ?? []).some((key) => !keys.includes(key))) invalid(`${field}.accounts`)
+                if (!agents.some((agent) => agent.module === setting.module)) invalid(`${field}.module`)
+            }
+        },
+        judgeSwitches,
+    )
     const pulls = list(raw.pulls ?? [], "pulls").map((item, index) => pullOf(item, `pulls.${String(index)}`))
     if (pulls.some((pull) => !keys.includes(pull.account))) invalid("pulls.account")
     const documents = list(raw.documents ?? [], "documents").map((item, index) => documentOf(item, `documents.${String(index)}`))
@@ -353,15 +379,17 @@ const profileOf = (raw: Raw, origin: SeedOrigin | null): SetProfile => {
         crowd: raw.crowd ?? null,
         nodeSettings,
         places,
+        switches,
         pulls,
     }
 }
 
-/** The per-place blocks of a workspace seed (`places.<local|prod>.nodeSettings`); a test set has none. */
+/** The per-place blocks of a workspace seed (`places.<local|prod>.nodeSettings | switches`); a test set has none. */
 const placesOf = (
     value: unknown,
     isSeed: boolean,
     judge: (settings: ReadonlyArray<SetNodeSetting>, field: string) => void,
+    judgeSwitches: (switches: ReadonlyArray<SetSwitch>, field: string) => void,
 ): SetProfile["places"] => {
     if (value === undefined) return {}
     if (!isSeed || !isRecord(value)) return invalid("places")
@@ -373,7 +401,11 @@ const placesOf = (
         const settings =
             block.nodeSettings === undefined ? null : list(block.nodeSettings, field).map((item, index) => nodeSettingOf(item, `${field}.${String(index)}`))
         if (settings !== null) judge(settings, field)
-        out[place as SetPlace] = { nodeSettings: settings }
+        const switchField = `places.${place}.switches`
+        const switches =
+            block.switches === undefined ? null : list(block.switches, switchField).map((item, index) => switchOf(item, `${switchField}.${String(index)}`))
+        if (switches !== null) judgeSwitches(switches, switchField)
+        out[place as SetPlace] = { nodeSettings: settings, switches }
     }
     return out
 }
@@ -381,6 +413,9 @@ const placesOf = (
 /** The node settings a document holds in a place: the place's own block when it names them, else the document's. */
 export const nodeSettingsOf = (profile: SetProfile, place: SetPlace): ReadonlyArray<SetNodeSetting> =>
     profile.places[place]?.nodeSettings ?? profile.nodeSettings
+
+/** The trigger switches a document declares in a place: the place's own block when it names them, else the document's. */
+export const switchesOf = (profile: SetProfile, place: SetPlace): ReadonlyArray<SetSwitch> => profile.places[place]?.switches ?? profile.switches
 
 /** The TEST set an envelope of the stack seed step carries on stdin (one document, no origin); anything else is refused by the field's name. */
 export const readSetProfile = (input: string): SetProfile => {

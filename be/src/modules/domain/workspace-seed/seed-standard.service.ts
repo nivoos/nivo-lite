@@ -90,6 +90,7 @@ export class SeedStandardService {
             if (dry) {
                 if (pinned.profile.timeZone !== null) this.options.print(`${ref.name}: would set the time zone ${pinned.profile.timeZone}`)
                 if (nodeSettings) this.applier.printNodePlan(pinned.profile, place)
+                this.applier.printSwitchPlan(pinned.profile, place)
                 return
             }
             if (outcome.workspaceId === null) return
@@ -101,7 +102,7 @@ export class SeedStandardService {
                 forcedCommit: reseed === null ? (receipt?.forcedCommit ?? null) : ref.commit,
                 tally: outcome.tally,
             })
-            const doors = await this.sendDoors(ref.name, pinned.profile, place, outcome.workspaceId, nodeSettings)
+            const doors = await this.sendDoors(ref.name, pinned.profile, place, outcome.workspaceId, nodeSettings, reseed === null)
             const recorded = await this.receipts.recordDoors(ref.name, environment, doors)
             this.options.print(`${ref.name}: ${recorded ? doorsLineOf(doors) : "no receipt in this environment: door outcomes not recorded"}`)
             changed = true
@@ -155,6 +156,7 @@ export class SeedStandardService {
         place: ReturnType<typeof placeOf>,
         workspaceId: string,
         nodeSettings: boolean,
+        firstSeed: boolean,
     ): Promise<ReadonlyArray<SeedDoorOutcome>> {
         const doors: Array<SeedDoorOutcome> = []
         const ownerId = await this.applier.ownerOfWorkspace(workspaceId)
@@ -177,6 +179,14 @@ export class SeedStandardService {
         if (nodeSettings) {
             await eachInOrder(steps.nodes, (node) => send(`node ${node.workflow}/${node.node}`, (port, owner) => port.setNodeSettings(workspaceId, owner, node)))
         }
+        // The trigger switches the standard declares in this place (triggers rule 6: the standard is the owner's declaration), every run: a
+        // switch already as declared is kept; one that has fired is left on a re-seed (a switch in use is the person's).
+        await eachInOrder(steps.switches, (one) =>
+            send(`switch ${one.account}/${one.trigger}`, async (port, owner) => {
+                const done = await port.setSwitch(workspaceId, owner, one, firstSeed)
+                this.options.print(`${name}: switch ${one.account}/${one.trigger} ${one.enabled ? "on" : "off"}: ${done}`)
+            }),
+        )
         return doors
     }
 

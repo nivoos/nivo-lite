@@ -1,6 +1,7 @@
 import { Module, type DynamicModule } from "@nestjs/common"
 import { ChannelSeedService } from "./channel-seed.service"
 import { ChannelConnectionsService } from "./channel-connections.service"
+import { ChannelConnectStepsService } from "./channel-connect-steps.service"
 import { MoneyConnectionFieldsService } from "./money-connection-fields.service"
 import { SepayConnectionService } from "./sepay-connection.service"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./channel-connections.module-definition"
@@ -16,6 +17,7 @@ export class ChannelConnectionsModule extends ConfigurableModuleClass {
             providers: [
                 ...(base.providers ?? []),
                 ChannelConnectionsService,
+                ChannelConnectStepsService,
                 ChannelSeedService,
                 SepayConnectionService,
                 MoneyConnectionFieldsService,

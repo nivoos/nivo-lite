@@ -144,6 +144,8 @@ export type SetPlace = "local" | "prod"
 export interface SetPlaceBlock {
     /** The node settings in that place, or null to keep the document's. */
     readonly nodeSettings: ReadonlyArray<SetNodeSetting> | null
+    /** The trigger switches in that place, or null to keep the document's. */
+    readonly switches: ReadonlyArray<SetSwitch> | null
 }
 
 /** The two uses of the one seed schema; the rule that separates them is stated on `SetProfile`. */
@@ -237,6 +239,12 @@ export interface SetProfile {
      * production block may name the live accounts while the local stack keeps sandbox ones. A place with no block uses `nodeSettings`.
      */
     readonly places: Readonly<Partial<Record<SetPlace, SetPlaceBlock>>>
+    /**
+     * The trigger switches of accounts the standard declares (every place, unless the place's block names its own): door steps sent as the
+     * owner through the one switch door (triggers rule 6: a provider trigger is off per account until the owner switches it on; the standard
+     * IS the owner's declaration of which are on where). A workspace seed only.
+     */
+    readonly switches: ReadonlyArray<SetSwitch>
     /** The cases an account's poll reads, in order (a test set only: the people of a mailbox come by its poll, never by a webhook). */
     readonly pulls: ReadonlyArray<SetPull>
 }
@@ -278,6 +286,39 @@ export interface SetPlan {
 
 /** Why one live account of a workspace seed was not written: its secret member is absent, empty, or the sealed file could not be opened. */
 export type AccountStop = "secret_missing" | "secret_empty" | "sealed_unreadable"
+
+/**
+ * What the seed did to make ONE live account usable (recorded in the receipt's tally as `accounts`): the outcome of the provider's connect
+ * step through the one door (`connected`, `already_connected`, `connect_refused` + code, `would_connect` on a dry run, `local_only`,
+ * `no_connect_step`), or why the step was not asked: `skipped` + the stop (`secret_empty` …) or `pending_consent` (a person's consent
+ * completes it, e.g. an OAuth account). Never a value.
+ */
+export interface SeedAccountOutcome {
+    readonly account: string
+    readonly provider: string
+    readonly connectionId: string
+    readonly outcome:
+        | "connected"
+        | "already_connected"
+        | "connect_refused"
+        | "would_connect"
+        | "local_only"
+        | "no_connect_step"
+        | "skipped"
+        | "pending_consent"
+    /** The typed refusal code, the stop of a skipped account, or null. */
+    readonly code: string | null
+}
+
+/**
+ * One trigger SWITCH of an account the standard declares in a place (a door step, through the one switch door as the owner): the account's
+ * key, the provider trigger's name on that account (`transaction.received`) and the state it is turned to.
+ */
+export interface SetSwitch {
+    readonly account: string
+    readonly trigger: string
+    readonly enabled: boolean
+}
 
 /** The secret values a run holds IN MEMORY for the live accounts: by account key, by member; or why the sealed file gave none. */
 export type SealedValues =

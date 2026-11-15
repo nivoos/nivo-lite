@@ -12,6 +12,7 @@ export { SEED_DOORS, SEED_STANDARD_DRIVER, SEED_STANDARD_TARGETS } from "./works
 export type {
     SeedDoorsPort,
     SeedNodeDoor,
+    SeedSwitchDoor,
     SeedStandardCheckout,
     SeedStandardDriver,
     SeedStandardRef,

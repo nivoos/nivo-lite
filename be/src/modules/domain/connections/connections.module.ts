@@ -8,6 +8,7 @@ import { ConnectionsAdminReadService } from "./connections-admin-read.service"
 import { CONNECTION_AGENTS } from "./connections.decorators"
 import { ConnectionBindingsReadService } from "./connection-bindings-read.service"
 import { ConnectionSecretReadsService } from "./connection-secret-reads.service"
+import { AccountConnectService } from "./account-connect.service"
 
 @Module({})
 /** The connections capability over the primary PostgreSQL connection. */
@@ -39,12 +40,14 @@ export class ConnectionsModule extends ConfigurableModuleClass {
                     : { provide: CONNECTION_AGENTS, useExisting: ports.agents },
                 ConnectionsService,
                 ConnectionsUpkeepService,
+                AccountConnectService,
             ],
             exports: [
                 ConnectionsAdminReadService,
                 ConnectionSecretReadsService,
                 ConnectionBindingsReadService,
                 ConnectionsService,
+                AccountConnectService,
             ],
         }
     }
