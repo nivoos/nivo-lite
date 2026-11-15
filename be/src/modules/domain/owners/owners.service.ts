@@ -57,6 +57,12 @@ export class OwnersService {
         this.options.print("owner password updated")
     }
 
+    /** The id of the account of an address, or null when it has none (reads only). */
+    async findAccount(email: string): Promise<string | null> {
+        const [existing] = await callDbFunction<AccountRow>(this.entityManager, "public.be_auth_user_by_email", [normalizeEmail(email)])
+        return existing?.id ?? null
+    }
+
     /**
      * The id of the account that has the address. A missing one is made confirmed, with a password nobody knows, so the person it
      * belongs to opens it by resetting the password or by `create-owner run`; an existing one is left as it is.

@@ -1,20 +1,17 @@
 schema: starci/seeds@1
 entries:
-  - id: nivo-workspace
-    kind: test-account
-    path: data/nivo-workspace.json
-    target: [node, be/dist/apps/cli/src/main.js, seed-management]
-    mode: once
-    schema: be/src/modules/domain/channel-provisioning/management-seed.schema.json
-    reason: The NIVO management workspace is the product's own account on its own platform; its owner address and its provider connections (mail, Telegram, Zalo OA, SePay, payOS, Google) are the ones NIVO itself runs on, sealed in seeds-nivo-workspace.
-  # The enterprise workspaces, FOUNDATION only (the workspace, its string identifier, its owner): one document per enterprise under
-  # data/enterprises/, nivo-web first. Each document's `target` (off | local | prod | both; this level is prod) is read on every
-  # run, and a change of it changes the content hash, so `upsert` reruns the command; off seeds nothing. Usage data (the CRM import of
-  # customer files, conversations, runs, documents) is never seeded. Taking an enterprise off the local stack is `seed-enterprise remove`, by hand.
-  - id: enterprises
+  # The SEED STANDARDS (owner R98, R101-R106; PROD-WIRE 2026-11-15): one `<name>-seed-standard` repository = ONE complete workspace, pinned by a
+  # PUSHED commit, applied ONCE through the app's own doors (`seed-standard apply`: its receipt in public.workspace_seed_receipts skips it whole
+  # on every later run; a new pin is only reported; `force: true` re-seeds once per pinned commit, keeping relations). They replace the old
+  # management seed (`nivo-workspace`) and the enterprise seed of production: the NIVO Web standard sets the enterprise identifier itself.
+  # The workspaces' owner is the address of `owner` (the sealed member seeds-nivo-workspace, key WORKSPACE_OWNER_EMAIL): found or made through
+  # the owners door (no usable password; he signs in with Google, which links by the verified address).
+  # Production runs it by the ONE-SHOT route `node scripts/seed-standards-oneshot.mjs --env production --execute` (the standard materialised on the
+  # operator's machine by @starci/seed/git with the production identity, handed on stdin to this command in the running nivo-api task): the api
+  # image holds no git, sops or identity, so the command run by a deploy's seed step only finds each receipt and answers `unchanged`.
+  - id: seed-standards
     kind: data
-    path: data/enterprises
-    target: [node, be/dist/apps/cli/src/main.js, seed-enterprise, run, --env, production]
-    mode: upsert
-    after: [nivo-workspace]
-    schema: be/src/modules/domain/channel-provisioning/enterprise-seed.schema.json
+    path: data/seed-standards
+    target: [node, be/dist/apps/cli/src/main.js, seed-standard, apply, --env, production]
+    mode: always
+    schema: be/src/modules/domain/workspace-seed/seed-standard.schema.json

@@ -15,6 +15,8 @@ import {
     type SetFactSource,
     type SetNodeSetting,
     type SetPerson,
+    type SetPlace,
+    type SetPlaceBlock,
     type SetPlan,
     type SetPlugin,
     type SetPolicyMark,
@@ -320,6 +322,12 @@ const profileOf = (raw: Raw, origin: SeedOrigin | null): SetProfile => {
         if ((setting.accounts ?? []).some((key) => !keys.includes(key))) invalid("nodeSettings.accounts")
         if (!agents.some((agent) => agent.module === setting.module)) invalid("nodeSettings.module")
     }
+    const places = placesOf(raw.places, isSeed, (settings, field) => {
+        for (const setting of settings) {
+            if ((setting.accounts ?? []).some((key) => !keys.includes(key))) invalid(`${field}.accounts`)
+            if (!agents.some((agent) => agent.module === setting.module)) invalid(`${field}.module`)
+        }
+    })
     const pulls = list(raw.pulls ?? [], "pulls").map((item, index) => pullOf(item, `pulls.${String(index)}`))
     if (pulls.some((pull) => !keys.includes(pull.account))) invalid("pulls.account")
     const documents = list(raw.documents ?? [], "documents").map((item, index) => documentOf(item, `documents.${String(index)}`))
@@ -344,9 +352,35 @@ const profileOf = (raw: Raw, origin: SeedOrigin | null): SetProfile => {
         people,
         crowd: raw.crowd ?? null,
         nodeSettings,
+        places,
         pulls,
     }
 }
+
+/** The per-place blocks of a workspace seed (`places.<local|prod>.nodeSettings`); a test set has none. */
+const placesOf = (
+    value: unknown,
+    isSeed: boolean,
+    judge: (settings: ReadonlyArray<SetNodeSetting>, field: string) => void,
+): SetProfile["places"] => {
+    if (value === undefined) return {}
+    if (!isSeed || !isRecord(value)) return invalid("places")
+    const out: Partial<Record<SetPlace, SetPlaceBlock>> = {}
+    for (const [place, block] of Object.entries(value)) {
+        if (place !== "local" && place !== "prod") invalid("places")
+        if (!isRecord(block)) return invalid(`places.${place}`)
+        const field = `places.${place}.nodeSettings`
+        const settings =
+            block.nodeSettings === undefined ? null : list(block.nodeSettings, field).map((item, index) => nodeSettingOf(item, `${field}.${String(index)}`))
+        if (settings !== null) judge(settings, field)
+        out[place as SetPlace] = { nodeSettings: settings }
+    }
+    return out
+}
+
+/** The node settings a document holds in a place: the place's own block when it names them, else the document's. */
+export const nodeSettingsOf = (profile: SetProfile, place: SetPlace): ReadonlyArray<SetNodeSetting> =>
+    profile.places[place]?.nodeSettings ?? profile.nodeSettings
 
 /** The TEST set an envelope of the stack seed step carries on stdin (one document, no origin); anything else is refused by the field's name. */
 export const readSetProfile = (input: string): SetProfile => {

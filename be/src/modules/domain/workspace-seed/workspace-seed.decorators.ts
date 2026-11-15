@@ -26,3 +26,6 @@ export const SEED_STANDARD_DRIVER: unique symbol = Symbol("domain.workspace-seed
 
 /** Token of the export targets the same driver writes a `-seed` repo checkout through. */
 export const SEED_STANDARD_TARGETS: unique symbol = Symbol("domain.workspace-seed.standard-targets")
+
+/** Token of the seed's DOOR STEPS (the time zone, the node settings), bound by the composition root to the app's own doors. */
+export const SEED_DOORS: unique symbol = Symbol("domain.workspace-seed.doors")

@@ -111,4 +111,9 @@ export interface WorkspaceSeedOptions {
     readonly nodes?: NodeInstall | undefined
     /** Writes the closed public receipt, never credentials. */
     readonly print: (line: string) => void
+    /**
+     * The deployment's provider sandbox switch (`PROVIDER_SANDBOX_ENABLED`): where it is on, a standard's sandbox accounts are usable and
+     * attached in production too (the cli's own sandbox frame stays off: the seed answers no sandbox call).
+     */
+    readonly sandboxOn?: boolean | undefined
 }

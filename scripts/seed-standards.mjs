@@ -55,6 +55,16 @@ const installed = {
     },
 }
 
+/**
+ * Whether the stack turns the provider sandbox on in the environment of a place (`PROVIDER_SANDBOX_ENABLED: "true"` in the api env of
+ * `application-stacks.yaml`): where it is on, a standard's sandbox accounts are usable there (the seed reads the same switch).
+ */
+const sandboxOnIn = (place) => {
+    const stacks = YAML.parse(fs.readFileSync(path.join(".starcistacks", "application-stacks.yaml"), "utf8")) ?? {}
+    const env = place === "local" ? "dev" : "production"
+    return JSON.stringify(stacks.environments?.[env] ?? {}).includes('"PROVIDER_SANDBOX_ENABLED":"true"')
+}
+
 const git = (repo, args) => spawnSync("git", ["-C", repo, ...args], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
 const showAt = (repo, commit, file) => {
     const result = git(repo, ["show", `${commit}:${file}`])
@@ -134,7 +144,7 @@ const judge = (name, repo, commit) => {
     }
     const places = profile.target === "both" ? ["local", "prod"] : [profile.target]
     for (const place of places) {
-        const missing = readiness.readinessOf(profile, installed, namesOf[place] ?? null, place)
+        const missing = readiness.readinessOf(profile, installed, namesOf[place] ?? null, place, sandboxOnIn(place))
         const line = readiness.readyLineOf(`${name} (${place}, ${sha.slice(0, 12)})`, missing)
         console.log(line)
         for (const note of readiness.sandboxTwinsOf(profile, namesOf[place] ?? null, place)) console.log(`${name} (${place}): ${note}`)

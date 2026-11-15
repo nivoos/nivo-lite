@@ -82,3 +82,22 @@ export const isZaloAppId = (value: string): boolean => ZALO_APP_ID.test(value)
 
 /** The trimmed text cut to `max` characters. */
 export const clean = (value: string, max: number): string => value.trim().slice(0, max)
+
+/**
+ * The secret a provider's credential is SEALED as when a seed (not the wizard) creates the account: the provider's own rule of how its
+ * webhook secret follows from the credential (SePay: the hash of its webhook API key, the one the feed proof compares; every other provider:
+ * the declared webhook secret, else a fresh one the app registers itself).
+ */
+export const seededSecretOf = (
+    provider: string,
+    plain: string,
+    webhookSecret: string | undefined,
+    fresh: () => string,
+): { readonly plain: string; readonly webhookSecret: string } =>
+    provider === "sepay" ? sepayFeedSecret(plain) : { plain, webhookSecret: webhookSecret ?? fresh() }
+
+/** The public facts a seeded money account opens with: the bank account's derived mask beside its number, as the wizard writes them. */
+export const seededFactsOf = (facts: Readonly<Record<string, string>>): Readonly<Record<string, string>> => {
+    const account = squeeze(facts.account_number ?? "")
+    return account === "" || facts.account_masked !== undefined ? facts : { ...facts, ...accountFacts(account) }
+}

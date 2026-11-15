@@ -8,8 +8,10 @@ export { parseWorkspaceSeedConfig } from "./workspace-seed.config"
 export { SetSeedService, type SetRunOptions } from "./set-seed.service"
 export { SeedStandardService } from "./seed-standard.service"
 export { SeedStandardExportService } from "./seed-standard-export.service"
-export { SEED_STANDARD_DRIVER, SEED_STANDARD_TARGETS } from "./workspace-seed.decorators"
+export { SEED_DOORS, SEED_STANDARD_DRIVER, SEED_STANDARD_TARGETS } from "./workspace-seed.decorators"
 export type {
+    SeedDoorsPort,
+    SeedNodeDoor,
     SeedStandardCheckout,
     SeedStandardDriver,
     SeedStandardRef,

@@ -3,13 +3,29 @@ import { placeOf, targetIncludes } from "@modules/domain/channel-provisioning"
 import { eachInOrder } from "@modules/platform/primitives"
 import { WorkspaceSeedError, WorkspaceSeedErrorCode } from "./errors/workspace-seed.error"
 import { SeedReceiptsService } from "./seed-receipts.service"
-import type { SeedStandardCheckout, SeedStandardDriver, SeedStandardRef } from "./seed-standard.port"
-import { SEED_DOCUMENT_PATH, doorsLineOf, readDoorOutcomes, readSeedStandardRefs, sealedPathOf, seedDecisionOf } from "./seed-standard.policy"
+import type { SeedDoorsPort, SeedStandardCheckout, SeedStandardDriver, SeedStandardRef } from "./seed-standard.port"
+import {
+    SEED_DOCUMENT_PATH,
+    doorsLineOf,
+    readDoorOutcomes,
+    readSeedStandardBundles,
+    readSeedStandardRefs,
+    sealedPathOf,
+    seedDecisionOf,
+    type SeedDoorOutcome,
+    type SeedStandardBundle,
+} from "./seed-standard.policy"
 import type { SetProfile } from "./set-seed.contracts"
 import { readSeedDocument } from "./set-seed.policy"
 import { SetSeedService } from "./set-seed.service"
-import { InjectWorkspaceSeedOptions, SEED_STANDARD_DRIVER } from "./workspace-seed.decorators"
+import { InjectWorkspaceSeedOptions, SEED_DOORS, SEED_STANDARD_DRIVER } from "./workspace-seed.decorators"
 import type { WorkspaceSeedOptions } from "./workspace-seed.options"
+
+/** The typed code of a door's refusal (a typed error's `code`), never its message's data. */
+const codeOf = (cause: unknown): string => {
+    const code = typeof cause === "object" && cause !== null && "code" in cause ? (cause as { code: unknown }).code : undefined
+    return typeof code === "string" && /^[A-Z][A-Z0-9_]{0,99}$/u.test(code) ? code : "DOOR_REFUSED"
+}
 
 /** The last line the stack seed step reads as "nothing changed". */
 const UNCHANGED = "unchanged"
@@ -35,11 +51,13 @@ export class SeedStandardService {
         private readonly applier: SetSeedService,
         private readonly receipts: SeedReceiptsService,
         @Optional() @Inject(SEED_STANDARD_DRIVER) private readonly driver?: SeedStandardDriver,
+        @Optional() @Inject(SEED_DOORS) private readonly doorSteps?: SeedDoorsPort,
     ) {}
 
     /** The bring-up's step: every declared standard in the environment (`dev` = local, `production` = prod); `dry` writes nothing and says what would happen. */
     async apply(input: string, environment: string, dry: boolean): Promise<void> {
         const place = placeOf(environment)
+        const bundles = readSeedStandardBundles(input)
         let changed = false
         await eachInOrder(readSeedStandardRefs(input), async (ref) => {
             const receipt = await this.receipts.find(ref.name, environment)
@@ -48,7 +66,7 @@ export class SeedStandardService {
                 this.options.print(`${ref.name}: ${decision.why}: nothing done`)
                 return
             }
-            const pinned = await this.pinned(ref)
+            const pinned = await this.pinned(ref, bundles.get(ref.name))
             if (!targetIncludes(pinned.profile.target, place)) {
                 this.options.print(`${ref.name}: target is ${pinned.profile.target}: nothing seeded on ${environment}`)
                 return
@@ -58,8 +76,23 @@ export class SeedStandardService {
             const texts = Object.fromEntries(
                 await Promise.all(pinned.profile.documents.map(async (document) => [document.path, (await pinned.checkout.readText(document.path)) ?? ""] as const)),
             )
-            const outcome = await this.applier.apply({ profile: pinned.profile, place, dry, bind: true, sealed: await pinned.checkout.sealedOf(sealedPathOf(place)), texts, reseed })
-            if (dry || outcome.workspaceId === null) return
+            const outcome = await this.applier.apply({
+                profile: pinned.profile,
+                place,
+                dry,
+                bind: true,
+                sealed: await pinned.checkout.sealedOf(sealedPathOf(place)),
+                texts,
+                reseed,
+                ownerEmail: ref.ownerEmail,
+            })
+            const nodeSettings = reseed === null || reseed.kinds.has("node-settings")
+            if (dry) {
+                if (pinned.profile.timeZone !== null) this.options.print(`${ref.name}: would set the time zone ${pinned.profile.timeZone}`)
+                if (nodeSettings) this.applier.printNodePlan(pinned.profile, place)
+                return
+            }
+            if (outcome.workspaceId === null) return
             await this.receipts.record({
                 name: ref.name,
                 environment,
@@ -68,6 +101,9 @@ export class SeedStandardService {
                 forcedCommit: reseed === null ? (receipt?.forcedCommit ?? null) : ref.commit,
                 tally: outcome.tally,
             })
+            const doors = await this.sendDoors(ref.name, pinned.profile, place, outcome.workspaceId, nodeSettings)
+            const recorded = await this.receipts.recordDoors(ref.name, environment, doors)
+            this.options.print(`${ref.name}: ${recorded ? doorsLineOf(doors) : "no receipt in this environment: door outcomes not recorded"}`)
             changed = true
         })
         if (!dry) this.options.print(changed ? "applied" : UNCHANGED)
@@ -108,10 +144,53 @@ export class SeedStandardService {
         })
     }
 
-    /** The standard at its pin, read through the driver; no driver bound is a typed refusal, never a fallback. */
-    private async pinned(ref: SeedStandardRef): Promise<Pinned> {
+    /**
+     * The DOOR STEPS of a seed, sent inside the seed itself through the app's own doors as the workspace's owner (`SEED_DOORS`): the time
+     * zone, then each node setting of the place (only on the first seed, or when the force names `node-settings`). Each outcome is done, or
+     * FAILED with the door's typed code (the rest goes on); no door bound fails every step with `SEED_DOORS_MISSING`.
+     */
+    private async sendDoors(
+        name: string,
+        profile: SetProfile,
+        place: ReturnType<typeof placeOf>,
+        workspaceId: string,
+        nodeSettings: boolean,
+    ): Promise<ReadonlyArray<SeedDoorOutcome>> {
+        const doors: Array<SeedDoorOutcome> = []
+        const ownerId = await this.applier.ownerOfWorkspace(workspaceId)
+        const steps = await this.applier.doorStepsOf(profile, place, workspaceId)
+        const send = async (step: string, act: (port: SeedDoorsPort, owner: string) => Promise<void>): Promise<void> => {
+            if (this.doorSteps === undefined || ownerId === null) doors.push({ step, outcome: "failed", code: "SEED_DOORS_MISSING" })
+            else {
+                try {
+                    await act(this.doorSteps, ownerId)
+                    doors.push({ step, outcome: "done", code: null })
+                } catch (cause) {
+                    doors.push({ step, outcome: "failed", code: codeOf(cause) })
+                }
+            }
+            const last = doors.at(-1)
+            this.options.print(`${name}: door ${step}: ${last?.outcome === "done" ? "done" : `FAILED ${String(last?.code)}`}`)
+        }
+        const zone = steps.timeZone
+        if (zone !== null) await send("settings timeZone", (port, owner) => port.setTimeZone(workspaceId, owner, zone))
+        if (nodeSettings) {
+            await eachInOrder(steps.nodes, (node) => send(`node ${node.workflow}/${node.node}`, (port, owner) => port.setNodeSettings(workspaceId, owner, node)))
+        }
+        return doors
+    }
+
+    /** The standard at its pin: the bundle the one-shot route materialised for it, else read through the driver; neither is a typed refusal. */
+    private async pinned(ref: SeedStandardRef, bundle?: SeedStandardBundle): Promise<Pinned> {
+        if (bundle !== undefined) {
+            if (bundle.commit !== ref.commit) throw new WorkspaceSeedError({ code: WorkspaceSeedErrorCode.PinUnverified, params: { name: ref.name } })
+            return this.read(ref, { readText: (path) => Promise.resolve(bundle.files[path] ?? null), sealedOf: () => Promise.resolve(bundle.sealed) })
+        }
         if (this.driver === undefined) throw new WorkspaceSeedError({ code: WorkspaceSeedErrorCode.DriverMissing, params: { name: ref.name } })
-        const checkout = await this.driver.checkout(ref)
+        return this.read(ref, await this.driver.checkout(ref))
+    }
+
+    private async read(ref: SeedStandardRef, checkout: SeedStandardCheckout): Promise<Pinned> {
         const text = await checkout.readText(SEED_DOCUMENT_PATH)
         if (text === null) throw new WorkspaceSeedError({ code: WorkspaceSeedErrorCode.InputInvalid, params: { field: SEED_DOCUMENT_PATH } })
         this.options.print(`${ref.name}: read at ${ref.commit}`)

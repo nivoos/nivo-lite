@@ -47,6 +47,7 @@ import { InboundEventsModule } from "@modules/domain/inbound-events"
 import { ClockModule } from "@modules/platform/clock"
 import { IdsModule } from "@modules/platform/ids"
 import { DatabaseModule } from "@modules/platform/database"
+import { SeedStandardDoorsModule } from "@modules/domain/seed-standard-doors"
 import { SeedStandardGitModule } from "@modules/domain/seed-standard-git"
 import { DataStoresModule } from "@modules/domain/data-stores"
 import { DataSeedModule } from "@modules/integrations/seed"
@@ -135,6 +136,8 @@ const cliModuleList = (options: CliAppOptions): Array<DynamicModule | Type> => [
     // The seed standard seam (the harness data standard's git layer): without it `seed-standard apply` stops with WORKSPACE_SEED_DRIVER_MISSING.
     DataSeedModule.register({ isGlobal: true, ...options.seed }),
     SeedStandardGitModule.register({ isGlobal: true }),
+    // The seed's door steps (time zone, node settings) through the app's own doors, as the workspace's owner, inside the seed itself.
+    SeedStandardDoorsModule.register({ isGlobal: true }),
     // The stores of the data standard, served to the harness's data sync by `cli data-store <id>`.
     DataStoresModule.register({ isGlobal: true, console: { lines: readConsoleLines, print: printConsoleLine, exit: setConsoleExitCode } }),
     ...entityEngineStoreModules(options),

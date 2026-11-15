@@ -10,11 +10,13 @@ import {
     type FactInput,
     type FactRecord,
 } from "@modules/domain/brain-facts"
+import { seededFactsOf, seededSecretOf } from "@modules/domain/channel-connections"
 import type { EnterpriseSeedPlace } from "@modules/domain/channel-provisioning"
 import { ConnectionApiTokenService, randomSecret } from "@modules/domain/connection-secrets"
 import { ConnectionsService, isProvider, type ConnectionRecord } from "@modules/domain/connections"
 import { INSTALLED, customerChannelProviders, inboundChannelsOf } from "@modules/domain/installed-plugins"
 import { ProfileSourcesService } from "@modules/domain/knowledge-sources"
+import { OwnersService } from "@modules/domain/owners"
 import { ProviderTriggerStatesService } from "@modules/domain/provider-triggers"
 import { AgentAccountsService } from "@modules/domain/tools"
 import { WorkspaceEnterpriseService, WorkspaceLobbyService, WorkspacesService } from "@modules/domain/workspaces"
@@ -27,7 +29,8 @@ import { attachEveryOf, attachPlanOf } from "./roster-seed.policy"
 import { RosterSeedService } from "./roster-seed.service"
 import { readinessOf, readyLineOf, sealedNamesOf, type ReadinessInstalled } from "./seed-readiness.policy"
 import type { AccountStop, DocumentTexts, ForceKind, SealedValues, SetAccount, SetFact, SetPlan, SetProfile } from "./set-seed.contracts"
-import { connectionIdOf, expandSetProfile, readSetProfile, standingOf } from "./set-seed.policy"
+import { connectionIdOf, expandSetProfile, nodeSettingsOf, readSetProfile, standingOf } from "./set-seed.policy"
+import type { SeedNodeDoor } from "./seed-standard.port"
 import { InjectWorkspaceSeedOptions } from "./workspace-seed.decorators"
 import type { WorkspaceSeedOptions } from "./workspace-seed.options"
 
@@ -64,6 +67,12 @@ export interface SeedApply {
     readonly texts: DocumentTexts
     /** A FORCED re-seed of a standard seeded before (R102, R103), or null for a first seed and a test set. */
     readonly reseed: Reseed | null
+    /**
+     * The sign-in address of the workspace's owner as the STACK declares it (a standard's declaration, read from the environment's sealed
+     * member), or null: the owner of the document's `ownerWorkspace`. An address with no account gets one through the owners door (no usable
+     * password: the person signs in with Google, which links by the verified address).
+     */
+    readonly ownerEmail?: string | null
 }
 
 /** A forced re-seed: when the standard was last applied, and the kinds whose person-made changes the force overwrites. */
@@ -176,7 +185,25 @@ export class SetSeedService {
         private readonly sources: ProfileSourcesService,
         private readonly apiTokens: ConnectionApiTokenService,
         @Optional() private readonly triggers?: ProviderTriggerStatesService,
+        @Optional() private readonly owners?: OwnersService,
     ) {}
+
+    /** The deployment's sandbox switch as the seed reads it (see `WorkspaceSeedOptions.sandboxOn`). */
+    private get sandboxOn(): boolean {
+        return this.options.sandboxOn === true
+    }
+
+    /**
+     * The owner of the document's workspace: the address the stack declares (its account found or made through the owners door; a dry run
+     * only finds it), else the owner of the one live workspace the document names as `ownerWorkspace`. Null on a dry run whose owner has no
+     * account yet.
+     */
+    async ownerIdFor(named: ReadonlyArray<{ readonly id: string; readonly name: string }>, profile: SetProfile, ownerEmail: string | null, write: boolean): Promise<string | null> {
+        if (ownerEmail === null) return this.ownerOf(named, profile.ownerWorkspace)
+        if (this.owners === undefined) return refused("ownerEmail")
+        if (!write) return (await this.owners.findAccount(ownerEmail)) ?? null
+        return this.owners.ensureAccount(ownerEmail)
+    }
 
     /** Seeds the TEST set the envelope on stdin carries; prints what it did, ending with `unchanged` when nothing changed. */
     async run(input: string, environment: string, run: SetRunOptions): Promise<void> {
@@ -201,9 +228,15 @@ export class SetSeedService {
         this.checkInstalled(profile)
         profile.documents.forEach((document, index) => (input.texts[document.path] === undefined ? refused(`documents.${String(index)}.path`) : undefined))
         this.printPlan(profile, plan)
-        this.options.print(readyLineOf(profile.name, readinessOf(profile, installedReadiness(), sealedNamesOf(input.sealed), input.place)))
+        this.options.print(readyLineOf(profile.name, readinessOf(profile, installedReadiness(), sealedNamesOf(input.sealed), input.place, this.sandboxOn)))
         const named = await this.workspaces.list(WORKSPACE_SCAN_LIMIT)
-        const ownerId = await this.ownerOf(named, profile.ownerWorkspace)
+        const found = await this.ownerIdFor(named, profile, input.ownerEmail ?? null, !input.dry)
+        if (found === null) {
+            this.printSecrets(profile, input.sealed)
+            this.options.print(`${profile.name}: owner account would be created; workspace "${profile.workspaceName}" would be created; dry run: nothing written`)
+            return { changed: false, workspaceId: null, tally: { created: 0, updated: 0, byPerson: 0, gone: 0 } }
+        }
+        const ownerId = found
         const held = await this.ownedLive(named, profile.workspaceName, ownerId)
         if (profile.kind === "overlay" && held.length === 0) refused("workspaceName")
         if (input.dry) {
@@ -273,6 +306,39 @@ export class SetSeedService {
                 ...(setting.mode === null ? {} : { mode: setting.mode }),
                 ...(setting.accounts === null ? {} : { accounts: setting.accounts.map((key) => this.accountIdOf(profile, key, workspaceId, held)) }),
             })
+        }
+    }
+
+    /**
+     * The door steps of a document in a place, resolved for its workspace: the time zone and each node setting of THAT place
+     * (`places.<place>.nodeSettings`, else the document's), its accounts as connection ids in try order.
+     */
+    async doorStepsOf(profile: SetProfile, place: EnterpriseSeedPlace, workspaceId: string): Promise<{ readonly timeZone: string | null; readonly nodes: ReadonlyArray<SeedNodeDoor> }> {
+        const held = await this.connections.list(workspaceId)
+        return {
+            timeZone: profile.timeZone,
+            nodes: nodeSettingsOf(profile, place).map((setting) => ({
+                module: setting.module,
+                workflow: setting.workflow,
+                node: setting.node,
+                mode: setting.mode,
+                accountIds: setting.accounts === null ? null : setting.accounts.map((key) => this.accountIdOf(profile, key, workspaceId, held)),
+            })),
+        }
+    }
+
+    /** The owner of a workspace, or null. */
+    async ownerOfWorkspace(workspaceId: string): Promise<string | null> {
+        return (await this.workspaces.ownerIdOf(workspaceId)) ?? null
+    }
+
+    /** One line per node setting of a place, for a dry run: the step and its accounts by key with their world (never a value). */
+    printNodePlan(profile: SetProfile, place: EnterpriseSeedPlace): void {
+        for (const setting of nodeSettingsOf(profile, place)) {
+            const accounts = (setting.accounts ?? []).map((key) => `${key} (${profile.accounts.find((one) => one.key === key)?.sandbox === false ? "live" : "sandbox"})`)
+            this.options.print(
+                `${profile.name}: node ${setting.workflow}/${setting.node} in ${place}: ${setting.mode === null ? "" : `mode ${setting.mode}, `}accounts ${setting.accounts === null ? "left as the template picks" : `[${accounts.join(", ")}]`}`,
+            )
         }
     }
 
@@ -388,7 +454,7 @@ export class SetSeedService {
             ids.add(id)
             const found = held.find((one) => one.id === id)
             const secrets = account.sandbox ? null : secretsOf(account, input.sealed)
-            const meta = { ...account.facts, ...(secrets?.ok === true ? secrets.facts : {}) }
+            const meta = seededFactsOf({ ...account.facts, ...(secrets?.ok === true ? secrets.facts : {}) })
             const status = account.pending ? ("pending" as const) : ("connected" as const)
             const base = { workspaceId, createdBy: ownerId, provider: account.provider, name: account.name, status, environment: "live" as const, meta }
             if (secrets !== null && !secrets.ok) {
@@ -405,7 +471,7 @@ export class SetSeedService {
                 if (!write) return
                 if (secrets === null) await this.connections.create({ ...base, id, sandbox: true })
                 else {
-                    await this.connections.create({ ...base, id, secret: { plain: secrets.credential, webhookSecret: secrets.webhookSecret ?? randomSecret() } })
+                    await this.connections.create({ ...base, id, secret: seededSecretOf(account.provider, secrets.credential, secrets.webhookSecret, randomSecret) })
                     if (secrets.apiToken !== undefined) await this.apiTokens.write(id, secrets.apiToken)
                 }
                 this.options.print(`${profile.name}: ${secrets === null ? "sandbox account" : "live account"} ${account.key} (${account.provider}) ${id} ${secrets === null ? "opened" : "created, credential sealed by the app"}`)
@@ -432,7 +498,10 @@ export class SetSeedService {
             }
             tally.updated += 1
             if (!write) return
-            if (stored?.plain !== secrets.credential) await this.connections.writeSecret(id, secrets.credential, secrets.webhookSecret)
+            if (stored?.plain !== secrets.credential) {
+                const sealed = seededSecretOf(account.provider, secrets.credential, secrets.webhookSecret, randomSecret)
+                await this.connections.writeSecret(id, sealed.plain, account.provider === "sepay" ? sealed.webhookSecret : secrets.webhookSecret)
+            }
             if (secrets.apiToken !== undefined && token !== secrets.apiToken) await this.apiTokens.write(id, secrets.apiToken)
             this.options.print(`${profile.name}: live account ${account.key} (${account.provider}) ${id} credential rewritten`)
             changed = true
@@ -459,8 +528,9 @@ export class SetSeedService {
                 return
             }
             // A test set attaches as the roster does (live first); a standard attaches every working account it names (node settings may name a sandbox one).
-            const attach = profile.use === "workspace" ? attachEveryOf : attachPlanOf
-            const plan = attach(await this.abilities.templateProposal(workspaceId, module), (id) => sandbox.has(id), place)
+            const lines = await this.abilities.templateProposal(workspaceId, module)
+            const plan =
+                profile.use === "workspace" ? attachEveryOf(lines, (id) => sandbox.has(id), place, this.sandboxOn) : attachPlanOf(lines, (id) => sandbox.has(id), place)
             for (const kind of plan.missing) this.options.print(`${profile.name}: ${module} works with ${kind}: no usable account`)
             entries.push({ spec, wishes: plan.wishes })
         })

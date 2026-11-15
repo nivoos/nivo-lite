@@ -1102,6 +1102,10 @@ environments:
             # public age recipients of the production rule and the owner connection DATABASE_OWNER_URL_FILE are provisioned by the owner; the backup stays off
             # (and the tick says which key is missing) until they are declared.
             DATA_BACKUP_ENV: prod
+            # The provider sandbox (coordinator decision 2026-11-15, PROD-WIRE): ON in production too, so the steps of the providers the owner keeps on
+            # sandbox (CRM, iNET, Tino, MISA, mailbox, Meta, ...) run on NIVO Sandbox accounts, each labelled "Sandbox" in the console; a run keeps ONE
+            # world (a live run never reaches a sandbox account). The seed reads the same switch to attach the standards' sandbox accounts here.
+            PROVIDER_SANDBOX_ENABLED: "true"
             # The vector index (Qdrant) on the private agents network; QDRANT_API_KEY comes from the sealed qdrant member. This address is
             # REQUIRED: the only home of vectors (the api refuses to start without it; /readyz is unready while it does not answer).
             QDRANT_URL: "http://nivo-qdrant:6333"

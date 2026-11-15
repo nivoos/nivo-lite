@@ -137,6 +137,15 @@ export interface SetNodeSetting {
     readonly accounts: ReadonlyArray<string> | null
 }
 
+/** The two places a seed is applied in (`local` = the dev stack, `prod` = production). */
+export type SetPlace = "local" | "prod"
+
+/** The settings of one place that replace the document's own. */
+export interface SetPlaceBlock {
+    /** The node settings in that place, or null to keep the document's. */
+    readonly nodeSettings: ReadonlyArray<SetNodeSetting> | null
+}
+
 /** The two uses of the one seed schema; the rule that separates them is stated on `SetProfile`. */
 export type SetUse = "test" | "workspace"
 
@@ -221,8 +230,13 @@ export interface SetProfile {
     readonly people: ReadonlyArray<SetPerson>
     /** The generator of people, as declared, or null (a test set only). */
     readonly crowd: unknown
-    /** The node settings of steps. */
+    /** The node settings of steps (every place, unless the place's own block names its own). */
     readonly nodeSettings: ReadonlyArray<SetNodeSetting>
+    /**
+     * What differs per place (a workspace seed only): `places.<local|prod>.nodeSettings` REPLACES `nodeSettings` in that place, so a
+     * production block may name the live accounts while the local stack keeps sandbox ones. A place with no block uses `nodeSettings`.
+     */
+    readonly places: Readonly<Partial<Record<SetPlace, SetPlaceBlock>>>
     /** The cases an account's poll reads, in order (a test set only: the people of a mailbox come by its poll, never by a webhook). */
     readonly pulls: ReadonlyArray<SetPull>
 }

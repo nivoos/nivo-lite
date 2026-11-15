@@ -60,19 +60,21 @@ export const attachPlanOf = (
 /**
  * THE ATTACH RULE OF A SEED STANDARD (R109 finding 2): a standard names its accounts on purpose, so each agent is attached to EVERY working
  * account of every kind its template lists: live ones, and on the local stack its sandbox ones too (a node setting may name either; the
- * engine picks among attached accounts only). In production a sandbox account is never attached. A kind left with no account is `missing`.
+ * engine picks among attached accounts only). In production a sandbox account is attached only where the deployment's sandbox switch is on
+ * (`sandboxOn`: the same switch that lets a sandbox account answer at all). A kind left with no account is `missing`.
  */
 export const attachEveryOf = (
     lines: ReadonlyArray<TemplateProposal>,
     isSandbox: (connectionId: string) => boolean,
     place: EnterpriseSeedPlace,
+    sandboxOn = false,
 ): AttachPlan => {
     const kinds = [...new Set(lines.map((line) => line.provider))]
     const wishes: Array<AttachmentWish> = []
     const missing: Array<string> = []
     for (const kind of kinds) {
         const chosen = lines.flatMap((line) =>
-            line.provider === kind && line.connected && line.connectionId !== null && (place === "local" || !isSandbox(line.connectionId)) ? [line.connectionId] : [],
+            line.provider === kind && line.connected && line.connectionId !== null && (place === "local" || sandboxOn || !isSandbox(line.connectionId)) ? [line.connectionId] : [],
         )
         if (chosen.length === 0) missing.push(kind)
         wishes.push(...[...new Set(chosen)].map((connectionId) => ({ connectionId })))

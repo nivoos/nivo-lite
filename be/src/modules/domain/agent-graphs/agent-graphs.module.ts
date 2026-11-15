@@ -107,6 +107,9 @@ const STORE_ONLY: Part = {
         AgentWorkflowsService,
         AgentWorkflowInstallService,
         AgentWorkflowInstallRunService,
+        // The owner's node-settings door, which a seed's door steps go through (the cli runs no run: the runs service only reads).
+        AgentWorkflowRunsService,
+        AgentWorkflowsAdminService,
     ],
     ports: [GRAPH_STORE_PORT, WORKFLOW_STORE_PORT],
 }

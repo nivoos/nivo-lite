@@ -3,6 +3,7 @@ import type { InstalledPlugin } from "@nivo-lite/agent-sdk/installation"
 import { latestTemplateVersion, templateVersionOf, type WorkflowTemplate } from "@nivo-lite/agent-sdk/template"
 import type { EnterpriseSeedPlace } from "@modules/domain/channel-provisioning"
 import type { SealedValues, SetAccount, SetProfile } from "./set-seed.contracts"
+import { nodeSettingsOf } from "./set-seed.policy"
 
 /** The provider key of a CRM account: an OpenAPI account whose `summary` names the CRM (the CRM connect door's own facts). */
 const OPENAPI = "openapi"
@@ -51,6 +52,7 @@ export const covers = (account: SetAccount, providerKey: string): boolean => {
  * 6. when an agent is the front door of a customer channel, the seed holds a usable account of at least one such channel (an entrance);
  * 7. the agents have knowledge to answer from: at least one document or one truth;
  * 8. every live account names its secret members and each EXISTS in the sealed file (by name; never decrypted);
+ *    Where the deployment's sandbox switch is on (`sandboxOn`), a sandbox account is usable in production too.
  * 9. every sandbox account is of a kind an agent of the standard accepts (so the seed attaches it), and every account a node setting names
  *    is usable in the place (so it is attached to that node's agent before the setting is sent).
  * Answers what is missing, one line each; empty = READY.
@@ -60,8 +62,10 @@ export const readinessOf = (
     installed: ReadinessInstalled,
     sealed: SealedNames,
     place: EnterpriseSeedPlace,
+    sandboxOn = false,
 ): ReadonlyArray<string> => {
     const missing: Array<string> = []
+    const settings = nodeSettingsOf(profile, place)
     if (profile.ownerWorkspace.trim() === "") missing.push("owner: no owner workspace named")
     for (const plugin of profile.plugins) {
         const found = installed.plugins.find((one) => one.key === plugin.key)
@@ -72,7 +76,7 @@ export const readinessOf = (
         }
     }
     const usable = (account: SetAccount): boolean => {
-        if (account.sandbox) return place === "local"
+        if (account.sandbox) return place === "local" || sandboxOn
         const names = sealed?.[account.key]
         return names !== undefined && account.secrets.every((member) => names[member] === "set")
     }
@@ -107,7 +111,7 @@ export const readinessOf = (
             missing.push(`agent ${agent.module}: front door of [${[...entrances].join(", ")}] but no usable entrance account`)
         }
     }
-    for (const setting of profile.nodeSettings) {
+    for (const setting of settings) {
         const node = installed
             .templatesOf(setting.module)
             .filter((template) => template.id === setting.workflow)
@@ -136,7 +140,7 @@ export const readinessOf = (
     for (const account of profile.accounts.filter((one) => one.sandbox)) {
         if (![...accepted].some((provider) => covers(account, provider))) missing.push(`sandbox account ${account.key}: no agent of the standard accepts ${account.provider} (it would be attached to none)`)
     }
-    for (const setting of profile.nodeSettings) {
+    for (const setting of settings) {
         for (const key of setting.accounts ?? []) {
             const account = profile.accounts.find((one) => one.key === key)
             if (account !== undefined && !usable(account)) missing.push(`node setting ${setting.workflow}/${setting.node}: account ${key} is not usable here (it would not be attached to ${setting.module})`)

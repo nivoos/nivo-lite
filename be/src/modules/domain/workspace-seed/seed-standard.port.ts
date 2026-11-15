@@ -13,6 +13,8 @@ export interface SeedStandardRef {
     readonly force: boolean
     /** The kinds whose person-made changes the force overwrites. */
     readonly forceKinds: ReadonlyArray<ForceKind>
+    /** The owner's sign-in address the stack declares (`owner`), or null: the owner of the document's `ownerWorkspace`. */
+    readonly ownerEmail: string | null
 }
 
 /**
@@ -54,4 +56,24 @@ export interface SeedStandardTarget {
 export interface SeedStandardTargets {
     /** The checkout at a local path (refused unless it is a `-seed` repo's working tree). */
     open(path: string): Promise<SeedStandardTarget>
+}
+
+/** One node step's settings as a door step sends them: the module's workflow by key, the node, its mode and the accounts in try order. */
+export interface SeedNodeDoor {
+    readonly module: string
+    readonly workflow: string
+    readonly node: string
+    readonly mode: string | null
+    /** Connection ids in try order, or null to keep the choice. */
+    readonly accountIds: ReadonlyArray<string> | null
+}
+
+/**
+ * THE DOOR STEPS of a seed, through the app's own judged doors AS THE WORKSPACE'S OWNER (the same doors a person uses: the settings door
+ * for the time zone, `setNodeSettings` for a step, which judges every account against the agent's attachments and the sandbox switch).
+ * A refusal throws the door's typed error; the seed records its code in the receipt.
+ */
+export interface SeedDoorsPort {
+    setTimeZone(workspaceId: string, ownerId: string, timeZone: string): Promise<void>
+    setNodeSettings(workspaceId: string, ownerId: string, step: SeedNodeDoor): Promise<void>
 }

@@ -1,7 +1,7 @@
 import { parseJsonText } from "@modules/platform/primitives"
 import { WorkspaceSeedError, WorkspaceSeedErrorCode } from "./errors/workspace-seed.error"
 import type { SeedStandardRef } from "./seed-standard.port"
-import { FORCE_KINDS, type ForceKind } from "./set-seed.contracts"
+import { FORCE_KINDS, type ForceKind, type SealedValues } from "./set-seed.contracts"
 
 /** The schema of a seed standard's declaration in the stack: the repo, its ONE pinned commit, and the force a bring-up may consume. */
 export const SEED_STANDARD_SCHEMA = "nivo/seed-standard@1"
@@ -76,7 +76,62 @@ export const readSeedStandardRef = (document: unknown): SeedStandardRef => {
     const kinds = document.forceKinds === undefined ? [] : Array.isArray(document.forceKinds) ? document.forceKinds : invalid("forceKinds")
     if (kinds.some((kind) => typeof kind !== "string" || !KINDS.has(kind))) invalid("forceKinds")
     if (kinds.length > 0 && document.force !== true) invalid("forceKinds")
-    return { name, repository, commit, force: document.force === true, forceKinds: kinds as ReadonlyArray<ForceKind> }
+    return { name, repository, commit, force: document.force === true, forceKinds: kinds as ReadonlyArray<ForceKind>, ownerEmail: ownerEmailOf(document.owner) }
+}
+
+/** The member of a stack's sealed owner map that holds the owner's sign-in address (the management members' own key). */
+const OWNER_EMAIL_KEY = "WORKSPACE_OWNER_EMAIL"
+const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/u
+
+/**
+ * The owner a declaration names: an address, or the environment's sealed member map the seed step resolved from `{secret: <member>}`
+ * (its `WORKSPACE_OWNER_EMAIL`); none = the owner of the document's `ownerWorkspace`. Anything else is refused by field, never echoed.
+ */
+const ownerEmailOf = (owner: unknown): string | null => {
+    if (owner === undefined) return null
+    const text = typeof owner === "string" ? owner : isRecord(owner) && typeof owner[OWNER_EMAIL_KEY] === "string" ? owner[OWNER_EMAIL_KEY] : invalid("owner")
+    const address = text.trim().toLowerCase()
+    return EMAIL.test(address) ? address : invalid("owner")
+}
+
+/**
+ * One standard MATERIALISED where its pin was read (the operator's machine, by the stack's one-shot seed route), handed on stdin beside the
+ * declarations (`bundles.<name>`): its pinned commit, the texts of the files the seed reads, and the place's sealed members already opened
+ * in memory by the environment's identity. A bundle whose name or commit does not match its declaration is refused.
+ */
+export interface SeedStandardBundle {
+    readonly commit: string
+    readonly files: Readonly<Record<string, string>>
+    readonly sealed: SealedValues
+}
+
+/** The bundles of an envelope by standard name (none = the driver fetches each pin itself). */
+export const readSeedStandardBundles = (input: string): ReadonlyMap<string, SeedStandardBundle> => {
+    const read = parseJsonText(input)
+    const envelope = read.ok && isRecord(read.value) ? read.value : invalid("input")
+    if (envelope.bundles === undefined) return new Map()
+    if (!isRecord(envelope.bundles)) return invalid("bundles")
+    const out = new Map<string, SeedStandardBundle>()
+    for (const [name, raw] of Object.entries(envelope.bundles)) {
+        if (!isRecord(raw) || typeof raw.commit !== "string" || !COMMIT.test(raw.commit) || !isRecord(raw.files)) return invalid("bundles")
+        const files: Readonly<Record<string, unknown>> = raw.files
+        if (Object.values(files).some((text) => typeof text !== "string")) invalid("bundles.files")
+        out.set(name, { commit: raw.commit, files: files as Readonly<Record<string, string>>, sealed: sealedBundleOf(raw.sealed) })
+    }
+    return out
+}
+
+/** The opened members of a bundle (`{opened:true, accounts:{<key>:{<member>:text}}}` or `{opened:false, reason}`). */
+const sealedBundleOf = (raw: unknown): SealedValues => {
+    if (!isRecord(raw)) return invalid("bundles.sealed")
+    if (raw.opened === false) return { opened: false, reason: typeof raw.reason === "string" ? raw.reason.slice(0, 60) : "unreadable" }
+    if (raw.opened !== true || !isRecord(raw.accounts)) return invalid("bundles.sealed")
+    const accounts: Record<string, Record<string, string>> = {}
+    for (const [key, members] of Object.entries(raw.accounts)) {
+        if (!isRecord(members)) invalid("bundles.sealed")
+        accounts[key] = Object.fromEntries(Object.entries(members as Record<string, unknown>).map(([member, value]) => [member, typeof value === "string" ? value : ""]))
+    }
+    return { opened: true, accounts }
 }
 
 /** The declarations the stack seed step hands on stdin (the envelope `{documents:[{path,document}]}`), one per document. */
