@@ -6,12 +6,11 @@
 // This script then sets it through the app's own door, in the app's own process, the way the seed one-shot reaches the running api:
 //   1. the member is opened IN MEMORY on the operator's machine with the harness's sops seam and the environment's identity; only
 //      WORKSPACE_OWNER_EMAIL and WORKSPACE_OWNER_PASSWORD are kept;
-//   2. they go as one JSON line on the stdin of `node -e <loader>` inside the running jobs task (`deploy.jobs.service`, nivo-api), over
-//      the harness's own ssh runner. The loader (no value in it) reads stdin and, in that process:
-//        --dry      boots the cli module graph and asks OwnersService.findAccount whether the address has an account (reads only);
-//        --execute  checks the same, then runs the cli's own command `create-owner run --email … --password …` IN PROCESS: the values
-//                   are put into that process's argument array in memory, never onto a command line of any process (ps shows only
-//                   `node -e <loader>`), so `createOwner` sets the password through public.be_auth_set_password.
+//   2. inside the running jobs task (`deploy.jobs.service`, nivo-api), over the harness's own ssh runner, values only ever on STDIN:
+//        --dry      the address on the stdin of `node -e <loader>` (no value in it), which boots the cli module graph and asks
+//                   OwnersService.findAccount whether the address has an account (reads only);
+//        --execute  the same check, then `create-owner run` with `{email, password}` on its stdin (SEED-HOOK 0.7.4: the command reads
+//                   its input from stdin, never from a command line), so `createOwner` sets the password through be_auth_set_password.
 // Nothing here prints, logs or writes a value: the address is never printed, the password only ever lives in memory; the task's error
 // output is withheld. `--execute` refuses when the key is not sealed, the password breaks the rule, or the address has no account.
 //   node scripts/owner-password-oneshot.mjs --env production --dry       what it would do (writes nothing)
@@ -51,12 +50,7 @@ process.stdin.on("end", async () => {
     const account = await app.get(OwnersService, { strict: false }).findAccount(input.email)
     await app.close()
     console.log("account exists: " + (account ? "yes" : "no"))
-    if (!input.execute) process.exit(0)
-    if (!account) fail("no_account")
-    if (typeof input.password !== "string" || input.password.length === 0) fail("no_password")
-    process.argv = [process.argv[0], path.join(root, "be/dist/apps/cli/src/main.js"), "create-owner", "run", "--email", input.email, "--password", input.password]
-    input = undefined
-    dist("apps/cli/src/main.js")
+    process.exit(0)
   } catch (cause) {
     console.log("failed: " + String((cause && (cause.code || cause.name)) || "error"))
     process.exit(1)
@@ -98,7 +92,6 @@ const main = async () => {
     console.log(`${PASSWORD_KEY} sealed: ${password ? "yes" : "no"}${password ? `, meets the rule: ${acceptable ? "yes" : "no"}` : ""}`)
     if (!email) throw new Error(`${MEMBER} holds no ${EMAIL_KEY}`)
     if (execute && !acceptable) throw new Error(`${PASSWORD_KEY} is ${password ? "sealed but breaks the rule (8+ characters, at most 72 bytes)" : "not sealed"}: nothing was sent`)
-    const input = `${JSON.stringify(execute ? { execute: true, email, password } : { execute: false, email })}\n`
     const config = loadDeployConfig({ repoRoot: ROOT, env })
     const service = config.jobs?.service
     if (service === undefined) throw new Error(`${env} declares no deploy.jobs service`)
@@ -108,7 +101,20 @@ const main = async () => {
         const task = String(found.stdout ?? "").trim().split("\n")[0]
         if (!task) throw new Error(`no running task of ${config.stack}_${service}`)
         console.log(`task: ${config.stack}_${service} (${task.slice(0, 12)})`)
-        const result = run(`docker exec -i ${task} node -e "eval(Buffer.from('${loader}','base64').toString('utf8'))"`, { input })
+        // 1. the existence check (reads only): the address on stdin of the loader.
+        const checked = run(`docker exec -i ${task} node -e "eval(Buffer.from('${loader}','base64').toString('utf8'))"`, { input: `${JSON.stringify({ email })}\n` })
+        process.stdout.write(String(checked.stdout ?? ""))
+        if (checked.status !== 0) {
+            console.error(`the task's check exited ${String(checked.status)} (its error output is withheld)`)
+            return checked.status
+        }
+        if (!execute) return 0
+        if (!String(checked.stdout ?? "").includes("account exists: yes")) {
+            console.error("refused: the address has no account: nothing was sent")
+            return 1
+        }
+        // 2. the app's own door: `create-owner run` reads {email, password} on its STDIN (never on a command line).
+        const result = run(`docker exec -i ${task} node be/dist/apps/cli/src/main.js create-owner run`, { input: `${JSON.stringify({ email, password })}\n` })
         process.stdout.write(String(result.stdout ?? ""))
         if (result.status !== 0) console.error(`the task's command exited ${String(result.status)} (its error output is withheld: it may hold the opened values)`)
         return result.status

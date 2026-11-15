@@ -1,10 +1,11 @@
 import { Command, CommandRunner } from "nest-commander"
+import { RenameOwnerCli } from "./subs/rename.cli"
 import { RunCreateOwnerCli } from "./subs/run.cli"
 
 @Command({
     name: "create-owner",
-    description: "Create the first account of a clean database",
-    subCommands: [RunCreateOwnerCli],
+    description: "Create the first account of a clean database, set its password, or change its address in place",
+    subCommands: [RunCreateOwnerCli, RenameOwnerCli],
 })
 /** `cli create-owner`: the group; its command is the sub-command (`cli create-owner run`). */
 export class CreateOwnerCli extends CommandRunner {
