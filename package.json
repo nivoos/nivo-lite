@@ -139,7 +139,7 @@
     "mcp:tools": "node scripts/mcp-tools.mjs --write",
     "mcp:tools:check": "node scripts/mcp-tools.mjs --check",
     "di-ring:check": "node scripts/di-ring-check.mjs",
-    "typecheck": "npm run build:modules --silent && npm run codegen --silent && tsc -p be/tsconfig.json && turbo run typecheck",
+    "typecheck": "npm run build:modules --silent && npm run codegen --silent && node --max-old-space-size=8192 node_modules/typescript/bin/tsc -p be/tsconfig.json && turbo run typecheck",
     "lint": "npm run build:modules --silent && npm run codegen --silent && turbo run build --filter=./fe/packages/* && starci app check --gate lint",
     "lint:fix": "npm run build:modules --silent && npm run codegen --silent && turbo run build --filter=./fe/packages/* && starci app check --gate lint --fix",
     "format": "prettier --write .",
