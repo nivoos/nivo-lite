@@ -1,5 +1,5 @@
 // The authoring project of the fixture package `demo-crm-lead` (be/src/tests/fixtures/cells/demo-crm-lead): typed builders that EMIT its seed files.
-import { cellFile, graph, loop, node, outcome, packageFile, project, ref } from "../../src/index"
+import { cellFile, graph, loop, node, outcome, packageFile, project, ref } from "@nivo-lite/cells-author"
 
 const CONTROL_INPUT = { type: "object" } as const
 
@@ -13,7 +13,14 @@ export default project({
             title: { vi: "Lặp qua danh sách", en: "Loop over a list" },
             input: CONTROL_INPUT,
             output: CONTROL_INPUT,
-            config: { type: "object", properties: { over: { type: "object" }, key: { type: "string" }, max: { type: "integer", minimum: 1, maximum: 50 } } },
+            config: {
+                type: "object",
+                properties: {
+                    over: { type: "object" },
+                    key: { type: "string" },
+                    max: { type: "integer", minimum: 1, maximum: 50 },
+                },
+            },
             semantics: { mutates: false },
         }),
         cellFile({
@@ -37,7 +44,10 @@ export default project({
                 properties: { recordId: { type: "string" }, name: { type: "string" }, email: { type: "string" } },
             },
             output: { type: "object", required: ["leadId"], properties: { leadId: { type: "string" } } },
-            semantics: { mutates: false, tools: ["demo.model.complete", "nivo.tool.crm.lead.create", "nivo.tool.record.update"] },
+            semantics: {
+                mutates: false,
+                tools: ["demo.model.complete", "nivo.tool.crm.lead.create", "nivo.tool.record.update"],
+            },
             body: { mode: "auto", accounts: ["demo-crm"] },
             source: "run.js",
             origin: "run.ts",
@@ -68,7 +78,11 @@ export default project({
             key: "nivo.api.crm.demo.post.leads",
             version: 1,
             title: { vi: "Tạo lead trên CRM", en: "Post a lead to the CRM" },
-            input: { type: "object", required: ["name", "email"], properties: { name: { type: "string" }, email: { type: "string" } } },
+            input: {
+                type: "object",
+                required: ["name", "email"],
+                properties: { name: { type: "string" }, email: { type: "string" } },
+            },
             output: { type: "object", required: ["leadId"], properties: { leadId: { type: "string" } } },
             semantics: {
                 mutates: true,
@@ -110,7 +124,11 @@ export default project({
             key: "nivo.tool.crm.lead.create",
             version: 1,
             title: { vi: "Tạo lead", en: "Create a lead" },
-            input: { type: "object", required: ["name", "email"], properties: { name: { type: "string" }, email: { type: "string" } } },
+            input: {
+                type: "object",
+                required: ["name", "email"],
+                properties: { name: { type: "string" }, email: { type: "string" } },
+            },
             output: { type: "object", required: ["leadId"], properties: { leadId: { type: "string" } } },
             semantics: {
                 mutates: true,
@@ -127,7 +145,11 @@ export default project({
             key: "nivo.tool.record.update",
             version: 1,
             title: { vi: "Cập nhật bản ghi", en: "Update a record" },
-            input: { type: "object", required: ["recordId", "fields"], properties: { recordId: { type: "string" }, fields: { type: "object" } } },
+            input: {
+                type: "object",
+                required: ["recordId", "fields"],
+                properties: { recordId: { type: "string" }, fields: { type: "object" } },
+            },
             output: { type: "object", required: ["updated"], properties: { updated: { type: "boolean" } } },
             semantics: { mutates: true, outside: false, refusals: ["record_locked"] },
             body: { account: "none", servedBy: "primitive:record.update" },
@@ -151,7 +173,11 @@ export default project({
                             file: node(
                                 { key: "demo.file-lead", version: 1 },
                                 {
-                                    input: { recordId: ref("item.recordId"), name: ref("item.name"), email: ref("item.email") },
+                                    input: {
+                                        recordId: ref("item.recordId"),
+                                        name: ref("item.name"),
+                                        email: ref("item.email"),
+                                    },
                                     accounts: ["demo-crm"],
                                 },
                             ),

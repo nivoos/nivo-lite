@@ -1,5 +1,17 @@
 // The authoring project of the fixture package `demo-money` (be/src/tests/fixtures/cells/demo-money): typed builders that EMIT its seed files.
-import { cellFile, graph, ifNode, node, outcome, packageFile, project, ref, set, wait, when } from "../../src/index"
+import {
+    cellFile,
+    graph,
+    ifNode,
+    node,
+    outcome,
+    packageFile,
+    project,
+    ref,
+    set,
+    wait,
+    when,
+} from "@nivo-lite/cells-author"
 
 const CONTROL_INPUT = { type: "object" } as const
 
@@ -13,7 +25,11 @@ export default project({
             title: { vi: "Rẽ nhánh theo điều kiện", en: "Branch on a condition" },
             input: CONTROL_INPUT,
             output: CONTROL_INPUT,
-            config: { type: "object", required: ["when", "yes"], properties: { when: { type: "object" }, yes: { type: "string" }, no: { type: "string" } } },
+            config: {
+                type: "object",
+                required: ["when", "yes"],
+                properties: { when: { type: "object" }, yes: { type: "string" }, no: { type: "string" } },
+            },
             semantics: { mutates: false },
         }),
         cellFile({
@@ -43,7 +59,11 @@ export default project({
             title: { vi: "Chờ sự kiện", en: "Wait for an event" },
             input: CONTROL_INPUT,
             output: CONTROL_INPUT,
-            config: { type: "object", required: ["keys"], properties: { keys: { type: "array", minItems: 1, maxItems: 5 } } },
+            config: {
+                type: "object",
+                required: ["keys"],
+                properties: { keys: { type: "array", minItems: 1, maxItems: 5 } },
+            },
             semantics: { mutates: false },
         }),
         cellFile({
@@ -51,9 +71,16 @@ export default project({
             key: "demo.ask-to-pay",
             version: 1,
             title: { vi: "Mời khách thanh toán", en: "Ask the customer to pay" },
-            input: { type: "object", required: ["orderId", "total"], properties: { orderId: { type: "string" }, total: { type: "number" } } },
+            input: {
+                type: "object",
+                required: ["orderId", "total"],
+                properties: { orderId: { type: "string" }, total: { type: "number" } },
+            },
             output: { type: "object", required: ["payKey"], properties: { payKey: { type: "string" } } },
-            semantics: { mutates: false, tools: ["nivo.tool.payment.request.create", "nivo.tool.customer.message.send"] },
+            semantics: {
+                mutates: false,
+                tools: ["nivo.tool.payment.request.create", "nivo.tool.customer.message.send"],
+            },
             body: { mode: "auto", accounts: ["sepay", "payos"] },
             source: "run.js",
             origin: "run.ts",
@@ -70,7 +97,9 @@ export default project({
                 {
                     name: "cannot when the request is refused",
                     input: { orderId: "DH1002", total: 0 },
-                    tools: [{ id: "nivo.tool.payment.request.create", answer: { ok: false, refusal: "amount_invalid" } }],
+                    tools: [
+                        { id: "nivo.tool.payment.request.create", answer: { ok: false, refusal: "amount_invalid" } },
+                    ],
                     expect: { ending: "cannot" },
                 },
             ],
@@ -82,7 +111,13 @@ export default project({
             title: { vi: "Gửi tin cho khách", en: "Send the customer a message" },
             input: { type: "object", required: ["text"], properties: { text: { type: "string" } } },
             output: { type: "object", required: ["delivered"], properties: { delivered: { type: "boolean" } } },
-            semantics: { mutates: true, outside: true, repeatable: false, refusals: ["customer_blocked"], finalRefusals: ["customer_blocked"] },
+            semantics: {
+                mutates: true,
+                outside: true,
+                repeatable: false,
+                refusals: ["customer_blocked"],
+                finalRefusals: ["customer_blocked"],
+            },
             body: { account: "any", servedBy: "primitive:customer.message.send" },
         }),
         cellFile({
@@ -117,7 +152,11 @@ export default project({
             version: 1,
             title: { vi: "Đọc yêu cầu thanh toán", en: "Read a payment request" },
             input: { type: "object", required: ["payKey"], properties: { payKey: { type: "string" } } },
-            output: { type: "object", required: ["found"], properties: { found: { type: "boolean" }, status: { type: "string" } } },
+            output: {
+                type: "object",
+                required: ["found"],
+                properties: { found: { type: "boolean" }, status: { type: "string" } },
+            },
             semantics: { mutates: false, refusals: ["not_found"] },
             body: { account: "owner", servedBy: { sepay: "nivo.api.sepay.payment.get" } },
         }),
@@ -134,7 +173,11 @@ export default project({
             output: {
                 type: "object",
                 required: ["creditId", "amountVnd", "content"],
-                properties: { creditId: { type: "string" }, amountVnd: { type: "number" }, content: { type: "string" } },
+                properties: {
+                    creditId: { type: "string" },
+                    amountVnd: { type: "number" },
+                    content: { type: "string" },
+                },
             },
             semantics: { mutates: false },
             body: { via: "webhook", dataType: "bank-credit", factKey: "creditId" },
@@ -166,15 +209,27 @@ export default project({
                 }),
                 ask: node(
                     { key: "demo.ask-to-pay", version: 1 },
-                    { input: { orderId: ref("trigger.data.orderId"), total: ref("trigger.data.total") }, accounts: ["sepay"], next: "wait" },
+                    {
+                        input: { orderId: ref("trigger.data.orderId"), total: ref("trigger.data.total") },
+                        accounts: ["sepay"],
+                        next: "wait",
+                    },
                 ),
                 wait: wait({
-                    keys: [{ verb: "nivo.trigger.payment.credit.received", where: when.present(ref("trigger.data.creditId")) }],
+                    keys: [
+                        {
+                            verb: "nivo.trigger.payment.credit.received",
+                            where: when.present(ref("trigger.data.creditId")),
+                        },
+                    ],
                     timeout: { hours: 24 },
                     next: "paid",
                     onTimeout: "unpaid",
                 }),
-                paid: outcome({ name: "paid", output: { payKey: ref("steps.ask.output.payKey"), amountVnd: ref("vars.paidAmount") } }),
+                paid: outcome({
+                    name: "paid",
+                    output: { payKey: ref("steps.ask.output.payKey"), amountVnd: ref("vars.paidAmount") },
+                }),
                 unpaid: outcome({ name: "unpaid" }),
             },
         }),

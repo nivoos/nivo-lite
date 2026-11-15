@@ -3,7 +3,22 @@ import { join, resolve } from "node:path"
 import { parse } from "yaml"
 import demoCrmLead from "../test/authoring/demo-crm-lead.author"
 import demoMoney from "../test/authoring/demo-money.author"
-import { call, cellFile, graph, handBack, ifNode, loop, node, outcome, packageFile, project, ref, set, wait, when } from "./builders"
+import {
+    call,
+    cellFile,
+    graph,
+    handBack,
+    ifNode,
+    loop,
+    node,
+    outcome,
+    packageFile,
+    project,
+    ref,
+    set,
+    wait,
+    when,
+} from "./builders"
 import { CompileError, compileSource } from "./compile"
 import { diffFiles, emitProject, originOf } from "./emit"
 import type { AuthorProject, CellFileData } from "./types"
@@ -63,45 +78,113 @@ describe("compileSource", () => {
         expect(refusal({ "run.ts": `import { x } from "lodash"\nexport function run() { return x }` })).toBe(
             `run.ts: imports "lodash": a cell source imports nothing but its own local helpers`,
         )
-        expect(refusal({ "run.ts": `import { a as b } from "./u"\nfunction run() { return b }`, "u.ts": `export const a = 1` })).toBe(
-            `run.ts: import of "./u" renames a name: helpers are bundled into one scope, keep their names`,
+        expect(
+            refusal({
+                "run.ts": `import { a as b } from "./u"\nfunction run() { return b }`,
+                "u.ts": `export const a = 1`,
+            }),
+        ).toBe(`run.ts: import of "./u" renames a name: helpers are bundled into one scope, keep their names`)
+        expect(
+            refusal({ "run.ts": `import u from "./u"\nfunction run() { return u }`, "u.ts": `export default 1` }),
+        ).toBe(`run.ts: import of "./u" must be \`import { name } from\``)
+        expect(
+            refusal({
+                "run.ts": `import * as u from "./u"\nfunction run() { return u }`,
+                "u.ts": `export const a = 1`,
+            }),
+        ).toBe(`run.ts: import of "./u" must be \`import { name } from\``)
+        expect(refusal({ "run.ts": `import "./u"\nfunction run() { return 1 }`, "u.ts": `export const a = 1` })).toBe(
+            `run.ts: import of "./u" must be \`import { name } from\``,
         )
-        expect(refusal({ "run.ts": `import u from "./u"\nfunction run() { return u }`, "u.ts": `export default 1` })).toBe(`run.ts: import of "./u" must be \`import { name } from\``)
-        expect(refusal({ "run.ts": `import * as u from "./u"\nfunction run() { return u }`, "u.ts": `export const a = 1` })).toBe(`run.ts: import of "./u" must be \`import { name } from\``)
-        expect(refusal({ "run.ts": `import "./u"\nfunction run() { return 1 }`, "u.ts": `export const a = 1` })).toBe(`run.ts: import of "./u" must be \`import { name } from\``)
-        expect(refusal({ "run.ts": `export { a } from "./u"`, "u.ts": `export const a = 1` })).toBe("run.ts: re-exports are not supported in a cell source")
-        expect(refusal({ "run.ts": `export default function run() { return 1 }` })).toBe("run.ts: `export default` and `export =` are not supported in a cell source")
-        expect(refusal({ "run.ts": `import { a } from "./gone"\nfunction run() { return a }` })).toBe("gone.ts: no such file")
+        expect(refusal({ "run.ts": `export { a } from "./u"`, "u.ts": `export const a = 1` })).toBe(
+            "run.ts: re-exports are not supported in a cell source",
+        )
+        expect(refusal({ "run.ts": `export default function run() { return 1 }` })).toBe(
+            "run.ts: `export default` and `export =` are not supported in a cell source",
+        )
+        expect(refusal({ "run.ts": `import { a } from "./gone"\nfunction run() { return a }` })).toBe(
+            "gone.ts: no such file",
+        )
     })
 
     it("refuses an import cycle and a top-level name two bundled files share", () => {
-        expect(refusal({ "a.ts": `import { b } from "./b"\nexport const a = b`, "b.ts": `import { a } from "./a"\nexport const b = a` }, "a.ts")).toBe("a.ts: import cycle a.ts -> b.ts -> a.ts")
-        expect(refusal({ "run.ts": `import { x } from "./u"\nfunction x() { return 2 }\nfunction run() { return x() }`, "u.ts": `export const x = 1` })).toBe(
-            "run.ts: `x` is also declared in u.ts: bundled helpers share one scope",
-        )
-        expect(refusal({ "run.ts": `import { C } from "./u"\nclass D {}\nfunction run() { return new D() }`, "u.ts": `export class C {}\nexport const { a, b } = { a: 1, b: 2 }\nexport const nothing: number = 1` })).toBe("compiled")
+        expect(
+            refusal(
+                {
+                    "a.ts": `import { b } from "./b"\nexport const a = b`,
+                    "b.ts": `import { a } from "./a"\nexport const b = a`,
+                },
+                "a.ts",
+            ),
+        ).toBe("a.ts: import cycle a.ts -> b.ts -> a.ts")
+        expect(
+            refusal({
+                "run.ts": `import { x } from "./u"\nfunction x() { return 2 }\nfunction run() { return x() }`,
+                "u.ts": `export const x = 1`,
+            }),
+        ).toBe("run.ts: `x` is also declared in u.ts: bundled helpers share one scope")
+        expect(
+            refusal({
+                "run.ts": `import { C } from "./u"\nclass D {}\nfunction run() { return new D() }`,
+                "u.ts": `export class C {}\nexport const { a, b } = { a: 1, b: 2 }\nexport const nothing: number = 1`,
+            }),
+        ).toBe("compiled")
     })
 
     it("refuses what the runner forbids: the host, the module system, dynamic import, import.meta and a syntax error", () => {
-        expect(refusal({ "run.ts": `function run() { return process.env.X }` })).toBe("run.ts: `process` is not available to a cell source")
-        expect(refusal({ "run.ts": `function run() { return require("fs") }` })).toBe("run.ts: `require` is not available to a cell source")
-        expect(refusal({ "run.ts": `function run() { return eval("1") }` })).toBe("run.ts: `eval` is not available to a cell source")
-        expect(refusal({ "run.ts": `function run() { return globalThis }` })).toBe("run.ts: `globalThis` is not available to a cell source")
-        expect(refusal({ "run.ts": `function run() { return import("x") }` })).toBe("run.ts: dynamic import is not allowed in a cell source")
-        expect(refusal({ "run.ts": `function run() { return import.meta }` })).toBe("run.ts: `import.meta` is not allowed in a cell source")
+        expect(refusal({ "run.ts": `function run() { return process.env.X }` })).toBe(
+            "run.ts: `process` is not available to a cell source",
+        )
+        expect(refusal({ "run.ts": `function run() { return require("fs") }` })).toBe(
+            "run.ts: `require` is not available to a cell source",
+        )
+        expect(refusal({ "run.ts": `function run() { return eval("1") }` })).toBe(
+            "run.ts: `eval` is not available to a cell source",
+        )
+        expect(refusal({ "run.ts": `function run() { return globalThis }` })).toBe(
+            "run.ts: `globalThis` is not available to a cell source",
+        )
+        expect(refusal({ "run.ts": `function run() { return import("x") }` })).toBe(
+            "run.ts: dynamic import is not allowed in a cell source",
+        )
+        expect(refusal({ "run.ts": `function run() { return import.meta }` })).toBe(
+            "run.ts: `import.meta` is not allowed in a cell source",
+        )
         expect(refusal({ "run.ts": `function run( {` })).toContain("run.ts: ")
         expect(refusal({ "run.ts": `function run( {` })).not.toBe("compiled")
     })
 
+    it("refuses async code anywhere (the guest is synchronous: tool() returns its answer), with the rule the seed reports", () => {
+        const rule =
+            "run.ts: async: a cell source is synchronous (tool() returns its answer; no async function, no await)"
+        expect(refusal({ "run.ts": `async function run(input) { return input }` })).toBe(rule)
+        expect(refusal({ "run.ts": `function run(input) { const f = async () => 1; return input }` })).toBe(rule)
+        expect(
+            refusal({ "run.ts": `function run(input) { const o = { async m() { return 1 } }; return input }` }),
+        ).toBe(rule)
+        expect(
+            refusal({
+                "helper.ts": `export async function later() { return 1 }`,
+                "run.ts": `import { later } from "./helper"\nfunction run() { return later() }`,
+            }),
+        ).toBe(rule)
+    })
+
     it("allows the names of members that only look like host names", () => {
-        expect(refusal({ "run.ts": `function run(input) { return { process: input.process, window: input.window } }` })).toBe("compiled")
+        expect(
+            refusal({ "run.ts": `function run(input) { return { process: input.process, window: input.window } }` }),
+        ).toBe("compiled")
     })
 })
 
 describe("builders", () => {
     it("ref keeps its default and round only when given", () => {
         expect(ref("trigger.a")).toEqual({ $ref: "trigger.a" })
-        expect(ref("steps.a.output.b", { default: 0, round: "previous" })).toEqual({ $ref: "steps.a.output.b", default: 0, round: "previous" })
+        expect(ref("steps.a.output.b", { default: 0, round: "previous" })).toEqual({
+            $ref: "steps.a.output.b",
+            default: 0,
+            round: "previous",
+        })
     })
 
     it("when builds the stored expression shapes", () => {
@@ -115,15 +198,38 @@ describe("builders", () => {
         expect(when.lt(a, 1)).toEqual({ op: "lt", ref: a, value: 1 })
         expect(when.lte(a, 1)).toEqual({ op: "lte", ref: a, value: 1 })
         expect(when.contains(a, "x")).toEqual({ op: "contains", ref: a, value: "x" })
-        expect(when.contains(a, "x", { caseFold: true })).toEqual({ op: "contains", ref: a, value: "x", caseFold: true })
-        expect(when.and(when.present(a), when.not(when.absent(a)))).toEqual({ and: [{ op: "present", ref: a }, { not: { op: "absent", ref: a } }] })
+        expect(when.contains(a, "x", { caseFold: true })).toEqual({
+            op: "contains",
+            ref: a,
+            value: "x",
+            caseFold: true,
+        })
+        expect(when.and(when.present(a), when.not(when.absent(a)))).toEqual({
+            and: [{ op: "present", ref: a }, { not: { op: "absent", ref: a } }],
+        })
         expect(when.or(when.present(a))).toEqual({ or: [{ op: "present", ref: a }] })
     })
 
     it("steps carry their kind, with defaults for a node", () => {
-        expect(node({ key: "demo.a", version: 2 })).toEqual({ kind: "node", cell: { kind: "node", key: "demo.a", version: 2 }, input: {}, mode: "auto", accounts: [] })
+        expect(node({ key: "demo.a", version: 2 })).toEqual({
+            kind: "node",
+            cell: { kind: "node", key: "demo.a", version: 2 },
+            input: {},
+            mode: "auto",
+            accounts: [],
+        })
         expect(
-            node({ key: "demo.a", version: 2 }, { input: { x: 1 }, mode: "ask", accounts: ["sepay"], next: "b", routes: { yes: "b" }, unsuccessful: { reason: "x" } }),
+            node(
+                { key: "demo.a", version: 2 },
+                {
+                    input: { x: 1 },
+                    mode: "ask",
+                    accounts: ["sepay"],
+                    next: "b",
+                    routes: { yes: "b" },
+                    unsuccessful: { reason: "x" },
+                },
+            ),
         ).toEqual({
             kind: "node",
             cell: { kind: "node", key: "demo.a", version: 2 },
@@ -136,7 +242,13 @@ describe("builders", () => {
         })
         const test = when.present(ref("vars.a"))
         expect(ifNode({ when: test, yes: "a" })).toEqual({ kind: "core.if", when: test, yes: "a" })
-        expect(ifNode({ when: test, yes: "a", no: "b", label: { vi: "v", en: "e" } })).toEqual({ kind: "core.if", when: test, yes: "a", no: "b", label: { vi: "v", en: "e" } })
+        expect(ifNode({ when: test, yes: "a", no: "b", label: { vi: "v", en: "e" } })).toEqual({
+            kind: "core.if",
+            when: test,
+            yes: "a",
+            no: "b",
+            label: { vi: "v", en: "e" },
+        })
         expect(loop({ max: 3 })).toEqual({ kind: "core.loop", config: { max: 3 } })
         expect(wait({ keys: [] })).toEqual({ kind: "core.wait", config: { keys: [] } })
         expect(handBack({ wait: "w" })).toEqual({ kind: "core.hand-back", config: { wait: "w" } })
@@ -147,11 +259,41 @@ describe("builders", () => {
     })
 
     it("graph, cellFile, packageFile and project keep what they are given", () => {
-        expect(graph({ key: "g", version: 1, start: "a", steps: {} })).toEqual({ key: "g", version: 1, start: "a", triggers: [], steps: {} })
+        expect(graph({ key: "g", version: 1, start: "a", steps: {} })).toEqual({
+            key: "g",
+            version: 1,
+            start: "a",
+            triggers: [],
+            steps: {},
+        })
         expect(
-            graph({ key: "g", version: 1, start: "a", triggers: [{ verb: "v" }], steps: {}, vars: { x: { schema: { type: "number" }, merge: "append" } }, reviewState: "draft" }),
-        ).toEqual({ key: "g", version: 1, start: "a", triggers: [{ verb: "v" }], steps: {}, vars: { x: { schema: { type: "number" }, merge: "append" } }, reviewState: "draft" })
-        const cell: CellFileData = { kind: "tool", key: "k", version: 1, title: { vi: "v", en: "e" }, input: {}, output: {}, semantics: { mutates: false } }
+            graph({
+                key: "g",
+                version: 1,
+                start: "a",
+                triggers: [{ verb: "v" }],
+                steps: {},
+                vars: { x: { schema: { type: "number" }, merge: "append" } },
+                reviewState: "draft",
+            }),
+        ).toEqual({
+            key: "g",
+            version: 1,
+            start: "a",
+            triggers: [{ verb: "v" }],
+            steps: {},
+            vars: { x: { schema: { type: "number" }, merge: "append" } },
+            reviewState: "draft",
+        })
+        const cell: CellFileData = {
+            kind: "tool",
+            key: "k",
+            version: 1,
+            title: { vi: "v", en: "e" },
+            input: {},
+            output: {},
+            semantics: { mutates: false },
+        }
         const pack = { key: "p", version: "1.0.0", visibility: "public", author: "a" } as const
         expect(cellFile(cell)).toBe(cell)
         expect(packageFile(pack)).toBe(pack)
@@ -186,8 +328,20 @@ describe("emitProject and diffFiles", () => {
     const files = { "cells/node/demo.n/v1/run.ts": "export function run(input: unknown) { return input }" }
 
     it("emits the package file, the data file, the compiled source and the graph files, sorted by path", () => {
-        const emitted = emitProject({ package: pack, cells: [cell()], graphs: [graph({ key: "g", version: 3, start: "a", steps: { a: outcome({ name: "ok" }) } })] }, readerOf(files))
-        expect(emitted.map((file) => file.path)).toEqual(["cells.package.yaml", "cells/node/demo.n/v1/cell.yaml", "cells/node/demo.n/v1/run.js", "graphs/g/v3/graph.yaml"])
+        const emitted = emitProject(
+            {
+                package: pack,
+                cells: [cell()],
+                graphs: [graph({ key: "g", version: 3, start: "a", steps: { a: outcome({ name: "ok" }) } })],
+            },
+            readerOf(files),
+        )
+        expect(emitted.map((file) => file.path)).toEqual([
+            "cells.package.yaml",
+            "cells/node/demo.n/v1/cell.yaml",
+            "cells/node/demo.n/v1/run.js",
+            "graphs/g/v3/graph.yaml",
+        ])
         expect(emitted[2]?.text).toBe("function run(input) { return input; }\n")
         expect(emitted[1]?.text).toBe(
             "input:\n  type: object\nkey: demo.n\nkind: node\norigin: run.ts\noutput:\n  type: object\nsemantics:\n  mutates: false\nsource: run.js\ntitle:\n  en: e\n  vi: v\nversion: 1\n",
@@ -195,17 +349,20 @@ describe("emitProject and diffFiles", () => {
     })
 
     it("emits a cell without a source as its data file only", () => {
-        const emitted = emitProject({ package: pack, cells: [cell({ source: undefined, origin: undefined })], graphs: [] }, readerOf({}))
+        const { source: _source, origin: _origin, ...withoutSource } = cell()
+        const emitted = emitProject({ package: pack, cells: [withoutSource], graphs: [] }, readerOf({}))
         expect(emitted.map((file) => file.path)).toEqual(["cells.package.yaml", "cells/node/demo.n/v1/cell.yaml"])
     })
 
     it("refuses a source that is not a .js name and an origin that is not its .ts", () => {
-        expect(() => emitProject({ package: pack, cells: [cell({ source: "run.txt" })], graphs: [] }, readerOf(files))).toThrow(
+        expect(() =>
+            emitProject({ package: pack, cells: [cell({ source: "run.txt" })], graphs: [] }, readerOf(files)),
+        ).toThrow(
             'cells/node/demo.n/v1/cell.yaml: source "run.txt" must be a .js file name (compiled from its .ts origin)',
         )
-        expect(() => emitProject({ package: pack, cells: [cell({ origin: "other.ts" })], graphs: [] }, readerOf(files))).toThrow(
-            'cells/node/demo.n/v1/cell.yaml: origin must be "run.ts" for source "run.js"',
-        )
+        expect(() =>
+            emitProject({ package: pack, cells: [cell({ origin: "other.ts" })], graphs: [] }, readerOf(files)),
+        ).toThrow('cells/node/demo.n/v1/cell.yaml: origin must be "run.ts" for source "run.js"')
         expect(originOf("translate.js")).toBe("translate.ts")
     })
 
@@ -242,7 +399,10 @@ describe.each([
     it("compiles every .ts origin to the stored .js, ignoring layout", () => {
         const flat = (text: string): string => text.replace(/[\s;]+/gu, "")
         for (const file of emitted.filter((entry) => entry.path.endsWith(".js"))) {
-            expect({ path: file.path, flat: flat(file.text) }).toEqual({ path: file.path, flat: flat(diskOf(root)(file.path) ?? "") })
+            expect({ path: file.path, flat: flat(file.text) }).toEqual({
+                path: file.path,
+                flat: flat(diskOf(root)(file.path) ?? ""),
+            })
         }
     })
 
@@ -252,7 +412,8 @@ describe.each([
 
     it("is red on a one-byte change of a stored file", () => {
         const [first] = emitted
-        const changed = (path: string): string | null => (path === first?.path ? `${diskOf(root)(path) ?? ""}x` : diskOf(root)(path))
+        const changed = (path: string): string | null =>
+            path === first?.path ? `${diskOf(root)(path) ?? ""}x` : diskOf(root)(path)
         expect(diffFiles(emitted, changed).map((diff) => diff.path)).toEqual([first?.path])
     })
 })
