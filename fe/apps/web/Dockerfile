@@ -45,6 +45,8 @@ COPY --from=manifests /app ./
 RUN npm ci --ignore-scripts
 
 COPY turbo.json ./
+# The console imports the root packages (@nivo-lite/agent-sdk, ...): their sources build here through turbo, as in the api image.
+COPY packages packages
 COPY scripts scripts
 COPY be/contracts be/contracts
 COPY db/migrations db/migrations
@@ -52,6 +54,7 @@ COPY fe/tsconfig.json fe/tsconfig.json
 COPY fe/packages fe/packages
 COPY fe/apps/web fe/apps/web
 RUN mkdir -p fe/apps/web/public
+RUN node_modules/.bin/turbo run build --filter=./packages/*
 RUN npm run codegen --silent
 RUN node_modules/.bin/turbo run build --filter=@nivo-lite/web
 
