@@ -29,6 +29,7 @@ import { RunStopRecordsService } from "./stops/run-stop-records.service"
 import { RunStopsService } from "./stops/run-stops.service"
 import { ThreadRunsService } from "./thread-runs.service"
 import { ThreadSubjectHoldsService } from "./thread-subject-holds.service"
+import { ThreadHandBacksService } from "./thread-hand-backs.service"
 
 /** The key prefix of the one line the run door may send a customer after an end (once per run). */
 const ENDED_LINE_KEY_PREFIX = "run-ended-line:"
@@ -65,22 +66,24 @@ export class RunDoorHooksService implements RunDoorHooks, OnModuleInit {
         @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
         @InjectMessageCatalog() private readonly catalog: MessageCatalog,
         @InjectLogger() private readonly logger: Logger,
-        private readonly door: AgentRunCancelService,
         private readonly runs: AgentRunsService,
         private readonly records: RunStopRecordsService,
         private readonly stops: RunStopsService,
         private readonly holds: ThreadSubjectHoldsService,
         private readonly wakes: AgentWakeService,
         private readonly threads: ThreadRunsService,
+        private readonly handBacks: ThreadHandBacksService,
         private readonly nodes: GraphNodeRegistryService,
         @Optional() private readonly workflows?: AgentWorkflowRunsService,
         @Optional() private readonly core?: AgentGraphAiCoreService,
         @Optional() private readonly routes?: CustomerRoutesService,
+        // The run door (agent-runs): registered in every app that serves people; an app with no door has nothing to hook.
+        @Optional() private readonly door?: AgentRunCancelService,
     ) {}
 
     /** Registers with the run door once the app has started. */
     onModuleInit(): void {
-        this.door.setHooks(this)
+        this.door?.setHooks(this)
     }
 
     async ended(done: RunByPerson, tellCustomer: boolean): Promise<{ readonly children: number }> {
@@ -103,6 +106,7 @@ export class RunDoorHooksService implements RunDoorHooks, OnModuleInit {
         let children = 0
         await this.guarded(run.id, "children", async () => {
             await eachInOrder(await this.childrenOf(run), async (child) => {
+                if (this.door === undefined) return
                 const answer = await this.door.endAs({ memberId: done.memberId, name: done.name }, run.workspaceId, child.id, false)
                 if (answer.kind === "ended") children += 1 + answer.children
             })
@@ -128,6 +132,9 @@ export class RunDoorHooksService implements RunDoorHooks, OnModuleInit {
             released = await this.entityManager.transaction((tx) =>
                 this.wakes.releaseHeld(tx, run.workspaceId, `${PAUSED_REASON}${run.id}`),
             )
+            // The subject's events held behind it while paused are offered to the wait it still parks on (the one holding rule: a
+            // wait takes the first it matches, the rest are held behind the run again); a run at a stop holds them again.
+            released += await this.handBacks.offerToWait(run.workspaceId, run.id)
             // A drive the pause stopped before a step has no wake left once its wake was released and ran; one re-drive per resume (a
             // stopped thread runs nothing on it).
             await this.threads.redrive({ workspaceId: run.workspaceId, runId: run.id }, `resumed:${new Date().toISOString()}`)
