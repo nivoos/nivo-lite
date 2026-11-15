@@ -376,7 +376,9 @@ volumes:
   redis-data: { external: true, name: nivo-engine_redis-data }
   qdrant-data: { external: true, name: nivo-engine_qdrant-data }
   ai-router-data: { external: true, name: nivo-engine_ai-router-data }
-  postgres-data: { external: true, name: nivo-engine_postgres-data }
+  # 2026-11-15 owner ruling "xoa sach db prod": the new baseline chain starts on a NEW empty volume; the old cluster stays untouched and
+  # unreferenced in nivo-engine_postgres-data (plus an age tarball in /srv/nivo/backups) until the owner orders its deletion.
+  postgres-data: { external: true, name: nivo-engine_postgres-data-20261115 }
   postgres-backups: { external: true, name: nivo-engine_postgres-backups }
 
 # Config objects are immutable and versioned by content: the provision step of `starci app stack deploy` creates `nivo-<name>-c<digest>` and the render passes the names in.

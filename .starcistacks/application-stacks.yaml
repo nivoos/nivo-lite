@@ -1032,6 +1032,8 @@ environments:
         nivo-api: {app: api}
         nivo-mcp: {app: mcp}
         db: {app: db}
+        # stack.yaml runs nivo-admin (admin.nivo.vn); without this entry the render keeps its placeholder digest (STACK_PLACEHOLDER_DIGEST).
+        nivo-admin: {app: admin}
         nivo-web-app:
           app: web
           buildArgs:
@@ -1040,7 +1042,7 @@ environments:
           app: landing
           buildArgs:
             values: {NEXT_PUBLIC_SITE_URL: "https://nivo.vn", NEXT_PUBLIC_APP_URL: "https://app.nivo.vn"}
-      volumes: [nivo-engine_video-cache, nivo-engine_n8n-data, nivo-engine_redis-data, nivo-engine_qdrant-data, nivo-engine_ai-router-data, nivo-engine_postgres-data, nivo-engine_postgres-backups, nivo-edge_acme]
+      volumes: [nivo-engine_video-cache, nivo-engine_n8n-data, nivo-engine_redis-data, nivo-engine_qdrant-data, nivo-engine_ai-router-data, nivo-engine_postgres-data-20261115, nivo-engine_postgres-backups, nivo-edge_acme]
       secrets:
         grants:
           - service: nivo-api
@@ -1074,6 +1076,9 @@ environments:
               - {member: postgres, keys: [PRIMARY_DB_URL], required: true}
               - {member: nivo, keys: [CHANNEL_TOKEN_KEY, ENTITY_ENGINE_CURSOR_KEY], required: true}
               - {member: qdrant, keys: [QDRANT_API_KEY], required: true}
+              # mcp.env.ts also reads the object store and the queue (parseObjectStorageConfig, parseQueueConfig): without them it cannot boot.
+              - {member: storage, keys: [STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY], required: true}
+              - {member: redis, keys: [QUEUE_REDIS_PASSWORD], required: true}
           # APP_BE_DB_PASSWORD reaches db too: its init script gives the app_be login role that password when the cluster is first created.
           - service: db
             filePointers: true
@@ -1123,6 +1128,17 @@ environments:
             # The OriginGuard and CORS allowlist of the gateway; it has no browser caller, so only the console origin is listed.
             HTTP_SECURITY_ALLOWED_ORIGINS: "https://app.nivo.vn"
             QDRANT_URL: "http://nivo-qdrant:6333"
+            # Required by mcp.env.ts (parseConnectionsConfig, parseObjectStorageConfig, parseQueueConfig); the same public values as api-public.conf.
+            SITE_URL: "https://app.nivo.vn"
+            PUBLIC_SITE_URL: "https://app.nivo.vn"
+            PUBLIC_API_URL: "https://api.nivo.vn"
+            STORAGE_ENDPOINT: "http://academy-minio:9000"
+            STORAGE_PUBLIC_URL: "https://minio.starci.org"
+            STORAGE_BUCKET_PREFIX: nivo
+            QUEUE_ENABLED: "true"
+            QUEUE_REDIS_HOST: nivo-redis
+            QUEUE_REDIS_PORT: "6379"
+            QUEUE_REDIS_PREFIX: nivo
       configs:
         - {name: postgres-backup, file: infra/swarm/postgres/backup.sh, env: NIVO_CFG_POSTGRES_BACKUP}
       verify:
@@ -1156,6 +1172,9 @@ environments:
         volumes:
           - {name: n8n-data, volume: nivo-engine_n8n-data}
           - {name: redis-data, volume: nivo-engine_redis-data}
+          # 2026-11-15 archive before removal: OpenClaw (retired) and the old database cluster (replaced by nivo-engine_postgres-data-20261115).
+          - {name: openclaw-data, volume: nivo-engine_openclaw-data}
+          - {name: postgres-data-old, volume: nivo-engine_postgres-data}
           - {name: ai-router-data, volume: nivo-engine_ai-router-data}
       # The swarm Traefik is the SHARED ingress of the VPS (INGRESS-INVENTORY.md): nivo plus the compose tenants, which are
       # reached over the attachable overlay. Tenant route files (academy.yml, tayson.yml) stay in the legacy dynamic directory.
