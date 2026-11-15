@@ -10,7 +10,7 @@ type AgentWorkflowQueryResponse = AgentWorkflowQuery
 
 const query1: TypedDocumentNode<AgentWorkflowQueryResponse, InputVariables<QueryAgentWorkflowRequest>> = gql`
     query AgentWorkflow($input: AgentWorkflowInput!) {
-        agentWorkflow(input: $input) { workflow { id key name status primary activeNumber latestNumber templateId templateVersion templateName templateLatest templateChangedSteps stepCount updatedAt } graphJson versions { id number changeKind authorKind authorId note templateId templateVersion fromNumber publishedAt stepCount changedSteps active } nodeSettings { nodeKey settable mode accountIds accounts { connectionId provider label isDefault sandbox connected } } templateDiff { steps { key change step parts params { name beforeJson afterJson } } triggerChanged toolsAdded toolsRemoved effectsAdded effectsRemoved beforeJson afterJson } }
+        agentWorkflow(input: $input) { workflow { id key name status primary activeNumber latestNumber templateId templateVersion templateName templateLatest templateChangedSteps stepCount updatedAt runState { runsInFlight holdsEvents stoppedAt eventsHeld eventsSkipped } } graphJson versions { id number changeKind authorKind authorId note templateId templateVersion fromNumber publishedAt stepCount changedSteps active } nodeSettings { nodeKey settable mode accountIds accounts { connectionId provider label isDefault sandbox connected } } templateDiff { steps { key change step parts params { name beforeJson afterJson } } triggerChanged toolsAdded toolsRemoved effectsAdded effectsRemoved beforeJson afterJson } }
     }
 `
 

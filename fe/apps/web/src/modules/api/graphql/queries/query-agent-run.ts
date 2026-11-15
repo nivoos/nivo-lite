@@ -12,6 +12,7 @@ const query1: TypedDocumentNode<QueryAgentRunResponse, InputVariables<QueryAgent
     query AgentRun($input: AgentRunInput!) {
         agentRun(input: $input) {
             canCancel
+            canPause
             canResume
             decision {
                 decisionId

@@ -1,6 +1,6 @@
 import { Field, ID, InputType } from "@nestjs/graphql"
 import { Type } from "class-transformer"
-import { ArrayMaxSize, IsArray, IsIn, IsOptional, IsString, IsUUID, MaxLength, ValidateNested } from "class-validator"
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength, ValidateNested } from "class-validator"
 import { AgreedRightInput } from "./agreed-right.input"
 
 @InputType()
@@ -24,6 +24,18 @@ export class SetAgentWorkflowStatusInput {
     @IsIn(["active", "draft", "paused"])
     @MaxLength(20)
     status!: string
+
+    /** A stop (`paused`): true keeps the events that come while stopped and runs them in order on the start; absent or false: recorded, not run. */
+    @Field(() => Boolean, { nullable: true })
+    @IsOptional()
+    @IsBoolean()
+    holdEvents?: boolean | null
+
+    /** A stop (`paused`): true also ends every run of the workflow in flight; absent or false: they go on. */
+    @Field(() => Boolean, { nullable: true })
+    @IsOptional()
+    @IsBoolean()
+    endRuns?: boolean | null
 
     /**
      * The operations on connected accounts the owner agrees this activation may bring, exactly as the refusal

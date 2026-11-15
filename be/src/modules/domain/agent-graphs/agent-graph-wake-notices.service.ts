@@ -218,6 +218,33 @@ export class AgentGraphWakeNoticesService {
     }
 
     /**
+     * Tells the founder that an event came for a workflow a person STOPPED and was recorded, not run: once per stop (`once`), however
+     * many events come, with the workflow's name and the channel; the customer is told nothing.
+     */
+    async stopped(wake: AgentWakeView, facts: { readonly workflow: string; readonly once: string }): Promise<void> {
+        const locale = localeOfWake(wake)
+        const words = factWordsOf({ catalog: this.catalog, locale, bankName: bankDisplayNameOf })
+        const middle: ReadonlyArray<MessageFact> = [
+            { name: wordOr(words, "teamChat.fact.workflow", "workflow"), value: facts.workflow, technical: false },
+            {
+                name: wordOr(words, "teamChat.fact.why", "why"),
+                value: this.catalog.get("agentGraphs.wake.reason.workflow_stopped", {}, locale),
+                technical: false,
+            },
+        ]
+        await this.tell(
+            wake,
+            "workflow_stopped",
+            {
+                title: this.catalog.get("agentGraphs.workflowStop.skipped.title", {}, locale),
+                text: this.catalog.get("agentGraphs.workflowStop.skipped.sentence", {}, locale),
+                facts: wakeFactsOf(wake, words, middle),
+            },
+            facts.once,
+        )
+    }
+
+    /**
      * Tells the founder that a hand-off was refused before any step ran (its target workflow is switched on but not ready): one readable
      * sentence, then the facts (the workflow it named, why, the providers it waits for; the code as a technical fact). Told once per wake.
      */

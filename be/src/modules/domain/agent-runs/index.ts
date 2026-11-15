@@ -2,7 +2,7 @@ export { AGENT_RUNS_ERROR_KINDS } from "./errors/agent-runs.error"
 export { AGENT_RUNS_MESSAGES } from "./messages/agent-runs.messages"
 export { AgentRunsModule } from "./agent-runs.module"
 export { AgentRunsService } from "./agent-runs.service"
-export { AgentRunCancelService } from "./agent-run-cancel.service"
+export { AgentRunCancelService, type WorkflowRunsEnded } from "./agent-run-cancel.service"
 export { AgentRunsLimitService } from "./agent-runs-limit.service"
 export { AgentRunsViewService } from "./agent-runs-view.service"
 export { AgentRunRecordsService } from "./agent-run-records.service"
@@ -15,6 +15,8 @@ export {
     DECISION_ACTOR_UNKNOWN,
     DEFAULT_DEADLINE_MS,
     RUN_ENDED,
+    RUN_ENDED_BY_PERSON,
+    RUN_PAUSED_BY_PERSON,
     OPEN_STEP_STATUSES,
     WAIT_PARKED_STATUS,
     reportedStatusOf,
@@ -27,7 +29,12 @@ export type {
     StepView,
 } from "./agent-runs.contracts"
 export type {
-    OwnerCancelAnswer,
+    OwnerEndAnswer,
+    OwnerEndRequest,
+    OwnerPauseAnswer,
+    OwnerRunRequest,
+    RunByPerson,
+    RunDoorHooks,
     RunView,
 } from "./agent-runs-engine.contracts"
 export type { RunRecord, StepRecord } from "./agent-runs-records.contracts"

@@ -13,6 +13,7 @@ const mutation1: TypedDocumentNode<MutateCancelAgentRunResponse, InputVariables<
         cancelAgentRun(input: $input) {
             kind
             note
+            children
         }
     }
 `
@@ -28,7 +29,7 @@ const mutationMap: Record<
     [MutationCancelAgentRun.Mutation1]: mutation1,
 }
 
-/** The back end `cancelAgentRun` mutation. Stops a queued, running or waiting run; what it already sent is not undone. */
+/** The back end `cancelAgentRun` mutation. Ends a run in flight, whatever its state; what it already sent is not undone. */
 export const mutateCancelAgentRun = async ({
     mutation = MutationCancelAgentRun.Mutation1,
     request,

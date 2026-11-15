@@ -5,7 +5,7 @@ import type { WorkItem } from "@modules/domain/work-items"
  * Where a run stands as a person tells it: `queued` and `scheduled` have not begun a step (a scheduled one was woken by the clock), `waiting`
  * holds for a person, `failed` stopped on a step and may be run again from it, `cancelled` was stopped by an owner or manager.
  */
-export type RunBoardStatus = "queued" | "scheduled" | "running" | "waiting" | "done" | "failed" | "cancelled"
+export type RunBoardStatus = "queued" | "scheduled" | "running" | "waiting" | "paused" | "done" | "failed" | "cancelled"
 
 /** What woke the run. */
 export type RunSource = "customer" | "schedule" | "event" | "agent" | "person"
@@ -193,10 +193,12 @@ export interface AgentRunDetail {
     readonly steps: ReadonlyArray<AgentRunStepLine>
     /** The work item the run is about, or null. */
     readonly item: AgentRunItem | null
-    /** Whether the run stopped on a failed step and may be run again from it. */
+    /** Whether a person paused the run and may resume it. */
     readonly canResume: boolean
-    /** Whether the run is queued, running or waiting and so may be cancelled. */
+    /** Whether the run is in flight (running, waiting, paused) and so may be ended. */
     readonly canCancel: boolean
+    /** Whether the run runs or waits and so may be paused. */
+    readonly canPause: boolean
     /** The decision the run waits on, or null when it waits on none. */
     readonly decision: AgentRunDecision | null
     /** Its model calls per call kind, in the order of their first call: tries, tokens (cached, reasoning), time, cost, upstreams. */
@@ -234,8 +236,10 @@ export interface AgentRunsBoardExtra {
 
 /** What the run page offers on a run. */
 export interface AgentRunActions {
-    /** Whether it may be resumed from a failed step (never, today). */
+    /** Whether a person paused it and may resume it. */
     readonly canResume: boolean
-    /** Whether it may be cancelled. */
+    /** Whether it may be ended (it is in flight). */
     readonly canCancel: boolean
+    /** Whether it may be paused (it runs or waits). */
+    readonly canPause: boolean
 }

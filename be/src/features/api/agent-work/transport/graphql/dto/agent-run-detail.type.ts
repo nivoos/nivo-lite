@@ -328,13 +328,17 @@ export class AgentRunDetailType {
     @Field(() => AgentRunItemType, { nullable: true })
     item!: AgentRunItemType | null
 
-    /** Whether the run may be run again from its failed step. */
+    /** Whether a person paused the run and may resume it (resumeAgentRun). */
     @Field()
     canResume!: boolean
 
-    /** Whether the run is queued, running or waiting and may be cancelled. */
+    /** Whether the run is in flight (running, waiting, paused) and may be ended (cancelAgentRun). */
     @Field()
     canCancel!: boolean
+
+    /** Whether the run runs or waits and may be paused (pauseAgentRun). */
+    @Field()
+    canPause!: boolean
 
     /** The decision the run waits on, or null when it waits on none. */
     @Field(() => AgentRunDecisionType, { nullable: true })

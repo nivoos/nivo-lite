@@ -24,6 +24,7 @@ import type {
     WorkflowDetail,
     WorkflowRecord,
     WorkflowStatus,
+    WorkflowStop,
     WorkflowVersionRecord,
     WorkflowVersionView,
     WorkflowView,
@@ -468,14 +469,17 @@ export class AgentWorkflowsService {
      * person turning a workflow ON passes `requireRights` first (the door does), and the seed turns on what it made with the rows
      * the ticks gave it.
      */
-    setStatus(workspaceId: string, workflowId: string, status: WorkflowStatus): Promise<void> {
+    setStatus(workspaceId: string, workflowId: string, status: WorkflowStatus, stop?: WorkflowStop): Promise<WorkflowStatus> {
         return this.engine.scoped(workspaceId, async (tx) => {
             const workflow = await this.store.workflowRequired(tx, workflowId)
             if (!statusAllowed({ primary: workflow.primary, hasVersion: workflow.activeVersionId !== null }, status)) {
                 throw workflowRefused("status")
             }
-            if (workflow.status === status) return
-            if ((await this.records.patchWorkflow(tx, workflow, { status })) === null) throw workflowRefused("stale")
+            // A stop already in place may change its choice (keep / record the events); any other same status writes nothing.
+            if (workflow.status === status && stop === undefined) return workflow.status
+            const patch = stop === undefined ? { status } : { status, stop }
+            if ((await this.records.patchWorkflow(tx, workflow, patch)) === null) throw workflowRefused("stale")
+            return workflow.status
         })
     }
 

@@ -4,11 +4,12 @@ import type { RoutableWorkflow } from "../agent-workflows.contracts"
  * The workflow a wake from `source` goes to. Only an `active` workflow whose graph wakes on that source may take it; among those the
  * narrowest wins (the fewest sources: a workflow made for schedules takes a schedule tag before the main workflow that wakes on
  * everything), then the primary one, then the first in the list. Null when no active workflow takes the source, so the agent's own
- * graph answers the wake as before workflows existed. A draft or paused workflow never runs.
+ * graph answers the wake as before workflows existed. A draft workflow never takes a wake; a STOPPED (`paused`) one still TAKES it, so the
+ * wake names it and the flow keeps or reports it as the stop chose (a stopped workflow starts no run).
  */
 export const workflowRouteOf = (workflows: ReadonlyArray<RoutableWorkflow>, source: string): string | null => {
     const takers = workflows
-        .filter((workflow) => workflow.status === "active" && workflow.sources.includes(source))
+        .filter((workflow) => (workflow.status === "active" || workflow.status === "paused") && workflow.sources.includes(source))
         .toSorted(
             (left, right) =>
                 left.sources.length - right.sources.length ||

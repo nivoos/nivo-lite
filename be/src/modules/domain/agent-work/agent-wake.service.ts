@@ -88,6 +88,29 @@ export class AgentWakeService {
         @InjectLogger() private readonly logger: Logger,
     ) {}
 
+    /**
+     * Every wake of the workspace held with exactly this `reason` (a paused run's `paused:<run>`, a stopped workflow's `stopped:<workflow>`)
+     * is pending again, in the order it came, each with a drain job of its own, in `tx`. Its tries go back to one (waiting is no failed try;
+     * one, not zero, so a run's own wake read again knows it is a replay of that run). Answers how many it released.
+     */
+    async releaseHeld(tx: EntityManager, workspaceId: string, reason: string): Promise<number> {
+        const held = await tx.find(AgentWakeEntity, { where: { workspaceId, status: "held", reason }, order: { createdAt: "ASC" } })
+        await eachInOrder(held, async (wake) => {
+            await tx.update(
+                AgentWakeEntity,
+                { id: wake.id, status: "held" },
+                { status: "pending", reason: null, attempts: 1, notBefore: () => "now()" },
+            )
+            await this.queue.enqueueAgainDrain({ workspaceId, agentId: wake.agentId, scopeKey: wake.scopeKey }, tx)
+        })
+        return held.length
+    }
+
+    /** How many wakes of the workspace stand in `status` with exactly this `reason` (a stopped workflow's held and skipped events). */
+    countOfReason(tx: EntityManager, workspaceId: string, status: "held" | "skipped", reason: string): Promise<number> {
+        return tx.count(AgentWakeEntity, { where: { workspaceId, status, reason } })
+    }
+
     /** Writes the wake and its drain job in `tx`; answers false when the fact was already written, in which case nothing is enqueued. */
     async wake(tx: EntityManager, wake: AgentWake): Promise<boolean> {
         return (await this.write(tx, wake)) !== null

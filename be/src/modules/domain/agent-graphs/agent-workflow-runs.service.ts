@@ -166,6 +166,9 @@ export class AgentWorkflowRunsService {
                 workflowVersionId: version.id,
                 workflowVersion: version.number,
                 flow: snapshotOf(version),
+                ...(found.workflow.status === "paused"
+                    ? { stopped: { ...(found.workflow.stop ?? { holdsEvents: false, at: "", by: null }), name: found.name } }
+                    : {}),
             }
         })
     }
@@ -177,7 +180,8 @@ export class AgentWorkflowRunsService {
     standingOf(workspaceId: string, agentId: string): Promise<WorkflowStanding> {
         return this.engine.scoped(workspaceId, async (tx) => {
             const all = await this.records.workflowsOf(tx, agentId, WORKFLOW_LIMIT)
-            const running = await this.runningOf(tx, workspaceId, agentId)
+            // A stopped workflow takes its wakes (to keep or report them) but does not RUN: the standing names only the active ones.
+            const running = (await this.runningOf(tx, workspaceId, agentId)).filter((one) => one.workflow.status === "active")
             return {
                 total: all.length,
                 running: running.map((one) => one.key ?? PRIMARY_NAME),
@@ -407,11 +411,15 @@ export class AgentWorkflowRunsService {
         return triggerBindingOf(snapshotOf(entry.version), facts).contested
     }
 
-    /** The agent's active workflows with the version each runs and the sources its graph wakes on, shown or hidden. */
+    /**
+     * The agent's active AND STOPPED workflows with the version each runs and the sources its graph wakes on, shown or hidden: a stopped
+     * (`paused`) workflow still takes its wakes, so an event for it is kept or reported as its stop chose (never lost as "no workflow"),
+     * and its runs in flight still hear their waits; it starts no run (`AgentGraphFlowRunsService.run`).
+     */
     private async activeOf(tx: ScopedTx, agentId: string): Promise<ReadonlyArray<Running>> {
         const found: Array<Running> = []
         const active = (await this.records.workflowsOf(tx, agentId, WORKFLOW_LIMIT)).filter(
-            (workflow) => workflow.status === "active",
+            (workflow) => workflow.status === "active" || workflow.status === "paused",
         )
         await eachInOrder(active, async (workflow) => {
             const version = await this.store.runningOf(tx, workflow)

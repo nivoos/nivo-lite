@@ -1,5 +1,5 @@
-import { Injectable, Optional, type OnModuleInit } from "@nestjs/common"
-import { AgentRunCancelService, AgentRunsService, AgentRunsViewService, type OwnerCancelAnswer } from "@modules/domain/agent-runs"
+import { Injectable, Optional } from "@nestjs/common"
+import { AgentRunsService, AgentRunsViewService } from "@modules/domain/agent-runs"
 import { AgentWorkAccessService } from "@modules/domain/agent-work"
 import { CustomerRoutesService } from "@modules/domain/customer-routes/customer-routes.service"
 import { WorkspaceMembersService } from "@modules/domain/workspace-members"
@@ -107,15 +107,6 @@ export const targetStopOf = (stops: ReadonlyArray<RunStop>, stepKey: string | nu
     return stops.toSorted((a, b) => (b.resolvedAt ?? "").localeCompare(a.resolvedAt ?? "")).at(0) ?? null
 }
 
-/** A cancel of a thread run, answered by its stop's `skip`: the run ends as skipped once the thread applies it; effects are kept. */
-export const cancelOfSkip = (outcome: StopDoorOutcome): OwnerCancelAnswer => {
-    if (outcome === "admitted" || outcome === "already_admitted") return { kind: "cancelled", note: "effects_kept" }
-    return { kind: outcome === "not_found" ? "not_found" : "not_cancellable", note: null }
-}
-
-/** An owner's or manager's request to stop a run, as the owner door of the runs takes it. */
-type OwnerCancelRequest = Parameters<AgentRunCancelService["cancel"]>[0]
-
 /** What a refusal of the thread runs means for the person, given the stop as it stands after it. */
 const refusedOutcomeOf = (code: ThreadWakeRefusal, after: OptionalRunStop): StopDoorOutcome => {
     if (code === "decision_invalid") return "invalid"
@@ -141,10 +132,10 @@ const refusedOutcomeOf = (code: ThreadWakeRefusal, after: OptionalRunStop): Stop
  * `take_over` of such a stop has ONE meaning: it declines the request, by the person, through the work engine (the card's decline path,
  * noted `declined_by_takeover`), and then takes the stop as on any other; the step is not run again, so the engine sends
  * the customer no line and opens no report stop. The door carries; the step decides what the words
- * mean. It registers with the runs' cancel door at start, so the run page's Cancel of a thread run is its stop's `skip`. A decision on a
+ * mean. Ending a run is not a decision on its stop: it is the run door's (`AgentRunCancelService`), in every state of the run. A decision on a
  * stop already resolved still withdraws the approval item that stop left open (a stop closed before items were withdrawn).
  */
-export class StopDoorService implements OnModuleInit {
+export class StopDoorService {
     constructor(
         @InjectClock() private readonly clock: Clock,
         private readonly access: AgentWorkAccessService,
@@ -153,7 +144,6 @@ export class StopDoorService implements OnModuleInit {
         private readonly view: AgentRunsViewService,
         private readonly records: RunStopRecordsService,
         private readonly threads: ThreadResumeRequestsService,
-        @Optional() private readonly cancels?: AgentRunCancelService,
         @Optional() private readonly stops?: RunStopsService,
         @Optional() private readonly routes?: CustomerRoutesService,
     ) {}
@@ -164,21 +154,6 @@ export class StopDoorService implements OnModuleInit {
         const name =
             ask.action === "take_over" ? (await this.members.require(principalId, ask.workspaceId)).displayName : memberId
         return this.apply({ memberId, name }, ask)
-    }
-
-    /** Registers with the runs' cancel door once the app has started. */
-    onModuleInit(): void {
-        this.cancels?.setThreadStops(this)
-    }
-
-    /** The run page's Cancel of a thread run (the cancel door hands it here): the stop's `skip`, decided as the same person. */
-    async skipRun(request: OwnerCancelRequest): Promise<OwnerCancelAnswer> {
-        const skipped = await this.decide(request.principalId, {
-            workspaceId: request.workspaceId,
-            runId: request.runId,
-            action: "skip",
-        })
-        return cancelOfSkip(skipped.outcome)
     }
 
     /** True when the run is a thread's (`engine = langgraph`): its stops are answered here, never by the old engine's doors. */

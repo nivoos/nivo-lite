@@ -68,7 +68,14 @@ export type {
     AgentsQuery,
 } from "./graphql/__generated__/graphql"
 export type { ApiKeysQuery, ApplyBrainFactGroupMutation } from "./graphql/__generated__/graphql"
-export type { ResumeAgentRunMutation, CancelAgentRunMutation, DecideAgentRunStepMutation } from "./graphql/__generated__/graphql"
+export type {
+    ResumeAgentRunMutation,
+    CancelAgentRunMutation,
+    PauseAgentRunMutation,
+    EndAgentWorkflowRunsMutation,
+    AgentRunsInFlightQuery,
+    DecideAgentRunStepMutation,
+} from "./graphql/__generated__/graphql"
 export type { ApplySetupMutation } from "./graphql/__generated__/graphql"
 export type { ApprovePublicDocumentMutation } from "./graphql/__generated__/graphql"
 export type { ApproverDirectoryQuery, ArchivePublicDocumentMutation } from "./graphql/__generated__/graphql"

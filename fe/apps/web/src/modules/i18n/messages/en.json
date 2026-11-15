@@ -7169,5 +7169,7 @@
     "cancelledTitle": "Payment not completed",
     "cancelledText": "Go back to your conversation to try again.",
     "closeNote": "You can close this page."
-  }
+  },
+  "runDoor": {},
+  "workflowStop": {}
 }

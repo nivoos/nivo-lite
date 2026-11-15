@@ -113,6 +113,10 @@ export interface AgentRightsAgreeRequest {
 export interface WorkflowStatusRequest extends WorkflowRequest, AgreedRightsRequest {
     /** active, draft or paused. */
     readonly status: string
+    /** A STOP (`paused`): true keeps the events that come while stopped for its start (run in order); false records them, not run. */
+    readonly holdEvents?: boolean | null
+    /** A STOP: true also ends every run of the workflow in flight (the run door, one by one); false lets them go on. */
+    readonly endRuns?: boolean | null
 }
 
 /** What a template listing names. */

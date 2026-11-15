@@ -18,6 +18,12 @@ import {
 /** What the AI core's call is metered as. */
 const PURPOSE = "engine:step-trouble"
 
+/** What the ending line's call is metered as. */
+const ENDING_PURPOSE = "engine:run-ended-line"
+
+/** The ending line's answer: one line, or null. */
+const endingLineSchema = z.object({ customerLine: z.string().max(600).nullable() })
+
 /** The most lines of the conversation the AI core reads, the newest ones. */
 const TRANSCRIPT_LINES = 20
 
@@ -115,6 +121,30 @@ export class AgentGraphAiCoreService {
         }
     }
 
+    /**
+     * ONE line for the customer of a run a person ended, when that person asked to tell them (the run door's "tell the customer"): the
+     * agent's model reads the conversation and words it; nothing of it is written in code. Null when the model says nothing needs saying,
+     * or cannot be reached (the customer is then told nothing; the person sees it on the team notice).
+     */
+    async endingLine(turn: NodeTurn, conversationId: string, trigger: StepJson): Promise<string | null> {
+        const language = turn.locale === "en" ? "English" : "Vietnamese"
+        try {
+            const answer = await this.host.core(
+                turn,
+                {
+                    purpose: ENDING_PURPOSE,
+                    instructions: `A person of the shop ended the work the shop's assistant was doing for this customer; the assistant will not write again in this conversation for it. Write ONE short, polite line in ${language} the shop sends the customer now, fitting the conversation: never promise, confirm or deny an order, a payment, a refund or a delivery, never mention an internal error, a workflow or an assistant. Answer {"customerLine":"..."}, or {"customerLine":null} when nothing should be said.`,
+                    input: { conversation: await this.transcriptOf({ turn, conversationId, trigger }) },
+                },
+                endingLineSchema,
+            )
+            const line = answer.customerLine?.trim() ?? ""
+            return line === "" ? null : line
+        } catch {
+            return null
+        }
+    }
+
     /** What the AI core reads: the contract, what the step was given, the context of the customer, and what went wrong. */
     private async readingOf(asked: CoreAsk, output: z.ZodType | undefined): Promise<Readonly<Record<string, unknown>>> {
         return {
@@ -144,7 +174,7 @@ export class AgentGraphAiCoreService {
      * message that was not delivered and the system notices are not in it; a graph that wants more hands it to the step. Null when the run
      * serves no route or the ledger cannot be read.
      */
-    private async transcriptOf(asked: CoreAsk): Promise<ReadonlyArray<{ role: string; body: string }> | null> {
+    private async transcriptOf(asked: Pick<CoreAsk, "turn" | "conversationId" | "trigger">): Promise<ReadonlyArray<{ role: string; body: string }> | null> {
         if (asked.conversationId === null) return null
         try {
             const told =

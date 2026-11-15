@@ -142,6 +142,7 @@ export const workflowViewOf = (
         templateLatest: template === null ? null : latestTemplateVersion(template).version,
         templateChangedSteps: base === null || graph === null ? null : changedStepCount(base, graph),
         stepCount: graph?.nodes.length ?? 0,
+        stop: workflow.stop,
         updatedAt: workflow.updatedAt.toISOString(),
     }
 }

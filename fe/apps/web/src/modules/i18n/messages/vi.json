@@ -7169,5 +7169,7 @@
     "cancelledTitle": "Thanh toán chưa hoàn tất",
     "cancelledText": "Hãy quay lại cuộc trò chuyện của bạn để thử lại.",
     "closeNote": "Bạn có thể đóng trang này."
-  }
+  },
+  "runDoor": {},
+  "workflowStop": {}
 }

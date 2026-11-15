@@ -7,8 +7,17 @@ export const TOOL_OUTCOME_UNKNOWN = "tool_outcome_unknown"
 /** A closed approval has no recorded principal, so execution waits for a person to reconcile its authority. */
 export const DECISION_ACTOR_UNKNOWN = "decision_actor_unknown"
 
-/** The code a run and its stopped steps carry when an owner or manager cancelled the run. */
-export const RUN_CANCELLED = "run_cancelled"
+/**
+ * The end reason a run and its open steps carry when a PERSON ended it (an owner or manager, through the one end door, in any state of
+ * the run in flight); the member is the run's `cancelled_by`, the moment its `cancelled_at`.
+ */
+export const RUN_ENDED_BY_PERSON = "ended_by_person"
+
+/**
+ * The park reason of a run a PERSON paused (`park_reason`, status `parked`): it takes no further step and runs no wake until a person
+ * resumes it; it keeps its subject (a parked run is in flight). Its error member keeps who paused it, when, and where it stood before.
+ */
+export const RUN_PAUSED_BY_PERSON = "paused_by_person"
 
 /** The code a step left open carries when its run ended `done` (a done run has no terminal error of its own to give it). */
 export const RUN_ENDED = "run_ended"

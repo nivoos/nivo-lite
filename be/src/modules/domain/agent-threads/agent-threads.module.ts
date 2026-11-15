@@ -33,6 +33,7 @@ import { ThreadHandBacksService } from "./thread-hand-backs.service"
 import { ErasedSubjectRunsService } from "./erased-subject-runs.service"
 import { ErasedContactRunsAdapter } from "./erased-contact-runs.adapter"
 import { CONTACT_RUNS } from "@modules/domain/contacts/contact-runs.port"
+import { RunDoorHooksService } from "./run-door-hooks.service"
 
 @Module({})
 /**
@@ -88,6 +89,8 @@ export class AgentThreadsModule extends ConfigurableModuleClass {
                 ThreadSweepService,
                 // The dev Sandbox page's parked waits + "expire now" (R62/R66): the real deadline road, nothing else.
                 ThreadParkedDeadlinesService,
+                // The run door's after-write half (a person's End, Pause, Resume): registers with the run door at start.
+                RunDoorHooksService,
             ],
             exports: [
                 AGENT_THREADS_OPTIONS,

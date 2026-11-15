@@ -44,6 +44,22 @@ export interface WorkflowWire {
     readonly stepCount: number
     /** When it last changed, ISO. */
     readonly updatedAt: string
+    /** What runs and waits for it now (its runs in flight, the events kept or skipped while stopped); absent where it is not read. */
+    readonly runState?: WorkflowRunStateWire | null
+}
+
+/** What runs and waits for a workflow now: the run door's and the stop's counts. */
+export interface WorkflowRunStateWire {
+    /** How many runs of it are in flight (running, waiting, paused). */
+    readonly runsInFlight: number
+    /** While stopped: whether the events that come are kept for its start. */
+    readonly holdsEvents: boolean
+    /** When a person last stopped it, ISO, or null. */
+    readonly stoppedAt: string | null
+    /** How many events are kept for its start (held while stopped). */
+    readonly eventsHeld: number
+    /** How many events were recorded and not run while it was stopped (all its stops). */
+    readonly eventsSkipped: number
 }
 
 /** A workflow version as the transport sends it. */

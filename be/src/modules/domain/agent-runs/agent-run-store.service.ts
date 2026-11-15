@@ -7,10 +7,10 @@ import { AgentRunRecordsService } from "./agent-run-records.service"
 import { AgentRunsError, AgentRunsErrorCode } from "./errors/agent-runs.error"
 import { runRecordOf, runViewOf } from "./agent-runs.mapper"
 import type { RunRecord } from "./agent-runs-records.contracts"
-import { RUN_CANCELLED, SETTLE_TRIES } from "./policies/agent-runs.policy"
+import { RUN_PAUSED_BY_PERSON, SETTLE_TRIES } from "./policies/agent-runs.policy"
 import { jsonValueOf } from "./policies/json-value.policy"
-import type { RunValues, RunWaiterFilter, StoredWaiter } from "./agent-runs-rows.contracts"
-import type { RunCancelResult, RunView } from "./agent-runs-engine.contracts"
+import type { RunValues, RunWaiterFilter, StoredRun, StoredWaiter } from "./agent-runs-rows.contracts"
+import type { RunEndResult, RunPauseResult, RunView } from "./agent-runs-engine.contracts"
 import type { RunOpen } from "./agent-runs.contracts"
 
 /** What a unit of store work is given: the scope of one workspace. */
@@ -34,6 +34,13 @@ const IN_FLIGHT_STATUSES: ReadonlyArray<string> = ["running", "waiting", "parked
  * the projection writes (the run's own park decides; a resumed run has cleared its mark).
  */
 const WAITER_STATUSES: ReadonlyArray<string> = ["running", "waiting"]
+
+/** The statuses a person may pause a run in: it runs or waits (a parked run is already paused). */
+const PAUSABLE_STATUSES: ReadonlyArray<string> = ["running", "waiting"]
+
+/** True when a stored run is parked by a person's pause. */
+const isPausedRow = (run: Pick<StoredRun, "status" | "parkReason">): boolean =>
+    run.status === "parked" && run.parkReason === RUN_PAUSED_BY_PERSON
 
 /** The engine of thread runs. */
 const THREAD_ENGINE = "langgraph"
@@ -186,44 +193,98 @@ export class AgentRunStoreService {
     }
 
     /**
-     * Stops a run that is running or waiting, once: the run is marked cancelled with who and when, and its steps still open are closed
-     * failed with `run_cancelled` in the same transaction (`closeOpenSteps`). Steps already done are left as they are: nothing is undone. Only a
-     * history row of the old engine comes here (a thread run is cancelled by its stop's skip).
+     * THE END OF ONE RUN BY A PERSON, in any state of a run in flight (running a step, at a `wait`, on a retry rung or an until round,
+     * at a stop, paused): the ONE row-ending the erasure of a subject uses too (`endedRow`). The run is marked cancelled with the typed
+     * end reason `code`, the member and the moment; its deadline and wait mark are cleared and its open step rows are closed with the
+     * same code, in one transaction. Idempotent: a run already ended answers `already_ended` and nothing is written. What comes for it
+     * later does nothing by the one ended-run rule (`agent-threads/run-ended.policy`): the step running at this instant finishes its act,
+     * nothing after it runs. Every engine, so no row is left that no door can close.
      */
-    cancel(workspaceId: string, runId: string, actor: string, manager?: EntityManager): Promise<RunCancelResult> {
-        return this.at(workspaceId, manager, async (scoped): Promise<RunCancelResult> => {
+    endRun(workspaceId: string, runId: string, code: string, by: string, manager?: EntityManager): Promise<RunEndResult> {
+        return this.at(workspaceId, manager, async (scoped): Promise<RunEndResult> => {
             const current = await this.records.run(scoped, runId)
-            if (current === null) return { kind: "not_found" }
-            if (current.status === "cancelled") return { kind: "already_cancelled" }
-            const at = iso(this.clock.now())
-            const moved = await this.patchRunWith(scoped, runId, (run) =>
-                run.status === "running" || run.status === "waiting"
-                    ? {
-                          status: "cancelled",
-                          error: { code: RUN_CANCELLED },
-                          cancelledBy: actor,
-                          cancelledAt: at,
-                          endedAt: at,
-                          waitWorkItemId: null,
-                          waitDeadlineAt: null,
-                      }
-                    : null,
-            )
-            if (moved === null) return { kind: "not_cancellable" }
-            await this.records.closeOpenSteps(scoped, runId, RUN_CANCELLED, at)
-            return { kind: "cancelled" }
+            if (current === null) return { kind: "not_found", run: null }
+            if (!IN_FLIGHT_STATUSES.includes(current.status)) return { kind: "already_ended", run: runViewOf(current) }
+            const ended = await this.endedRow(scoped, runId, code, by, iso(this.clock.now()))
+            return ended === null ? { kind: "already_ended", run: await this.viewOf(scoped, runId) } : { kind: "ended", run: ended }
         })
     }
 
     /**
-     * ENDS, in `tx`, every thread run of any agent IN FLIGHT on one of these subjects, once, WHATEVER its state: at a stop (`waiting`),
-     * parked, at a `wait`, on a retry rung or an until round, or running a step now (all `running`). The run is marked cancelled with the
-     * typed reason `code` and the moment, its deadline and its wait mark are cleared, and its open step rows are closed with the same
-     * `code` in the same transaction (`closeOpenSteps`), so the one-run-per-subject slot is free and nothing of the run reads as running.
-     * What comes for it later does nothing by the one ended-run rule (`agent-threads/run-ended.policy`): a rung, a round, a deadline or a
-     * decision is refused before it is written, a wake already written is skipped, and a drive still in flight stops at its next step
-     * (the step running at this instant ends as it ends; nothing after it runs). What the erasure of a subject (a contact and its routes,
-     * a record the erase hid; owner ruling R31 / coordinator ruling R37) calls; answers the runs it ended.
+     * A PERSON PAUSES a run in flight (running or waiting): status `parked`, `park_reason` = `paused_by_person`; the error member keeps
+     * who, when, and the status and error it had, so the resume puts them back. A parked run is in flight: it keeps its subject. It takes
+     * no further step and runs no wake until it is resumed (the thread wakes hold every wake of it `paused:<run>`; a step visit of it
+     * stops the drive before the step). Idempotent.
+     */
+    pauseRun(workspaceId: string, runId: string, by: string): Promise<RunPauseResult> {
+        return this.at(workspaceId, undefined, async (scoped): Promise<RunPauseResult> => {
+            const row = await this.records.runRow(scoped, runId)
+            if (row === null) return { kind: "not_found", run: null }
+            if (isPausedRow(row)) return { kind: "already_paused", run: await this.viewOf(scoped, runId) }
+            if (!PAUSABLE_STATUSES.includes(row.status)) return { kind: "already_ended", run: await this.viewOf(scoped, runId) }
+            const at = iso(this.clock.now())
+            const moved = await this.patchRowWith(scoped, runId, (run) =>
+                PAUSABLE_STATUSES.includes(run.status) && !isPausedRow(run)
+                    ? {
+                          status: "parked",
+                          parkReason: RUN_PAUSED_BY_PERSON,
+                          error: { code: RUN_PAUSED_BY_PERSON, by, at, was: run.status, wasError: run.error },
+                      }
+                    : null,
+            )
+            return { kind: moved === null ? "already_paused" : "paused", run: await this.viewOf(scoped, runId) }
+        })
+    }
+
+    /** A PERSON RESUMES a run a person paused: its status and error before the pause come back, with who resumed it and when. */
+    resumePausedRun(workspaceId: string, runId: string, by: string): Promise<RunPauseResult> {
+        return this.at(workspaceId, undefined, async (scoped): Promise<RunPauseResult> => {
+            const row = await this.records.runRow(scoped, runId)
+            if (row === null) return { kind: "not_found", run: null }
+            if (!isPausedRow(row))
+                return {
+                    kind: IN_FLIGHT_STATUSES.includes(row.status) ? "not_paused" : "already_ended",
+                    run: await this.viewOf(scoped, runId),
+                }
+            const at = iso(this.clock.now())
+            const moved = await this.patchRowWith(scoped, runId, (run) => {
+                if (!isPausedRow(run)) return null
+                const was = run.error?.["was"]
+                const wasError = run.error?.["wasError"]
+                return {
+                    status: was === "waiting" ? "waiting" : "running",
+                    parkReason: null,
+                    error: isRecord(wasError) ? wasError : null,
+                    resumedAt: at,
+                    resumedBy: by,
+                    resumeReason: RUN_PAUSED_BY_PERSON,
+                }
+            })
+            return { kind: moved === null ? "not_paused" : "resumed", run: await this.viewOf(scoped, runId) }
+        })
+    }
+
+    /** The thread runs of one workflow in flight (running, waiting, parked), oldest first, at most `limit`. */
+    inFlightOfWorkflow(workspaceId: string, workflowId: string, limit: number): Promise<ReadonlyArray<RunView>> {
+        return this.at(workspaceId, undefined, async (scoped) => {
+            const rows = await this.records.runRows(
+                scoped,
+                { workflowId, statuses: IN_FLIGHT_STATUSES, engine: THREAD_ENGINE, order: "started" },
+                limit,
+            )
+            const views: Array<RunView> = []
+            await eachInOrder([...rows].reverse(), async (row) => {
+                const run = await this.records.run(scoped, row.id)
+                if (run !== null) views.push(runViewOf(run))
+            })
+            return views
+        })
+    }
+
+    /**
+     * ENDS, in `tx`, every thread run of any agent IN FLIGHT on one of these subjects, once, WHATEVER its state, with the typed reason
+     * `code` and no member (the erasure of a subject, owner ruling R31 / coordinator ruling R37): the same row-ending as a person's end
+     * (`endedRow`). Answers the runs it ended.
      */
     endInFlightOfSubjects(
         tx: EntityManager,
@@ -241,19 +302,58 @@ export class AgentRunStoreService {
                     SUBJECT_RUNS_MAX,
                 )
                 await eachInOrder(rows, async (row) => {
-                    const moved = await this.patchRunWith(scoped, row.id, (run) =>
-                        IN_FLIGHT_STATUSES.includes(run.status)
-                            ? { status: "cancelled", error: { code }, endedAt: at, waitWorkItemId: null, waitDeadlineAt: null }
-                            : null,
-                    )
-                    if (moved === null) return
-                    await this.records.markWait(scoped, row.id, null)
-                    await this.records.closeOpenSteps(scoped, row.id, code, at)
-                    ended.push(runViewOf(moved))
+                    const run = await this.endedRow(scoped, row.id, code, null, at)
+                    if (run !== null) ended.push(run)
                 })
             })
             return ended
         })
+    }
+
+    /**
+     * The ONE row-ending of a run in flight: cancelled with `code` (and the member, when a person ended it), the moment, the park, the
+     * deadline and the wait mark cleared, the open step rows closed with the same code. Null when the run was no longer in flight.
+     */
+    private async endedRow(scoped: ScopedTx, runId: string, code: string, by: string | null, at: string): Promise<RunView | null> {
+        const moved = await this.patchRunWith(scoped, runId, (run) =>
+            IN_FLIGHT_STATUSES.includes(run.status)
+                ? {
+                      status: "cancelled",
+                      error: { code },
+                      endedAt: at,
+                      cancelledAt: at,
+                      ...(by === null ? {} : { cancelledBy: by }),
+                      parkReason: null,
+                      waitWorkItemId: null,
+                      waitDeadlineAt: null,
+                  }
+                : null,
+        )
+        if (moved === null) return null
+        await this.records.markWait(scoped, runId, null)
+        await this.records.closeOpenSteps(scoped, runId, code, at)
+        return runViewOf(moved)
+    }
+
+    private async viewOf(scoped: ScopedTx, runId: string): Promise<RunView | null> {
+        const run = await this.records.run(scoped, runId)
+        return run === null ? null : runViewOf(run)
+    }
+
+    /** As `patchRunWith`, on the stored row (its error member whole), for the pause and its resume. */
+    private async patchRowWith(
+        scoped: ScopedTx,
+        runId: string,
+        build: (run: StoredRun) => RunValues | null,
+        left: number = SETTLE_TRIES,
+    ): Promise<StoredRun | null> {
+        if (left <= 0) throw new AgentRunsError({ code: AgentRunsErrorCode.RunContended })
+        const run = await this.records.runRow(scoped, runId)
+        if (run === null) throw rejected()
+        const values = build(run)
+        if (values === null) return null
+        const written = await this.records.patchRunRow(scoped, run, values)
+        return written ?? this.patchRowWith(scoped, runId, build, left - 1)
     }
 
     /** Runs `work` in the scope of the workspace: on `manager` when the caller holds a transaction, else in one of its own. */

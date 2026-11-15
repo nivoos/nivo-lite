@@ -25,6 +25,13 @@ const query1: TypedDocumentNode<AgentWorkflowsQueryResponse, InputVariables<Quer
             templateChangedSteps
             stepCount
             updatedAt
+            runState {
+                runsInFlight
+                holdsEvents
+                stoppedAt
+                eventsHeld
+                eventsSkipped
+            }
             readiness {
                 hidden
                 waitingFor

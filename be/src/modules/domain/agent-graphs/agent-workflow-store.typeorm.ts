@@ -22,6 +22,9 @@ const workflowColumnsOf = (patch: WorkflowPatch): QueryDeepPartialEntity<AgentWo
     ...(patch.latestNumber === undefined ? {} : { latestNumber: patch.latestNumber }),
     ...(patch.templateId === undefined ? {} : { templateId: patch.templateId }),
     ...(patch.templateVersion === undefined ? {} : { templateVersion: patch.templateVersion }),
+    ...(patch.stop === undefined
+        ? {}
+        : { stoppedHoldsEvents: patch.stop.holdsEvents, stoppedAt: new Date(patch.stop.at), stoppedBy: patch.stop.by }),
 })
 
 @Injectable()

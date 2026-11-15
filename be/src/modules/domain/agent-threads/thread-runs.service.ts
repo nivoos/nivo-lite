@@ -31,7 +31,7 @@ import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { InjectLogger, withRunScope, type Logger } from "@modules/platform/logging"
 import { isRecord, parseJsonText } from "@modules/platform/primitives"
 import { AgentThreadsLogEvent } from "./agent-threads.log-events"
-import { isRunEnded } from "./run-ended.policy"
+import { PAUSED_REASON, isRunEnded, isRunPaused } from "./run-ended.policy"
 import { AgentThreadsError, AgentThreadsErrorCode } from "./errors/agent-threads.error"
 import { RunStopsService } from "./stops/run-stops.service"
 import { answerIndexOf, endsTheRun, stopAnswerOf } from "./stops/stop-gate.policy"
@@ -186,6 +186,16 @@ const plainOf = (value: unknown): unknown => {
     )
 }
 
+/** True for the stop of a drive whose run a person paused while it was in flight (the step visit refused to run the next step). */
+const isPausedStop = (cause: unknown): boolean => {
+    let at: unknown = cause
+    for (let depth = 0; depth < 4 && at instanceof Error; depth += 1) {
+        if (at instanceof AgentThreadsError && at.code === AgentThreadsErrorCode.RunPaused) return true
+        at = at.cause
+    }
+    return false
+}
+
 const isFenced = (cause: unknown): boolean =>
     cause instanceof LanggraphError && cause.code === LanggraphErrorCode.CheckpointFenced
 
@@ -314,6 +324,8 @@ export class ThreadRunsService implements FlowThreads, OnModuleInit {
         if (run?.agentId !== turn.agentId) return this.skipped(turn, "thread_run_missing")
         // A wake written before its run ended (a rung, a round, a deadline, a decision) runs nothing once the run has ended.
         if (isRunEnded(run.status)) return this.skipped(turn, "run_ended")
+        // A wake of a paused run (a rung, a round, a wait's event or timeout, a deadline, a decision) waits for the resume, untouched.
+        if (isRunPaused(run.status)) return this.heldPaused(turn, ref)
         if ((await this.engineOf(turn.workspaceId, run.agentId, runId)) !== "langgraph")
             return this.skipped(turn, "thread_run_legacy")
         const resumes = turn.context.eventName === THREAD_RESUME_EVENT
@@ -551,6 +563,9 @@ export class ThreadRunsService implements FlowThreads, OnModuleInit {
         if (signal.aborted)
             throw new AgentThreadsError({ code: AgentThreadsErrorCode.LeaseLost, params: { runId: ref.runId } })
         if (this.graphs.isDriving(ref.runId)) throw this.busy(ref)
+        // A run a person paused moves no further (run-ended.policy): its wake is held `paused:<run>` and runs once the person resumes it.
+        const current = await this.runs.runOf(ref.workspaceId, ref.runId)
+        if (current !== null && isRunPaused(current.status)) return this.heldPaused(turn, ref)
         try {
             this.logger.info(AgentThreadsLogEvent.ThreadDriven, { runId: ref.runId, wakeId: turn.wakeId, fence: turn.fence })
             const lease = { fence: turn.fence, signal }
@@ -571,8 +586,16 @@ export class ThreadRunsService implements FlowThreads, OnModuleInit {
             return await this.settled(drive, outcome)
         } catch (cause) {
             if (isFenced(cause)) this.logger.warn(AgentThreadsLogEvent.ThreadFenced, { runId: ref.runId, fence: turn.fence })
+            // Paused while this drive was in flight: the drive stopped before its next step, the checkpoint stands; the wake waits.
+            if (isPausedStop(cause)) return this.heldPaused(turn, ref)
             throw cause
         }
+    }
+
+    /** The wake of a paused run, held until the resume (`paused:<run>`, released in the order it came by the run door's resume). */
+    private heldPaused(turn: AgentTurnView, ref: ThreadRef): AgentHandlerEnding {
+        this.logger.info(AgentThreadsLogEvent.WakeOfPausedRun, { runId: ref.runId, wakeId: turn.wakeId })
+        return { status: "held", reason: `${PAUSED_REASON}${ref.runId}`, outcome: null }
     }
 
     /** The graph to drive again after a too-large refusal, with the refused step marked; null for any other throw. */

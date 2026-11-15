@@ -12,4 +12,8 @@ export interface SetAgentWorkflowStatusRequest {
     readonly status: string
     /** The operations on connected accounts the owner agrees this activation may bring; absent when nothing was asked of the owner. */
     readonly agreedRights?: ReadonlyArray<AgreedRightRequest> | null
+    /** A stop: keep the events that come while stopped for the start. */
+    readonly holdEvents?: boolean | null
+    /** A stop: also end every run in flight. */
+    readonly endRuns?: boolean | null
 }

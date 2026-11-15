@@ -9,10 +9,9 @@ export type MutateResumeAgentRunRequest = WireInput<ResumeAgentRunMutationVariab
 type MutateResumeAgentRunResponse = ResumeAgentRunMutation
 
 const mutation1: TypedDocumentNode<MutateResumeAgentRunResponse, InputVariables<MutateResumeAgentRunRequest>> = gql`
-    mutation ResumeAgentRun($input: ResumeAgentRunInput!) {
+    mutation ResumeAgentRun($input: AgentRunPauseInput!) {
         resumeAgentRun(input: $input) {
             kind
-            stepKey
         }
     }
 `
@@ -21,21 +20,16 @@ enum MutationResumeAgentRun {
     Mutation1 = "mutation1",
 }
 
-const mutationMap: Record<
-    MutationResumeAgentRun,
-    TypedDocumentNode<MutateResumeAgentRunResponse, InputVariables<MutateResumeAgentRunRequest>>
-> = {
+const mutationMap: Record<MutationResumeAgentRun, TypedDocumentNode<MutateResumeAgentRunResponse, InputVariables<MutateResumeAgentRunRequest>>> = {
     [MutationResumeAgentRun.Mutation1]: mutation1,
 }
 
-/** The back end `resumeAgentRun` mutation. Runs a stopped run again from its failed step. */
+/** The back end `resumeAgentRun` mutation. Resumes a run a person paused. */
 export const mutateResumeAgentRun = async ({
     mutation = MutationResumeAgentRun.Mutation1,
     request,
     signal,
-}: MutateParams<MutationResumeAgentRun, MutateResumeAgentRunRequest>): Promise<
-    ApolloClient.MutateResult<MutateResumeAgentRunResponse>
-> => {
+}: MutateParams<MutationResumeAgentRun, MutateResumeAgentRunRequest>): Promise<ApolloClient.MutateResult<MutateResumeAgentRunResponse>> => {
     const apollo = createAuthApolloClient(webApiTransport, { signal })
     return apollo.mutate({ mutation: mutationMap[mutation], variables: { input: request } })
 }

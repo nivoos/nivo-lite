@@ -40,6 +40,8 @@ export const boardStatusOf = (entry: RunListEntry): RunBoardStatus => {
     if (status === "done") return "done"
     if (status === "cancelled") return "cancelled"
     if (status === "waiting") return "waiting"
+    // A thread run is parked only by a person's pause (run-ended.policy).
+    if (status === "parked") return "paused"
     if (status === "running") {
         if (entry.stepBegun > 0) return "running"
         return sourceOf(entry.run.context) === "schedule" ? "scheduled" : "queued"
@@ -213,13 +215,13 @@ export const itemOf = (item: WorkItem): AgentRunItem => ({
 })
 
 /**
- * What the run page offers on a run. It never offers Resume: no run parks (a thread run's stop is answered on its card). A run on a
- * LangGraph thread offers Cancel (the stop's `skip`) only while it waits at a stop; a run of the deleted old engine is history and
- * offers nothing.
+ * What the run page offers on a run in flight: End in every state (running a step, waiting for an event, a person, a timer, a retry,
+ * paused), Pause while it runs or waits, Resume while a person paused it. An ended run offers nothing.
  */
 export const runActionsOf = (detail: RunDetail): AgentRunActions => ({
-    canResume: false,
-    canCancel: detail.engine === "langgraph" && detail.run.status === "waiting",
+    canResume: detail.run.status === "parked",
+    canCancel: ["running", "waiting", "parked"].includes(detail.run.status),
+    canPause: detail.run.status === "running" || detail.run.status === "waiting",
 })
 
 /** One run with its steps: the row is made from the steps, so it agrees with them. */

@@ -1,4 +1,11 @@
 import { Injectable, Optional } from "@nestjs/common"
+import type { EntityManager } from "typeorm"
+import { AgentRunCancelService } from "@modules/domain/agent-runs"
+import { AgentWakeService } from "@modules/domain/agent-work"
+import { InjectPrimaryEntityManager } from "@modules/platform/database"
+import { WORKFLOW_STOPPED_HELD, WORKFLOW_STOPPED_SKIPPED } from "./agent-graph-flow-runs.service"
+import type { WorkflowRunStateWire } from "./policies/workflow-wire.policy"
+import type { WorkflowView } from "./agent-workflows.contracts"
 import type { AgentRightsAgreed } from "./agent-workflow-rights.contracts"
 import type { WorkflowTemplate } from "@nivo-lite/agent-sdk/template"
 import { INSTALLED } from "@modules/domain/installed-plugins"
@@ -153,6 +160,9 @@ export class AgentWorkflowsAdminService {
         @Optional() private readonly attachments?: AccountAttachmentsService,
         @Optional() private readonly bindings?: ConnectionBindingsReadService,
         @Optional() private readonly sandbox?: ProviderSandboxService,
+        @Optional() private readonly runDoor?: AgentRunCancelService,
+        @Optional() private readonly wakes?: AgentWakeService,
+        @Optional() @InjectPrimaryEntityManager() private readonly entityManager?: EntityManager,
     ) {}
 
     /** The title of a step as its installed node declares it; none in an app that installed no nodes. */
@@ -164,7 +174,28 @@ export class AgentWorkflowsAdminService {
         const seat = await this.seatOf(actor, request.installationId)
         await this.installed(actor.workspaceId, request.installationId, seat)
         const views = await this.workflows.list(actor.workspaceId, seat.agentId, workflowLocaleOf(request.locale))
-        return views.map(workflowWireOf)
+        const wires: Array<WorkflowWire> = []
+        await eachInOrder(views, async (view) => {
+            wires.push({ ...workflowWireOf(view), runState: await this.runStateOf(actor.workspaceId, view) })
+        })
+        return wires
+    }
+
+    /** What runs and waits for a workflow now: its runs in flight and, for a stop, the events kept or skipped. */
+    private async runStateOf(workspaceId: string, view: WorkflowView): Promise<WorkflowRunStateWire | null> {
+        if (this.runDoor === undefined || this.wakes === undefined || this.entityManager === undefined) return null
+        const wakes = this.wakes
+        const [held, skipped] = await this.entityManager.transaction(async (tx) => [
+            await wakes.countOfReason(tx, workspaceId, "held", `${WORKFLOW_STOPPED_HELD}${view.id}`),
+            await wakes.countOfReason(tx, workspaceId, "skipped", `${WORKFLOW_STOPPED_SKIPPED}${view.id}`),
+        ])
+        return {
+            runsInFlight: await this.runDoor.inFlightCount(workspaceId, view.id),
+            holdsEvents: view.stop?.holdsEvents ?? false,
+            stoppedAt: view.stop?.at ?? null,
+            eventsHeld: held ?? 0,
+            eventsSkipped: skipped ?? 0,
+        }
     }
 
     /** The agent Graph page: every workflow of the agent of an installation, the agent named and each cross-agent hand-off naming its target agent. */
@@ -217,7 +248,12 @@ export class AgentWorkflowsAdminService {
         await this.editorOf(actor)
         const detail = await this.owned(actor, request)
         const attached = await this.accountOptionsOf(actor.workspaceId, detail.workflow.agentId)
-        return { ...workflowDetailWireOf(detail, this.stepTitleOf), nodeSettings: nodeSettingsViewsOf(detail.graph, attached) }
+        const wire = workflowDetailWireOf(detail, this.stepTitleOf)
+        return {
+            ...wire,
+            workflow: { ...wire.workflow, runState: await this.runStateOf(actor.workspaceId, detail.workflow) },
+            nodeSettings: nodeSettingsViewsOf(detail.graph, attached),
+        }
     }
 
     /** How one version differs from another, from the one before or from a template version. */
@@ -367,7 +403,11 @@ export class AgentWorkflowsAdminService {
         )
     }
 
-    /** Moves the workflow to `active`, `draft` or `paused`. */
+    /**
+     * Moves the workflow to `active`, `draft` or `paused`. A STOP (`paused`) keeps the person's choice for the events that come while
+     * stopped (held for the start, or recorded and reported once) and, when asked, ends every run of it in flight through the run door;
+     * runs in flight otherwise go on. A START (`active` from `paused`) releases the events held while stopped, in the order they came.
+     */
     async setStatus(actor: GraphActor, request: WorkflowStatusRequest): Promise<boolean> {
         const editor = await this.editorOf(actor)
         await this.owned(actor, request)
@@ -379,7 +419,19 @@ export class AgentWorkflowsAdminService {
             const consent = { memberId: editor.memberId, role: editor.role, agreed }
             await this.workflows.requireRights(workspaceId, request.workflowId, consent)
         }
-        await this.workflows.setStatus(workspaceId, request.workflowId, status)
+        const stop =
+            status === "paused"
+                ? { holdsEvents: request.holdEvents === true, at: new Date().toISOString(), by: editor.memberId }
+                : undefined
+        const before = await this.workflows.setStatus(workspaceId, request.workflowId, status, stop)
+        if (status === "paused" && request.endRuns === true)
+            await this.runDoor?.endAllOfWorkflow({ principalId: actor.principalId, workspaceId, workflowId: request.workflowId })
+        if (status === "active" && before === "paused" && this.wakes !== undefined && this.entityManager !== undefined) {
+            const wakes = this.wakes
+            await this.entityManager.transaction((tx) =>
+                wakes.releaseHeld(tx, workspaceId, `${WORKFLOW_STOPPED_HELD}${request.workflowId}`),
+            )
+        }
         return true
     }
 
