@@ -101,8 +101,21 @@ export const workflowRecordOf = (stored: StoredWorkflowRow): WorkflowRecord => {
         latestNumber: intOf(row, "latestNumber"),
         template: linkOf(row),
         createdBy: textOrNull(row, "createdBy"),
+        stop: stopOf(row),
         createdAt: dateOf(row, "createdAt"),
         updatedAt: dateOf(row, "updatedAt"),
+    }
+}
+
+/** How the workflow was last stopped, or null when it never was. */
+const stopOf = (row: Data): WorkflowRecord["stop"] => {
+    const at: unknown = row["stoppedAt"]
+    if (!(at instanceof Date) && typeof at !== "string") return null
+    const by: unknown = row["stoppedBy"]
+    return {
+        holdsEvents: row["stoppedHoldsEvents"] === true,
+        at: at instanceof Date ? at.toISOString() : new Date(at).toISOString(),
+        by: typeof by === "string" && by !== "" ? by : null,
     }
 }
 

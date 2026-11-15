@@ -53,6 +53,18 @@ export class AgentWorkflowEntity extends UuidAbstractEntity {
     @Column({ name: "created_by", type: "uuid", nullable: true })
     createdBy!: string | null
 
+    /** While stopped (`paused`): true when the events that come for it are held and run in order on its start; false: recorded, not run. */
+    @Column({ name: "stopped_holds_events", type: "boolean", default: () => "false" })
+    stoppedHoldsEvents!: boolean
+
+    /** When a person last stopped it, or null. */
+    @Column({ name: "stopped_at", type: "timestamptz", nullable: true })
+    stoppedAt!: Date | null
+
+    /** The member who last stopped it, or null. */
+    @Column({ name: "stopped_by", type: "uuid", nullable: true })
+    stoppedBy!: string | null
+
     /** The fence of every write. */
     @Column({ name: "version", type: "integer", default: () => "1" })
     version!: number

@@ -21,6 +21,7 @@ import type {
     WorkflowMark,
     WorkflowNoticeView,
     WorkflowRowView,
+    WorkflowRunView,
     WorkflowStatus,
     WorkflowTemplateDetailView,
     WorkflowTemplateRowView,
@@ -46,6 +47,16 @@ const provenanceOf = (workflow: WorkflowWire, context: WorkflowContext): string 
               version: workflow.templateVersion,
           })
 
+/** Where the runs of a workflow stand; a read without `runState` counts nothing in flight and nothing held. */
+const runOf = (workflow: WorkflowWire): WorkflowRunView => ({
+    status: statusOf(workflow.status),
+    isPrimary: workflow.primary,
+    version: workflow.activeNumber ?? workflow.latestNumber,
+    runsInFlight: workflow.runState?.runsInFlight ?? 0,
+    eventsHeld: workflow.runState?.eventsHeld ?? 0,
+    eventsSkipped: workflow.runState?.eventsSkipped ?? 0,
+})
+
 /** One workflow as a row of the left pane. */
 export const workflowRowOf = (workflow: WorkflowWire, context: WorkflowContext): WorkflowRowView => {
     const status = statusOf(workflow.status)
@@ -56,6 +67,7 @@ export const workflowRowOf = (workflow: WorkflowWire, context: WorkflowContext):
         statusTone: STATUS_TONES[status],
         versionLabel: context.t("version", { number: workflow.activeNumber ?? workflow.latestNumber }),
         provenance: provenanceOf(workflow, context),
+        run: runOf(workflow),
     }
 }
 

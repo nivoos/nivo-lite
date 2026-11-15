@@ -56,16 +56,24 @@ const SEPARATOR = " · "
 
 /** The last reply was a take-over and the card still waits on the step: the founder is talking to the customer by hand. */
 const isTakenOver = (stop: TeamChatStop): boolean =>
-    stop.replies.at(-1)?.kind === "take_over" && (stop.state === "open" || (stop.state === "answered" && stop.resolvedAt === null))
+    stop.replies.at(-1)?.kind === "take_over" &&
+    (stop.state === "open" || (stop.state === "answered" && stop.resolvedAt === null))
 
 /** The chip of the card: who asks while it is open, else how it ended. */
-const chipOf = (stop: TeamChatStop, words: StopCardChipWords): { readonly label: string; readonly tone: TeamChatStopChipTone } => {
+const chipOf = (
+    stop: TeamChatStop,
+    words: StopCardChipWords,
+): { readonly label: string; readonly tone: TeamChatStopChipTone } => {
     if (isTakenOver(stop)) return { label: words.takenOver, tone: "warning" }
     switch (stop.state) {
         case "open":
-            return stop.by === "engine" ? { label: words.nivoReports, tone: "neutral" } : { label: words.needsYou, tone: "accent" }
+            return stop.by === "engine"
+                ? { label: words.nivoReports, tone: "neutral" }
+                : { label: words.needsYou, tone: "accent" }
         case "answered":
-            return stop.resolvedAt === null ? { label: words.answered, tone: "success" } : { label: words.done, tone: "success" }
+            return stop.resolvedAt === null
+                ? { label: words.answered, tone: "success" }
+                : { label: words.done, tone: "success" }
         case "skipped":
             return { label: words.skipped, tone: "neutral" }
         case "handed_back":
@@ -95,11 +103,16 @@ const replyOf = (
 }
 
 /** Name/value rows, keyed by place (a fact name may repeat). */
-const linesOf = (facts: ReadonlyArray<{ readonly name: string; readonly value: string }>): ReadonlyArray<TeamChatStopLineView> =>
+const linesOf = (
+    facts: ReadonlyArray<{ readonly name: string; readonly value: string }>,
+): ReadonlyArray<TeamChatStopLineView> =>
     facts.map((fact, index) => ({ id: `${String(index)}-${fact.name}`, name: fact.name, value: fact.value }))
 
 /** The pieces of one kind the approved call carries in full (`text`: the words; `address`: a picture or file); none when the card has none. */
-const contentOf = (stop: TeamChatStop, kind: "text" | "address"): ReadonlyArray<{ readonly name: string; readonly value: string }> =>
+const contentOf = (
+    stop: TeamChatStop,
+    kind: "text" | "address",
+): ReadonlyArray<{ readonly name: string; readonly value: string }> =>
     (stop.decision?.content ?? []).filter((item) => item.kind === kind)
 
 /** The argument member of an approved call that holds the subject of a mail (the engine's own member name). */
@@ -107,7 +120,10 @@ const SUBJECT_MEMBER = "subject"
 
 /** The subject of the mail the approved call sends; null when it carries none. */
 const subjectOf = (stop: TeamChatStop): string | null => {
-    const subject = contentOf(stop, "text").find((item) => item.name === SUBJECT_MEMBER)?.value.trim() ?? ""
+    const subject =
+        contentOf(stop, "text")
+            .find((item) => item.name === SUBJECT_MEMBER)
+            ?.value.trim() ?? ""
     return subject === "" ? null : subject
 }
 
@@ -122,7 +138,11 @@ const headOf = (stop: TeamChatStop, words: StopCardWords): string => {
 const listedOf = (stop: TeamChatStop, words: StopCardWords): ReadonlyArray<TeamChatStopLineView> => {
     const worded = linesOf(stop.facts.filter((fact) => fact.technical !== true))
     if (stop.kind === "approval") return worded
-    const stops = { id: "stops", name: words.labels.stopsRow, value: `${String(stop.repeats)}${SEPARATOR}${words.timeOf(stop.stoppedAt)}` }
+    const stops = {
+        id: "stops",
+        name: words.labels.stopsRow,
+        value: `${String(stop.repeats)}${SEPARATOR}${words.timeOf(stop.stoppedAt)}`,
+    }
     return [...worded, stops]
 }
 
@@ -131,7 +151,11 @@ const listedOf = (stop: TeamChatStop, words: StopCardWords): ReadonlyArray<TeamC
  * card that ended); suggestions only while it is open; the worded facts are the card's bordered list and the raw ones (codes, ids) stay
  * apart, folded by the card under "Technical details".
  */
-export const stopCardViewOf = (stop: TeamChatStop, words: StopCardWords, mark: TeamChatMarkView): TeamChatStopCardView => {
+export const stopCardViewOf = (
+    stop: TeamChatStop,
+    words: StopCardWords,
+    mark: TeamChatMarkView,
+): TeamChatStopCardView => {
     const meta = [words.timeOf(stop.stoppedAt)]
     const approval = stop.approval
     const held = isTakenOver(stop) ? (stop.conversationId ?? null) : null
@@ -141,6 +165,8 @@ export const stopCardViewOf = (stop: TeamChatStop, words: StopCardWords, mark: T
         key: stopKeyOf(stop),
         mark,
         revision: stop.revision,
+        isOpen: stop.state === "open",
+        hasCustomer: (stop.conversationId ?? null) !== null,
         meta: [...meta, ...(stop.repeats > 1 ? [words.repeats(stop.repeats)] : [])].join(SEPARATOR),
         chip: chipOf(stop, words.chips),
         headline: headOf(stop, words),
@@ -151,7 +177,10 @@ export const stopCardViewOf = (stop: TeamChatStop, words: StopCardWords, mark: T
         canAnswer: approval === null && stop.needs.answer,
         answerPlaceholder: stop.kind === "ai_error" ? words.labels.contextPlaceholder : words.labels.answerPlaceholder,
         // While the viewer holds the customer the card offers the way back, not another take-over.
-        decisions: approval === null ? stop.needs.decisions.filter((decision) => !(decision === "take_over" && held !== null)) : [],
+        decisions:
+            approval === null
+                ? stop.needs.decisions.filter((decision) => !(decision === "take_over" && held !== null))
+                : [],
         verdicts: approval === null ? [] : stop.needs.verdicts,
         approval:
             approval === null

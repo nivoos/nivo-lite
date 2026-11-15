@@ -26,13 +26,16 @@ const SOURCES: ReadonlyArray<RunSource> = ["customer", "schedule", "event", "age
 
 /** The statuses each tab lets through. */
 const TAB_STATUSES: Readonly<Record<RunTab, ReadonlyArray<RunStatus>>> = {
-    all: ["queued", "scheduled", "running", "waiting", "done", "failed", "cancelled"],
-    running: ["running"],
+    all: ["queued", "scheduled", "running", "waiting", "paused", "done", "failed", "cancelled"],
+    running: ["running", "paused"],
     queued: ["queued", "scheduled"],
     waiting: ["waiting"],
     done: ["done"],
     failed: ["failed"],
 }
+
+/** The statuses of a run that is not over: a person may end it. */
+const IN_FLIGHT: ReadonlyArray<RunStatus> = ["queued", "scheduled", "running", "waiting", "paused"]
 
 /** The name of the workflow a run is pinned to with its version ("Reconcile · Version 3"; the name alone when the version is unknown), or the word for a run with no workflow. */
 export const workflowLabelOf = (versionNumber: number | null, context: RunContext, name?: string | null): string => {
@@ -83,6 +86,10 @@ export const rowViewOf = (row: AgentRunRowWire, context: RunContext): RunRowView
         statusLabel: context.t(`status_${status}`),
         statusTone: statusToneOf(status),
         href: context.hrefOf(row.id),
+        canPause: status === "running" || status === "waiting",
+        canResume: status === "paused",
+        canCancel: IN_FLIGHT.includes(status),
+        hasCustomer: runSourceOf(row.source) === "customer",
     }
 }
 

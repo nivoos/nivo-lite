@@ -1,4 +1,5 @@
 export * from "./useQueryAgentCatalogSwr"
+export * from "./useQueryAgentRunsInFlightSwr"
 export * from "./useQueryAgentChannelChoicesSwr"
 export * from "./useQueryAgentKnowledgeLensesSwr"
 export * from "./useQueryAgentKnowledgeSwr"

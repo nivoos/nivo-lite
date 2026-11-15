@@ -141,7 +141,7 @@ const roomViewPropsOf = (context: RoomViewContext): TeamChatRoomViewProps => {
         isLoadingOlder: thread.isLoadingOlder,
         decidingId: cards.decidingId,
         decideError: cards.decideRefusal === null ? null : refusalWordsOf(t, cards.decideRefusal),
-        stops: { isOwner: room.stops.isOwner, pendingKey: room.stops.pendingKey },
+        stops: { isOwner: room.stops.isOwner, pendingKey: room.stops.pendingKey, onRunChanged: room.stops.changed },
         changes: { pendingId: room.changes.pendingId },
         jobs: { pendingId: room.jobs.pendingId },
         forward: forwardOf(context),

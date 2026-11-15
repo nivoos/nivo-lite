@@ -1,4 +1,5 @@
 import type { BadgeTone } from "@starci/grammar/common"
+import type { WorkflowRunView } from "./agentWorkflows"
 
 /** One chip on a row: a value bound at run time (pink, "= order.id") or a fixed one (grey). */
 export interface WorkflowChipView {
@@ -23,6 +24,7 @@ export interface WorkflowTableRowView {
     readonly runs7d: number | null
     readonly statusLabel: string
     readonly statusTone: BadgeTone
+    readonly run: WorkflowRunView
 }
 
 /** One row of a card of the overview: a title, one muted line, chips, and a note under them. */

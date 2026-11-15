@@ -16,6 +16,8 @@ export enum AgentThreadsErrorCode {
     RunUnmarked = "AGENT_THREADS_RUN_UNMARKED",
     /** A node ran for a run this process is not driving (`runId`): the engine's own bug, never a business state. */
     NotDriving = "AGENT_THREADS_NOT_DRIVING",
+    /** A person paused the run while a drive was in flight: the drive stops before the next step and its wake is held until the resume (`runId`). */
+    RunPaused = "AGENT_THREADS_RUN_PAUSED",
 }
 
 /** How each code travels. */
@@ -27,6 +29,7 @@ export const AGENT_THREADS_ERROR_KINDS: Record<AgentThreadsErrorCode, ErrorKind>
     [AgentThreadsErrorCode.TemplateRefused]: "internal",
     [AgentThreadsErrorCode.RunUnmarked]: "internal",
     [AgentThreadsErrorCode.NotDriving]: "internal",
+    [AgentThreadsErrorCode.RunPaused]: "conflict",
 }
 
 /** The typed error of the thread runs. */

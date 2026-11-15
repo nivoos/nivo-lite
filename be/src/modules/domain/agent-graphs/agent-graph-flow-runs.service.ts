@@ -63,6 +63,12 @@ const takenBy = (active: ActiveFlow | null, turn: AgentTurnView): active is Acti
 /** Why a customer's wake started no run: the agent is off duty and does not answer after hours; it waits for the next working hour. */
 const OUTSIDE_HOURS = "outside_hours"
 
+/** The reason a wake for a stopped workflow is HELD with until the workflow is started again: `stopped:<workflow>`. */
+export const WORKFLOW_STOPPED_HELD = "stopped:"
+
+/** The reason a wake for a stopped workflow is SKIPPED with (recorded, not run, the team told once): `workflow_stopped:<workflow>`. */
+export const WORKFLOW_STOPPED_SKIPPED = "workflow_stopped:"
+
 /** Why a hand-off started no run: the workflow it pinned is switched on but readiness hides it. */
 const TARGET_HIDDEN: CallRefusal = "call_target_hidden"
 
@@ -340,6 +346,22 @@ export class AgentGraphFlowRunsService implements AgentWorkFlow, OnModuleInit {
         await this.wakeNotices?.refused(turn, { code: TARGET_HIDDEN, workflow: hidden.name, waitingFor: hidden.waitingFor })
     }
 
+    /**
+     * A wake for a workflow a person STOPPED: no run starts. Held `stopped:<workflow>` when the stop chose to keep the events (they run in
+     * the order they came when the workflow is started again), else skipped `workflow_stopped:<workflow>` with the team told ONCE per stop
+     * (never lost silently). The customer is told nothing. Generic: a workflow id and the stop's choice, nothing about what the event is.
+     */
+    private async stoppedWorkflow(
+        turn: AgentTurnView,
+        workflowId: string,
+        stopped: NonNullable<WorkflowRoute["stopped"]>,
+    ): Promise<AgentHandlerEnding> {
+        if (stopped.holdsEvents) return { status: "held", reason: `${WORKFLOW_STOPPED_HELD}${workflowId}`, outcome: null }
+        this.logger?.info(AgentGraphsLogEvent.WakeUntaken, { agentId: turn.agentId, wakeId: turn.wakeId, code: "workflow_stopped" })
+        await this.wakeNotices?.stopped(turn, { workflow: stopped.name, once: `workflow-stopped:${workflowId}:${stopped.at}` })
+        return { status: "skipped", reason: `${WORKFLOW_STOPPED_SKIPPED}${workflowId}`, outcome: null }
+    }
+
     /** Ends a customer wake no workflow took: the founder is told why with the facts, the customer is told nothing, nothing runs. */
     private async untaken(turn: AgentTurnView): Promise<AgentHandlerEnding> {
         const standing = (await this.workflows?.standingOf(turn.workspaceId, turn.agentId)) ?? {
@@ -387,6 +409,10 @@ export class AgentGraphFlowRunsService implements AgentWorkFlow, OnModuleInit {
             return this.noWaiter(turn, verb)
         }
         const active = await this.flowOf(turn)
+        // A STOPPED workflow starts no run: its event is held for its start, or recorded and reported once, as the person's stop chose.
+        const stoppedRoute = active?.route ?? null
+        if (stoppedRoute?.stopped !== undefined && stoppedRoute !== null)
+            return this.stoppedWorkflow(turn, stoppedRoute.workflowId, stoppedRoute.stopped)
         // A customer line is never dropped untold, whatever its agent waits on: no workflow taking it is reported.
         if (!takenBy(active, turn) && this.aboutAPerson(turn)) return this.untaken(turn)
         // An event no head registers, of a verb only a `wait` lists, that no parked run took: a normal no-op.

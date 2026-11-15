@@ -7,6 +7,18 @@ export type WorkflowStatus = "active" | "draft" | "paused"
 /** How a step differs between two graphs. */
 export type WorkflowMark = "added" | "removed" | "changed"
 
+/** Where the runs of a workflow stand: what the stop, start and end-all commands and their dialogs need. */
+export interface WorkflowRunView {
+    readonly status: WorkflowStatus
+    /** The primary workflow of an agent cannot leave `active`: no stop is offered for it. */
+    readonly isPrimary: boolean
+    /** The version that runs (or the latest while none does). */
+    readonly version: number
+    readonly runsInFlight: number
+    readonly eventsHeld: number
+    readonly eventsSkipped: number
+}
+
 /** One workflow in the left pane. */
 export interface WorkflowRowView {
     readonly id: string
@@ -17,6 +29,7 @@ export interface WorkflowRowView {
     readonly versionLabel: string
     /** "from the template Reconcile v2", or the word for a workflow made from scratch. */
     readonly provenance: string
+    readonly run: WorkflowRunView
 }
 
 /** The head card of the open workflow. */
@@ -144,4 +157,34 @@ export interface WorkflowCreateView {
     readonly selectedId: string
     readonly detail: WorkflowTemplateDetailView | null
     readonly isCreating: boolean
+}
+
+/** The words of the stop, start and end-all commands of a workflow and of their dialogs. */
+export interface WorkflowRunCopy {
+    /** The badge words of a running and of a stopped workflow. */
+    readonly statusActive: string
+    readonly statusPaused: string
+    /** The head commands. */
+    readonly stop: string
+    readonly start: string
+    readonly endAll: string
+    /** The row commands of the table. */
+    readonly rowStop: string
+    readonly rowStart: string
+    readonly rowActions: string
+    /** The 12px line under a name; `withVersion` adds the version of a running workflow (the head says it, the table has a column). */
+    readonly line: (run: WorkflowRunView, withVersion: boolean) => string
+    readonly stopTitle: (name: string) => string
+    readonly stopBody: (runs: number) => string
+    readonly stopEndRuns: (runs: number) => string
+    readonly stopHold: string
+    readonly stopHoldHelp: string
+    readonly stopConfirm: string
+    readonly endTitle: string
+    readonly endBody: (name: string, runs: number) => string
+    readonly endConfirm: string
+    readonly startTitle: (name: string) => string
+    readonly startBody: (held: number) => string
+    readonly startConfirm: string
+    readonly cancel: string
 }

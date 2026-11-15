@@ -227,6 +227,10 @@ export interface ContactHistoryView {
     readonly selectedKey: string
     /** The workbench of the agent that spoke last on the route the tab shows (on every channel: the most recently active route); null when no agent has spoken. */
     readonly workbenchHref: string | null
+    /** The runs in flight on the conversation the tab shows (none when no agent is mid-run there): each may be paused, resumed or ended. */
+    readonly runs: ReadonlyArray<{ readonly runId: string; readonly status: "running" | "waiting" | "paused" }>
+    /** A run was paused, resumed or ended from the block: the runs in flight are read again. */
+    readonly onRunsChanged: () => void
     /** The thread: loading, failed, nothing said yet, or the lines. */
     readonly thread: DataSlot<ContactHistoryThread>
 }

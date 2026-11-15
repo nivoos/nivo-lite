@@ -6,6 +6,7 @@ import type { RunsTableCopy } from "@/modules/types"
 /** The words of the table of runs, shared by the runs of an agent and the runs of one workflow. */
 export const useRunsTableCopy = (): RunsTableCopy => {
     const t = useTranslations("agentRuns")
+    const door = useTranslations("runDoor")
     return {
         statusFilter: t("statusFilter"),
         searchLabel: t("searchLabel"),
@@ -18,6 +19,7 @@ export const useRunsTableCopy = (): RunsTableCopy => {
         started: t("colStarted"),
         duration: t("colDuration"),
         result: t("colResult"),
+        actions: door("colActions"),
         empty: t("empty"),
         emptyFiltered: t("emptyFiltered"),
         pagerLabel: t("pagerLabel"),

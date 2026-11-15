@@ -6,6 +6,7 @@ export const RUN_MARK_COLOURS = {
     queued: "text-muted",
     scheduled: "text-muted",
     waiting: "text-warning",
+    paused: "text-warning",
     done: "text-success",
     failed: "text-danger",
     pending: "text-muted",

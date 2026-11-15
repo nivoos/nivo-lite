@@ -2,6 +2,30 @@ import { Field, Int, ObjectType } from "@nestjs/graphql"
 import { AgentWorkflowReadinessType } from "./agent-workflow-readiness.type"
 
 @ObjectType()
+/** What runs and waits for a workflow now. */
+export class AgentWorkflowRunStateType {
+    /** How many runs of it are in flight (running, waiting, paused). */
+    @Field(() => Int)
+    runsInFlight!: number
+
+    /** While stopped: whether the events that come are kept for its start (true) or recorded and not run (false). */
+    @Field(() => Boolean)
+    holdsEvents!: boolean
+
+    /** When a person last stopped it, ISO 8601, or null. */
+    @Field(() => String, { nullable: true })
+    stoppedAt!: string | null
+
+    /** How many events are kept for its start. */
+    @Field(() => Int)
+    eventsHeld!: number
+
+    /** How many events were recorded and not run while it was stopped. */
+    @Field(() => Int)
+    eventsSkipped!: number
+}
+
+@ObjectType()
 /** One workflow of an agent: a named graph with its own version history. */
 export class AgentWorkflowType {
     /** The workflow. */
@@ -59,6 +83,10 @@ export class AgentWorkflowType {
     /** When it last changed, ISO 8601. */
     @Field(() => String)
     updatedAt!: string
+
+    /** What runs and waits for it now, read by the agentWorkflows list and the workflow detail; null where it is not read. */
+    @Field(() => AgentWorkflowRunStateType, { nullable: true })
+    runState?: AgentWorkflowRunStateType | null
 
     /** Whether its graph shows for the agent, read by the agentWorkflows list; null where it is not read (a single write's answer). */
     @Field(() => AgentWorkflowReadinessType, { nullable: true })

@@ -1,5 +1,6 @@
 "use client"
 
+import { useWorkflowRunCopy } from "@/hooks/agentWorkflows"
 import { useAgentRoute } from "@/hooks/installations"
 import { useTranslations } from "next-intl"
 import { tabOf, useRunsTableCopy } from "@/hooks/agentRuns"
@@ -7,7 +8,7 @@ import { useWorkflowDetail } from "@/hooks/agentWorkflowPages"
 import { useSlotLabels } from "@/hooks/slot"
 import { navigation } from "@/modules/i18n"
 import { EMPTY_STEPS_MAP } from "@/hooks/workflowSteps"
-import type { PaneGridLayout, RunsTableCopy, RunsView, WorkflowDetailView } from "@/modules/types"
+import type { PaneGridLayout, RunsTableCopy, RunsView, WorkflowDetailView, WorkflowRunCopy } from "@/modules/types"
 import { AgentWorkflowDetailBase } from "./component"
 import type { AgentWorkflowDetailCopy, DetailTab } from "./parts"
 
@@ -35,6 +36,7 @@ const DETAIL_PLACEHOLDER: WorkflowDetailView = {
         versionLabel: "-",
         provenance: "-",
         status: "draft",
+        run: { status: "draft", isPrimary: false, version: 0, runsInFlight: 0, eventsHeld: 0, eventsSkipped: 0 },
         facts: "-",
         toggleLabel: "-",
         toggleTo: "active",
@@ -79,7 +81,12 @@ const overviewCopyOf = (t: PageWords): AgentWorkflowDetailCopy["overview"] => ({
 })
 
 /** The words of the page that do not come from the data. */
-const copyOf = (t: PageWords, td: WorkflowWords, runs: RunsTableCopy): AgentWorkflowDetailCopy => ({
+const copyOf = (
+    t: PageWords,
+    td: WorkflowWords,
+    runs: RunsTableCopy,
+    run: WorkflowRunCopy,
+): AgentWorkflowDetailCopy => ({
     paneLabel: t("paneLabel"),
     noticeAction: t("noticeAction"),
     noticePreview: t("noticePreview"),
@@ -107,6 +114,7 @@ const copyOf = (t: PageWords, td: WorkflowWords, runs: RunsTableCopy): AgentWork
         empty: t("versionsEmpty"),
     },
     runs,
+    run,
 })
 
 /** The connected page of one workflow: reads it, its overview, its map and its runs, and draws them in four parts. */
@@ -115,6 +123,7 @@ export const AgentWorkflowDetail = (props: AgentWorkflowDetailProps) => {
     const t = useTranslations("agentWorkflowPages")
     const td = useTranslations("agentWorkflows")
     const runsCopy = useRunsTableCopy()
+    const runCopy = useWorkflowRunCopy()
     const slotLabels = useSlotLabels()
     const base = navigation.usePathname().replace(/\/(map|versions|runs)$/, "")
     const page = useWorkflowDetail(route.module, route.installationId, route.workflowKey)
@@ -122,7 +131,7 @@ export const AgentWorkflowDetail = (props: AgentWorkflowDetailProps) => {
     return (
         <AgentWorkflowDetailBase
             props={{
-                copy: copyOf(t, td, runsCopy),
+                copy: copyOf(t, td, runsCopy, runCopy),
                 detail: page.detail,
                 placeholder: DETAIL_PLACEHOLDER,
                 overview: page.overview,
@@ -137,8 +146,12 @@ export const AgentWorkflowDetail = (props: AgentWorkflowDetailProps) => {
                 grid: GRID,
                 slotLabels: slotLabels(t("notFound")),
                 isWriting: page.isWriting,
+                runAsk: page.runControl.ask,
             }}
             on={{
+                runAsk: page.runControl.open,
+                runClose: page.runControl.close,
+                runConfirm: page.runControl.confirm,
                 retry: page.retry,
                 step: page.steps.act,
                 rollback: page.rollback,

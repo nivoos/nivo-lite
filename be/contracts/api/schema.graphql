@@ -856,6 +856,7 @@ type AgentRunCallType {
 }
 
 type AgentRunCancelType {
+  children: Int!
   kind: String!
   note: String
 }
@@ -878,6 +879,7 @@ type AgentRunDetailType {
   aiCalls: [AgentRunAiCallType!]!
   aiTotals: AgentRunAiTotalsType!
   canCancel: Boolean!
+  canPause: Boolean!
   canResume: Boolean!
   decision: AgentRunDecisionType
   item: AgentRunItemType
@@ -889,6 +891,12 @@ type AgentRunDetailType {
 type AgentRunFactType {
   key: String!
   value: String!
+}
+
+type AgentRunInFlightType {
+  agentId: ID!
+  runId: ID!
+  status: String!
 }
 
 input AgentRunInput {
@@ -906,9 +914,12 @@ type AgentRunItemType {
   summary: String!
 }
 
-type AgentRunResumeType {
+input AgentRunPauseInput {
+  runId: ID! @inputBounds(maxLength: 64)
+}
+
+type AgentRunPauseType {
   kind: String!
-  stepKey: String
 }
 
 type AgentRunRowType {
@@ -986,6 +997,11 @@ type AgentRunWorkflowType {
 input AgentRunWorkflowsInput {
   installationId: ID! @inputBounds(maxLength: 36)
   runIds: [String!]! @inputBounds(maxItems: 100, itemMaxLength: 36)
+}
+
+input AgentRunsInFlightInput {
+  contactId: ID @inputBounds(maxLength: 36)
+  conversationId: ID! @inputBounds(maxLength: 36)
 }
 
 type AgentRunsType {
@@ -1261,6 +1277,18 @@ type AgentWorkflowReconnectType {
   provider: String!
 }
 
+type AgentWorkflowRunStateType {
+  eventsHeld: Int!
+  eventsSkipped: Int!
+  holdsEvents: Boolean!
+  runsInFlight: Int!
+  stoppedAt: String
+}
+
+type AgentWorkflowRunsEndedType {
+  ended: Int!
+}
+
 type AgentWorkflowStepDiffType {
   change: String!
   key: String!
@@ -1296,6 +1324,7 @@ type AgentWorkflowType {
   name: String!
   primary: Boolean!
   readiness: AgentWorkflowReadinessType
+  runState: AgentWorkflowRunStateType
   status: String!
   stepCount: Int!
   templateChangedSteps: Int
@@ -2048,6 +2077,7 @@ type BrainType {
 
 input CancelAgentRunInput {
   runId: ID! @inputBounds(maxLength: 64)
+  tellCustomer: Boolean
 }
 
 input CancelTelegramLoginInput {
@@ -3473,6 +3503,10 @@ input DrivePickedFolderInput {
   token: String! @inputBounds(maxLength: 4096)
 }
 
+input EndAgentWorkflowRunsInput {
+  workflowId: ID! @inputBounds(maxLength: 36)
+}
+
 input EnqueueKnowledgeSourceInput {
   content: String @inputBounds(maxLength: 120000)
   installationId: ID @inputBounds(maxLength: 36)
@@ -4282,6 +4316,7 @@ type Mutation {
   dismissContextNote(input: DismissContextNoteInput!): Boolean!
   dismissKnowledgeGap(input: DismissKnowledgeGapInput!): Boolean!
   draftPublicDocument(input: DraftPublicDocumentInput!): PublicDocumentType!
+  endAgentWorkflowRuns(input: EndAgentWorkflowRunsInput!): AgentWorkflowRunsEndedType!
   enqueueKnowledgeSource(input: EnqueueKnowledgeSourceInput!): SourceRefType!
   expireSandboxWait(input: ExpireSandboxWaitInput!): SandboxWaitExpiryType!
   fileConfirm(input: WorkbenchFileConfirmInput!): WorkbenchAnswerType!
@@ -4303,6 +4338,7 @@ type Mutation {
   markChatRoomRead(input: MarkChatRoomReadInput!): ChatReadPayloadType!
   mergeContacts(input: MergeContactsInput!): ContactType!
   openSandboxAccount(input: OpenSandboxAccountInput!): OpenedSandboxAccountType!
+  pauseAgentRun(input: AgentRunPauseInput!): AgentRunPauseType!
   pinChatMessage(input: ChatPinInput!): ChatMessagePayloadType!
   postSetupMessage(input: PostSetupMessageInput!): SetupMessageType!
   reactToChatMessage(input: ChatReactInput!): ChatMessagePayloadType!
@@ -4334,7 +4370,7 @@ type Mutation {
   resetSandboxAccount(connectionId: ID!): Boolean!
   resetWorkspaceTheme: Boolean!
   restoreWorkspace: Boolean!
-  resumeAgentRun(input: ResumeAgentRunInput!): AgentRunResumeType!
+  resumeAgentRun(input: AgentRunPauseInput!): AgentRunPauseType!
   resumeStoppedWork(input: ResumeStoppedWorkInput!): Boolean!
   retryBrainCritique(input: BrainCritiqueSourceInput!): BrainCritiqueReviewType!
   retryKnowledgeSource(input: RetryKnowledgeSourceInput!): SourceRefType!
@@ -4799,6 +4835,7 @@ type Query {
   agentRun(input: AgentRunInput!): AgentRunDetailType
   agentRunWorkflows(input: AgentRunWorkflowsInput!): [AgentRunWorkflowPinType!]!
   agentRuns(input: AgentWorkInstanceInput!): AgentRunsType!
+  agentRunsInFlight(input: AgentRunsInFlightInput!): [AgentRunInFlightType!]!
   agentTemplateNodeRequests(input: GetAgentTemplateNodeRequestsInput!): AgentTemplateNodeRequestsType!
   agentTools(input: AgentIdInput!): [AgentToolType!]!
   agentWork(input: AgentWorkInstanceInput!): AgentWorkType!
@@ -5080,11 +5117,6 @@ input RequeueStoppedEventInput {
 
 input ResendTelegramCodeInput {
   connectionId: ID! @inputBounds(maxLength: 64)
-}
-
-input ResumeAgentRunInput {
-  reason: String! @inputBounds(maxLength: 500)
-  runId: ID! @inputBounds(maxLength: 64)
 }
 
 input ResumeStoppedWorkInput {
@@ -5690,6 +5722,8 @@ input SetAgentWorkInput {
 
 input SetAgentWorkflowStatusInput {
   agreedRights: [AgreedRightInput!] @inputBounds(maxItems: 500)
+  endRuns: Boolean
+  holdEvents: Boolean
   installationId: ID! @inputBounds(maxLength: 36)
   status: String! @inputBounds(maxLength: 20)
   workflowId: ID! @inputBounds(maxLength: 36)

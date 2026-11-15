@@ -88,6 +88,14 @@ export enum AgentThreadsLogEvent {
     SubjectErasedStopsLeft = "agent_threads.subject_erased_stops_left",
     /** A step of a run that had already ended (outside its drive) was not run: the thread goes to its end, nothing acts (`run-ended.policy`). */
     StepOfEndedRun = "agent_threads.step_of_ended_run",
+    /** A step of a run a person paused was not run: the drive stops before it and its wake is held until the resume (`run-ended.policy`). */
+    StepOfPausedRun = "agent_threads.step_of_paused_run",
+    /** A wake of a run a person paused was held until the resume (`runId`, `wakeId`). */
+    WakeOfPausedRun = "agent_threads.wake_of_paused_run",
+    /** A person ended, paused or resumed a run; what the run door's hooks did after it (`runId`, `kind`, counts). */
+    RunDoorDone = "agent_threads.run_door_done",
+    /** One after-write hook of the run door failed (`runId`, `hook`); the write stands, the sweep's backstops cover the rest. */
+    RunDoorHookFailed = "agent_threads.run_door_hook_failed",
     /** One pass of the thread sweep ended, with its counts. */
     SweepDone = "agent_threads.sweep_done",
     /** A reply in the team chat to the card of a stop was handed to the stop door (`runId`, `outcome`); never the reply's words. */

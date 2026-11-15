@@ -10,12 +10,7 @@ import { AgentRunDecisionCard, type AgentRunDecisionCopy } from "@/components/co
 import { AgentRunStepParams, type AgentRunStepParamsCopy } from "@/components/frames/AgentRunStepParams"
 import { AgentRunStepsCard } from "@/components/composites/AgentRunStepsCard"
 import { nivoIconSource } from "@/components/leaves/Icon"
-import type {
-    DataSlot,
-    PaneGridLayout,
-    RunDetailView,
-    SlotLabels,
-} from "@/modules/types"
+import type { DataSlot, PaneGridLayout, RunDetailView, SlotLabels } from "@/modules/types"
 
 /** The words of the page of a run that do not come from the data. */
 export interface AgentRunPanesCopy {
@@ -30,7 +25,7 @@ export interface AgentRunPanesCopy {
     readonly canvasEmpty: string
     readonly missing: string
     readonly stepEmpty: string
-    readonly head: Omit<AgentRunHeadCopy, "isResuming" | "isCancelling">
+    readonly head: AgentRunHeadCopy
     readonly params: AgentRunStepParamsCopy
 }
 
@@ -43,8 +38,6 @@ export interface AgentRunPanesBaseProps {
         readonly slotLabels: SlotLabels
         readonly isPhone: boolean
         readonly isMissing: boolean
-        readonly isResuming: boolean
-        readonly isCancelling: boolean
         readonly isDeciding: boolean
         /** The aside of the selected step is open as a drawer (below the wide width). */
         readonly isAsideOpen: boolean
@@ -60,8 +53,8 @@ export interface AgentRunPanesBaseProps {
         readonly select: (nodeKey: string) => void
         /** Selects a card pressed on the map and opens the aside with its params. */
         readonly pressStep: (nodeKey: string) => void
-        readonly resume: () => void
-        readonly cancel: () => void
+        /** A command on the run (pause, resume, end) was answered: reads the run again. */
+        readonly done: () => void
         readonly decide: (verdict: "approve" | "retry" | "reject") => void
         readonly retry: () => void
         readonly asideOpenChange: (isOpen: boolean) => void
@@ -83,14 +76,14 @@ interface RunCardsProps {
 
 /** The main pane, stacked: the head, the map (the steps on a phone), the decision the run waits on the truths it read and the AI calls. */
 const RunCards = (props: RunCardsProps) => {
-    const { copy, isPhone, isResuming, isCancelling, isDeciding } = props.page.props
+    const { copy, isPhone, isDeciding } = props.page.props
     const { view, isLoading } = props
     const { on } = props.page
     return (
         <>
             <AgentRunHead
-                props={{ copy: { ...copy.head, isResuming, isCancelling }, head: view.head, switches: view.switches, isLoading }}
-                on={{ resume: on.resume, cancel: on.cancel }}
+                props={{ copy: copy.head, head: view.head, switches: view.switches, isLoading }}
+                on={{ done: on.done }}
             />
             {isPhone ? (
                 <AgentRunStepsCard
@@ -159,34 +152,34 @@ export const AgentRunPanesBase = (props: AgentRunPanesBaseProps) => {
         />
     )
     return (
-            <PaneGrid label={copy.paneLabel} areas={grid.areas} columns={grid.columns} rows={grid.rows}>
-                <Pane area="main" scroll content="full" label={copy.paneLabel}>
-                    <PaneSection gap="section">
-                        {part((view, isLoading) => (
-                            <RunCards page={props} view={view} isLoading={isLoading} />
-                        ))}
-                    </PaneSection>
-                </Pane>
-                <Pane
-                    area="aside"
-                    surface
-                    scroll
-                    label={copy.asideLabel}
-                    head={{ title: props.props.asideHead.title, description: props.props.asideHead.description }}
-                    collapse="drawer"
-                    trigger="none"
-                    collapseLabel={copy.asideLabel}
-                    closeLabel={copy.closeAside}
-                    isOpen={props.props.isAsideOpen}
-                    onOpenChange={props.on.asideOpenChange}
-                >
-                    <PaneBody>
-                        {part((view, isLoading) => (
-                            <AgentRunStepParams props={{ copy: copy.params, step: view.selected, isLoading }} />
-                        ))}
-                    </PaneBody>
-                </Pane>
-            </PaneGrid>
+        <PaneGrid label={copy.paneLabel} areas={grid.areas} columns={grid.columns} rows={grid.rows}>
+            <Pane area="main" scroll content="full" label={copy.paneLabel}>
+                <PaneSection gap="section">
+                    {part((view, isLoading) => (
+                        <RunCards page={props} view={view} isLoading={isLoading} />
+                    ))}
+                </PaneSection>
+            </Pane>
+            <Pane
+                area="aside"
+                surface
+                scroll
+                label={copy.asideLabel}
+                head={{ title: props.props.asideHead.title, description: props.props.asideHead.description }}
+                collapse="drawer"
+                trigger="none"
+                collapseLabel={copy.asideLabel}
+                closeLabel={copy.closeAside}
+                isOpen={props.props.isAsideOpen}
+                onOpenChange={props.on.asideOpenChange}
+            >
+                <PaneBody>
+                    {part((view, isLoading) => (
+                        <AgentRunStepParams props={{ copy: copy.params, step: view.selected, isLoading }} />
+                    ))}
+                </PaneBody>
+            </Pane>
+        </PaneGrid>
     )
 }
 

@@ -175,8 +175,15 @@ export { QUERY_SEPAY_CONNECTION_SWR_KEY } from "./api"
 export { useQueryTelegramConnectionPageSwr } from "./api"
 export { useMutateCloseAgentTaskSwr, useMutateRemoveAgentTriggerSwr } from "./api"
 export { useMutateSaveAgentTriggerSwr, useMutateSetAgentWorkSwr, useMutateSetWorkspaceAgentWorkSwr } from "./api"
-export { useQueryAgentRunSwr, useQueryAgentRunsSwr, useQueryAgentRunAiCallsSwr } from "./api"
-export { useMutateResumeAgentRunSwr, useMutateCancelAgentRunSwr } from "./api"
+export { useQueryAgentRunSwr, useQueryAgentRunsSwr, useQueryAgentRunAiCallsSwr, QUERY_AGENT_RUNS_SWR_KEY } from "./api"
+export {
+    useMutateResumeAgentRunSwr,
+    useMutateCancelAgentRunSwr,
+    useMutatePauseAgentRunSwr,
+    useMutateEndAgentWorkflowRunsSwr,
+    useQueryAgentRunsInFlightSwr,
+    QUERY_AGENT_RUNS_IN_FLIGHT_SWR_KEY,
+} from "./api"
 export { useQueryAgentWorkSwr, useQueryWorkspaceAgentWorkSwr, QUERY_AGENT_GRAPH_SWR_KEY } from "./api"
 export { QUERY_AGENT_GRAPH_VERSIONS_SWR_KEY } from "./api"
 export { QUERY_AGENT_GRAPH_COVERAGE_SWR_KEY, useQueryAgentGraphCoverageSwr, useQueryAgentGraphRunSwr } from "./api"

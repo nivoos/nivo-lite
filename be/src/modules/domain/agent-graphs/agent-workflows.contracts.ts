@@ -51,6 +51,8 @@ export interface WorkflowRecord {
     readonly template: TemplateLink | null
     /** The member who made it, or null for one the system made. */
     readonly createdBy: string | null
+    /** How it was stopped (`paused`): whether the events that come while stopped are held for its start, when, by whom; null before any stop. */
+    readonly stop: WorkflowStop | null
     /** When it was made. */
     readonly createdAt: Date
     /** When it last changed. */
@@ -117,10 +119,22 @@ export interface WorkflowInsert {
     readonly createdBy: string | null
 }
 
+/** How a person stopped a workflow: the events that come while it is stopped are held for its start, or recorded and not run. */
+export interface WorkflowStop {
+    /** True: held `stopped:<workflow>` and run in order on the start; false: recorded, skipped, the team told once. */
+    readonly holdsEvents: boolean
+    /** When, ISO. */
+    readonly at: string
+    /** The member, or null. */
+    readonly by: string | null
+}
+
 /** The members of a workflow a write changes; an absent member is left as it is. */
 export interface WorkflowPatch {
     /** Where it stands. */
     readonly status?: WorkflowStatus
+    /** How it was stopped (written with `status: paused` by a person). */
+    readonly stop?: WorkflowStop
     /** The place in the agent's list. */
     readonly position?: number
     /** The version that runs. */
@@ -282,6 +296,8 @@ export interface WorkflowView {
     readonly templateChangedSteps: number | null
     /** How many steps the version that runs has. */
     readonly stepCount: number
+    /** How a person last stopped it, or null. */
+    readonly stop: WorkflowStop | null
     /** When it last changed, ISO. */
     readonly updatedAt: string
 }
@@ -342,6 +358,8 @@ export interface WorkflowRoute {
     readonly flow: GraphSpec
     /** The workflow's stable key, which namespaces its lead memory; absent for a route written before it. */
     readonly workflowKey?: string | undefined
+    /** Set when the workflow is STOPPED (a person's stop): it takes no new event; how the event is kept is the stop's choice. */
+    readonly stopped?: (WorkflowStop & { readonly name: string }) | undefined
 }
 
 /** A workflow as the route reads it: where it stands and what wakes its graph. */
@@ -434,6 +452,8 @@ export interface RoutableWorkflow {
     readonly sources: ReadonlyArray<string>
     /** The stable key within the agent, which namespaces the workflow's lead memory. */
     readonly key?: string | undefined
+    /** How a person stopped it, when it is `paused`. */
+    readonly stop?: WorkflowStop | null | undefined
 }
 
 /** Who makes a change: the owner (a member), NIVO (a proposal it raised) or the system. */

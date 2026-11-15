@@ -139,12 +139,13 @@ import {
     type StepEndingReason,
     type UnsuccessfulEnding,
 } from "./step-ending.policy"
-import { isRunEnded } from "./run-ended.policy"
+import { isRunEnded, isRunPaused } from "./run-ended.policy"
 import { runSubjectOf, timeoutMsOf, waitCameOf, waitOnOf, waitOutputOf, waitParkOf } from "./thread-waits.policy"
 import { waitMatchKeysOf } from "./wait-match.policy"
 import { HAND_BACK_NO_EVENT, HAND_BACK_WAIT_PARAM, TEMPLATE_HAND_BACK_STEP, handedOffByOf } from "./thread-hand-back.policy"
 import { ThreadHandBacksService } from "./thread-hand-backs.service"
 import { ThreadProjectionService } from "./thread-projection.service"
+import { AgentThreadsError, AgentThreadsErrorCode } from "./errors/agent-threads.error"
 import { RunStopsService } from "./stops/run-stops.service"
 import { ThreadApprovalsService } from "./thread-approvals.service"
 import {
@@ -741,6 +742,12 @@ export class ThreadStepService {
         if (run.ended) {
             this.logger?.info(AgentThreadsLogEvent.StepOfEndedRun, { runId: view.runId, stepKey: view.stepKey })
             return { goto: THREAD_END }
+        }
+        // A run a person paused runs no further step (run-ended.policy): the drive stops here, before this step, its checkpoint untouched;
+        // its wake is held until the resume, and the resumed drive runs this step from the checkpoint.
+        if (run.paused) {
+            this.logger?.info(AgentThreadsLogEvent.StepOfPausedRun, { runId: view.runId, stepKey: view.stepKey })
+            throw new AgentThreadsError({ code: AgentThreadsErrorCode.RunPaused, params: { runId: view.runId } })
         }
         const turn = this.turnOf(view, trigger, state, run.subject)
         // A `loop({ until })` node: the engine drives its rounds (start, judge after a round, park between rounds, end).
@@ -1713,13 +1720,19 @@ export class ThreadStepService {
      */
     private async visitRunOf(
         view: StepView,
-    ): Promise<{ readonly subject: { readonly kind: string; readonly id: string } | null; readonly ended: boolean }> {
+    ): Promise<{
+        readonly subject: { readonly kind: string; readonly id: string } | null
+        readonly ended: boolean
+        readonly paused: boolean
+    }> {
         const run = await this.agentRuns?.runOf(view.workspaceId, view.runId)
         const scopeKey: unknown = run?.context[THREAD_SCOPE_MEMBER]
         return {
             subject: run == null || typeof scopeKey !== "string" ? null : subjectOfScope({ scopeKey, context: run.context }),
             // An ended run runs no further step (run-ended.policy): a drive still in flight when the run was ended outside it stops here.
             ended: run != null && isRunEnded(run.status),
+            // A paused run runs no further step until a person resumes it (the second half of the same rule).
+            paused: run != null && isRunPaused(run.status),
         }
     }
 

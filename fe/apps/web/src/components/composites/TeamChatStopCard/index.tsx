@@ -1,4 +1,4 @@
-import { Badge, Disclosure, Divider, MessageCard, Stack, Text } from "@starci/grammar/common"
+import { Badge, Cluster, Disclosure, Divider, MessageCard, Stack, Text } from "@starci/grammar/common"
 import { ChatPartyMark } from "@/components/branches/ChatPartyMark"
 import { bubbleReactionPropsOf } from "@/components/leaves/MessageReactionProps"
 import type {
@@ -9,6 +9,7 @@ import type {
     TeamChatStopHandlers,
 } from "@/modules/types"
 import { approvalCardIdOf } from "@/hooks/teamChat"
+import { RunDoorActions } from "@/components/composites/RunDoorActions"
 import { StopAnswerBox, StopApproval, StopDecisionsRow, StopHandBack, type StopAnswerBoxProps } from "./controls"
 import { StopLinesList, StopTraceList } from "./lists"
 
@@ -34,6 +35,20 @@ export const TeamChatStopCard = (props: TeamChatStopCardProps) => {
         stops === undefined
             ? null
             : { card, isPending: stops.pendingKey === card.key, act: (action) => stops.onAction(card, action) }
+    // Pause and End run: the quiet controls at the right end of the control row, only while the card is open.
+    const door =
+        stops === undefined || !card.isOpen ? undefined : (
+            <RunDoorActions
+                runId={card.runId}
+                canPause
+                canResume={false}
+                canCancel
+                hasCustomer={card.hasCustomer}
+                intent="dismiss"
+                onDone={stops.onRunChanged}
+            />
+        )
+    const hasControlRow = card.decisions.length > 0 || (card.approval !== null && card.verdicts.length > 0)
     return (
         <MessageCard
             measure="wide"
@@ -48,10 +63,18 @@ export const TeamChatStopCard = (props: TeamChatStopCardProps) => {
                 <Stack gap="row">
                     {card.message === "" ? null : <Text>{card.message}</Text>}
                     {card.question === null || card.question === "" ? null : <Text isStrong>{card.question}</Text>}
-                    {card.facts.length === 0 ? null : <StopLinesList label={card.labels.factsLabel} lines={card.facts} />}
+                    {card.facts.length === 0 ? null : (
+                        <StopLinesList label={card.labels.factsLabel} lines={card.facts} />
+                    )}
                     {card.preview}
                     {card.approval === null ? null : (
-                        <StopApproval card={card} lines={card.approval.lines} controls={controls} isOwner={stops?.isOwner === true} />
+                        <StopApproval
+                            card={card}
+                            lines={card.approval.lines}
+                            controls={controls}
+                            isOwner={stops?.isOwner === true}
+                            trailing={door}
+                        />
                     )}
                     {card.replies.length === 0 ? null : <StopTraceList card={card} />}
                     {controls !== null && card.canAnswer ? <StopAnswerBox {...controls} /> : null}
@@ -61,7 +84,15 @@ export const TeamChatStopCard = (props: TeamChatStopCardProps) => {
                     {controls !== null && card.decisions.length > 0 ? (
                         <>
                             <Divider semantics="presentation" />
-                            <StopDecisionsRow {...controls} />
+                            <StopDecisionsRow {...controls} trailing={door} />
+                        </>
+                    ) : null}
+                    {controls !== null && door !== undefined && !hasControlRow ? (
+                        <>
+                            <Divider semantics="presentation" />
+                            <Cluster gap="inline" justify="end">
+                                {door}
+                            </Cluster>
                         </>
                     ) : null}
                     {card.technical.length === 0 ? null : (
