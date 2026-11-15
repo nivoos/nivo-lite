@@ -2,6 +2,7 @@ import type { DynamicModule, Type } from "@nestjs/common"
 import { INSTALLED } from "@modules/domain/installed-plugins"
 import type { NodeInstall } from "@nivo-lite/agent-sdk/node"
 import { CliModule } from "@features/cli"
+import { CellsModule } from "@modules/domain/cells"
 import { ChannelConnectionsModule } from "@modules/domain/channel-connections"
 import { ChannelProvisioningModule } from "@modules/domain/channel-provisioning"
 import { AgentGraphsModule } from "@modules/domain/agent-graphs"
@@ -149,5 +150,7 @@ export const cliModules = (options: CliAppOptions): Array<DynamicModule | Type> 
     BrainModule.register({ isGlobal: true, derivationsOnly: true }),
     ChannelProvisioningModule.register({ isGlobal: true, ...options.channelProvisioning }),
     EntityPlannerModule.register({ isGlobal: true, entities: INSTALLED.entities() }),
+    // The V2 cells, seed only (CELLS-PLAN 3.1: `cells-seed check | apply`): reader, writer, the isolated runner's check, validation and seed; no executor, no tool door.
+    CellsModule.register({ isGlobal: true, ...options.cells, seedOnly: true }),
     CliModule.register({}),
 ]

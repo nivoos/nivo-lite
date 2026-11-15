@@ -12,6 +12,7 @@ import { parsePassportConfig } from "@modules/integrations/passport"
 import { parsePrimaryDatabaseConfig } from "@modules/platform/database"
 import type { EnvSource } from "@modules/platform/config"
 import { parseSeedConfig } from "@modules/integrations/seed"
+import { parseCellsConfig } from "@modules/domain/cells"
 
 /** Everything the lite cli needs: the PostgreSQL connection and the own-auth account administration. */
 export interface CliAppOptions {
@@ -41,6 +42,8 @@ export interface CliAppOptions {
     readonly entityEngine: ReturnType<typeof parseEntityEngineConfig>
     /** The cache, the environment identity and the git author the seed standard driver works with. */
     readonly seed: ReturnType<typeof parseSeedConfig>
+    /** The runner limits, pool and entry of the V2 cells the `cells-seed` group checks sources with. */
+    readonly cells: ReturnType<typeof parseCellsConfig>
 }
 
 /**
@@ -63,4 +66,5 @@ export const readCliEnv = (env: EnvSource): CliAppOptions => ({
     }),
     entityEngine: parseEntityEngineConfig(env),
     seed: parseSeedConfig(env),
+    cells: parseCellsConfig(env),
 })

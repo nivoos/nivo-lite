@@ -3,6 +3,7 @@ import { AccountDataCliModule } from "./account-data/account-data.module"
 import { AgentsCliModule } from "./agents/agents.module"
 import { ConfigurableModuleClass } from "./cli.module-definition"
 import { BrainPoliciesCliModule } from "./brain-policies/brain-policies.module"
+import { CellsSeedModule } from "./cells-seed/cells-seed.module"
 import { CleanupWorkspacesModule } from "./cleanup-workspaces/cleanup-workspaces.module"
 import { EntitySchemaModule } from "./entity-schema/entity-schema.module"
 import { CreateOwnerModule } from "./create-owner/create-owner.module"
@@ -34,6 +35,7 @@ import { ToolsCliModule } from "./tools/tools.module"
         AccountDataCliModule.register({}),
         AgentsCliModule.register({}),
         BrainPoliciesCliModule.register({}),
+        CellsSeedModule.register({}),
         CleanupWorkspacesModule.register({}),
         ConnectChannelModule.register({}),
         CreateOwnerModule.register({}),
