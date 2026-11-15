@@ -15,7 +15,12 @@ const rootFlag = process.argv.indexOf("--root")
 const root = rootFlag === -1 ? ROOT : resolve(process.argv[rootFlag + 1])
 
 const gitList = (args) =>
-    spawnSync("git", ["ls-files", "-z", ...args, "--", ...SCOPE], { cwd: root, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 })
+    spawnSync("git", ["ls-files", "-z", ...args, "--", ...SCOPE], {
+        cwd: root,
+        encoding: "utf8",
+        maxBuffer: 256 * 1024 * 1024,
+        windowsHide: true,
+    })
         .stdout.split("\0")
         .filter((file) => file !== "")
 const SKIPPED_FOLDERS = new Set(["node_modules", ".git", "dist", ".next", "coverage"])
@@ -36,7 +41,9 @@ const walked = () =>
 
 // Tracked files and the untracked ones git does not ignore (a lane is uncommitted); a file git lists but that is gone is skipped.
 const files =
-    rootFlag === -1 ? [...new Set([...gitList([]), ...gitList(["--others", "--exclude-standard"])])].sort() : walked().sort()
+    rootFlag === -1
+        ? [...new Set([...gitList([]), ...gitList(["--others", "--exclude-standard"])])].sort()
+        : walked().sort()
 
 const findings = files.flatMap((file) => {
     let text

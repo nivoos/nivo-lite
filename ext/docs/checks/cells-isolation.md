@@ -26,14 +26,21 @@ is no import. Every form counts: `import`, `import type`, `export ... from`, `im
   `cell-source-scan.policy.ts` (CELLS-DECISIONS D3: the stored `.js` is scanned by AST); `ajv8` (the npm alias of ajv 8, JSON Schema 2020-12)
   only in `cell-json-schema.policy.ts`; `@modules/platform/composition` as above. In `*.spec.ts` files of cells `node:fs`, `node:path` are also
   allowed (specs load the fixture packages from disk); production files keep the strict list, and the spec of this check plants the same
-  imports in another production file to show they are refused.
+  imports in another production file to show they are refused. ONE spec file has a further allowance (coordinator ruling, CELLS-JOIN):
+  `cell-runner.client.spec.ts` may import `node:child_process` and `node:os`, because it probes the REAL child process (it starts a probe child
+  with the runner's own spawn plan to prove the permission model, and writes its probe entry under the OS temp folder); the spec of this check
+  plants the same imports in another spec (`cell-seed.runner.spec.ts`) to show they are still refused there.
+  `cells.config.ts` finds the runner's compiled entry with `require.resolve("@nivo-lite/cell-runner/package.json")`: a FILE PATH handed to the
+  child process, never a module this process loads (the runner is spawned, not imported; gate D below).
   A type-only import (`import type`) of a `node:` module is erased and allowed. The authoring `.ts` origins under `be/src/tests/fixtures/cells/` import types of
   `@nivo-lite/cells-author` (they are package-author files beside the seed files, never engine code) and are outside the engine part of gate D.
 - **B, who imports cells.** No file of `be/**`, `fe/**` or `packages/**` outside `be/src/modules/domain/cells/`, `be/src/features/cli/cells-seed/`,
-  `be/src/tests/fixtures/cells/`, the entity registry `be/src/modules/platform/database/entities.ts` and the kit doubles
-  (`be/src/tests/fixtures/builders/cells*.builder.ts` and specs) imports `@modules/domain/cells`, by alias, subpath or relative path. The
-  runner package reads its protocol types type-only (gate D). The list of later importers lives in the cells concept (empty in phase 0;
-  each migration step adds its row), never in this check.
+  `be/src/tests/fixtures/cells/`, the entity registry `be/src/modules/platform/database/entities.ts`, the kit doubles
+  (`be/src/tests/fixtures/builders/cells*.builder.ts` and specs) and the cli composition root (`be/apps/cli/src/cli.env.ts` reads the cells
+  options, `be/apps/cli/src/compose/modules.ts` registers `CellsModule` seed-only so `cli cells-seed check | apply` runs; coordinator ruling 2,
+  CELLS-JOIN) imports `@modules/domain/cells`, by alias, subpath or relative path. The api, the mcp app and the running engine are not on
+  the list. The runner package reads its protocol types type-only (gate D). The list of later importers lives in the cells concept (empty in
+  phase 0 besides the cli seed; each migration step adds its row).
 - **C, no code evaluation in the repository.** In `be/src/**`, `packages/*/src/**`, `fe/**`: no call of the GLOBAL `eval` (also
   `globalThis.eval`), no `Function` constructor (`new Function(...)`, `Function(...)`), no import of `vm`, `node:vm`, `vm2`, `isolated-vm`.
   A member call `client.eval(...)` is not the global one: the hits in `connection-poll`, `platform/realtime` and `integrations/redis` are Lua

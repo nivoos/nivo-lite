@@ -10,7 +10,7 @@ export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..")
 
 /** Runs `command` with `args` from the app root, output inherited; its exit status (1 when it could not start). */
 export const run = (command, args, { shell = false } = {}) => {
-    const result = spawnSync(command, args, { cwd: ROOT, stdio: "inherit", shell })
+    const result = spawnSync(command, args, { cwd: ROOT, stdio: "inherit", shell, windowsHide: true })
     if (result.error !== undefined) console.error(`${command} ${args.join(" ")}: ${result.error.message}`)
     return result.status ?? 1
 }
@@ -24,13 +24,15 @@ export const node = (...args) => run(process.execPath, args)
  * never caches its verdict, so the check itself makes what it reads. It is idempotent: turbo restores an unchanged package from its cache,
  * so a second check (or a second run) pays only the cache lookup. It writes only build output (dist/), never source.
  */
-export const buildModules = () => run("npm", ["run", "build:modules", "--silent"], { shell: process.platform === "win32" })
+export const buildModules = () =>
+    run("npm", ["run", "build:modules", "--silent"], { shell: process.platform === "win32" })
 
 /**
  * Builds ONE workspace package (`npm run build -w <name>`), for a check that reads only that package and so does not depend on the build of
  * the others (another worker's edit in flight elsewhere must not hide its verdict). Only for a package with no workspace dependency.
  */
-export const buildPackage = (name) => run("npm", ["run", "build", "--silent", "-w", name], { shell: process.platform === "win32" })
+export const buildPackage = (name) =>
+    run("npm", ["run", "build", "--silent", "-w", name], { shell: process.platform === "win32" })
 
 /** Exits with the first non-zero status of `steps` (each a function returning a status), running them in order; 0 when all pass. */
 export const exitWith = (...steps) => {

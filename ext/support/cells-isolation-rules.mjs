@@ -50,10 +50,26 @@ const FILE_ALLOWANCES = {
 }
 /** Gate A, what a SPEC file of cells may also import: the node modules that load the fixture packages from disk (the `yaml` package is allowed to every file). */
 const SPEC_NODE_MODULES = ["node:fs", "node:path"]
+/**
+ * Gate A, the ONE spec allowance of node modules beyond those (coordinator ruling, CELLS-JOIN): `cell-runner.client.spec.ts` probes the REAL child
+ * process (it starts a probe child with the runner's own spawn plan to prove the permission model denies files and child processes, and writes its
+ * probe entry under the OS temp folder), so it may import `node:child_process` and `node:os`. Any other spec importing them is still a finding.
+ */
+const SPEC_FILE_NODE_ALLOWANCES = {
+    [`${CELLS_DIR}/cell-runner.client.spec.ts`]: ["node:child_process", "node:os"],
+}
 
 /** Gate B, who may import `@modules/domain/cells`: the folders and the one registry file (CELLS-PLAN 7.2 B), and the doubles of the kit (BE-TEST-4, a builder named `cells*.builder.ts`). */
 const IMPORTER_FOLDERS = [`${CELLS_DIR}/`, "be/src/features/cli/cells-seed/", "be/src/tests/fixtures/cells/"]
-const IMPORTER_FILES = ["be/src/modules/platform/database/entities.ts"]
+/**
+ * The registry line (entities), and the cli composition root (coordinator ruling 2, CELLS-JOIN: `cells-seed check | apply` runs in the cli, so the
+ * cli reads the cells options and registers `CellsModule` seed-only). Nothing of the api, the mcp app or the running engine is on this list.
+ */
+const IMPORTER_FILES = [
+    "be/src/modules/platform/database/entities.ts",
+    "be/apps/cli/src/cli.env.ts",
+    "be/apps/cli/src/compose/modules.ts",
+]
 const BUILDER_FILE = /^be\/src\/tests\/fixtures\/builders\/cells(?:-[a-z0-9-]+)?\.builder(?:\.spec)?\.ts$/u
 
 /** Gate C, the modules that evaluate code. */
@@ -75,7 +91,8 @@ const startsWithFolder = (file, folder) => file.startsWith(`${folder}/`)
 const isIn = (file, folder) => file === folder || startsWithFolder(file, folder)
 
 /** A relative specifier as the repo path it names (null for a bare or aliased one). */
-const resolveRelative = (file, specifier) => (/^\.\.?(?:\/|$)/u.test(specifier) ? posix.join(posix.dirname(file), specifier) : null)
+const resolveRelative = (file, specifier) =>
+    /^\.\.?(?:\/|$)/u.test(specifier) ? posix.join(posix.dirname(file), specifier) : null
 
 /** The repo path an import reaches: a relative one resolved, an `@modules/*` alias mapped to `be/src/modules/*`, else null. */
 const repoPathOf = (file, specifier) => {
@@ -92,20 +109,46 @@ const isTypeOnlyImport = (node) => {
     if (clause === undefined) return false
     if (clause.isTypeOnly) return true
     const bindings = clause.namedBindings
-    return clause.name === undefined && bindings !== undefined && ts.isNamedImports(bindings) && bindings.elements.length > 0 && bindings.elements.every((element) => element.isTypeOnly)
+    return (
+        clause.name === undefined &&
+        bindings !== undefined &&
+        ts.isNamedImports(bindings) &&
+        bindings.elements.length > 0 &&
+        bindings.elements.every((element) => element.isTypeOnly)
+    )
 }
 
 const isTypeOnlyExport = (node) => {
     if (node.isTypeOnly) return true
     const clause = node.exportClause
-    return clause !== undefined && ts.isNamedExports(clause) && clause.elements.length > 0 && clause.elements.every((element) => element.isTypeOnly)
+    return (
+        clause !== undefined &&
+        ts.isNamedExports(clause) &&
+        clause.elements.length > 0 &&
+        clause.elements.every((element) => element.isTypeOnly)
+    )
 }
 
-const isStringLiteral = (node) => node !== undefined && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node))
-const JEST_MODULE_CALLS = new Set(["mock", "doMock", "unmock", "dontMock", "requireActual", "requireMock", "setMock", "createMockFromModule", "unstable_mockModule"])
+const isStringLiteral = (node) =>
+    node !== undefined && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node))
+const JEST_MODULE_CALLS = new Set([
+    "mock",
+    "doMock",
+    "unmock",
+    "dontMock",
+    "requireActual",
+    "requireMock",
+    "setMock",
+    "createMockFromModule",
+    "unstable_mockModule",
+])
 
 const sourceOf = (file, text) => {
-    const kind = /\.[jt]sx$/u.test(file) ? ts.ScriptKind.TSX : /\.[cm]?js$/u.test(file) ? ts.ScriptKind.JS : ts.ScriptKind.TS
+    const kind = /\.[jt]sx$/u.test(file)
+        ? ts.ScriptKind.TSX
+        : /\.[cm]?js$/u.test(file)
+          ? ts.ScriptKind.JS
+          : ts.ScriptKind.TS
     return ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, kind)
 }
 
@@ -118,12 +161,18 @@ export const references = (file, text) => {
     const found = []
     const add = (node, typeOnly) => {
         if (!isStringLiteral(node)) return
-        found.push({ specifier: node.text, line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1, typeOnly })
+        found.push({
+            specifier: node.text,
+            line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
+            typeOnly,
+        })
     }
     const visit = (node) => {
         if (ts.isImportDeclaration(node)) add(node.moduleSpecifier, isTypeOnlyImport(node))
-        else if (ts.isExportDeclaration(node) && node.moduleSpecifier !== undefined) add(node.moduleSpecifier, isTypeOnlyExport(node))
-        else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) add(node.moduleReference.expression, node.isTypeOnly)
+        else if (ts.isExportDeclaration(node) && node.moduleSpecifier !== undefined)
+            add(node.moduleSpecifier, isTypeOnlyExport(node))
+        else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference))
+            add(node.moduleReference.expression, node.isTypeOnly)
         else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) add(node.argument.literal, true)
         else if (ts.isCallExpression(node) && node.arguments.length > 0) {
             const callee = node.expression
@@ -149,7 +198,8 @@ const calls = (file, text) => {
     const lineOf = (node) => source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1
     const memberName = (callee) => {
         if (ts.isPropertyAccessExpression(callee)) return callee.name.text
-        if (ts.isElementAccessExpression(callee) && isStringLiteral(callee.argumentExpression)) return callee.argumentExpression.text
+        if (ts.isElementAccessExpression(callee) && isStringLiteral(callee.argumentExpression))
+            return callee.argumentExpression.text
         return null
     }
     const visit = (node) => {
@@ -157,13 +207,24 @@ const calls = (file, text) => {
             found.push({ kind: "function-constructor", name: "new Function", line: lineOf(node) })
         } else if (ts.isCallExpression(node)) {
             const callee = node.expression
-            if (ts.isIdentifier(callee) && callee.text === "eval") found.push({ kind: "global-eval", name: "eval", line: lineOf(node) })
-            else if (ts.isIdentifier(callee) && callee.text === "Function") found.push({ kind: "function-constructor", name: "Function", line: lineOf(node) })
-            else if (ts.isIdentifier(callee) && QUICKJS_CALLS.has(callee.text)) found.push({ kind: "quickjs-call", name: callee.text, line: lineOf(node) })
+            if (ts.isIdentifier(callee) && callee.text === "eval")
+                found.push({ kind: "global-eval", name: "eval", line: lineOf(node) })
+            else if (ts.isIdentifier(callee) && callee.text === "Function")
+                found.push({ kind: "function-constructor", name: "Function", line: lineOf(node) })
+            else if (ts.isIdentifier(callee) && QUICKJS_CALLS.has(callee.text))
+                found.push({ kind: "quickjs-call", name: callee.text, line: lineOf(node) })
             else {
                 const member = memberName(callee)
-                const receiver = ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee) ? callee.expression : null
-                if (member === "eval" && receiver !== null && ts.isIdentifier(receiver) && GLOBAL_RECEIVERS.has(receiver.text)) {
+                const receiver =
+                    ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee)
+                        ? callee.expression
+                        : null
+                if (
+                    member === "eval" &&
+                    receiver !== null &&
+                    ts.isIdentifier(receiver) &&
+                    GLOBAL_RECEIVERS.has(receiver.text)
+                ) {
                     found.push({ kind: "global-eval", name: `${receiver.text}.eval`, line: lineOf(node) })
                 } else if (member !== null && QUICKJS_CALLS.has(member)) {
                     found.push({ kind: "quickjs-call", name: member, line: lineOf(node) })
@@ -186,51 +247,85 @@ const gateA = (file, refs) => {
         if (isBuiltin(specifier)) {
             // A type-only import of a node module is erased: it adds no runtime dependency (e.g. the Socket and Readable types of the runner client).
             if (typeOnly) continue
-            if (isSpec && SPEC_NODE_MODULES.includes(specifier.startsWith("node:") ? specifier : `node:${specifier}`)) continue
+            const nodeName = specifier.startsWith("node:") ? specifier : `node:${specifier}`
+            if (isSpec && SPEC_NODE_MODULES.includes(nodeName)) continue
+            if ((SPEC_FILE_NODE_ALLOWANCES[file] ?? []).includes(nodeName)) continue
             const home = NODE_MODULE_HOMES[specifier.startsWith("node:") ? specifier : `node:${specifier}`]
-            if (home !== file) findings.push(finding("A", file, line, `${specifier}: a node module only where the plan names its home`))
+            if (home !== file)
+                findings.push(
+                    finding("A", file, line, `${specifier}: a node module only where the plan names its home`),
+                )
             continue
         }
         const relative = resolveRelative(file, specifier)
         if (relative !== null) {
-            if (!isIn(relative, CELLS_DIR)) findings.push(finding("A", file, line, `${specifier}: a relative path out of the cells folder`))
+            if (!isIn(relative, CELLS_DIR))
+                findings.push(finding("A", file, line, `${specifier}: a relative path out of the cells folder`))
             continue
         }
         if (specifier === CELLS_SPECIFIER || specifier.startsWith(`${CELLS_SPECIFIER}/`)) continue
         if (specifier.startsWith("@modules/")) {
             const piece = /^@modules\/platform\/([^/]+)/u.exec(specifier)
-            if (piece === null || !PLATFORM_ALLOWED.includes(piece[1])) findings.push(finding("A", file, line, `${specifier}: a module outside the allowed platform pieces`))
+            if (piece === null || !PLATFORM_ALLOWED.includes(piece[1]))
+                findings.push(finding("A", file, line, `${specifier}: a module outside the allowed platform pieces`))
             continue
         }
         if (specifier === "@nivo-lite/agent-sdk" || specifier.startsWith("@nivo-lite/agent-sdk/")) {
-            if (!(isSpec && SPEC_ALLOWED.some((entry) => specifier === entry))) findings.push(finding("A", file, line, `${specifier}: V2 stands alone, no agent-sdk (a spec may reach agent-sdk/template only)`))
+            if (!(isSpec && SPEC_ALLOWED.some((entry) => specifier === entry)))
+                findings.push(
+                    finding(
+                        "A",
+                        file,
+                        line,
+                        `${specifier}: V2 stands alone, no agent-sdk (a spec may reach agent-sdk/template only)`,
+                    ),
+                )
             continue
         }
         const allowed = FILE_ALLOWANCES[file] ?? []
         if (allowed.some((entry) => specifier === entry || specifier.startsWith(`${entry}/`))) continue
-        const packageOk = PACKAGES_ALLOWED.some((entry) => (entry.endsWith("/") ? specifier.startsWith(entry) : specifier === entry || specifier.startsWith(`${entry}/`)))
-        const specOk = isSpec && SPEC_ALLOWED.some((entry) => (entry.endsWith("/") ? specifier.startsWith(entry) : specifier === entry))
-        if (!packageOk && !specOk) findings.push(finding("A", file, line, `${specifier}: not on the list of what cells imports`))
+        const packageOk = PACKAGES_ALLOWED.some((entry) =>
+            entry.endsWith("/")
+                ? specifier.startsWith(entry)
+                : specifier === entry || specifier.startsWith(`${entry}/`),
+        )
+        const specOk =
+            isSpec &&
+            SPEC_ALLOWED.some((entry) => (entry.endsWith("/") ? specifier.startsWith(entry) : specifier === entry))
+        if (!packageOk && !specOk)
+            findings.push(finding("A", file, line, `${specifier}: not on the list of what cells imports`))
     }
     return findings
 }
 
 /** Gate B: who imports `cells`. */
 const gateB = (file, refs) => {
-    if (IMPORTER_FOLDERS.some((folder) => file.startsWith(folder)) || IMPORTER_FILES.includes(file) || BUILDER_FILE.test(file)) return []
+    if (
+        IMPORTER_FOLDERS.some((folder) => file.startsWith(folder)) ||
+        IMPORTER_FILES.includes(file) ||
+        BUILDER_FILE.test(file)
+    )
+        return []
     return refs.flatMap(({ specifier, line, typeOnly }) => {
         // The runner reads the protocol types of cells (gate D states it), type-only.
         if (typeOnly && startsWithFolder(file, `${RUNNER_DIR}/src`)) return []
         const reached = repoPathOf(file, specifier)
-        const names = specifier === CELLS_SPECIFIER || specifier.startsWith(`${CELLS_SPECIFIER}/`) || (reached !== null && isIn(reached, CELLS_DIR))
+        const names =
+            specifier === CELLS_SPECIFIER ||
+            specifier.startsWith(`${CELLS_SPECIFIER}/`) ||
+            (reached !== null && isIn(reached, CELLS_DIR))
         return names ? [finding("B", file, line, `${specifier}: nothing outside the cells folders imports cells`)] : []
     })
 }
 
 /** Gate C: no code evaluation in the repository. */
 const gateC = (file, refs, callList) => [
-    ...refs.filter(({ specifier }) => EVAL_MODULES.has(specifier)).map(({ specifier, line }) => finding("C", file, line, `${specifier}: no code evaluation module`)),
-    ...callList.filter(({ kind }) => kind === "global-eval" || kind === "function-constructor").map(({ name, line }) => finding("C", file, line, `${name}: no code evaluation`)),
+    ...refs
+        .filter(({ specifier }) => EVAL_MODULES.has(specifier))
+        .map(({ specifier, line }) => finding("C", file, line, `${specifier}: no code evaluation module`)),
+    ...callList
+        .filter(({ kind }) => kind === "global-eval" || kind === "function-constructor")
+        .map(({ name, line }) => finding("C", file, line, `${name}: no code evaluation`)),
 ]
 
 /** Gate D: the runner is the only evaluator, and the two packages stay apart from `be`. */
@@ -239,9 +334,12 @@ const gateD = (file, refs, callList) => {
     const inRunnerSrc = startsWithFolder(file, `${RUNNER_DIR}/src`)
     if (!inRunnerSrc) {
         for (const { specifier, line } of refs) {
-            if (specifier === QUICKJS || specifier.startsWith(`${QUICKJS}/`)) findings.push(finding("D", file, line, `${specifier}: QuickJS only under ${RUNNER_DIR}/src`))
+            if (specifier === QUICKJS || specifier.startsWith(`${QUICKJS}/`))
+                findings.push(finding("D", file, line, `${specifier}: QuickJS only under ${RUNNER_DIR}/src`))
         }
-        for (const { kind, name, line } of callList) if (kind === "quickjs-call") findings.push(finding("D", file, line, `${name}: QuickJS evaluation only under ${RUNNER_DIR}/src`))
+        for (const { kind, name, line } of callList)
+            if (kind === "quickjs-call")
+                findings.push(finding("D", file, line, `${name}: QuickJS evaluation only under ${RUNNER_DIR}/src`))
     }
     if (inRunnerSrc && !SPEC_FILE.test(file)) {
         for (const { specifier, line, typeOnly } of refs) {
@@ -249,26 +347,48 @@ const gateD = (file, refs, callList) => {
             if (relative !== null && isIn(relative, RUNNER_DIR)) continue
             if (specifier === QUICKJS || specifier.startsWith(`${QUICKJS}/`)) continue
             const reached = repoPathOf(file, specifier)
-            const isCells = specifier === CELLS_SPECIFIER || specifier.startsWith(`${CELLS_SPECIFIER}/`) || (reached !== null && isIn(reached, CELLS_DIR))
+            const isCells =
+                specifier === CELLS_SPECIFIER ||
+                specifier.startsWith(`${CELLS_SPECIFIER}/`) ||
+                (reached !== null && isIn(reached, CELLS_DIR))
             if (isCells && typeOnly) continue
-            findings.push(finding("D", file, line, `${specifier}: the runner imports only ${QUICKJS} and type-only cells protocol types`))
+            findings.push(
+                finding(
+                    "D",
+                    file,
+                    line,
+                    `${specifier}: the runner imports only ${QUICKJS} and type-only cells protocol types`,
+                ),
+            )
         }
     }
     if (isIn(file, AUTHOR_DIR)) {
         for (const { specifier, line } of refs) {
             const reached = repoPathOf(file, specifier)
-            const intoBe = /^@(?:modules|features|tests|config)\//u.test(specifier) || specifier === "be" || specifier.startsWith("be/") || (reached !== null && isIn(reached, "be"))
-            if (intoBe) findings.push(finding("D", file, line, `${specifier}: the authoring package imports no be path`))
+            const intoBe =
+                /^@(?:modules|features|tests|config)\//u.test(specifier) ||
+                specifier === "be" ||
+                specifier.startsWith("be/") ||
+                (reached !== null && isIn(reached, "be"))
+            if (intoBe)
+                findings.push(finding("D", file, line, `${specifier}: the authoring package imports no be path`))
         }
     }
     // The fixture packages keep their authoring `.ts` origins (CELLS-DECISIONS D3) beside their seed files: they are package-author files, not engine code.
     if ((isIn(file, "be") || isIn(file, "fe")) && !file.startsWith("be/src/tests/fixtures/cells/")) {
         for (const { specifier, line } of refs) {
             const reached = resolveRelative(file, specifier)
-            const author = specifier === "@nivo-lite/cells-author" || specifier.startsWith("@nivo-lite/cells-author/") || (reached !== null && isIn(reached, AUTHOR_DIR))
-            const runner = specifier === "@nivo-lite/cell-runner" || specifier.startsWith("@nivo-lite/cell-runner/") || (reached !== null && isIn(reached, RUNNER_DIR))
+            const author =
+                specifier === "@nivo-lite/cells-author" ||
+                specifier.startsWith("@nivo-lite/cells-author/") ||
+                (reached !== null && isIn(reached, AUTHOR_DIR))
+            const runner =
+                specifier === "@nivo-lite/cell-runner" ||
+                specifier.startsWith("@nivo-lite/cell-runner/") ||
+                (reached !== null && isIn(reached, RUNNER_DIR))
             if (author) findings.push(finding("D", file, line, `${specifier}: the engine imports no cells-author`))
-            if (runner) findings.push(finding("D", file, line, `${specifier}: the engine imports no cell-runner internals`))
+            if (runner)
+                findings.push(finding("D", file, line, `${specifier}: the engine imports no cell-runner internals`))
         }
     }
     return findings
@@ -278,7 +398,7 @@ const gateD = (file, refs, callList) => {
 const scopeOf = (file) => ({
     a: isIn(file, CELLS_DIR),
     b: isIn(file, "be") || isIn(file, "fe") || isIn(file, "packages"),
-    c: (startsWithFolder(file, "be/src") || /^packages\/[^/]+\/src\//u.test(file) || isIn(file, "fe")),
+    c: startsWithFolder(file, "be/src") || /^packages\/[^/]+\/src\//u.test(file) || isIn(file, "fe"),
     d: isIn(file, "be") || isIn(file, "fe") || isIn(file, "packages"),
 })
 

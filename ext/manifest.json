@@ -23,12 +23,7 @@
       "code": "NIVO_NAME_LEVEL_CROSSED",
       "severity": "error",
       "doc": "ext/docs/NIVO-NAMES-2.md",
-      "appliesTo": [
-        "packages/*/src/**/*.ts",
-        "packages/*/src/**/*.tsx",
-        "fe/**/*.ts",
-        "fe/**/*.tsx"
-      ],
+      "appliesTo": ["packages/*/src/**/*.ts", "packages/*/src/**/*.tsx", "fe/**/*.ts", "fe/**/*.tsx"],
       "lint": {
         "tool": "eslint",
         "file": "node-level-names.mjs"
@@ -39,10 +34,7 @@
       "code": "NIVO_NODE_PROVIDER_LOGIC",
       "severity": "error",
       "doc": "ext/docs/NIVO-NODES-1.md",
-      "appliesTo": [
-        "packages/*/src/**/*.ts",
-        "packages/*/src/**/*.tsx"
-      ],
+      "appliesTo": ["packages/*/src/**/*.ts", "packages/*/src/**/*.tsx"],
       "lint": {
         "tool": "eslint",
         "file": "no-provider-logic-in-nodes.mjs"
@@ -53,11 +45,7 @@
       "code": "NIVO_TEMPLATE_TIER_HOME",
       "severity": "error",
       "doc": "ext/docs/NIVO-TIERS-1.md",
-      "appliesTo": [
-        "packages/*/src/**/*.ts",
-        "packages/*/src/**/*.tsx",
-        "be/src/**/*.ts"
-      ],
+      "appliesTo": ["packages/*/src/**/*.ts", "packages/*/src/**/*.tsx", "be/src/**/*.ts"],
       "lint": {
         "tool": "eslint",
         "file": "template-tier-homes.mjs"
@@ -68,10 +56,7 @@
       "code": "NIVO_GRAPH_NOT_DATA",
       "severity": "error",
       "doc": "ext/docs/NIVO-GRAPHS-1.md",
-      "appliesTo": [
-        "packages/*/src/**/*.ts",
-        "packages/*/src/**/*.tsx"
-      ],
+      "appliesTo": ["packages/*/src/**/*.ts", "packages/*/src/**/*.tsx"],
       "lint": {
         "tool": "eslint",
         "file": "graphs-are-data.mjs"
@@ -82,13 +67,7 @@
       "code": "NIVO_TOOL_DEFINED_OUTSIDE_ENGINE",
       "severity": "error",
       "doc": "ext/docs/NIVO-TOOLS-1.md",
-      "appliesTo": [
-        "be/src/**/*.ts",
-        "packages/*/src/**/*.ts",
-        "packages/*/src/**/*.tsx",
-        "fe/**/*.ts",
-        "fe/**/*.tsx"
-      ],
+      "appliesTo": ["be/src/**/*.ts", "packages/*/src/**/*.ts", "packages/*/src/**/*.tsx", "fe/**/*.ts", "fe/**/*.tsx"],
       "lint": {
         "tool": "eslint",
         "file": "tools-defined-in-engine.mjs"
@@ -99,12 +78,7 @@
       "code": "NIVO_EXT_CONCEPT_UNKNOWN",
       "severity": "error",
       "doc": "ext/docs/NIVO-EXT-1.md",
-      "appliesTo": [
-        "ext/manifest.json",
-        "ext/docs/**/*.md",
-        "ext/lint/*.mjs",
-        ".starciwork/concepts/*.md"
-      ],
+      "appliesTo": ["ext/manifest.json", "ext/docs/**/*.md", "ext/lint/*.mjs", ".starciwork/concepts/*.md"],
       "hfs": "concept-keys.mjs"
     }
   ],
@@ -178,6 +152,11 @@
       "id": "cells-isolation",
       "run": "ext/checks/cells-isolation.mjs",
       "why": "The cells capability imports only its own folder and the allowed platform pieces, nothing running imports it, no code is evaluated in the repository, and QuickJS evaluation lives only in packages/cell-runner (CELLS-PLAN 7.2, gates A to D; .starciwork/concepts/layers.md: the engine holds no business)."
+    },
+    {
+      "id": "cells-author-emit",
+      "run": "ext/checks/cells-author-emit.mjs",
+      "why": "The cells fixture packages are byte for byte what cells-author emits from their typed authoring projects: the stored run.js / translate.js is the compiled text of its .ts origin, the yaml is the builders' output (CELLS-PLAN 3.4, CELLS-DECISIONS D3)."
     }
   ],
   "packages": {
@@ -429,6 +408,52 @@
           "path": "src/client/**",
           "coverage": {
             "none": "renderers: the registry of the block renderers is presentation wiring; judged by the fe canon and Grammar lint (SHARED-TEST-1)"
+          }
+        }
+      ]
+    },
+    "packages/cell-runner": {
+      "closed": true,
+      "slots": [
+        {
+          "id": "runner",
+          "path": "src/*",
+          "coverage": {
+            "none": "the isolated runner runs as a child process: proven over the real process by be/src/modules/domain/cells/cell-runner.client.spec.ts (be coverage cannot see a child)"
+          }
+        }
+      ]
+    },
+    "packages/cells-author": {
+      "closed": true,
+      "slots": [
+        {
+          "id": "barrel",
+          "path": "src/index.ts"
+        },
+        {
+          "id": "cli",
+          "path": "src/cli.ts",
+          "coverage": {
+            "none": "the command line shell over emit; run for real by the ext check cells-author-emit"
+          }
+        },
+        {
+          "id": "author",
+          "path": "src/*"
+        },
+        {
+          "id": "ambient",
+          "path": "ambient/**",
+          "coverage": {
+            "none": "type declarations of the cell source contexts; no runtime code"
+          }
+        },
+        {
+          "id": "authoring-fixtures",
+          "path": "test/authoring/**",
+          "coverage": {
+            "none": "the typed authoring projects of the be fixture packages; proven byte for byte by the ext check cells-author-emit"
           }
         }
       ]
