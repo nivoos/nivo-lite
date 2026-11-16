@@ -44,6 +44,8 @@ export interface AgentRunRow {
     readonly creditsUsed: number
     /** When an owner or manager cancelled it, ISO 8601, or null. */
     readonly cancelledAt: string | null
+    /** Whether the run serves a customer conversation, whoever started it (the end dialog may then tell the customer one line). */
+    readonly hasCustomer: boolean
 }
 
 /** One workflow of the agent with how many runs it has. */

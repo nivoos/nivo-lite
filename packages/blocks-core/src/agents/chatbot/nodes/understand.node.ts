@@ -81,7 +81,7 @@ const input: NodeSchema<UnderstandInput> = z.object({
 })
 /** What each route means, as the decision's schema describes it to the model. */
 const BRANCH_MEANING: Readonly<Record<UnderstandBranch, string>> = {
-    stop: "stop: asks the shop to stop messaging them or not to write to them first",
+    stop: "stop: explicitly tells the shop to stop messaging them or never to write to them first (about being contacted; giving up a purchase is not this)",
     buy: "buy: wants to buy or asks about a product",
     book: "book: wants to book, reschedule an appointment, a table or a time slot with the shop",
     paid: "paid: reports a transfer",
@@ -221,6 +221,15 @@ export const chatbotUnderstandNode: TemplateNode<
             tools: [threadRead([]), lastOrderRead(null)],
             agent: [{ answer: { branch: "stop", summary: "Kh\u00e1ch xin \u0111\u1eebng nh\u1eafn tin ch\u1ee7 \u0111\u1ed9ng" } }],
             output: { branch: "stop", summary: "Kh\u00e1ch xin \u0111\u1eebng nh\u1eafn tin ch\u1ee7 \u0111\u1ed9ng", recentLines: [] },
+        },
+        {
+            // The same words as a stop mean a purchase given up when the thread is about an order: it is not a request to be left alone.
+            name: "a customer who gives up buying (not an explicit request to stop messages) is read as a wish about the order, never as a stop",
+            params: {},
+            input: { text: "Dừng đi, không mua nữa" },
+            tools: [threadRead(COMPLAINT_THREAD), lastOrderRead("DH-102")],
+            agent: [{ answer: { branch: "buy", summary: frontDeskSample("summaryBuy") } }],
+            output: { branch: "buy", summary: frontDeskSample("summaryBuy"), recentLines: COMPLAINT_LINES },
         },
         {
             name: "a greeting is a question the front desk answers",

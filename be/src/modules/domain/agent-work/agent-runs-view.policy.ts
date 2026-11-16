@@ -59,6 +59,10 @@ export const sourceOf = (context: Readonly<Record<string, unknown>>): RunSource 
     return "event"
 }
 
+/** Whether a run serves a customer conversation, whoever started it: its context names the conversation the customer line would go to. */
+export const hasCustomerOf = (context: Readonly<Record<string, unknown>>): boolean =>
+    typeof context.conversationId === "string" && context.conversationId !== ""
+
 /** The sentence of a work item: what it did, else what it proposed. */
 const sentenceOf = (item: WorkItem): string => item.result?.summary ?? item.proposal.summary
 
@@ -92,6 +96,7 @@ export const rowOf = (entry: RunListEntry, context: AgentRunRowContext): AgentRu
         workItemId: entry.workItemId,
         creditsUsed: creditsUsedShown(context.credits?.get(run.id) ?? 0),
         cancelledAt: run.cancelledAt === null ? null : run.cancelledAt.toISOString(),
+        hasCustomer: hasCustomerOf(run.context),
     }
 }
 

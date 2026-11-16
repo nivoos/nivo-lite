@@ -928,6 +928,7 @@ type AgentRunRowType {
   durationMs: Int!
   endedAt: String
   errorCode: String
+  hasCustomer: Boolean!
   id: ID!
   queuePosition: Int
   source: String!

@@ -277,7 +277,7 @@ const headOf = (wire: AgentRunWire, context: RunDetailContext): RunHeadView => {
         canResume: wire.canResume,
         canPause: wire.canPause,
         canCancel: wire.canCancel,
-        hasCustomer: runSourceOf(row.source) === "customer",
+        hasCustomer: row.hasCustomer,
     }
 }
 

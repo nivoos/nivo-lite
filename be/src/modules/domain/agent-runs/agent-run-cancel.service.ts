@@ -9,6 +9,7 @@ import type {
     OwnerRunRequest,
     RunByPerson,
     RunDoorHooks,
+    RunsEndedByPerson,
     RunView,
 } from "./agent-runs-engine.contracts"
 
@@ -80,10 +81,17 @@ export class AgentRunCancelService {
         const by = await this.personOf({ ...request, runId: "" })
         const runs = await this.runs.inFlightOfWorkflow(request.workspaceId, request.workflowId, WORKFLOW_RUNS_MAX)
         let ended = 0
+        let children = 0
+        const done: Array<RunView> = []
+        // Each run ends quietly (no notice of its own); the team is told ONCE for the whole press, after the last one.
         for (const run of runs) {
-            const answer = await this.endAs(by, request.workspaceId, run.id, false)
-            if (answer.kind === "ended") ended += 1
+            const answer = await this.endAs(by, request.workspaceId, run.id, false, true)
+            if (answer.kind !== "ended") continue
+            ended += 1
+            children += answer.children
+            done.push(run)
         }
+        if (done.length > 0) await this.hooks?.endedAll({ runs: done, children, memberId: by.memberId, name: by.name } satisfies RunsEndedByPerson)
         return { ended }
     }
 
@@ -121,16 +129,22 @@ export class AgentRunCancelService {
      * Ends one run as a person already allowed to (the hooks end a parent's children in flight through here): the store's one row-ending,
      * then the hooks once the write committed. Answers as the door does.
      */
-    async endAs(by: Omit<RunByPerson, "run">, workspaceId: string, runId: string, tellCustomer: boolean): Promise<OwnerEndAnswer> {
+    async endAs(
+        by: Omit<RunByPerson, "run">,
+        workspaceId: string,
+        runId: string,
+        tellCustomer: boolean,
+        quiet = false,
+    ): Promise<OwnerEndAnswer> {
         const result = await this.runs.endRun(workspaceId, runId, RUN_ENDED_BY_PERSON, by.memberId)
         if (result.kind !== "ended" || result.run === null) return { kind: result.kind, note: null, children: 0 }
-        const after = await this.afterEnd({ run: result.run, ...by }, tellCustomer)
+        const after = await this.afterEnd({ run: result.run, ...by }, tellCustomer, quiet)
         return { kind: "ended", note: "effects_kept", children: after }
     }
 
-    private async afterEnd(done: RunByPerson, tellCustomer: boolean): Promise<number> {
+    private async afterEnd(done: RunByPerson, tellCustomer: boolean, quiet: boolean): Promise<number> {
         if (this.hooks === null) return 0
-        return (await this.hooks.ended(done, tellCustomer)).children
+        return (await this.hooks.ended(done, tellCustomer, quiet)).children
     }
 
     /** The member asking, refused (typed) for any seat but an owner or a manager; a run of another workspace is checked by the store. */

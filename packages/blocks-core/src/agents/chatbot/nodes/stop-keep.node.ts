@@ -39,7 +39,8 @@ const REASON = "Kh\u00e1ch xin \u0111\u1eebng nh\u1eafn tin ch\u1ee7 \u0111\u1ed
 /**
  * `chatbot.stop-keep` (Ghi nho khach khong muon duoc nhan tin): when the front desk judged that the person asked the shop to stop
  * messaging them, writes it as the contact's ONE consent fact (`nivo.tool.contact.update` with `doNotContact: { reason }`; no clearing
- * argument: only a person clears it). A plain tool call: the decision was the model's, here nothing is judged. The engine's send door
+ * argument: only a person clears it). A plain tool call: the decision was the model's, here nothing is judged; the node asks first (mode
+ * `ask`: a team member approves the write on its card). The engine's send door
  * then refuses a message the shop STARTS to that person, and still allows an answer on their own line. With no person there is nothing to
  * keep and the step stops (`cannot`, the engine reports it); a person declining it on its card (mode `ask`) is the step's unsuccessful ending.
  */
@@ -49,7 +50,9 @@ export const chatbotStopKeepNode: TemplateNode<NodeSchema<StopKeepInput>, NodeSc
         title: bilingualOf("nodeChatbotStopKeepTitle"),
         description: { vi: "Ghi l\u1ea1i tr\u00ean li\u00ean h\u1ec7 r\u1eb1ng kh\u00e1ch xin \u0111\u1eebng nh\u1eafn tin ch\u1ee7 \u0111\u1ed9ng; ch\u1ec9 ng\u01b0\u1eddi th\u1eadt m\u1edbi g\u1ee1 \u0111\u01b0\u1ee3c.", en: "Records on the contact that the customer asked not to be messaged first; only a person can lift it." },
         tools: [TOOL.contactUpdate],
-        mode: "auto",
+        // Ask first: a do-not-contact fact silences the shop for good (only a person lifts it), and the front desk's reading can be wrong, so a
+        // team member says yes on the card before it is written.
+        mode: "ask",
         accounts: [],
         params,
         input,

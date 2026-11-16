@@ -7,6 +7,7 @@ import {
     AgentRunsService,
     type RunByPerson,
     type RunDoorHooks,
+    type RunsEndedByPerson,
     type RunView,
 } from "@modules/domain/agent-runs"
 import {
@@ -86,7 +87,7 @@ export class RunDoorHooksService implements RunDoorHooks, OnModuleInit {
         this.door?.setHooks(this)
     }
 
-    async ended(done: RunByPerson, tellCustomer: boolean): Promise<{ readonly children: number }> {
+    async ended(done: RunByPerson, tellCustomer: boolean, quiet = false): Promise<{ readonly children: number }> {
         const { run } = done
         const ref = { workspaceId: run.workspaceId, runId: run.id }
         const locale = localeOfRun(run)
@@ -107,17 +108,60 @@ export class RunDoorHooksService implements RunDoorHooks, OnModuleInit {
         await this.guarded(run.id, "children", async () => {
             await eachInOrder(await this.childrenOf(run), async (child) => {
                 if (this.door === undefined) return
-                const answer = await this.door.endAs({ memberId: done.memberId, name: done.name }, run.workspaceId, child.id, false)
+                const answer = await this.door.endAs({ memberId: done.memberId, name: done.name }, run.workspaceId, child.id, false, quiet)
                 if (answer.kind === "ended") children += 1 + answer.children
             })
         })
         const line = tellCustomer ? await this.customerTold(run) : null
-        await this.told(done, "ended", [
-            ...(children === 0 ? [] : [this.fact("children", String(children), locale)]),
-            ...(line === null ? [] : [this.fact("customerLine", line, locale)]),
-        ])
+        // An end inside an "end them all" tells nobody by itself: the one notice of the press comes from `endedAll`.
+        if (!quiet)
+            await this.told(
+                done,
+                "ended",
+                [
+                    ...(children === 0 ? [] : [this.fact("children", String(children), locale)]),
+                    ...(line === null ? [] : [this.fact("customerLine", line, locale)]),
+                ],
+                line === null ? "ended" : "endedTold",
+            )
         this.logger.info(AgentThreadsLogEvent.RunDoorDone, { runId: run.id, kind: "ended", children, told: line !== null })
         return { children }
+    }
+
+    async endedAll(done: RunsEndedByPerson): Promise<void> {
+        const [first] = done.runs
+        if (first === undefined) return
+        const post = this.nodes.optionalExecutorOf(TOOL.teamMessagePost)
+        if (post === undefined) return
+        const locale = localeOfRun(first)
+        const word = (key: string, params: Readonly<Record<string, string>> = {}): string =>
+            this.catalog.get(`agentGraphs.runDoor.${key}`, params, locale)
+        const [pin] = (await this.workflows?.pinsOf(first.workspaceId, [first.id])) ?? []
+        const workflow = pin?.workflowName ?? ""
+        const facts: ReadonlyArray<MessageFact> = [
+            ...(workflow === "" ? [] : [this.fact("workflow", workflow, locale)]),
+            this.fact("by", done.name, locale),
+            this.fact("runs", String(done.runs.length), locale),
+            ...(done.children === 0 ? [] : [this.fact("children", String(done.children), locale)]),
+        ]
+        // ONE notice for the whole press: keyed by the first run it ended (a replay of the same press is none).
+        const key = `run-door:all:${first.id}:${String(done.runs.length)}`
+        try {
+            await post.execute(
+                this.turnOf(first),
+                {
+                    kind: reportFactsKind.id,
+                    title: word("endedAll.title"),
+                    text: word("endedAll.sentence", { name: done.name, count: String(done.runs.length) }),
+                    facts: facts.map((fact) => ({ ...fact })),
+                    audience: "founder",
+                },
+                { key, dedupeKey: key },
+            )
+        } catch (cause) {
+            this.logger.error(AgentThreadsLogEvent.RunDoorHookFailed, cause, { runId: first.id, hook: "notice_all" })
+        }
+        this.logger.info(AgentThreadsLogEvent.RunDoorDone, { runId: first.id, kind: "ended_all", runs: done.runs.length })
     }
 
     async paused(done: RunByPerson): Promise<void> {
@@ -182,7 +226,12 @@ export class RunDoorHooksService implements RunDoorHooks, OnModuleInit {
     }
 
     /** The team is told ONCE per act, in the agent's room with the founder: who did what to which run. */
-    private async told(done: RunByPerson, act: DoorAct, more: ReadonlyArray<MessageFact>): Promise<void> {
+    private async told(
+        done: RunByPerson,
+        act: DoorAct,
+        more: ReadonlyArray<MessageFact>,
+        sentence: string = act,
+    ): Promise<void> {
         const { run } = done
         const post = this.nodes.optionalExecutorOf(TOOL.teamMessagePost)
         if (post === undefined) return
@@ -207,7 +256,7 @@ export class RunDoorHooksService implements RunDoorHooks, OnModuleInit {
                 {
                     kind: reportFactsKind.id,
                     title: word(`${act}.title`),
-                    text: word(`${act}.sentence`, { name: done.name }),
+                    text: word(`${sentence}.sentence`, { name: done.name }),
                     facts: facts.map((fact) => ({ ...fact })),
                     audience: "founder",
                 },

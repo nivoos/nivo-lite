@@ -442,7 +442,7 @@ export class ThreadApprovalsService {
         const read = await this.accountOf(step, ask)
         const account = read.kind === "read" ? read.words : null
         const words = callWordsOf(ask.args)
-        const summary = this.catalog.get("agentGraphs.toolApproval.title", { tool: ask.tool }, step.turn.locale)
+        const summary = this.summaryOf(step, ask)
         const raised: Raised =
             existing === null
                 ? await this.raised(step, ask, dedupeKey, summary, account, words)
@@ -484,6 +484,18 @@ export class ThreadApprovalsService {
             approvalCard,
         })
         return { kind: "stopped", question, workItemId: item.id }
+    }
+
+    /**
+     * The title of the card and of the owner's item: the step's own human title ("Huỷ đơn"), never the callable's key; only a step with
+     * no title of its own (it reads as its key) falls back to the generic line naming the tool by its label.
+     */
+    private summaryOf(step: ApprovalStep, ask: ApprovalAsk): string {
+        const title = step.card.step.title.trim()
+        if (title !== "" && title !== step.stepKey) return title
+        const label = INSTALLED.toolLabelOf(ask.tool)?.title
+        const tool = (step.turn.locale === "en" ? label?.en : label?.vi) ?? ask.tool
+        return this.catalog.get("agentGraphs.toolApproval.title", { tool }, step.turn.locale)
     }
 
     /**

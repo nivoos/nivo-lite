@@ -66,6 +66,10 @@ export class AgentRunRowType {
     /** When an owner or manager cancelled the run, ISO 8601, or null. */
     @Field(() => String, { nullable: true })
     cancelledAt!: string | null
+
+    /** Whether the run serves a customer conversation (a person may tell that customer one line when ending it). */
+    @Field()
+    hasCustomer!: boolean
 }
 
 @ObjectType()

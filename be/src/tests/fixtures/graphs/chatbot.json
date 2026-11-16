@@ -289,7 +289,7 @@
                 }
             },
             "next": "stop-reply",
-            "mode": "auto",
+            "mode": "ask",
             "accounts": [],
             "unsuccessful": {
                 "then": "end",

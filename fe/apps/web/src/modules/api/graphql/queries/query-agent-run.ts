@@ -39,6 +39,7 @@ const query1: TypedDocumentNode<QueryAgentRunResponse, InputVariables<QueryAgent
                 durationMs
                 endedAt
                 errorCode
+                hasCustomer
                 id
                 queuePosition
                 source

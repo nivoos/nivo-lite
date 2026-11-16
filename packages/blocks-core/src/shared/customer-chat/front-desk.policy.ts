@@ -12,7 +12,7 @@ export type FrontDeskBranch = (typeof FRONT_DESK_BRANCHES)[number]
 
 /** What each route means to the model, as the goal states it. */
 const BRANCH_WORDS: Readonly<Record<FrontDeskBranch, string>> = {
-    stop: '"stop" (asks the shop to stop messaging them, to leave them alone or not to write to them first, in any words or language; a person who only complains about an order, or asks to cancel one, is not asking this)',
+    stop: '"stop" (the customer EXPLICITLY tells the shop to stop messaging them, to leave them alone or never to write to them first, in any words or language: the meaning is about being CONTACTED. Giving up on a purchase, saying they will not buy, cancelling or declining an order or an offer, ending the topic, a complaint: none of these is it, they are about the order or the service and are read as such. When it is unclear whether they only ended the topic or want no messages from the shop at all, it is not "stop")',
     buy: '"buy" (wants to buy, order, asks the price or availability of a product, continues an order the conversation is building, or asks to do something with one of their own orders: cancel it, change its items, address or time, add to it, or know where it is; the Sales step holds the order tools)',
     book: '"book" (wants to book an appointment, a table or a time slot with the shop, asks which times are free, or continues a booking the conversation is making: the Booking step holds the calendar)',
     paid: '"paid" (says or shows that they transferred money, a bank transfer receipt included)',

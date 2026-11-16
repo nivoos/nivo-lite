@@ -175,11 +175,11 @@ export const frontDeskGraph: TemplateGraph = defineTemplateGraph({
             vi: "Đón tin nhắn Zalo, Telegram, Facebook và Instagram, trả lời và chuyển đúng quy trình",
             en: "Greets Zalo, Telegram, Facebook and Instagram messages, answers and passes on to the right workflow",
         },
-        version: 27,
-        publishedAt: "2026-11-14T19:10:00.000Z",
+        version: 28,
+        publishedAt: "2026-11-16T00:40:00.000Z",
         notes: {
-            vi: "Thêm hướng khách xin đừng nhắn tin: ghi dấu không liên hệ trên liên hệ của khách rồi nhắn lại một lời cảm ơn ngắn trên đúng cuộc trò chuyện",
-            en: "New route for a customer who asks not to be messaged: keeps the do-not-contact fact on their contact, then one short thanks on the same conversation",
+            vi: "Chỉ nhận là khách xin đừng nhắn tin khi khách nói rõ điều đó (bỏ mua, huỷ đơn, dừng chủ đề không phải); ghi dấu không liên hệ phải được chủ duyệt trước",
+            en: "Reads a customer as asking not to be messaged only when they say so explicitly (giving up a purchase, cancelling or ending a topic is not it); keeping the do-not-contact fact now asks the team first",
         },
     },
 })

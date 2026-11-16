@@ -11,15 +11,17 @@ import { AgentThreadsLogEvent } from "../agent-threads.log-events"
 import { ApprovalItemsService } from "./approval-items.service"
 import { RunStopsError, RunStopsErrorCode } from "./errors/run-stops.error"
 import { RunStopRecordsService } from "./run-stop-records.service"
-import type {
-    OptionalRunStop,
-    RunStop,
-    StopCardContext,
-    StopDecision,
-    StopOpen,
-    StopQuestion,
-    StopCardLocale,
-    StopRoute,
+import {
+    RUN_CLOSED_FACT,
+    RUN_CLOSED_VALUE,
+    type OptionalRunStop,
+    type RunStop,
+    type StopCardContext,
+    type StopDecision,
+    type StopOpen,
+    type StopQuestion,
+    type StopCardLocale,
+    type StopRoute,
 } from "./run-stop.contracts"
 import {
     APPROVAL_DECLINED,
@@ -257,7 +259,19 @@ export class RunStopsService {
         let closed = 0
         await eachInOrder(open, async (stop) => {
             const resolved = await this.records.patch(ref.workspaceId, stop.id, (fresh) =>
-                fresh.state === "open" ? { state: "resolved", resolvedAt: now } : null,
+                fresh.state === "open"
+                    ? {
+                          state: "resolved",
+                          resolvedAt: now,
+                          detail: {
+                              ...fresh.detail,
+                              facts: [
+                                  ...fresh.detail.facts.filter((fact) => fact.name !== RUN_CLOSED_FACT),
+                                  { name: RUN_CLOSED_FACT, value: RUN_CLOSED_VALUE },
+                              ],
+                          },
+                      }
+                    : null,
             )
             if (resolved === null) return
             closed += 1

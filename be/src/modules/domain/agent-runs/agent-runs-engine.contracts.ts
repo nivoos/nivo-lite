@@ -91,6 +91,18 @@ export interface RunByPerson {
     readonly name: string
 }
 
+/** What an "end them all" did, for the one notice: the runs it ended (the first carries the agent and the language) and their children. */
+export interface RunsEndedByPerson {
+    /** The runs ended now, oldest first. */
+    readonly runs: ReadonlyArray<RunView>
+    /** How many child runs ended with them. */
+    readonly children: number
+    /** The member who acted. */
+    readonly memberId: string
+    /** The name people see. */
+    readonly name: string
+}
+
 /**
  * What runs after the run door wrote an end, a pause or a resume, once its transaction committed: the thread engine registers it when
  * the app starts (it holds this door, never the other way round). Each hook is the ONE engine place that closes what the run holds
@@ -98,7 +110,9 @@ export interface RunByPerson {
  */
 export interface RunDoorHooks {
     /** After an end: closes what the run held, ends its children in flight, tells the team once, and words the customer line if asked. */
-    ended(done: RunByPerson, tellCustomer: boolean): Promise<{ readonly children: number }>
+    ended(done: RunByPerson, tellCustomer: boolean, quiet?: boolean): Promise<{ readonly children: number }>
+    /** After an "end them all": the team is told ONCE for the whole press (each run was ended quietly), whatever the number of runs. */
+    endedAll(done: RunsEndedByPerson): Promise<void>
     /** After a pause: tells the team once. */
     paused(done: RunByPerson): Promise<void>
     /** After a resume: releases the wakes held while paused (in the order they came) and tells the team once. */

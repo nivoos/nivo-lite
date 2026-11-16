@@ -89,7 +89,7 @@ export const rowViewOf = (row: AgentRunRowWire, context: RunContext): RunRowView
         canPause: status === "running" || status === "waiting",
         canResume: status === "paused",
         canCancel: IN_FLIGHT.includes(status),
-        hasCustomer: runSourceOf(row.source) === "customer",
+        hasCustomer: row.hasCustomer,
     }
 }
 

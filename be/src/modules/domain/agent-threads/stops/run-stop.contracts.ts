@@ -22,6 +22,14 @@ export const RETRY_AFTER_TAKE_OVER = "after_take_over"
 export const retryNeedsTakeOver = (facts: ReadonlyArray<{ readonly name: string; readonly value: string }>): boolean =>
     facts.some((fact) => fact.name === RETRY_FACT && fact.value === RETRY_AFTER_TAKE_OVER)
 
+/**
+ * The fact a stop carries once its run was closed under it (a person ended the run, an erasure ended it, the engine closed it): the
+ * stop resolved because the RUN ended, not because its step went on, so its card says the run ended and never "the workflow went on".
+ * Name and value of the stop's fact.
+ */
+export const RUN_CLOSED_FACT = "runClosed"
+export const RUN_CLOSED_VALUE = "1"
+
 /** Where a stop stands. */
 export type StopState = "open" | "resolved"
 

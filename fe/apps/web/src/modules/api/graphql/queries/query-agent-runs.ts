@@ -21,6 +21,7 @@ const query1: TypedDocumentNode<QueryAgentRunsResponse, InputVariables<QueryAgen
                 durationMs
                 endedAt
                 errorCode
+                hasCustomer
                 id
                 queuePosition
                 source

@@ -34,6 +34,7 @@ export type {
     OwnerPauseAnswer,
     OwnerRunRequest,
     RunByPerson,
+    RunsEndedByPerson,
     RunDoorHooks,
     RunView,
 } from "./agent-runs-engine.contracts"

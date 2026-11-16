@@ -15,7 +15,7 @@ import {
     type StopCardState,
 } from "@modules/domain/team-chat"
 import { InjectMessageCatalog, type MessageCatalog } from "@modules/platform/i18n"
-import { retryNeedsTakeOver, type RunStop, type StopCardContext } from "./run-stop.contracts"
+import { RUN_CLOSED_FACT, retryNeedsTakeOver, type RunStop, type StopCardContext } from "./run-stop.contracts"
 import type { ApprovalCardPreview } from "../approval-card.policy"
 
 /** The facts of an open stop that change while it waits and are shown again on every rewrite of its card. */
@@ -94,6 +94,8 @@ const headlineKeyOf = (stop: RunStop, state: StopCardState, takenOver: boolean):
     if (state === "skipped") return "teamChat.stopCard.skipped"
     if (state === "handed_back") return "teamChat.stopCard.handedBack"
     if (state === "timed_out") return "teamChat.stopCard.timedOut"
+    // A stop resolved because its RUN ended (never because its step went on) says so.
+    if (stop.detail.facts.some((fact) => fact.name === RUN_CLOSED_FACT)) return "teamChat.stopCard.runEnded"
     return "teamChat.stopCard.resolved"
 }
 
@@ -101,7 +103,7 @@ const headlineKeyOf = (stop: RunStop, state: StopCardState, takenOver: boolean):
 const APPROVAL_FACTS = new Set(["workItemId", "tool", "account", "ability", "fingerprint", "verdict"])
 
 /** Engine facts never shown on a card: keys of the machinery, not words for the founder. */
-const HIDDEN_FACTS = new Set(["workItemId", "fingerprint", "verdict"])
+const HIDDEN_FACTS = new Set(["workItemId", "fingerprint", "verdict", RUN_CLOSED_FACT])
 
 /** The value of a named fact of a stop, or empty. */
 const factOf = (stop: RunStop, name: string): string =>
