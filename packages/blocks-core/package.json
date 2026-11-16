@@ -55,7 +55,7 @@
     "@heroicons/react": "2.2.0",
     "@heroui/react": "3.2.6",
     "@nivo-lite/agent-sdk": "*",
-    "@starci/common": "1.1.0",
+    "@starci/common": "1.0.1",
     "@starci/grammar": "0.39.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -63,7 +63,7 @@
   },
   "devDependencies": {
     "@nivo-lite/agent-sdk": "*",
-    "@starci/common": "1.1.0",
+    "@starci/common": "1.0.1",
     "@types/react": "19.3.0",
     "typescript": "5.9.3"
   }
