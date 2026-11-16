@@ -120,11 +120,11 @@
     "typecheck": "tsc --noEmit --pretty false"
   },
   "peerDependencies": {
-    "@heroui/react": "3.2.6",
+    "@heroui/react": "^3.2.7",
     "@starci/common": "1.0.1",
     "@starci/grammar": "0.39.3",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "zod": "4.6.7"
   },
   "devDependencies": {
