@@ -1,0 +1,49 @@
+import { gql, type ApolloClient, type TypedDocumentNode } from "@apollo/client"
+import { createAuthApolloClient, type InputVariables, type MutateParams, type WireInput } from "@nivo-lite/api"
+import { adminApiTransport } from "@/modules/api-transport"
+import type { AdminSetWorkspacePlanMutation, AdminSetWorkspacePlanMutationVariables } from "../__generated__/graphql"
+
+/** The input of the `adminSetWorkspacePlan` mutation. */
+export type MutateAdminSetWorkspacePlanRequest = WireInput<AdminSetWorkspacePlanMutationVariables["input"]>
+
+/** The response of the `adminSetWorkspacePlan` mutation. */
+type MutateAdminSetWorkspacePlanResponse = AdminSetWorkspacePlanMutation
+
+const mutation1: TypedDocumentNode<
+    MutateAdminSetWorkspacePlanResponse,
+    InputVariables<MutateAdminSetWorkspacePlanRequest>
+> = gql`
+    mutation AdminSetWorkspacePlan($input: AdminSetWorkspacePlanInput!) {
+        adminSetWorkspacePlan(input: $input) {
+            planCode
+            creditsLimit
+        }
+    }
+`
+
+enum MutationAdminSetWorkspacePlan {
+    Mutation1 = "mutation1",
+}
+
+const mutationMap: Record<
+    MutationAdminSetWorkspacePlan,
+    TypedDocumentNode<MutateAdminSetWorkspacePlanResponse, InputVariables<MutateAdminSetWorkspacePlanRequest>>
+> = {
+    [MutationAdminSetWorkspacePlan.Mutation1]: mutation1,
+}
+
+/** Apollo params for {@link mutateAdminSetWorkspacePlan}. */
+type MutateAdminSetWorkspacePlanParams = MutateParams<MutationAdminSetWorkspacePlan, MutateAdminSetWorkspacePlanRequest>
+
+/** Moves a workspace to a plan and sets its own credit allowance (the back end `adminSetWorkspacePlan` mutation). */
+export const mutateAdminSetWorkspacePlan = async ({
+    mutation = MutationAdminSetWorkspacePlan.Mutation1,
+    request,
+    signal,
+}: MutateAdminSetWorkspacePlanParams): Promise<ApolloClient.MutateResult<MutateAdminSetWorkspacePlanResponse>> => {
+    const apollo = createAuthApolloClient(adminApiTransport, { signal })
+    return apollo.mutate({
+        mutation: mutationMap[mutation],
+        variables: { input: request },
+    })
+}

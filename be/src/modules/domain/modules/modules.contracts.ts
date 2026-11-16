@@ -1,5 +1,5 @@
 import type { AgentTriggerPreset } from "@modules/domain/agent-work"
-import type { CapabilityRole } from "@modules/domain/mcp-gateway"
+import type { CapabilityRole } from "@modules/domain/tools"
 import type { ModuleAudience } from "@modules/domain/module-audiences"
 import type { InstallationLifecycle, InstallationRecord } from "@modules/domain/module-installations"
 
@@ -22,11 +22,9 @@ export interface BilingualList {
 /** Whether the module is production ready or still early access. */
 export type ModuleStatus = "stable" | "early"
 
-/** How a freshly installed agent runs: it proposes everything (assist) or follows the authority rules alone (autopilot). */
+/** The operating mode a new installation is stored with; it decides nothing since the authority rules are gone (2026-11-13). */
 export type OperatingMode = "assist" | "autopilot"
 
-/** How much an authority action may do without a person. */
-export type AuthorityMode = "auto" | "ask" | "never"
 
 /** The kinds of subject a setup gate may write a Second Brain fact about. */
 export type FactSubjectType =
@@ -34,6 +32,20 @@ export type FactSubjectType =
 
 /** Who may read a Second Brain fact. */
 export type FactScope = "public" | "internal" | "restricted"
+
+/** A document a module suggests the shop to add to its knowledge; never a requirement. */
+export interface ModuleKnowledgeIdea {
+    /** The stable idea key; the same key declared by several modules is one suggestion. */
+    readonly key: string
+    /** What the document is about, as a short title. */
+    readonly topic: Bilingual
+    /** What to write in it. */
+    readonly hint: Bilingual
+    /** The business types it fits; absent means any. */
+    readonly businessTypes?: ReadonlyArray<string> | undefined
+    /** It fits every agent of the module's kind of work: it ranks after the specific ideas. Absent: it does not. */
+    readonly general?: boolean | undefined
+}
 
 /** One category the catalogue groups modules by. */
 export interface ModuleCategory {
@@ -55,19 +67,6 @@ export interface FactWrite {
     readonly scope: FactScope
 }
 
-/** What a setup answer writes to the authority rules: one field of an action's rule. */
-export interface RuleWrite {
-    /** Discriminator: an authority rule field. */
-    readonly kind: "rule"
-    /** The authority action the rule belongs to. */
-    readonly action: string
-    /** The rule field the answer sets. */
-    readonly field: "mode" | "limit_vnd"
-}
-
-/** One thing the setup chat extracts from the owner's answer to a gate. */
-export type GateWrite = FactWrite | RuleWrite
-
 /** One thing a module must know before it may act; every gate is confirmed to apply a setup. */
 export interface ModuleGate {
     /** The stable gate key. */
@@ -81,45 +80,7 @@ export interface ModuleGate {
     /** The English hint under the gate. */
     readonly hint_en: string
     /** What the setup chat writes from the answer, when anything. */
-    readonly writes?: ReadonlyArray<GateWrite>
-}
-
-/** One action of a module that the authority matrix governs. */
-export interface AuthorityActionDefinition {
-    /** The stable action key, unique across every module. */
-    readonly action: string
-    /** The action title. */
-    readonly label: Bilingual
-    /** The default authority mode. */
-    readonly mode: AuthorityMode
-    /** The default amount limit in VND, when one applies. */
-    readonly limitVnd: number | null
-    /** The fields a request for this action must carry. */
-    readonly requiredFields: ReadonlyArray<string>
-    /** Whether an amount limit is meaningful for the action. */
-    readonly amountLimit: boolean
-    /** The facts a decide point on this action reads from real records, the first being its amount; none for an action that has no such facts. */
-    readonly graphFacts?: ReadonlyArray<string> | undefined
-    /** The loosest mode the action can ever take: set means it can never run alone. */
-    readonly maxMode: "ask" | "never" | null
-    /** A note shown with the action. */
-    readonly note: string
-    /** The actions this one chains to. */
-    readonly next: ReadonlyArray<string>
-}
-
-/** One command a module accepts from other agents: its declared contract on the command bus. */
-export interface AcceptedCommand {
-    /** The stable command key, unique within the module. */
-    readonly command: string
-    /** The authority action that governs the command. */
-    readonly action: string
-    /** The kind of subject the command acts on. */
-    readonly subjectType: string
-    /** The payload keys a sender must supply. */
-    readonly requiredFields: ReadonlyArray<string>
-    /** What the command does. */
-    readonly description: Bilingual
+    readonly writes?: ReadonlyArray<FactWrite>
 }
 
 /** What a workspace must have for the module to work well; never blocks installing or applying. */
@@ -164,8 +125,6 @@ export interface ModuleTrigger {
     readonly preset: AgentTriggerPreset
     /** The time of day (`HH:MM`) of a daily preset. */
     readonly atTime?: string | undefined
-    /** The probe that decides whether a fire has work; always works when absent. */
-    readonly probeKey?: string | undefined
 }
 
 /** One module of the catalogue: everything the product knows about an installable agent type. */
@@ -196,12 +155,19 @@ export interface ModuleDefinition {
     readonly status: ModuleStatus
     /** Who the module's agent talks to. */
     readonly audience: ModuleAudience
+    /**
+     * The module publishes what its agent writes (social posts, videos) or reaches people outside the business with it: the agent reads
+     * public knowledge only, whatever its audience. Absent: it does not.
+     */
+    readonly publishes?: boolean | undefined
     /** The module comes with every workspace. */
     readonly includedWithWorkspace: boolean
     /** The module can be added from the catalogue. */
     readonly available: boolean
     /** The folder of the NIVO base knowledge for the module. */
     readonly knowledgeFolder: string
+    /** The documents the module suggests the shop to add to its knowledge; none when absent. */
+    readonly knowledgeIdeas?: ReadonlyArray<ModuleKnowledgeIdea> | undefined
     /** The key of the module's workbench, when it has one. */
     readonly workbench: string | null
     /** The key of the module's extra settings, when it has any. */
@@ -218,14 +184,30 @@ export interface ModuleDefinition {
     readonly agent: ModuleAgent
     /** What the module must know before it may act. */
     readonly gates: ReadonlyArray<ModuleGate>
-    /** The actions the authority matrix governs. */
-    readonly authorityActions: ReadonlyArray<AuthorityActionDefinition>
-    /** The commands other agents may ask the module to run. */
-    readonly accepts: ReadonlyArray<AcceptedCommand>
-    /** The module keys whose agents this module's agent may tag, granted when either side is installed; none when absent. */
-    readonly tags?: ReadonlyArray<string> | undefined
     /** The clock triggers seeded for the module's agent; none when absent. */
     readonly triggers?: ReadonlyArray<ModuleTrigger> | undefined
+}
+
+/** The plugin a module belongs to, as the agents catalogue shows it in front of the agent's name. */
+export interface ModulePlugin {
+    /** The stable key of the plugin. */
+    readonly key: string
+    /** The short display label of the plugin. */
+    readonly label: Bilingual
+}
+
+/** A module as a workspace is shown it: the definition and the plugin it belongs to. */
+export interface CatalogModule extends ModuleDefinition {
+    /** The plugin the module belongs to (the core package or a plugin package). */
+    readonly plugin: ModulePlugin
+}
+
+/** The catalogue as one workspace is shown it. */
+export interface OpenCatalog {
+    /** The categories, in display order. */
+    readonly categories: ReadonlyArray<ModuleCategory>
+    /** The modules open to the workspace, in display order, each with its plugin. */
+    readonly modules: ReadonlyArray<CatalogModule>
 }
 
 /** The whole catalogue as the front end reads it. */
@@ -246,12 +228,8 @@ export interface ModulesOutput {
 export interface ModulesSyncReport {
     /** How many module rows were upserted. */
     readonly modules: number
-    /** How many authority action rows were upserted. */
-    readonly actions: number
     /** The module keys the database holds that the catalogue no longer lists; they are reported, never deleted. */
     readonly staleModules: ReadonlyArray<string>
-    /** The action keys the database holds that the catalogue no longer lists; they are reported, never deleted. */
-    readonly staleActions: ReadonlyArray<string>
 }
 
 /** A capability role an installation's module requires and no usable connector plays, with the connectors that could play it. */
@@ -278,6 +256,8 @@ export interface InstallationView extends InstallationRecord {
     readonly agentHandle: string
     /** The HTTPS address of the agent's picture; null for the generated avatar or when there is no agent. */
     readonly agentAvatarUrl: string | null
+    /** The preset picture the owner chose for the agent; null for the default (the sprout) or an uploaded picture. */
+    readonly agentAvatarPreset: string | null
     /** The number of the version in use; null before the first apply. */
     readonly activeVersion: number | null
     /** The missing required roles, each with its possible providers. */

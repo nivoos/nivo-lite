@@ -1,6 +1,7 @@
 import { builder } from "@starci/jest-preset"
 import { connectionPollEntities, type PollPage, type PollScheduleRow } from "@modules/domain/connection-poll"
 import type { ConnectionRecord } from "@modules/domain/connections"
+import type { PolledRow } from "@modules/domain/provider-registry"
 
 const ConnectionPollScheduleEntity: (typeof connectionPollEntities)[0] = connectionPollEntities[0]
 type ConnectionPollScheduleEntity = InstanceType<typeof ConnectionPollScheduleEntity>
@@ -17,8 +18,8 @@ export const POLL_DUE_AT: Date = new Date("2026-11-04T09:59:00.000Z")
 /** One minute in milliseconds. */
 export const POLL_MINUTE_MS: number = 60_000
 
-/** A page of a poll that read something: two items, the oldest ten minutes and the newest one minute before now. */
-export type ReadPollPage = Extract<PollPage<string>, { kind: "page" }>
+/** A page of the poll receiver that read something: two rows, the oldest ten minutes and the newest one minute before now. */
+export type ReadPollPage = Extract<PollPage<PolledRow>, { kind: "page" }>
 
 /** The schedule row of connection c-1 of workspace ws-1 at Sepay: closed breaker, a 30 minute interval, a webhook one minute ago. */
 export const pollScheduleRowOf: (overrides?: Partial<PollScheduleRow>) => PollScheduleRow = builder<PollScheduleRow>({
@@ -82,6 +83,7 @@ export const pollConnectionRecordOf: (overrides?: Partial<ConnectionRecord>) => 
         status: "connected",
         lastError: null,
         environment: "live",
+        sandbox: false,
         isDefault: false,
         lastEventAt: null,
         firstEvent: null,
@@ -89,10 +91,16 @@ export const pollConnectionRecordOf: (overrides?: Partial<ConnectionRecord>) => 
         createdAt: "2026-11-03T00:00:00.000Z",
     })
 
+/** The two rows of a page: a polled row of its time, the older one ten minutes before now, the newer one a minute before. */
+export const polledRowsOf = (): ReadonlyArray<PolledRow> => [
+    { value: { id: "a" }, at: new Date(POLL_NOW_MS - 10 * POLL_MINUTE_MS) },
+    { value: { id: "b" }, at: new Date(POLL_NOW_MS - POLL_MINUTE_MS) },
+]
+
 /** A page of a poll that read something, with `fetched` rows. */
 export const readPollPageOf = (fetched: number, overrides: Partial<ReadPollPage> = {}): ReadPollPage => ({
     kind: "page",
-    items: ["a", "b"],
+    items: polledRowsOf(),
     fetched,
     oldestAt: new Date(POLL_NOW_MS - 10 * POLL_MINUTE_MS),
     newestAt: new Date(POLL_NOW_MS - POLL_MINUTE_MS),

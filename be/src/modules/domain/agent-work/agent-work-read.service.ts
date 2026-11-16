@@ -2,18 +2,17 @@ import { wakeOriginOf, type OptionalWakeOrigin } from "./wake-origin.policy"
 import { Injectable } from "@nestjs/common"
 import { In, type EntityManager } from "typeorm"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
-import { AgentGoalsService } from "./agent-goals.service"
 import { AgentTasksService } from "./agent-tasks.service"
 import { AgentTriggersService } from "./agent-triggers.service"
 import { AgentWorkAccessService } from "./agent-work-access.service"
 import { AgentWorkSettingsService } from "./agent-work-settings.service"
 import { toTurnRecord } from "./agent-work.mapper"
-import { wakeProgressOf } from "./agent-work.policy"
 import { AgentTurnEntity, AgentWakeEntity, AgentWorkStateEntity } from "./persistence/entities"
 import type {
     AgentTurnRecord,
+    AgentWakeContext,
+    AgentWakeStatus,
     AgentWorkView,
-    OptionalCustomerWakeProgress,
     OptionalWakeSource,
     WorkspaceAgentWorkView,
 } from "./agent-work.contracts"
@@ -21,9 +20,20 @@ import type {
 /** The turns the work tab lists. */
 const RECENT_TURNS = 20
 
+/** The states of a wake that may still run: waiting, running now, or held by a switch that may be turned back on. */
+const LIVE_WAKES: ReadonlyArray<AgentWakeStatus> = ["pending", "running", "held"]
+
+/** The subject a live-wake check asks about: the wake that must not count (if any) and the subject's id. */
+export interface LiveWakeSubject {
+    /** The wake to leave out of the count, or null. */
+    readonly wakeId: string | null
+    /** The subject the live wake is about. */
+    readonly subjectId: string
+}
+
 @Injectable()
 /**
- * What the work tab reads: the state, goals, tasks, triggers and recent turns of one agent, and the counts of a workspace. A turn is
+ * What the work tab reads: the state, tasks, triggers and recent turns of one agent, and the counts of a workspace. A turn is
  * listed with its source, outcome, usage and time, never its prompt, its proposal or a customer's words. The caller proves the member.
  */
 export class AgentWorkReadService {
@@ -31,7 +41,6 @@ export class AgentWorkReadService {
         @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
         private readonly access: AgentWorkAccessService,
         private readonly settings: AgentWorkSettingsService,
-        private readonly goals: AgentGoalsService,
         private readonly tasks: AgentTasksService,
         private readonly triggers: AgentTriggersService,
     ) {}
@@ -54,18 +63,52 @@ export class AgentWorkReadService {
         return wake === null ? null : wakeOriginOf(wake)
     }
 
+    /**
+     * Whether a wake that may still move a subject is alive: the wake `wakeId` itself, or any wake of the agent whose context names the
+     * subject (`subjectId`), still pending, running or held. A sweep asks it before it re-drives work nobody is driving.
+     */
+    async hasLiveWake(workspaceId: string, agentId: string, subject: LiveWakeSubject): Promise<boolean> {
+        const ofSubject = "w.context ->> 'subjectId' = :subjectId"
+        const count = await this.entityManager
+            .createQueryBuilder(AgentWakeEntity, "w")
+            .where("w.workspace_id = :workspaceId AND w.agent_id = :agentId AND w.status IN (:...live)", {
+                workspaceId,
+                agentId,
+                live: LIVE_WAKES,
+            })
+            .andWhere(subject.wakeId === null ? ofSubject : `(w.id = :wakeId OR ${ofSubject})`, {
+                subjectId: subject.subjectId,
+                ...(subject.wakeId === null ? {} : { wakeId: subject.wakeId }),
+            })
+            .getCount()
+        return count > 0
+    }
+
+    /** The context of the wake an agent was written under a source and fact key, or null when no such wake exists. */
+    async wakeContextOf(
+        workspaceId: string,
+        agentId: string,
+        source: string,
+        eventKey: string,
+    ): Promise<AgentWakeContext | null> {
+        const wake = await this.entityManager.findOne(AgentWakeEntity, {
+            select: { context: true },
+            where: { workspaceId, agentId, source, eventKey },
+        })
+        return wake?.context ?? null
+    }
+
     /** The work of one agent of the workspace. */
     async agentWork(workspaceId: string, agentId: string): Promise<AgentWorkView> {
         await this.access.agent(workspaceId, agentId)
-        const [state, goals, tasks, triggers, turns, pendingWakes] = await Promise.all([
+        const [state, tasks, triggers, turns, pendingWakes] = await Promise.all([
             this.settings.stateOf(agentId),
-            this.goals.alive(agentId),
             this.tasks.alive(agentId),
             this.triggers.ofAgent(agentId),
             this.recentTurns(agentId),
             this.entityManager.count(AgentWakeEntity, { where: { agentId, status: "pending" } }),
         ])
-        return { state, goals, tasks, triggers, turns, pendingWakes }
+        return { state, tasks, triggers, turns, pendingWakes }
     }
 
     /** The workspace-wide switch with the counts beside it. */
@@ -77,14 +120,6 @@ export class AgentWorkReadService {
             this.entityManager.count(AgentWakeEntity, { where: { workspaceId, status: "held" } }),
         ])
         return { settings, agentsOff, pendingWakes, heldWakes }
-    }
-
-    /** Where the customer wake of a stored message stands, or null when none was written for it (the message took the legacy road). */
-    async customerWake(workspaceId: string, messageId: string): Promise<OptionalCustomerWakeProgress> {
-        const wake = await this.entityManager.findOne(AgentWakeEntity, {
-            where: { workspaceId, source: "customer", eventKey: messageId },
-        })
-        return wake === null ? null : { id: wake.id, state: wakeProgressOf(wake.status) }
     }
 
     private async recentTurns(agentId: string): Promise<ReadonlyArray<AgentTurnRecord>> {

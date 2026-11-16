@@ -12,10 +12,10 @@ import {
 } from "@starci/grammar/common"
 import { AddFilesPanel, knowledgeUploadRowsOf } from "@/components/composites/AddFilesPanel"
 import { AddNotePanel } from "@/components/composites/AddNotePanel"
+import { AddAreaChoice } from "@/components/composites/AddAreaChoice"
 import { AddOptionsPanel } from "@/components/composites/AddOptionsPanel"
 import { DrawerFooter } from "@/components/composites/DrawerFooter"
 import { FormNotice } from "@/components/composites/FormNotice"
-import { Icon } from "@/components/leaves/Icon"
 import type { KnowledgeAddDrawerView } from "@/modules/types"
 
 type Props = KnowledgeAddDrawerView
@@ -28,16 +28,10 @@ const DriveRow = (props: Props) => {
     const drive = props.props.drive
     return (
         <Stack gap="inline">
-            <Cluster gap="row" align="center" justify="between">
+            <Cluster gap="identity" align="center" justify="between">
                 {drive.note === undefined ? null : <Text size="sm">{drive.note}</Text>}
                 {drive.label === undefined ? null : (
-                    <Button
-                        intent="neutral"
-                        size="sm"
-                        startContent={<Icon props={{ name: "attach", usage: "leading" }} />}
-                        isDisabled={props.props.isBusy}
-                        onPress={props.on.connectDrive}
-                    >
+                    <Button intent="neutral" size="sm" isDisabled={props.props.isBusy} onPress={props.on.connectDrive}>
                         {drive.label}
                     </Button>
                 )}
@@ -50,6 +44,14 @@ const DriveRow = (props: Props) => {
 /** The files and links panel with the Drive row under its drop zone, then what is waiting to be added. */
 const FilesPart = (props: Props) => (
     <>
+        {props.props.refusal === null ? null : (
+            <Alert
+                tone="neutral"
+                title={props.props.refusal.title}
+                description={props.props.refusal.body}
+                action={{ label: props.props.refusal.actionLabel, onAction: props.on.seeDocuments }}
+            />
+        )}
         <AddFilesPanel
             {...props.props.files}
             afterDrop={<DriveRow {...props} />}
@@ -116,9 +118,7 @@ const DrawerBody = (props: Props) => (
             onTags={props.on.setTags}
             onModule={props.on.setModule}
         />
-        <Text size="xs" tone="muted">
-            {props.props.internalNote}
-        </Text>
+        <AddAreaChoice {...props.props.area} isBusy={props.props.isBusy} onArea={props.on.setArea} />
         {props.props.usage === undefined ? null : (
             <Meter
                 label={props.props.usage.label}
@@ -126,7 +126,7 @@ const DrawerBody = (props: Props) => (
                 minValue={0}
                 maxValue={props.props.usage.max}
                 valueLabel={props.props.usage.valueLabel}
-                tone={props.props.usage.tone}
+                tone="foreground"
             />
         )}
         {props.props.summary === null ? null : (

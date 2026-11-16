@@ -1,13 +1,11 @@
 "use client"
 
 import { useTranslations } from "next-intl"
-import { useState } from "react"
-import { actionWordOf } from "@/hooks/actionWord"
-import { useAgentRights } from "@/hooks/agentSettings"
 import { useInstallations, useInstanceChannels } from "@/hooks/installations"
 import { mapSlot } from "@/hooks/slot"
 import {
     AGENT_GRAPH_PLACEHOLDER,
+    type AgentGraphSetupState,
     mediumAreasOf,
     mediumRowsOf,
     panelViewOf,
@@ -21,12 +19,10 @@ import type {
     AgentGraphSideTab,
     AgentGraphPhoneView,
 } from "@/modules/types"
-import { performAgentGraphAction, type AgentGraphSetup } from "./agentGraph.shared"
-import { useAgentGraphCommands } from "./useAgentGraphCommands"
+import { agentGraphCommandsOf, performAgentGraphAction } from "./agentGraph.shared"
 import { useAgentGraphRead } from "./useAgentGraphRead"
 import { useAgentGraphUi } from "./useAgentGraphUi"
 import { useAgentGraphWords } from "./useAgentGraphWords"
-import { useAgentGraphWrites } from "./useAgentGraphWrites"
 
 /** The view `useAgentGraphPanel` returns. */
 export interface AgentGraphPanelViewShape {
@@ -50,29 +46,21 @@ export interface AgentGraphPanelViewShape {
 
 /**
  * The graph panes of the Setup tab as one view with its commands: the map and its cards painted by selection or by a traced run,
- * the seven answers of the selected node, the editor of a decision point, the problems, the proposals and the history. Words are
- * resolved here; the person may edit when they are an owner or manager, and only the owner adds what widens the reach of the agent.
+ * the seven answers of the selected node, the problems and the history, all read only. Words are resolved here.
  */
-export const useAgentGraphPanel = (installationId: string, setup: AgentGraphSetup): AgentGraphPanelViewShape => {
+export const useAgentGraphPanel = (installationId: string, setup: AgentGraphSetupState): AgentGraphPanelViewShape => {
     const t = useTranslations("agentGraph")
     const tAgent = useTranslations("modulesCore")
-    const tGovernance = useTranslations("governance")
     const { installations } = useInstallations()
-    const { canEdit, canGrant } = useAgentRights()
-    const [changes, setChanges] = useState(0)
-    const graph = useAgentGraphRead(installationId, changes)
-    const writes = useAgentGraphWrites((isDraftEmpty) => setChanges((count) => (isDraftEmpty ? 0 : count + 1)))
+    const graph = useAgentGraphRead(installationId)
     const state = useAgentGraphUi(graph.runId)
     const words = useAgentGraphWords(t)
-    const commands = useAgentGraphCommands({ read: graph.read, state, writes, canGrant, setup })
+    const commands = agentGraphCommandsOf(graph.read, state)
     const channelsOf = useInstanceChannels()
     const lifecycle = installations?.find((one) => one.id === installationId)?.lifecycle ?? null
     const ctx = {
         t,
-        canEdit,
-        isOwner: canGrant,
         amount: words.amount,
-        actionWord: (action: string) => actionWordOf(tGovernance, action),
         setup,
         channels: channelsOf(graph.read?.agentId ?? null),
         lifecycle,

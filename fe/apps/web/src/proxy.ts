@@ -21,9 +21,8 @@ const PUBLIC_PATHS = [
     "/api/engine",
     "/api/v1",
     "/api/content",
-    "/b",
-    "/api/b",
-    "/j",
+    "/form",
+    "/pay/done",
     "/l",
     "/health",
     // A prototype build answers the fixture workspace from fixtures, with no back end to sign in to (the url with or without its locale).
@@ -33,10 +32,7 @@ const PUBLIC_PATHS = [
               ...i18n.locales.map((locale) => `/${locale}/workspaces/${PROTOTYPE_WORKSPACE_ID}`),
           ]
         : []),
-] // /b/<slug> and /api/b/<slug>: the public booking page (rate limited, honeypot, gate)
-
-// /workspaces/<company>/jobs/<job>: the public job page, which names the company by its public slug (the proxy cannot load the routes barrel, so it spells the shape again).
-const PUBLIC_JOB_PAGE = /^(?:\/[a-z]{2})?\/workspaces\/[^/]+\/jobs\/[^/]+$/u
+]
 
 // Every path is served from /<locale>/... while the URL stays unprefixed (localePrefix "never"; the NIVO_LOCALE cookie decides);
 // the shared proxy leaves handlers, liveness and framework files (its default roots) alone.
@@ -44,7 +40,7 @@ const negotiateLocale = createProxy(i18n)
 
 /** Segment-aware prefix match, so "/auth" never swallows "/authority". */
 const isPublicPath = (pathname: string): boolean =>
-    PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`)) || PUBLIC_JOB_PAGE.test(pathname)
+    PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
 
 /** Only same-site paths may come back through `?next=`. */
 const safeNext = (value: string | null): string | null =>
@@ -75,6 +71,19 @@ const adoptLocale = (request: NextRequest, locale: (typeof i18n.locales)[number]
     return out
 }
 
+/** The name of the refresh cookie the api sets for the console (be's REFRESH_COOKIE_NAME). */
+const REFRESH_COOKIE = "nivo_refresh"
+
+/**
+ * The session of a request: a refusal for a request that carries a refresh cookie is asked once more before the person is treated as
+ * signed out, so a probe that crosses the cookie the sign-in has just set never sends a signed-in person back to the sign-in page.
+ */
+const sessionOf = async (request: NextRequest): ReturnType<typeof checkSession> => {
+    const first = await checkSession(request)
+    if (first.success || first.message === "unavailable" || !request.cookies.has(REFRESH_COOKIE)) return first
+    return checkSession(request)
+}
+
 /** Checks the session with the back end (cookies forwarded), applies the locale rewrite, gates private paths (a disabled seat is refused by the back end). */
 export const proxy = async (original: NextRequest): Promise<NextResponse> => {
     const request = incomingOf(original)
@@ -83,7 +92,7 @@ export const proxy = async (original: NextRequest): Promise<NextResponse> => {
     if (handedOver !== null) return adoptLocale(request, handedOver)
     const stamped = (): NextResponse => negotiateLocale(request)
     const response = stamped()
-    const principal = await checkSession(request)
+    const principal = await sessionOf(request)
     const isPublic = isPublicPath(pathname)
 
     /** A redirect on the public origin, never the server bind address. */

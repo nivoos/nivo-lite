@@ -1,10 +1,10 @@
 import { Command } from "@nestjs/cqrs"
 import type { ExecuteParams } from "@modules/platform/cqrs"
-import type { OwnerResumeAnswer } from "@modules/domain/agent-runs"
+import type { OwnerPauseAnswer } from "@modules/domain/agent-runs"
 import type { ResumeAgentRunRequest } from "./resume-agent-run.contracts"
 
-/** Runs a parked run again from the step it stopped on. */
-export class ResumeAgentRunCommand extends Command<OwnerResumeAnswer> {
+/** Resumes a run a person paused: the wakes held while it was paused run in the order they came. */
+export class ResumeAgentRunCommand extends Command<OwnerPauseAnswer> {
     constructor(readonly params: ExecuteParams<ResumeAgentRunRequest>) {
         super()
     }

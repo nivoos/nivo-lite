@@ -199,10 +199,9 @@ describe("WebhookDeliveryClient post", () => {
         { cause: null, failure: "unreachable" },
     ])("reports $failure for $cause and preserves elapsed time", async ({ cause, failure }) => {
         const { client, clock, http } = await build()
-        const failing = jest.fn<Promise<never>, []>().mockRejectedValue(cause)
         http.request.mockImplementation(() => {
             clock.advance(71)
-            return failing()
+            return Promise.reject(cause)
         })
         const url = new URL("https://receiver.test/hook")
         const body = "{}"

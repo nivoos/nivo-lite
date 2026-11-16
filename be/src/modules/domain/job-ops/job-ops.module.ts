@@ -4,6 +4,10 @@ import { JobOpsConsoleService } from "./job-ops-console.service"
 import { JobOpsAlertMonitorService } from "./job-ops-alert-monitor.service"
 import { JobHistoryRetentionService } from "./job-history-retention.service"
 import { JobOpsTickService } from "./job-ops-tick.service"
+import { JobParkedAlertsService } from "./job-parked-alerts.service"
+import { JobProgressAccessService } from "./job-progress-access.service"
+import { StoppedEventsService } from "./stopped-events.service"
+import { StoppedWorkService } from "./stopped-work.service"
 import { JobOpsService } from "./job-ops.service"
 
 @Module({})
@@ -21,8 +25,15 @@ export class JobOpsModule extends ConfigurableModuleClass {
                 JobHistoryRetentionService,
                 JobOpsConsoleService,
                 ...(options.alerts === undefined ? [] : [JobOpsAlertMonitorService]),
+                ...(options.parkedCards === true ? [JobParkedAlertsService, StoppedWorkService, StoppedEventsService, JobProgressAccessService] : []),
             ],
-            exports: [JobOpsService, JobOpsConsoleService, JobOpsTickService, JobHistoryRetentionService],
+            exports: [
+                JobOpsService,
+                JobOpsConsoleService,
+                JobOpsTickService,
+                JobHistoryRetentionService,
+                ...(options.parkedCards === true ? [StoppedWorkService, StoppedEventsService, JobProgressAccessService] : []),
+            ],
         }
     }
 }

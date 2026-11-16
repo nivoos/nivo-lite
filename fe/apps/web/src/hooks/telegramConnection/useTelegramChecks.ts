@@ -39,13 +39,18 @@ export const useTelegramChecks = (connectionId: string | undefined): UseTelegram
     const fail = (): Verdict => verdictOf(t("markFail"), "danger")
     const warn = (): Verdict => verdictOf(t("markWarn"), "warning")
 
+    const tokenDescription = (rejected: boolean, handle: string): string => {
+        if (rejected) return t("detailTokenRejected")
+        return handle === "" ? t("detailTokenSaved") : t("detailTokenOk", { handle })
+    }
+
     const tokenLine = (page: TelegramPageData): ConnectionLineView => {
-        const handle = page.botUsername === "" ? "-" : `@${page.botUsername}`
+        const handle = page.botUsername === "" ? "" : `@${page.botUsername}`
         const rejected = page.lastError === TOKEN_REJECTED_CODE
         return {
             id: "token",
             title: t("checkToken"),
-            description: rejected ? t("detailTokenRejected") : t("detailTokenOk", { handle }),
+            description: tokenDescription(rejected, handle),
             ...(rejected ? fail() : ok()),
         }
     }

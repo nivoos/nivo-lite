@@ -69,7 +69,7 @@ describe("UsageGateService", () => {
                 workspaceId: "ws-1",
                 kind: "relay",
                 module: "office",
-                usage: { prompt_tokens: 10, completion_tokens: 5, cached_tokens: 0, cost: 0.1, model: "m" },
+                usage: { prompt_tokens: 10, completion_tokens: 5, cached_tokens: 4, cost: 0.1, model: "m" },
                 completionChars: 42,
             })
 
@@ -80,7 +80,7 @@ describe("UsageGateService", () => {
                         kind: "relay",
                         module: "office",
                         model: "m",
-                        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0.1 },
+                        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0.1, cached_tokens: 4 },
                         promptChars: 0,
                         completionChars: 42,
                     },
@@ -99,7 +99,7 @@ describe("UsageGateService", () => {
                         workspaceId: "ws-1",
                         kind: "brain",
                         module: "brain",
-                        model: "openclaw",
+                        model: "unknown",
                         usage: null,
                         promptChars: 0,
                         completionChars: 3,
@@ -126,5 +126,43 @@ describe("UsageGateService, a run that reported nothing", () => {
 
             expect(usage.record.mock.calls[0]?.[0]).toMatchObject({ promptChars: 900, completionChars: 0, usage: null })
         })
+    })
+})
+
+describe("UsageGateService > a generation made for a run", () => {
+    it("books the call to the run it was made for", async () => {
+        const { gate, usage } = await build()
+
+        await gate.record({
+            workspaceId: "ws-1",
+            kind: "agent_work",
+            module: "sales",
+            usage: null,
+            completionChars: 3,
+            runId: "run-3",
+        })
+
+        expect(usage.record.mock.calls[0]?.[0]).toMatchObject({ runId: "run-3" })
+    })
+})
+
+describe("UsageGateService > what a call was and how it went", () => {
+    it("hands the prompt library's call facts on to the booking, and none when the caller told none", async () => {
+        const { gate, usage } = await build()
+        const call = {
+            purpose: "accounting.match-payment:agent",
+            reasoningTokens: 2542,
+            durationMs: 7414,
+            tryNumber: 1,
+            upstream: "Parasail",
+            finishReason: "stop",
+        }
+        const run = { prompt_tokens: 8162, completion_tokens: 2636, cached_tokens: 8064, cost: 0.001, model: "m" }
+
+        await gate.record({ workspaceId: "ws-1", kind: "engine", module: "accounting", usage: run, completionChars: 200, call })
+        await gate.record({ workspaceId: "ws-1", kind: "engine", module: "accounting", usage: run, completionChars: 200 })
+
+        expect(usage.record.mock.calls[0]?.[0]).toMatchObject({ call })
+        expect(usage.record.mock.calls[1]?.[0]).not.toHaveProperty("call")
     })
 })

@@ -13,7 +13,6 @@ import { Secret } from "@modules/platform/config"
 import { DomainError } from "@modules/platform/errors"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
-import { outcome } from "@tests/fixtures/builders/stand-in.builder"
 import { DataSourcesError, DataSourcesErrorCode } from "@modules/integrations/data-sources"
 import { TELEGRAM_USER_OPTIONS } from "./telegram-user.decorators"
 import type { TelegramUserOptions } from "./telegram-user.options"
@@ -22,12 +21,15 @@ import { TelegramUserClient } from "./telegram-user.client"
 import type { TelegramReadRequest, TelegramUserErrors } from "./telegram-user.contracts"
 import { TelegramUserLogEvent } from "./telegram-user.log-events"
 
+/** What the Telegram library rejects with, as a coded error: `errorMessage` is the RPC error name. */
+class TelegramRpcError extends DomainError<string> { errorMessage?: string }
+
 /** How the fake Telegram answers the requests of a test. */
 class MockTelegram {
     mode = "ok"
     authorized = true
-    destroyError: StandInError | undefined = undefined
-    connectError: StandInError | undefined = undefined
+    destroyError: TelegramRpcError | undefined = undefined
+    connectError: TelegramRpcError | undefined = undefined
     dialogs: Array<Dialog> = []
     messages: Array<Api.Message> = []
     windows: Array<unknown> = []
@@ -116,26 +118,22 @@ async function* listed(dialogs: ReadonlyArray<Dialog>): AsyncGenerator<Dialog, v
     yield* await Promise.resolve(dialogs)
 }
 
-/** The failure the fake library raises: a domain error whose `code` is the library's own code or text. */
-class StandInError extends DomainError<string> {}
-
-/** What the fake Telegram library raises: a stand-in failure that also carries the `errorMessage` of an RPC error. */
-const telegramError = (errorMessage: string): StandInError =>
-    Object.assign(new StandInError({ code: errorMessage }), { errorMessage })
+const telegramError = (errorMessage: string): TelegramRpcError => Object.assign(new TelegramRpcError({ code: errorMessage }), { errorMessage })
 
 /** The answer of the fake to one request, by the mode of the test. */
-const answerOf = (request: Api.AnyRequest): Promise<Api.AnyRequest["__response"]> =>
-    Promise.resolve().then(() => {
-        mockTg.queries.push(request.className)
-        if (mockTg.mode === "signup") return new Api.auth.AuthorizationSignUpRequired({})
-        if (mockTg.mode === "password") throw telegramError("SESSION_PASSWORD_NEEDED")
-        if (mockTg.mode === "invalid") throw telegramError("PHONE_CODE_INVALID")
-        if (mockTg.mode === "down") throw telegramError("offline")
-        if (request instanceof Api.auth.ResendCode && mockTg.mode !== "same") {
-            return new Api.auth.SentCode({ type: new Api.auth.SentCodeTypeApp({ length: 5 }), phoneCodeHash: "hash-2" })
-        }
-        return new Api.auth.Authorization({ user: ada() })
-    })
+const answerOf = (request: Api.AnyRequest): Promise<Api.AnyRequest["__response"]> => {
+    mockTg.queries.push(request.className)
+    if (mockTg.mode === "signup") return Promise.resolve(new Api.auth.AuthorizationSignUpRequired({}))
+    if (mockTg.mode === "password") return Promise.reject(telegramError("SESSION_PASSWORD_NEEDED"))
+    if (mockTg.mode === "invalid") return Promise.reject(telegramError("PHONE_CODE_INVALID"))
+    if (mockTg.mode === "down") return Promise.reject(telegramError("offline"))
+    if (request instanceof Api.auth.ResendCode && mockTg.mode !== "same") {
+        return Promise.resolve(
+            new Api.auth.SentCode({ type: new Api.auth.SentCodeTypeApp({ length: 5 }), phoneCodeHash: "hash-2" }),
+        )
+    }
+    return Promise.resolve(new Api.auth.Authorization({ user: ada() }))
+}
 
 /** The client of one connection: it answers from the state of the running test. */
 const clientOf = (session: StringSession): TelegramClient => {
@@ -144,10 +142,12 @@ const clientOf = (session: StringSession): TelegramClient => {
     client.setLogLevel.mockImplementation((level) => {
         state.level = level
     })
-    client.connect.mockImplementation(() => outcome(state.connectError, true))
+    client.connect.mockImplementation(() =>
+        state.connectError === undefined ? Promise.resolve(true) : Promise.reject(state.connectError),
+    )
     client.destroy.mockImplementation(() => {
         state.destroyed = true
-        return outcome(state.destroyError, undefined)
+        return state.destroyError === undefined ? Promise.resolve() : Promise.reject(state.destroyError)
     })
     client.sendCode.mockResolvedValue({ phoneCodeHash: "hash-1", isCodeViaApp: true })
     client.getMe.mockImplementation(() => Promise.resolve(state.me))

@@ -156,28 +156,6 @@ describe("InstallationRecordsService", () => {
     })
 })
 
-describe("InstallationRecordsService", () => {
-    it("lists OpenClaw installations within the requested workspace and limit", async () => {
-        const installations = [{ id: "inst-1", workspaceId: "ws-1" }]
-        const em = mockEntityManager()
-        const scoped = fakeQueryBuilder({ getRawMany: installations })
-        const everywhere = fakeQueryBuilder({ getRawMany: installations })
-        answerQueryBuilders(em, scoped, everywhere)
-        const service = await build(em)
-
-        await expect(service.onOpenclaw("ws-1", 20)).resolves.toEqual(installations)
-        await expect(service.onOpenclaw(null, 100)).resolves.toEqual(installations)
-
-        expect(scoped.argsOf("andWhere")).toEqual([
-            ["COALESCE(i.settings ->> 'processor', '') <> 'nivo'"],
-            ["i.workspaceId = :workspaceId", { workspaceId: "ws-1" }],
-        ])
-        expect(scoped.argsOf("limit")).toEqual([[20]])
-        expect(everywhere.argsOf("andWhere")).toEqual([["COALESCE(i.settings ->> 'processor', '') <> 'nivo'"]])
-        expect(everywhere.argsOf("limit")).toEqual([[100]])
-    })
-})
-
 describe("InstallationRecordsService / find", () => {
     it("answers the row or null", async () => {
         const em = mockEntityManager({
@@ -267,25 +245,23 @@ describe("InstallationRecordsService / insert", () => {
 })
 
 describe("InstallationRecordsService / writes", () => {
-    it("writes the installation name, operating mode, live state and active version", async () => {
+    it("writes the installation name, live state and active version", async () => {
         const em = mockEntityManager({ update: [ModuleInstallationEntity, { affected: 1 }] })
         const service = await build(em)
 
         await expect(service.rename("ws-1", "inst-1", "Front desk")).resolves.toBe("done")
-        await expect(service.setOperatingMode("ws-1", "inst-1", "autopilot")).resolves.toBe("done")
         await expect(service.setLive("ws-1", "inst-1", true, false)).resolves.toBe("done")
         await expect(service.activateVersion("ws-1", "inst-1", "version-2", "ready")).resolves.toBe("done")
 
         const where = { id: "inst-1", workspaceId: "ws-1" }
         expect(em.update).toHaveBeenNthCalledWith(1, ModuleInstallationEntity, where, { name: "Front desk" })
-        expect(em.update).toHaveBeenNthCalledWith(2, ModuleInstallationEntity, where, { operatingMode: "autopilot" })
         expect(em.update).toHaveBeenNthCalledWith(
-            3,
+            2,
             ModuleInstallationEntity,
             { ...where, activeContextVersionId: Not(IsNull()) },
             { liveEnabled: true, status: "live" },
         )
-        expect(em.update).toHaveBeenNthCalledWith(4, ModuleInstallationEntity, where, {
+        expect(em.update).toHaveBeenNthCalledWith(3, ModuleInstallationEntity, where, {
             activeContextVersionId: "version-2",
             status: "ready",
         })

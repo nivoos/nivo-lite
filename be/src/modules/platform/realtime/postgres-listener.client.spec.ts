@@ -1,7 +1,7 @@
 import { Test } from "@nestjs/testing"
 import { mock } from "@starci/jest-preset"
 import { Secret } from "@modules/platform/config"
-import { DomainError } from "@modules/platform/errors"
+import { DatabaseError, DatabaseErrorCode } from "@modules/platform/database"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
 import type { Timer } from "@modules/platform/retry"
@@ -11,8 +11,9 @@ import { PROBE_PREFIX, PROBE_TIMEOUT_MS, RECONNECT_DELAY_MS } from "./realtime.c
 import { REALTIME_TIMER, REALTIME_LISTEN_FACTORY, REALTIME_POSTGRES_OPTIONS } from "./realtime.decorators"
 import { RealtimeLogEvent } from "./realtime.log-events"
 
-/** The failure the fake connection raises. */
-class ConnectionStandInError extends DomainError<string> {}
+/** What a refused connect and a refused LISTEN reject with: the database side's own `DomainError`, told apart by its code. */
+const CONNECT_REFUSED = new DatabaseError({ code: DatabaseErrorCode.IdentifierRejected })
+const LISTEN_REFUSED = new DatabaseError({ code: DatabaseErrorCode.ReturningRowRejected })
 
 /** A connection whose events a spec drives; `fail` makes the named step reject. */
 class FakeConnection implements ListenConnection {
@@ -55,16 +56,12 @@ class FakeConnection implements ListenConnection {
     async connect(): Promise<unknown> {
         await this.gate
         this.duringConnect?.()
-        if (this.failConnect) throw new ConnectionStandInError({ code: "connect refused" })
-        return undefined
+        return this.failConnect ? Promise.reject(CONNECT_REFUSED) : Promise.resolve()
     }
 
     query(text: string): Promise<unknown> {
         this.statements.push(text)
-        return Promise.resolve().then(() => {
-            if (this.failQuery) throw new ConnectionStandInError({ code: "listen refused" })
-            return {}
-        })
+        return this.failQuery ? Promise.reject(LISTEN_REFUSED) : Promise.resolve({})
     }
 
     end(): Promise<void> {
@@ -199,7 +196,7 @@ describe("PostgresListenerClient failed start", () => {
 
         await expect(client.start(handlers)).rejects.toMatchObject({
             code: "REALTIME_LISTEN_DROPPED",
-            cause: new ConnectionStandInError({ code: "connect refused" }),
+            cause: CONNECT_REFUSED,
         })
         expect(connections[0]?.ended).toBe(1)
     })
@@ -228,7 +225,7 @@ describe("PostgresListenerClient failed start", () => {
 
         await expect(client.start(handlers)).rejects.toMatchObject({
             code: "REALTIME_LISTEN_DROPPED",
-            cause: new ConnectionStandInError({ code: "listen refused" }),
+            cause: LISTEN_REFUSED,
         })
 
         expect(connections[0]?.ended).toBe(1)
@@ -269,10 +266,7 @@ describe("PostgresListenerClient loss", () => {
         const { client, connections, logger, handlers } = await build()
         await client.start(handlers)
         const dead = connections[0]
-        if (dead)
-            dead.end = jest
-                .fn<Promise<void>, []>()
-                .mockRejectedValue(new ConnectionStandInError({ code: "already gone" }))
+        if (dead) dead.end = () => Promise.reject(CONNECT_REFUSED)
 
         dead?.emitEnd()
         await new Promise<void>((resolve) => setImmediate(resolve))

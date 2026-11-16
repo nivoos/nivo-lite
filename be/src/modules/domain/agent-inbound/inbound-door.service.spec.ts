@@ -4,6 +4,7 @@ import { AgentRunsService } from "@modules/domain/agent-runs"
 import { AgentEventWakesService } from "@modules/domain/agent-schedules"
 import { AgentWakeService, AgentWorkAccessService } from "@modules/domain/agent-work"
 import { decodeInbound } from "@modules/domain/agent-wake-rules"
+import { WorkspacesService } from "@modules/domain/workspaces"
 import { IDS } from "@modules/platform/ids"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
@@ -45,18 +46,21 @@ const event = (over: Partial<InboundEvent> = {}): InboundEvent => ({
 })
 
 interface Options {
-    readonly targets?: ReadonlyArray<{ readonly agentId: string; readonly probeKey: string | null }>
+    readonly targets?: ReadonlyArray<{ readonly agentId: string }>
     readonly written?: ReadonlyArray<string | null>
     readonly reporter?: boolean
+    readonly live?: boolean
 }
 
 const NO_REPORTER: InboundStopReporter | null = null
 
 const build = async ({
-    targets = [{ agentId: "agent-1", probeKey: null }],
+    targets = [{ agentId: "agent-1" }],
     written = ["wake-1"],
     reporter = true,
+    live = true,
 }: Options = {}) => {
+    const workspaces = mock<WorkspacesService>({ isLive: jest.fn().mockResolvedValue(live) })
     const tx = fakeTransaction(mockEntityManager())
     const events = mock<AgentEventWakesService>({ agentsFor: jest.fn().mockResolvedValue(targets) })
     const access = mock<AgentWorkAccessService>({ agent: jest.fn().mockResolvedValue(undefined) })
@@ -83,6 +87,7 @@ const build = async ({
                   { provide: AgentRunsService, useValue: runs },
                   { provide: IDS, useValue: fakeIds() },
                   { provide: LOGGER, useValue: logger },
+                  { provide: WorkspacesService, useValue: workspaces },
                   { provide: INBOUND_STOP_REPORTER, useValue: stopReporter },
               ],
           })
@@ -96,6 +101,7 @@ const build = async ({
                   { provide: AgentRunsService, useValue: runs },
                   { provide: IDS, useValue: fakeIds() },
                   { provide: LOGGER, useValue: logger },
+                  { provide: WorkspacesService, useValue: workspaces },
                   { provide: INBOUND_STOP_REPORTER, useValue: NO_REPORTER },
               ],
           })
@@ -110,6 +116,7 @@ const build = async ({
         runs,
         logger,
         stopReporter,
+        workspaces,
     }
 }
 
@@ -125,7 +132,7 @@ const codeOf = async (run: Promise<unknown>): Promise<unknown> => {
 describe("InboundDoorService.accept, the wake", () => {
     it("wakes the agents holding a trigger for the event type and the adapter, keyed by the idempotency key, with the event in the wake context", async () => {
         const { door, tx, events, wakes } = await build({
-            targets: [{ agentId: "agent-1", probeKey: "money_in" }],
+            targets: [{ agentId: "agent-1" }],
         })
 
         await expect(door.accept(tx, event())).resolves.toEqual({ accepted: true, agentIds: ["agent-1"] })
@@ -139,7 +146,7 @@ describe("InboundDoorService.accept, the wake", () => {
             source: KEY,
             eventKey: "conn-1:evt-1",
             actorMemberId: null,
-            context: { eventName: "invoice.paid", probeKey: "money_in" },
+            context: { eventName: "invoice.paid" },
         })
         expect(decodeInbound(wake?.context.inbound)).toMatchObject({
             eventType: "invoice.paid",
@@ -176,7 +183,6 @@ describe("InboundDoorService.accept, the wake", () => {
         expect(access.agent).toHaveBeenCalledWith("ws-1", "agent-9")
         expect(events.agentsFor).not.toHaveBeenCalled()
         expect(wakes.write.mock.calls[0]?.[1]).toMatchObject({ agentId: "agent-9" })
-        expect(wakes.write.mock.calls[0]?.[1].context).not.toHaveProperty("probeKey")
     })
 })
 
@@ -217,8 +223,8 @@ describe("InboundDoorService.accept, a fact seen before or never wanted", () => 
     it("wakes each matched agent in order and answers only the ones it woke", async () => {
         const { door, tx, wakes } = await build({
             targets: [
-                { agentId: "agent-1", probeKey: null },
-                { agentId: "agent-2", probeKey: null },
+                { agentId: "agent-1" },
+                { agentId: "agent-2" },
             ],
             written: ["wake-1", null],
         })
@@ -233,6 +239,16 @@ describe("InboundDoorService.accept, a fact seen before or never wanted", () => 
         await expect(door.accept(tx, event())).resolves.toEqual({ accepted: false, agentIds: [] })
         expect(wakes.write).not.toHaveBeenCalled()
         expect(logger.info).toHaveBeenCalledWith("agent_inbound.no_target", { adapter: KEY })
+    })
+
+    it("takes in nothing for a workspace its owner deleted, and says so in the log", async () => {
+        const { door, tx, events, wakes, logger, workspaces } = await build({ live: false })
+
+        await expect(door.accept(tx, event())).resolves.toEqual({ accepted: false, agentIds: [] })
+        expect(workspaces.isLive).toHaveBeenCalledWith(event().workspaceId)
+        expect(events.agentsFor).not.toHaveBeenCalled()
+        expect(wakes.write).not.toHaveBeenCalled()
+        expect(logger.info).toHaveBeenCalledWith("agent_inbound.workspace_deleted", { adapter: KEY })
     })
 
     it("refuses an event of an adapter nobody registered, an event with no key and a payload too large to keep", async () => {
@@ -316,10 +332,10 @@ describe("InboundDoorService.accept, a chain of agents", () => {
 
     it("lets a report that fails fail the delivery too", async () => {
         const { door, tx, stopReporter } = await build()
-        stopReporter.report.mockRejectedValue(new Error("office down"))
+        stopReporter.report.mockRejectedValue(new Error("chat down"))
 
         await expect(door.accept(tx, event({ chain: chain({ depth: CHAIN_DEPTH_MAX }) }))).rejects.toThrow(
-            "office down",
+            "chat down",
         )
     })
 })

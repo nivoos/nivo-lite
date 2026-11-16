@@ -23,6 +23,7 @@ const connection = (overrides: Partial<ConnectionRecord> = {}): ConnectionRecord
     status: "connected",
     lastError: null,
     environment: "live",
+    sandbox: false,
     isDefault: false,
     lastEventAt: null,
     firstEvent: null,
@@ -34,7 +35,6 @@ const connection = (overrides: Partial<ConnectionRecord> = {}): ConnectionRecord
 interface Grant {
     readonly agentId: string
     readonly connectionId: string
-    readonly access: string
 }
 
 /** The grants and agents the owners answer for one manager. */
@@ -67,7 +67,7 @@ const build = async (em: MockEntityManager, found: ReadonlyArray<ConnectionRecor
     const directory = mock<AgentDirectoryService>()
     directory.cardsOf.mockImplementation((_workspaceId, ids) =>
         Promise.resolve(
-            facts.agents.filter((agent) => ids.includes(agent.id)).map((agent) => ({ ...agent, canTagAgentIds: [] })),
+            facts.agents.filter((agent) => ids.includes(agent.id)).map((agent) => ({ ...agent })),
         ),
     )
     const bindings = mock<AgentBindingsService>()
@@ -100,7 +100,15 @@ const build = async (em: MockEntityManager, found: ReadonlyArray<ConnectionRecor
             { provide: AgentAccessLogService, useValue: accessLog },
         ],
     }).compile()
-    return { service: moduleRef.get(ConnectionGrantsService), tx, connections, bindings, accessLog, directory }
+    return {
+        service: moduleRef.get(ConnectionGrantsService),
+        tx,
+        connections,
+        bindings,
+        accessLog,
+        directory,
+        members,
+    }
 }
 
 /** A grant write receives the transaction view, which is not the outer manager. */
@@ -112,9 +120,45 @@ const expectInTransaction = <Args extends Array<unknown>>(spy: jest.Mock<unknown
 const agentId = "11111111-1111-4111-8111-111111111111"
 const uuidAgent = [{ ...AGENT, id: agentId }]
 
+describe("ConnectionGrantsService > bindableAgents", () => {
+    it("lists the active agents whose module the installation lets use the provider, each with its purpose", async () => {
+        const { service, directory } = await build(mockEntityManager())
+        directory.activeModuleRefsOf.mockResolvedValue([
+            { id: "a1", module: "webdesk" },
+            { id: "a2", module: "chatbot" },
+            { id: "a3", module: "booking" },
+        ])
+
+        await expect(service.bindableAgents("owner-1", "ws-1", "zalo_oa")).resolves.toEqual([
+            { agentId: "a1", purpose: "inbound_chat" },
+            { agentId: "a2", purpose: "inbound_chat" },
+            { agentId: "a3", purpose: "outbound_chat" },
+        ])
+        expect(directory.activeModuleRefsOf).toHaveBeenCalledWith("ws-1", 200)
+    })
+
+    it("offers every active agent a data connector and none a provider no installed module lists", async () => {
+        const { service, directory } = await build(mockEntityManager())
+        directory.activeModuleRefsOf.mockResolvedValue([{ id: "a1", module: "chatbot" }])
+
+        await expect(service.bindableAgents("owner-1", "ws-1", "database")).resolves.toEqual([
+            { agentId: "a1", purpose: "data_source" },
+        ])
+        await expect(service.bindableAgents("owner-1", "ws-1", "no_such_provider")).resolves.toEqual([])
+    })
+
+    it("answers nothing to a caller who is not a member", async () => {
+        const { service, directory, members } = await build(mockEntityManager())
+        members.require.mockRejectedValue(new Error("not a member"))
+
+        await expect(service.bindableAgents("stranger", "ws-1", "zalo_oa")).rejects.toThrow("not a member")
+        expect(directory.activeModuleRefsOf).not.toHaveBeenCalled()
+    })
+})
+
 describe("ConnectionGrantsService > candidates", () => {
-    it("lists every grantable connection with the access the agent already has", async () => {
-        const { em } = managerOf([{ agentId, connectionId: "c1", access: "ask" }], uuidAgent)
+    it("lists every grantable connection and whether the agent is bound to it", async () => {
+        const { em } = managerOf([{ agentId, connectionId: "c1" }], uuidAgent)
         const { service, connections } = await build(em, [
             connection({ id: "c1", meta: { bot_username: "shop_bot" } }),
             connection({ id: "c2", provider: "sepay", meta: { account_masked: "****1234" } }),
@@ -130,7 +174,7 @@ describe("ConnectionGrantsService > candidates", () => {
                 accountMasked: null,
                 status: "connected",
                 purpose: "inbound_chat",
-                access: "ask",
+                bound: true,
             },
         ])
         expect(connections.list).toHaveBeenCalledWith("ws-1")
@@ -147,9 +191,26 @@ describe("ConnectionGrantsService > candidates", () => {
     })
 })
 
+describe("ConnectionGrantsService > candidatesOf", () => {
+    it("lists the grantable connections of an agent named by its module, with no membership check", async () => {
+        const { em } = managerOf([{ agentId, connectionId: "c1" }], uuidAgent)
+        const { service } = await build(em, [
+            connection({ id: "c1" }),
+            connection({ id: "c2", provider: "sepay", meta: { account_masked: "****1234" } }),
+        ])
+
+        const found = await service.candidatesOf("ws-1", agentId, "sales")
+
+        expect(found.map((one) => [one.id, one.purpose, one.bound])).toEqual([
+            ["c1", "outbound_chat", true],
+            ["c2", "bank_feed", false],
+        ])
+    })
+})
+
 describe("ConnectionGrantsService > candidates", () => {
-    it("treats a blank public fact as absent, an unknown level as auto, and no grant as none", async () => {
-        const { em } = managerOf([{ agentId, connectionId: "c1", access: "nope" }], uuidAgent)
+    it("treats a blank public fact as absent and tells a bound connection from one that is not", async () => {
+        const { em } = managerOf([{ agentId, connectionId: "c1" }], uuidAgent)
         const { service } = await build(em, [
             connection({ id: "c1", meta: { bot_username: "  ", account_masked: "****1234" } }),
             connection({ id: "c2" }),
@@ -164,7 +225,7 @@ describe("ConnectionGrantsService > candidates", () => {
                 accountMasked: "****1234",
                 status: "connected",
                 purpose: "inbound_chat",
-                access: "auto",
+                bound: true,
             },
             {
                 id: "c2",
@@ -174,7 +235,7 @@ describe("ConnectionGrantsService > candidates", () => {
                 accountMasked: null,
                 status: "connected",
                 purpose: "inbound_chat",
-                access: null,
+                bound: false,
             },
         ])
     })
@@ -190,10 +251,10 @@ describe("ConnectionGrantsService > candidates", () => {
 })
 
 describe("ConnectionGrantsService > setGrant", () => {
-    it("gives an agent access, writes the grant with its purpose and logs who changed what", async () => {
+    it("binds an agent, writes the binding with its purpose and logs who changed what", async () => {
         const { service, tx, connections, bindings, accessLog } = await build(managerOf().em)
 
-        await service.setGrant(actor, "c1", "a1", "auto")
+        await service.setGrant(actor, "c1", "a1", true)
 
         expect(connections.authorize).toHaveBeenCalledWith(actor, ["owner"])
         expectInTransaction(bindings.writeGrant, {
@@ -201,7 +262,6 @@ describe("ConnectionGrantsService > setGrant", () => {
             agentId: "a1",
             connectionId: "c1",
             purpose: "inbound_chat",
-            access: "auto",
         })
         expectInTransaction(accessLog.record, {
             workspaceId: "ws-1",
@@ -210,45 +270,31 @@ describe("ConnectionGrantsService > setGrant", () => {
             connectionName: "Shop bot",
             agentName: "Bot",
             before: null,
-            after: "auto",
+            after: "bound",
             changedBy: "owner-1",
             changedByName: "Lan",
         })
         expect(tx.commits).toBe(1)
     })
 
-    it("starts an unknown level at ask", async () => {
-        const { service, bindings } = await build(managerOf().em)
-
-        await service.setGrant(actor, "c1", "a1", "bogus")
-
-        expectInTransaction(bindings.writeGrant, {
-            workspaceId: "ws-1",
-            agentId: "a1",
-            connectionId: "c1",
-            purpose: "inbound_chat",
-            access: "ask",
-        })
-    })
-
-    it("removes an access and logs the level it had", async () => {
+    it("removes a binding and logs that it was bound", async () => {
         const { service, bindings, accessLog } = await build(
-            managerOf([{ agentId: "a1", connectionId: "c1", access: "read" }]).em,
+            managerOf([{ agentId: "a1", connectionId: "c1" }]).em,
         )
 
-        await service.setGrant(actor, "c1", "a1", null)
+        await service.setGrant(actor, "c1", "a1", false)
 
         expectInTransaction(bindings.removeGrant, { workspaceId: "ws-1", agentId: "a1", connectionId: "c1" })
-        expect(accessLog.record.mock.calls[0]?.[0]).toMatchObject({ before: "read", after: null })
+        expect(accessLog.record.mock.calls[0]?.[0]).toMatchObject({ before: "bound", after: null })
         expect(isTransactionManager(accessLog.record.mock.calls[0]?.[1])).toBe(true)
     })
 
-    it("writes nothing when the level is already the one asked", async () => {
+    it("writes nothing when the agent is already bound", async () => {
         const { service, bindings, accessLog } = await build(
-            managerOf([{ agentId: "a1", connectionId: "c1", access: "ask" }]).em,
+            managerOf([{ agentId: "a1", connectionId: "c1" }]).em,
         )
 
-        await service.setGrant(actor, "c1", "a1", "ask")
+        await service.setGrant(actor, "c1", "a1", true)
 
         expect(bindings.writeGrant).not.toHaveBeenCalled()
         expect(accessLog.record).not.toHaveBeenCalled()
@@ -259,7 +305,7 @@ describe("ConnectionGrantsService > setGrant", () => {
     it("refuses a module that cannot use the provider", async () => {
         const { service, tx } = await build(managerOf().em, [connection({ provider: "sepay", name: "Bank" })])
 
-        await expect(service.setGrant(actor, "c1", "a1", "ask")).rejects.toMatchObject({
+        await expect(service.setGrant(actor, "c1", "a1", true)).rejects.toMatchObject({
             code: ConnectionGrantsErrorCode.PairRefused,
             params: { agent: "Bot", connection: "Bank" },
         })
@@ -269,38 +315,32 @@ describe("ConnectionGrantsService > setGrant", () => {
     it("refuses a first grant on a disconnected connection", async () => {
         const { service } = await build(managerOf().em, [connection({ status: "disconnected" })])
 
-        await expect(service.setGrant(actor, "c1", "a1", "ask")).rejects.toMatchObject({
+        await expect(service.setGrant(actor, "c1", "a1", true)).rejects.toMatchObject({
             code: ConnectionGrantsErrorCode.ConnectionDisconnected,
             params: { connection: "Shop bot" },
         })
     })
 
-    it("lets an existing grant on a disconnected connection change level", async () => {
+    it("keeps an existing binding on a disconnected connection without a refusal or a write", async () => {
         const { service, bindings } = await build(
-            managerOf([{ agentId: "a1", connectionId: "c1", access: "read" }]).em,
+            managerOf([{ agentId: "a1", connectionId: "c1" }]).em,
             [connection({ status: "disconnected" })],
         )
 
-        await service.setGrant(actor, "c1", "a1", "auto")
+        await service.setGrant(actor, "c1", "a1", true)
 
-        expectInTransaction(bindings.writeGrant, {
-            workspaceId: "ws-1",
-            agentId: "a1",
-            connectionId: "c1",
-            purpose: "inbound_chat",
-            access: "auto",
-        })
+        expect(bindings.writeGrant).not.toHaveBeenCalled()
     })
 
     it("answers not found for an agent or a connection of another workspace", async () => {
         const noAgent = await build(managerOf([], []).em)
         const noConnection = await build(managerOf().em, [])
 
-        await expect(noAgent.service.setGrant(actor, "c1", "a1", "ask")).rejects.toMatchObject({
+        await expect(noAgent.service.setGrant(actor, "c1", "a1", true)).rejects.toMatchObject({
             code: ConnectionsErrorCode.NotFound,
             params: { id: "a1" },
         })
-        await expect(noConnection.service.setGrant(actor, "c1", "a1", "ask")).rejects.toMatchObject({
+        await expect(noConnection.service.setGrant(actor, "c1", "a1", true)).rejects.toMatchObject({
             code: ConnectionsErrorCode.NotFound,
             params: { id: "c1" },
         })
@@ -311,7 +351,7 @@ describe("ConnectionGrantsService > setGrant", () => {
         const refused = new Error("CONNECTIONS_FORBIDDEN")
         connections.authorize.mockRejectedValue(refused)
 
-        await expect(service.setGrant(actor, "c1", "a1", "ask")).rejects.toBe(refused)
+        await expect(service.setGrant(actor, "c1", "a1", true)).rejects.toBe(refused)
         expect(tx.outcomes).toEqual([])
     })
 })
@@ -320,7 +360,7 @@ describe("ConnectionGrantsService > setConnectionAgents", () => {
     it("makes exactly these agents use the connection", async () => {
         const { service, connections, bindings } = await build(
             managerOf(
-                [{ agentId: "gone", connectionId: "c1", access: "ask" }],
+                [{ agentId: "gone", connectionId: "c1" }],
                 [AGENT, { id: "gone", name: "Old", module: "chatbot" }],
             ).em,
         )
@@ -334,7 +374,6 @@ describe("ConnectionGrantsService > setConnectionAgents", () => {
             agentId: "a1",
             connectionId: "c1",
             purpose: "inbound_chat",
-            access: "ask",
         })
         expectInTransaction(bindings.removeGrant, { workspaceId: "ws-1", agentId: "gone", connectionId: "c1" })
     })
@@ -353,28 +392,27 @@ describe("ConnectionGrantsService > setConnectionAgents", () => {
 })
 
 describe("ConnectionGrantsService > setAgentConnections", () => {
-    it("makes exactly these connections used by the agent, keeping a level it already has", async () => {
+    it("makes exactly these connections bound to the agent, writing nothing for one it has", async () => {
         const { service, tx, bindings } = await build(
-            managerOf([{ agentId: "a1", connectionId: "c1", access: "auto" }]).em,
+            managerOf([{ agentId: "a1", connectionId: "c1" }]).em,
         )
 
-        await service.setAgentConnections(actor, "a1", [{ connectionId: "c1" }, { connectionId: "c1", access: "auto" }])
+        await service.setAgentConnections(actor, "a1", [{ connectionId: "c1" }, { connectionId: "c1" }])
 
         expect(bindings.writeGrant).not.toHaveBeenCalled()
         expect(tx.commits).toBe(1)
     })
 
-    it("adds a connection at the level the caller picks", async () => {
+    it("adds a connection the agent is not bound to", async () => {
         const { service, bindings } = await build(managerOf().em)
 
-        await service.setAgentConnections(actor, "a1", [{ connectionId: "c1", access: "read" }])
+        await service.setAgentConnections(actor, "a1", [{ connectionId: "c1" }])
 
         expectInTransaction(bindings.writeGrant, {
             workspaceId: "ws-1",
             agentId: "a1",
             connectionId: "c1",
             purpose: "inbound_chat",
-            access: "read",
         })
     })
 })
@@ -384,9 +422,9 @@ describe("ConnectionGrantsService > board", () => {
         const shop = connection({ meta: { bot_username: "shop_bot" } })
         const bank = connection({ id: "c2", provider: "sepay", name: "Bank", meta: { account_masked: "" } })
         const { em } = managerOf([
-            { agentId: "a1", connectionId: "c1", access: "read" },
-            { agentId: "a2", connectionId: "c1", access: "nope" },
-            { agentId: "a3", connectionId: "missing", access: "ask" },
+            { agentId: "a1", connectionId: "c1" },
+            { agentId: "a2", connectionId: "c1" },
+            { agentId: "a3", connectionId: "missing" },
         ])
         const { service, connections, bindings } = await build(em, [shop, bank])
 
@@ -395,10 +433,7 @@ describe("ConnectionGrantsService > board", () => {
                 connection: shop,
                 botUsername: "shop_bot",
                 accountMasked: null,
-                grants: [
-                    { agentId: "a1", access: "read" },
-                    { agentId: "a2", access: "auto" },
-                ],
+                grants: [{ agentId: "a1" }, { agentId: "a2" }],
             },
             { connection: bank, botUsername: null, accountMasked: null, grants: [] },
         ])

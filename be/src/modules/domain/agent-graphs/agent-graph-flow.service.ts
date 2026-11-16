@@ -1,6 +1,5 @@
 import { Injectable } from "@nestjs/common"
 import type { GraphSpec } from "@nivo-lite/agent-sdk/graph"
-import type { NodeIndex } from "@nivo-lite/agent-sdk/node"
 import { AgentGraphsService, type OptionalGraphState } from "./agent-graphs.service"
 import type { GraphChangeKind, GraphDocument } from "./agent-graphs.contracts"
 import { requireSoundFlow, sameFlow } from "./policies/flow.policy"
@@ -16,13 +15,11 @@ export interface PublishFlowInput {
     readonly agentId: string
     /** The installation the agent runs as. */
     readonly installationId: string
-    /** The flow. */
+    /** The flow: an installed template version's graph (`requireSoundFlow`). */
     readonly flow: GraphSpec
-    /** The nodes, effects, tools and data kinds the app installed: the flow is judged against them. */
-    readonly installed: NodeIndex
 }
 
-const EMPTY: GraphDocument = { nodes: [], rights: [] }
+const EMPTY: GraphDocument = { nodes: [] }
 
 /** The change kind of a version a spec published: the rules-derived refresh never replaces it. */
 const SPEC: GraphChangeKind = "spec"
@@ -33,8 +30,8 @@ const heldAsSpec = (state: OptionalGraphState, flow: GraphSpec): boolean =>
 
 @Injectable()
 /**
- * Puts a flow on the graph of an agent as the version that decides. The flow is judged first against the installed nodes under its own
- * grant, and a flow with a problem is refused with nothing written. The version is of kind `spec`, which the rules-derived refresh
+ * Puts a flow on the graph of an agent as the version that decides. The flow is judged first (`requireSoundFlow`: an installed template
+ * version's copy), and a flow with a problem is refused with nothing written. The version is of kind `spec`, which the rules-derived refresh
  * never replaces. The same flow live as a spec changes nothing; any other state (another flow, none, or the same one on a version of
  * another kind) publishes the next version, with the nodes and rights of the live one kept, so a rerun restores a flow a version lost.
  */
@@ -48,8 +45,8 @@ export class AgentGraphFlowService {
 
     /** Publishes the flow as the live version of the agent's graph and says what that did. */
     async publish(input: PublishFlowInput): Promise<FlowPublished> {
-        const { workspaceId, agentId, installationId, flow, installed } = input
-        requireSoundFlow(flow, installed)
+        const { workspaceId, agentId, installationId, flow } = input
+        requireSoundFlow(flow)
         const existing = await this.graphs.stateOfAgent(workspaceId, agentId)
         const state = existing ?? (await this.graphs.ensure(workspaceId, agentId, installationId, EMPTY))
         if (heldAsSpec(state, flow)) return "unchanged"

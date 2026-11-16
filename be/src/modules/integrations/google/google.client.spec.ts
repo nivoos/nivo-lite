@@ -12,7 +12,6 @@ import { RENEWAL_GRANT_FIELD } from "./google.contracts"
 import { GOOGLE_OPTIONS } from "./google.decorators"
 import { GoogleLogEvent } from "./google.log-events"
 import type { GoogleOptions } from "./google.options"
-import { ordersTab } from "./google-sheet.policy"
 
 /** A partial-object matcher, typed `unknown` so it flows into any slot. */
 const objectLike = (shape: Record<string, unknown>): unknown => expect.objectContaining(shape)
@@ -227,37 +226,6 @@ describe("GoogleClient accountEmail", () => {
     })
 })
 
-describe("GoogleClient spreadsheets", () => {
-    it("creates the spreadsheet and formats the money column", async () => {
-        const { client, http } = await build()
-        http.request.mockResolvedValueOnce(answer({ spreadsheetId: "id 1", spreadsheetUrl: "https://s.test/1" }))
-        http.request.mockResolvedValueOnce(answer({}))
-
-        await expect(client.createOrdersSpreadsheet("tok", "Shop")).resolves.toEqual({
-            spreadsheetId: "id 1",
-            spreadsheetUrl: "https://s.test/1",
-        })
-        expect(http.request).toHaveBeenNthCalledWith(
-            2,
-            objectLike({ url: "https://sheets.googleapis.com/v4/spreadsheets/id%201:batchUpdate" }),
-        )
-    })
-
-    it("builds the url itself when Google sends none and rejects a missing id", async () => {
-        const { client, http } = await build()
-        http.request.mockResolvedValueOnce(answer({ spreadsheetId: "abc" }))
-        http.request.mockResolvedValueOnce(answer({}))
-        http.request.mockResolvedValueOnce(answer({}))
-
-        await expect(client.createOrdersSpreadsheet("tok", "Shop")).resolves.toMatchObject({
-            spreadsheetUrl: "https://docs.google.com/spreadsheets/d/abc/edit",
-        })
-        await expect(client.createOrdersSpreadsheet("tok", "Shop")).rejects.toMatchObject({
-            code: GoogleErrorCode.ContractMismatch,
-        })
-    })
-})
-
 describe("GoogleClient spreadsheetTitle", () => {
     it("asks only for the title of the spreadsheet and answers it, blank when Google names none", async () => {
         const { client, http } = await build()
@@ -276,117 +244,19 @@ describe("GoogleClient spreadsheetTitle", () => {
     })
 })
 
-describe("GoogleClient sheet operations", () => {
-    it("finds the first matching row in priority order, skipping the header", async () => {
-        const { client, http } = await build()
-        http.request.mockResolvedValue(answer({ values: [["Code"], ["A-1"], [], ["B-2"], "bad", [" A-1 "]] }))
-        const sheets = (await build()).client.sheets("tok")
-        const api = client.sheets("tok")
-
-        await expect(api.findRow("s", ["B-2", "A-1"])).resolves.toEqual({ row: 4, code: "B-2" })
-        await expect(api.findRow("s", ["Code", "Z"])).resolves.toBeNull()
-        await expect(api.findRow("s", [" ", ""])).resolves.toBeNull()
-        expect(http.request).toHaveBeenCalledTimes(2)
-        expect(http.request).toHaveBeenCalledWith(
-            objectLike({
-                method: "GET",
-                url:
-                    "https://sheets.googleapis.com/v4/spreadsheets/s/values/" +
-                    encodeURIComponent(`'${ordersTab()}'!B:B`),
-            }),
-        )
-        expect(sheets).toBeDefined()
-    })
-
-    it("reads a sheet with no values as no match", async () => {
-        const { client, http } = await build()
-        http.request.mockResolvedValue(answer({}))
-
-        await expect(client.sheets("tok").findRow("s", ["A"])).resolves.toBeNull()
-    })
-})
-
-describe("GoogleClient sheet writes", () => {
-    it("appends a row as raw values and reads the row it landed on", async () => {
-        const { client, http } = await build()
-        http.request.mockResolvedValueOnce(answer({ updates: { updatedRange: "'Tab'!A12:I12" } }))
-        http.request.mockResolvedValueOnce(answer({ updates: { updatedRange: "nonsense" } }))
-        http.request.mockResolvedValueOnce(answer({}))
-
-        await expect(client.sheets("tok").appendRow("s", "Tab", 9, ["=x", 1])).resolves.toBe(12)
-        await expect(client.sheets("tok").appendRow("s", "Tab", 9, [])).resolves.toBe(0)
-        await expect(client.sheets("tok").appendRow("s", "Tab", 9, [])).resolves.toBe(0)
-        expect(http.request).toHaveBeenNthCalledWith(
-            1,
-            objectLike({
-                method: "POST",
-                url: stringLike(":append?valueInputOption=RAW&insertDataOption=INSERT_ROWS"),
-                body: { majorDimension: "ROWS", values: [["=x", 1]] },
-                headers: { authorization: "Bearer tok" },
-            }),
-        )
-    })
-
-    it.each([
-        ["A12:I15", 12],
-        ["junkA7", 7],
-        ["a1:B9", 9],
-        ["A1:B2:C3", 2],
-        ["A".repeat(10000), 0],
-        ["A12:invalid", 0],
-    ])("reads the same final range suffix %s", async (updatedRange, row) => {
-        const { client, http } = await build()
-        http.request.mockResolvedValue(answer({ updates: { updatedRange } }))
-
-        await expect(client.sheets("tok").appendRow("s", "Tab", 9, [])).resolves.toBe(row)
-    })
-
-    it("updates the given cells of one row", async () => {
-        const { client, http } = await build()
-        http.request.mockResolvedValue(answer({}))
-
-        await client.sheets("tok").updateCells("s", 4, { F: "x", G: 2 })
-
-        expect(http.request).toHaveBeenCalledWith(
-            objectLike({
-                body: {
-                    valueInputOption: "RAW",
-                    data: [
-                        { range: `'${ordersTab()}'!F4`, majorDimension: "ROWS", values: [["x"]] },
-                        { range: `'${ordersTab()}'!G4`, majorDimension: "ROWS", values: [[2]] },
-                    ],
-                },
-            }),
-        )
-    })
-})
-
-describe("GoogleClient sheet operations", () => {
-    it("applies a NIVO event through the sheet operations", async () => {
-        const { client, http } = await build()
-        http.request.mockResolvedValue(answer({ updates: { updatedRange: "A2:G2" } }))
-
-        const result = await client.applyEvent(
-            "tok",
-            { spreadsheetId: "s", recordLeads: true },
-            { event: "lead.created", data: { name: "An" }, occurredAt: "2026-10-12T03:00:00.000Z" },
-        )
-
-        expect(result.evidence).toContain("An")
-    })
-})
-
 describe("GoogleClient ledger values", () => {
-    it("appends rows to the first tab as raw values and answers the range Google wrote", async () => {
+    it("appends rows to a tab as typed values and answers the range Google wrote", async () => {
         const { client, http } = await build()
-        http.request.mockResolvedValue(answer({ updates: { updatedRange: "Sheet1!A2:G2" } }))
+        http.request.mockResolvedValue(answer({ updates: { updatedRange: "'Ledger'!A2:H2" } }))
 
-        await expect(client.appendValues("tok", "sheet 1", [["2026-11-04", 5000]])).resolves.toBe("Sheet1!A2:G2")
+        await expect(client.appendValues("tok", "sheet 1", "Ledger", [["2026-11-04", 5000]])).resolves.toBe(
+            "'Ledger'!A2:H2",
+        )
 
         expect(http.request).toHaveBeenCalledWith(
             objectLike({
                 method: "POST",
-                url: "https://sheets.googleapis.com/v4/spreadsheets/sheet%201/values/A%3AG:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
+                url: "https://sheets.googleapis.com/v4/spreadsheets/sheet%201/values/'Ledger'!A%3AH:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
                 headers: { authorization: "Bearer tok" },
                 body: { majorDimension: "ROWS", values: [["2026-11-04", 5000]] },
                 timeoutMs: 5000,
@@ -398,7 +268,48 @@ describe("GoogleClient ledger values", () => {
         const { client, http } = await build()
         http.request.mockResolvedValue(answer({}))
 
-        await expect(client.appendValues("tok", "s", [])).resolves.toBe("")
+        await expect(client.appendValues("tok", "s", "Ledger", [])).resolves.toBe("")
+    })
+
+    it("adds the tab, frozen under its header, when the spreadsheet has none of that title", async () => {
+        const { client, http } = await build()
+        http.request.mockResolvedValueOnce(answer({ sheets: [{ properties: { title: "Orders" } }, "x", {}] }))
+        http.request.mockResolvedValueOnce(answer({}))
+
+        await client.ensureTab("tok", "s", "Ledger")
+
+        expect(http.request).toHaveBeenNthCalledWith(
+            1,
+            objectLike({ method: "GET", url: stringLike("/v4/spreadsheets/s?fields=sheets.properties.title") }),
+        )
+        expect(http.request).toHaveBeenNthCalledWith(
+            2,
+            objectLike({
+                method: "POST",
+                url: stringLike("/v4/spreadsheets/s:batchUpdate"),
+                body: {
+                    requests: [
+                        {
+                            addSheet: {
+                                properties: {
+                                    title: "Ledger",
+                                    gridProperties: { frozenRowCount: 1, rowCount: 1000, columnCount: 8 },
+                                },
+                            },
+                        },
+                    ],
+                },
+            }),
+        )
+    })
+
+    it("adds nothing when the tab is there, or when Google lists no tabs it can read", async () => {
+        const { client, http } = await build()
+        http.request.mockResolvedValueOnce(answer({ sheets: [{ properties: { title: "Ledger" } }] }))
+
+        await client.ensureTab("tok", "s", "Ledger")
+
+        expect(http.request).toHaveBeenCalledTimes(1)
     })
 
     it("reads a range as text rows and reads no values as no rows", async () => {
@@ -418,7 +329,7 @@ describe("GoogleClient ledger values", () => {
         const { client, http } = await build()
         http.request.mockResolvedValue(answer({ error: { status: "PERMISSION_DENIED" } }, 403))
 
-        await expect(client.appendValues("tok", "s", [])).rejects.toMatchObject({
+        await expect(client.appendValues("tok", "s", "Ledger", [])).rejects.toMatchObject({
             code: GoogleErrorCode.Refused,
             params: { status: 403, reason: "PERMISSION_DENIED" },
         })

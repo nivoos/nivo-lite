@@ -3,6 +3,7 @@ import {
     ConnectionsError,
     ConnectionsErrorCode,
     ConnectionsService,
+    connectionAttentionOf,
     type ConnectionActor,
     type ConnectionRecord,
 } from "@modules/domain/connections"
@@ -29,6 +30,7 @@ export class TelegramPageService {
             name: connection.name,
             status: connection.status,
             healthy: connection.status === "connected" && connection.lastError === null,
+            attention: connectionAttentionOf(connection),
             botUsername: connection.meta.bot_username ?? "",
             webhookUrl: this.connections.webhookUrl(PROVIDER, connection.id),
             lastError: connection.lastError,

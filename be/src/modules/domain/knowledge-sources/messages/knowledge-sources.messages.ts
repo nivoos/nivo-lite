@@ -14,14 +14,22 @@ export const KNOWLEDGE_SOURCES_MESSAGES: MessageBundle = {
         "errors.KNOWLEDGE_SOURCES_UPLOAD_UNAVAILABLE": "Chưa tạo được địa chỉ tải lên. Hãy thử lại sau.",
         "errors.KNOWLEDGE_SOURCES_FILE_NAME_REQUIRED": "Cần có tên tệp.",
         "errors.KNOWLEDGE_SOURCES_FILE_TYPE_UNSUPPORTED":
-            "Chưa đọc được loại tệp này. Hãy dùng PDF, Word, Excel, PowerPoint, văn bản hoặc CSV.",
+            "Chưa đọc được loại tệp này. Hãy dùng PDF, Word, Excel, PowerPoint, văn bản, CSV, trang HTML hoặc ảnh chụp (JPG, PNG).",
         "errors.KNOWLEDGE_SOURCES_FILE_TOO_LARGE": "Tệp {{size}} MB, lớn hơn mức tối đa {{max}} MB cho một tài liệu.",
+        "errors.KNOWLEDGE_SOURCES_LEGACY_OFFICE":
+            "Đây là tệp Word/Excel/PowerPoint đời cũ (.doc, .xls, .ppt). Hãy mở tệp và lưu lại thành .docx, .xlsx hoặc .pptx rồi tải lên.",
+        "errors.KNOWLEDGE_SOURCES_NOT_A_FILE": "Tài liệu này không phải tệp tải lên, nên không thể thay bằng tệp mới.",
         "errors.KNOWLEDGE_SOURCES_QUOTA_EXCEEDED":
             "Tài liệu {{size}} MB vượt quá giới hạn dữ liệu thô của workspace: đã dùng {{used}} / {{limit}} MB, còn lại {{left}} MB. Hãy xoá bớt tài liệu hoặc chọn tệp nhỏ hơn.",
         "errors.KNOWLEDGE_SOURCES_UPLOAD_MISSING": "Chưa thấy tệp được tải lên. Hãy tải lên lại.",
         "errors.KNOWLEDGE_SOURCES_PUBLIC_BY_APPROVAL":
-            "Tài liệu nội bộ không thể chuyển thành công khai. Hãy soạn một tài liệu công khai riêng và duyệt nó.",
+            "Tài liệu công khai đã duyệt chỉ được đổi qua mục Tài liệu công khai.",
         "errors.KNOWLEDGE_SOURCES_PUBLISH_BUSY": "Tài liệu công khai đang được đọc. Hãy thử lại sau ít phút.",
+        "errors.KNOWLEDGE_SOURCES_PUBLIC_AREA_FULL":
+            "Tài liệu {{size}} MB vượt quá giới hạn của khu Tài liệu công khai: đã dùng {{used}} / {{limit}} MB, còn lại {{left}} MB. Hãy xoá bớt tài liệu công khai hoặc chọn tệp nhỏ hơn.",
+        "errors.KNOWLEDGE_SOURCES_VISIBILITY_UNKNOWN": "Hãy chọn khu Tài liệu công khai hoặc Tài liệu nội bộ.",
+        "errors.KNOWLEDGE_SOURCES_INTERNAL_AREA_FULL":
+            "Tài liệu {{size}} MB vượt quá giới hạn của khu Tài liệu nội bộ: đã dùng {{used}} / {{limit}} MB, còn lại {{left}} MB. Hãy xoá bớt tài liệu nội bộ hoặc chọn tệp nhỏ hơn.",
     },
     en: {
         "errors.KNOWLEDGE_SOURCES_NOT_FOUND": "This knowledge source was not found.",
@@ -36,14 +44,23 @@ export const KNOWLEDGE_SOURCES_MESSAGES: MessageBundle = {
         "errors.KNOWLEDGE_SOURCES_UPLOAD_UNAVAILABLE": "An upload address could not be made. Try again later.",
         "errors.KNOWLEDGE_SOURCES_FILE_NAME_REQUIRED": "A file name is required.",
         "errors.KNOWLEDGE_SOURCES_FILE_TYPE_UNSUPPORTED":
-            "This file type cannot be read yet. Use PDF, Word, Excel, PowerPoint, text or CSV.",
+            "This file type cannot be read yet. Use PDF, Word, Excel, PowerPoint, text, CSV, an HTML page or a photo (JPG, PNG).",
+        "errors.KNOWLEDGE_SOURCES_LEGACY_OFFICE":
+            "This is an old Word/Excel/PowerPoint file (.doc, .xls, .ppt). Open it, save it as .docx, .xlsx or .pptx and upload that.",
+        "errors.KNOWLEDGE_SOURCES_NOT_A_FILE":
+            "This document is not an uploaded file, so it cannot be replaced by a new file.",
         "errors.KNOWLEDGE_SOURCES_FILE_TOO_LARGE":
             "The file is {{size}} MB, over the {{max}} MB limit for one document.",
         "errors.KNOWLEDGE_SOURCES_QUOTA_EXCEEDED":
             "This {{size}} MB document would exceed the workspace's raw data limit: {{used}} of {{limit}} MB used, {{left}} MB left. Delete some documents or pick a smaller file.",
         "errors.KNOWLEDGE_SOURCES_UPLOAD_MISSING": "The uploaded file was not found. Upload it again.",
         "errors.KNOWLEDGE_SOURCES_PUBLIC_BY_APPROVAL":
-            "An internal document cannot be made public. Write a separate public document and approve it.",
+            "An approved public document is changed only through Public documents.",
         "errors.KNOWLEDGE_SOURCES_PUBLISH_BUSY": "The public document is being read. Try again in a few minutes.",
+        "errors.KNOWLEDGE_SOURCES_PUBLIC_AREA_FULL":
+            "This {{size}} MB document would exceed the Public documents area: {{used}} of {{limit}} MB used, {{left}} MB left. Delete some public documents or pick a smaller file.",
+        "errors.KNOWLEDGE_SOURCES_VISIBILITY_UNKNOWN": "Choose the Public documents or the Internal documents area.",
+        "errors.KNOWLEDGE_SOURCES_INTERNAL_AREA_FULL":
+            "This {{size}} MB document would exceed the Internal documents area: {{used}} of {{limit}} MB used, {{left}} MB left. Delete some internal documents or pick a smaller file.",
     },
 }

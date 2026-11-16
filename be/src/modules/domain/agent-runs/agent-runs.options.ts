@@ -1,9 +1,10 @@
 /** What the agent-runs capability is told by the app root; every field has a default. */
 export interface AgentRunsOptions {
-    /** Names the running build; a run parked under another build is run again when this one starts. Without it no run is resumed by a build change. */
-    readonly buildId?: string | undefined
-    /** How long a run stays parked before the sweep runs it again on its own, minutes. */
-    readonly parkSweepMinutes?: number | undefined
-    /** The most times the machine resumes one parked run on its own; past it only a person resumes. */
-    readonly parkMaxResumes?: number | undefined
+    /** How many runs execute at once (`AGENT_RUNS_CONCURRENCY`); 100 when absent. */
+    readonly concurrency?: number | undefined
+    /**
+     * How many runs of ONE workspace execute at once (`AGENT_RUNS_WORKSPACE_CONCURRENCY`); absent = the whole capacity (a self-hosted
+     * install has one workspace and must reach it). Set lower only on a shared multi-tenant deployment.
+     */
+    readonly workspaceConcurrency?: number | undefined
 }

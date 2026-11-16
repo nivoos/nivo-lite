@@ -8,8 +8,13 @@ import {
     type ChatDone,
     type ChatMemberRef,
     type ChatRefused,
+    type GroupPurpose,
+    type RoomKeyed,
+    type RoomKind,
     type StoredMention,
 } from "./team-chat.contracts"
+import type { PurposeColumns } from "./team-chat-audience.contracts"
+import type { NewText, TextRow } from "./team-chat-store.contracts"
 import { TeamChatErrorCode } from "./errors/team-chat.error"
 
 /** The longest client id of a message: the column's CHECK (chat_room_messages_client_id_check) holds 1 to 64 characters. */
@@ -50,6 +55,25 @@ export const directKeyOf = (first: ChatMemberRef, second: ChatMemberRef): string
         .map((member) => `${member.memberKind}:${member.memberId}`)
         .toSorted((left, right) => left.localeCompare(right))
         .join("|")
+
+/** The member part NIVO itself takes in the key of a person's NIVO room; it is never a seat (NIVO is no member). */
+const NIVO_KEY_PART = "system:nivo"
+
+/**
+ * The key of a person's NIVO room: the direct room where NIVO itself (no agent) tells that person what stopped in the background. The
+ * pair is NIVO and the person, sorted like every direct key (`system:` sorts before `user:`); only the person is seated.
+ */
+export const nivoRoomKeyOf = (userId: string): string => `${NIVO_KEY_PART}|user:${userId}`
+
+/** True for the key of a NIVO room. */
+export const isNivoRoomKey = (directKey: string | null): boolean => directKey?.startsWith(`${NIVO_KEY_PART}|`) === true
+
+/**
+ * Whether no person may write in a room: the founder's NIVO room is read-only (NIVO reports there and nothing answers, so a line typed
+ * there would reach nobody, and an `@agent` tag there would wake an agent from a room it does not sit in). Every other room is open to
+ * the people seated in it.
+ */
+export const isReadOnlyRoom = (room: RoomKeyed): boolean => room.kind === "direct" && isNivoRoomKey(room.directKey)
 
 /** The name of a group once trimmed, or null when it is empty or too long. */
 export const groupNameOf = (name: string | null): string | null => {
@@ -117,3 +141,64 @@ export const storedMentionsOf = (mentions: ReadonlyArray<ChatMemberRef>): Array<
 
 /** The body of a card or a line, cut to what the database keeps. */
 export const cardBodyOf = (body: string): string => body.slice(0, CARD_BODY_MAX)
+
+/** The prefix of the key a line of a graph node is kept under. */
+const KEY_PREFIX = "agent-message:"
+
+/** The longest key a room line keeps (`chat_room_messages.client_id`). */
+const KEY_MAX = 64
+
+/** The hex of the digest a key too long for the room is kept as. */
+const DIGEST_HEX = 48
+
+/**
+ * The key of the line of one effect call: the call's own key when it fits the room's column, else a digest of it. A digest keeps the
+ * line once per call (the same call gives the same digest); a key such as `payment-notice:<order uuid>` is over the bound with the
+ * prefix, and was refused by the column's check, so the payment notice of an order never reached the owner.
+ */
+export const lineKeyOf = (callKey: string): string => {
+    const key = `${KEY_PREFIX}${callKey}`
+    return key.length <= KEY_MAX
+        ? key
+        : `${KEY_PREFIX}${createHash("sha256").update(callKey).digest("hex").slice(0, DIGEST_HEX)}`
+}
+
+/**
+ * The SUBJECT of a team chat turn (concept triggers rule 13: the source declares it): the room of the person's message, read at the
+ * call's data member `roomId`. The turn's run holds that room, and its answer is posted only in the room the run is about.
+ */
+export const ROOM_SUBJECT_KEY = "data.roomId"
+
+/** True when the run a turn belongs to is about this room (its subject is the room key with this room's id). */
+export const aboutRoom = (subject: { readonly kind: string; readonly id: string } | null, roomId: string): boolean =>
+    subject?.kind === ROOM_SUBJECT_KEY && subject.id === roomId
+
+/** The longest module name a module room holds: the column's CHECK (chat_rooms_purpose_check) holds 1 to 64 characters. */
+export const PURPOSE_MODULE_MAX = 64
+
+/** The purpose and module columns of a room: a direct room is always `direct`; a group is plain unless a purpose is given. */
+export const purposeColumnsOf = (kind: RoomKind, given: GroupPurpose | undefined): PurposeColumns => {
+    if (kind === "direct") return { purpose: "direct", purposeModule: null }
+    if (given?.purpose === "module") return { purpose: "module", purposeModule: given.module }
+    return { purpose: given?.purpose ?? "group", purposeModule: null }
+}
+
+/** Whether a purpose can be stored: a module room names a module of 1 to 64 characters. */
+export const isPurposeValid = (given: GroupPurpose): boolean =>
+    given.purpose !== "module" || (given.module.trim().length > 0 && given.module.length <= PURPOSE_MODULE_MAX)
+
+/** The row a person's text message is stored as. */
+export const textRowOf = (id: string, text: NewText): TextRow => ({
+    id,
+    roomId: text.roomId,
+    workspaceId: text.workspaceId,
+    authorKind: "user",
+    authorId: text.authorId,
+    body: text.body,
+    kind: "text",
+    ref: text.ref ?? null,
+    mentions: text.mentions,
+    attachments: text.attachments,
+    clientId: text.clientId,
+    replyTo: text.replyTo ?? null,
+})

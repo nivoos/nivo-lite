@@ -33,7 +33,6 @@ export const pollOptionsOf = (env: EnvSource): ConnectionPollOptions => {
             unavailableRecheckMs: env.duration("POLL_UNAVAILABLE_RECHECK", d.unavailableRecheckMs),
             batchSize: env.int("POLL_BATCH", d.batchSize),
             leaseMs: env.duration("POLL_LEASE", d.leaseMs),
-            maxInlineWaitMs: env.duration("POLL_MAX_INLINE_WAIT", d.maxInlineWaitMs),
             backfillChunkPages: env.int("POLL_BACKFILL_CHUNK_PAGES", d.backfillChunkPages),
         },
         redis: redisOf(env),

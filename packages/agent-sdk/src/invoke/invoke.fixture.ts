@@ -27,15 +27,6 @@ export const context: RunContext = {
 }
 export const jobContext: JobContext = { workspaceId: "w", attempt: 1, effectKey: (step) => `k:${step}` }
 
-/**
- * The bug of a run: a native SyntaxError (never an SdkError, which the invoke maps to a refusal) that rejects with the word in its
- * message (`Cannot convert <word> to a BigInt`), so a spec proves any other thrown error propagates.
- */
-const crash = <T>(word: string): Promise<T> =>
-    new Promise<T>(() => {
-        BigInt(word)
-    })
-
 const readBase = { dataKind: "demo", shape: "value", fields: ["n"], paths: {}, permission: "demo.read" } as const
 
 export const countRead: ReadDefinition = defineRead({
@@ -60,7 +51,7 @@ export const failingRead: ReadDefinition = defineRead({
     id: "demo.failing",
     variables: z.object({}),
     ports: {},
-    run: () => crash("bug"),
+    run: () => Promise.reject(new Error("bug")),
 })
 
 export const hostRead: ReadDefinition = defineRead({
@@ -115,7 +106,7 @@ export const failingAction: ActionDefinition = defineAction({
     ...bump,
     id: "demo.failing-action",
     ports: {},
-    run: () => crash("bug"),
+    run: () => Promise.reject(new Error("bug")),
 })
 
 export const hostAction: ActionDefinition = defineAction({
@@ -143,7 +134,7 @@ export const failingJob: JobDefinition = defineJob({
     input: z.object({}),
     ports: {},
     attempts: 2,
-    run: () => crash("transient"),
+    run: () => Promise.reject(new Error("transient")),
 })
 
 /** A provider that supports the door port and nothing else. */

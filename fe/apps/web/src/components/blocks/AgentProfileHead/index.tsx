@@ -1,11 +1,12 @@
 "use client"
 
+import { notFound } from "next/navigation"
 import { useTranslations } from "next-intl"
 import type { ReactNode } from "react"
 import { IDENTITY_QUERY } from "@/hooks/installations"
 import { usePaneCopy } from "@/hooks/paneFrame"
 import { navigation } from "@/modules/i18n"
-import { profileChipsOf, useAgentProfile, useProfileModuleName } from "@/hooks/agentProfile"
+import { profileChipsOf, useAgentPages, useAgentProfile, useProfileModuleName } from "@/hooks/agentProfile"
 import { useWorkspaceId } from "@/hooks/workspaces"
 import { AGENTS_ROUTE, CONSOLE_ROUTES, workspaceHref } from "@/modules/routes"
 import { AgentProfileHeadBase, type ProfileHeadView } from "./component"
@@ -26,15 +27,17 @@ type AgentProfileHeadProps = {
     readonly children: ReactNode
 }
 
-/** The connected heading of an agent profile: the identity and the identity menu. */
+/** The connected heading of an agent profile: the identity and the identity menu. An id that is no agent of the workspace is `notFound()`. */
 export const AgentProfileHead = (props: AgentProfileHeadProps) => {
     const t = useTranslations("agentProfile")
-    const { slot } = useAgentProfile(props.agentId)
+    const { slot, isMissing } = useAgentProfile(props.agentId)
     const pane = usePaneCopy()
     const pathname = navigation.usePathname()
     const workspaceId = useWorkspaceId()
     const agent = "items" in slot ? slot.items : undefined
     const moduleName = useProfileModuleName(agent?.module)
+    const pages = useAgentPages(props.agentId)
+    if (isMissing) notFound()
 
     return (
         <AgentProfileHeadBase
@@ -45,6 +48,7 @@ export const AgentProfileHead = (props: AgentProfileHeadProps) => {
                     identityLabel: t("identityTitle"),
                     identityHref: `${pathname}?${IDENTITY_QUERY}`,
                 },
+                open: pages === null ? null : { label: t("openAgent"), href: pages.home },
                 isLoading: "isLoading" in slot,
                 head:
                     agent === undefined

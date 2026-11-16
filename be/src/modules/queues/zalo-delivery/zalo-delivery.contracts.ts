@@ -1,0 +1,15 @@
+/** The durable queue of the deferred zalo receipt consumer. */
+export const ZALO_DELIVERY_QUEUE = "zalo-delivery"
+/** The durable receipt event consumed after the HTTP transaction commits. */
+export interface ZaloDeliveryRecorded {
+    /** The original provider delivery key. */
+    readonly deliveryId: string
+}
+
+/** Validates a committed receipt reference before the worker resolves its payload. */
+export const isZaloDeliveryRecorded = (value: unknown): value is ZaloDeliveryRecorded =>
+    typeof value === "object" &&
+    value !== null &&
+    "deliveryId" in value &&
+    typeof value.deliveryId === "string" &&
+    value.deliveryId.trim().length > 0

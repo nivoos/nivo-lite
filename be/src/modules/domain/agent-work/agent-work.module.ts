@@ -1,27 +1,22 @@
 import { Module, type DynamicModule } from "@nestjs/common"
 import { AgentTurnQueueModule } from "@modules/queues/agent-turn"
 import { AgentDrainService } from "./agent-drain.service"
-import { AgentWakeInterruptionService } from "./agent-wake-interruption.service"
 import { AgentEndedWakesService } from "./agent-ended-wakes.service"
-import { AgentGoalsService } from "./agent-goals.service"
 import { AgentTurnsService } from "./agent-turns.service"
 import { AgentTasksService } from "./agent-tasks.service"
 import { AgentTriggersService } from "./agent-triggers.service"
 import { AgentWakeRetentionService } from "./agent-wake-retention.service"
 import { AgentWakeService } from "./agent-wake.service"
-import { AgentSpeakerQueueService } from "./agent-speaker-queue.service"
-import { AgentTagService } from "./agent-tag.service"
 import { AgentWorkAccessService } from "./agent-work-access.service"
 import { AgentWorkDoorsService } from "./agent-work-doors.service"
 import { AgentWorkHandlersService } from "./agent-work-handlers.service"
 import { AgentWorkReadService } from "./agent-work-read.service"
 import { AgentWorkSettingsService } from "./agent-work-settings.service"
-import { AGENT_WORK_OPTIONS } from "./agent-work.decorators"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./agent-work.module-definition"
 
 @Module({})
 /**
- * Agents as data: the wake, the lease that lets one turn run per scope, the drain that runs it, and the goals, tasks, triggers and
+ * Agents as data: the wake, the lease that lets one turn run per scope, the drain that runs it, and the tasks, triggers and
  * switches an agent keeps. It owns the tables, imports platform and the agent-turn queue, and takes the turn executor and the
  * handlers from the capabilities that supply them, so a wake with none is held, not lost.
  */
@@ -34,21 +29,13 @@ export class AgentWorkModule extends ConfigurableModuleClass {
             imports: [...(base.imports ?? []), AgentTurnQueueModule.register({})],
             providers: [
                 ...(base.providers ?? []),
-                {
-                    provide: AGENT_WORK_OPTIONS,
-                    useValue: { debounceMs: options.debounceMs, debounceMaxMs: options.debounceMaxMs },
-                },
                 AgentWorkAccessService,
                 AgentTurnsService,
                 AgentWorkHandlersService,
                 AgentWakeService,
-                AgentSpeakerQueueService,
-                AgentTagService,
                 AgentWakeRetentionService,
                 AgentEndedWakesService,
                 AgentDrainService,
-                AgentWakeInterruptionService,
-                AgentGoalsService,
                 AgentTasksService,
                 AgentTriggersService,
                 AgentWorkSettingsService,
@@ -59,12 +46,10 @@ export class AgentWorkModule extends ConfigurableModuleClass {
                 AgentTurnQueueModule,
                 AgentWorkAccessService,
                 AgentWakeService,
-                AgentTagService,
                 AgentWakeRetentionService,
                 AgentDrainService,
                 AgentTurnsService,
                 AgentWorkHandlersService,
-                AgentGoalsService,
                 AgentTasksService,
                 AgentTriggersService,
                 AgentWorkSettingsService,

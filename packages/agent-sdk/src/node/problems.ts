@@ -1,10 +1,10 @@
 import { z } from "../schema/zod-entry"
-import { rightsGaps } from "../rights/rights"
-import type { DataRight, RightsGrant } from "../rights/rights.types"
 import { isNamespaced } from "../schema/namespaced"
 import type { DataKindDefinition, EffectDefinition, ToolDefinition } from "./effect.types"
 import { BRANCH_FIELD } from "./node"
-import type { NodeDefinition } from "./node.types"
+import { fixedParamsOf, isBindings, paramRefsOf, schemaKeysOf } from "./memory"
+import type { ParamBindings } from "./memory.contracts"
+import type { NodeDefinition, NodeGrant } from "./node.types"
 
 /** What a node list or a graph node that names one is refused for. */
 export type NodeProblemCode =
@@ -13,16 +13,13 @@ export type NodeProblemCode =
     | "TOOL_DUPLICATE"
     | "DATA_KIND_DUPLICATE"
     | "NODE_EFFECT_UNKNOWN"
-    | "EFFECT_COMPENSATION_UNKNOWN"
     | "NODE_TOOL_UNKNOWN"
     | "NODE_CONDITION_MUTATES"
-    | "RIGHT_KIND_UNKNOWN"
-    | "RIGHT_FIELD_UNKNOWN"
     | "NODE_UNKNOWN"
     | "NODE_ROLE_MISMATCH"
     | "NODE_PARAMS_INVALID"
     | "NODE_ROUTE_MISSING"
-    | "NODE_RIGHTS_UNGRANTED"
+    | "NODE_TOOLS_UNGRANTED"
 
 /** One problem and where it is: a node, effect or data kind id, or a graph node key. */
 export interface NodeProblem {
@@ -32,7 +29,7 @@ export interface NodeProblem {
     readonly at: string
 }
 
-/** What an app installs: the nodes, the effects they may run, the NIVO MCP tools they may call and the data kinds rights may name. */
+/** What an app installs: the nodes, the effects they may run, the NIVO MCP tools they may call and the data kinds its ports serve. */
 export interface NodeInstall {
     /** The node definitions the app installs. */
     readonly nodes: ReadonlyArray<NodeDefinition>
@@ -40,8 +37,10 @@ export interface NodeInstall {
     readonly effects: ReadonlyArray<EffectDefinition>
     /** The NIVO MCP tools the installed nodes may call. */
     readonly tools: ReadonlyArray<ToolDefinition>
-    /** The data kinds rights may name. */
+    /** The data kinds the host's data ports serve. */
     readonly dataKinds: ReadonlyArray<DataKindDefinition>
+    /** The words of the install's text keys, in the language model calls are written in; undefined for a key it does not know. */
+    readonly words?: ((key: string) => string | undefined) | undefined
 }
 
 /** The install by id, for lookups. */
@@ -82,20 +81,6 @@ export const nodeIndexOf = (install: NodeInstall): NodeIndex => ({
 const duplicates = (ids: ReadonlyArray<string>, code: NodeProblemCode): ReadonlyArray<NodeProblem> =>
     [...new Set(ids.filter((id, index) => ids.indexOf(id) !== index))].map((at) => ({ code, at }))
 
-/** The problems of rights against the installed data kinds: an unknown kind, or a field the kind does not have. */
-const rightProblems = (
-    rights: ReadonlyArray<DataRight>,
-    kinds: ReadonlyMap<string, DataKindDefinition>,
-    at: string,
-): ReadonlyArray<NodeProblem> =>
-    rights.flatMap((right): ReadonlyArray<NodeProblem> => {
-        const kind = kinds.get(right.kind)
-        if (kind === undefined) return [{ code: "RIGHT_KIND_UNKNOWN", at: `${at}:${right.kind}` }]
-        return right.fields
-            .filter((field) => !kind.fieldNames.includes(field))
-            .map((field) => ({ code: "RIGHT_FIELD_UNKNOWN", at: `${at}:${right.kind}.${field}` }))
-    })
-
 /** The problems of the tools a node declares: one nobody installed, or one that mutates in a condition, which must stay pure. */
 const toolProblems = (node: NodeDefinition, tools: ReadonlyMap<string, ToolDefinition>): ReadonlyArray<NodeProblem> =>
     (node.tools ?? []).flatMap((name): ReadonlyArray<NodeProblem> => {
@@ -107,8 +92,8 @@ const toolProblems = (node: NodeDefinition, tools: ReadonlyMap<string, ToolDefin
     })
 
 /**
- * The problems of an install: duplicates, effects and tools a node declares and nobody installed, a condition that calls a mutating
- * tool, rights over unknown kinds or fields, and an effect whose compensation nobody installed.
+ * The problems of an install: duplicates, effects and tools a node declares and nobody installed, and a condition that calls a mutating
+ * tool.
  */
 export const nodeListProblems = (install: NodeInstall): ReadonlyArray<NodeProblem> => {
     const index = nodeIndexOf(install)
@@ -134,16 +119,7 @@ export const nodeListProblems = (install: NodeInstall): ReadonlyArray<NodeProble
                 .filter((effect) => !index.effects.has(effect))
                 .map((effect): NodeProblem => ({ code: "NODE_EFFECT_UNKNOWN", at: `${node.id}:${effect}` })),
             ...toolProblems(node, index.tools),
-            ...rightProblems(node.rights, index.dataKinds, node.id),
         ]),
-        ...install.effects.flatMap((effect) => rightProblems(effect.rights, index.dataKinds, effect.id)),
-        ...install.effects
-            .filter((effect) => effect.compensation !== undefined && !index.effects.has(effect.compensation))
-            .map((effect): NodeProblem => ({
-                code: "EFFECT_COMPENSATION_UNKNOWN",
-                at: `${effect.id}:${effect.compensation}`,
-            })),
-        ...install.tools.flatMap((tool) => rightProblems(tool.rights, index.dataKinds, tool.id)),
     ]
 }
 
@@ -163,37 +139,52 @@ const routeProblems = (node: NodeDefinition, ref: GraphNodeRef): ReadonlyArray<N
     return missing ? [{ code: "NODE_ROUTE_MISSING", at: ref.key }] : []
 }
 
-/** Whether a grant covers what a node requires, the rights of every effect and tool it may use, and names each of its tools. */
-const granted = (node: NodeDefinition, index: NodeIndex, grant: RightsGrant): boolean => {
-    const tools = node.tools ?? []
-    const named = tools.every((name) => (grant.tools ?? []).includes(name))
-    const rights = [
-        ...node.rights,
-        ...node.effects.flatMap((effect) => index.effects.get(effect)?.rights ?? []),
-        ...tools.flatMap((name) => index.tools.get(name)?.rights ?? []),
-    ]
-    return named && rightsGaps(grant, rights).length === 0
+/**
+ * Whether the settings a graph node writes are ones its params schema takes: only the members of the params schema are judged (the
+ * others feed the node's input), each ref stands for its default, and a ref without one is left out of the judging (it is checked by
+ * type at save, `graphRefProblems`).
+ */
+const paramsSound = (node: NodeDefinition, written: unknown): boolean => {
+    const bindings: ParamBindings = isBindings(written) ? written : {}
+    const settings = schemaKeysOf(node.params)
+    const inputs = schemaKeysOf(node.input)
+    const fixed = Object.fromEntries(
+        Object.entries(fixedParamsOf(bindings)).filter(
+            ([name]) => settings === null || settings.has(name) || !inputs?.has(name),
+        ),
+    )
+    const unbound = new Set(
+        paramRefsOf(bindings)
+            .filter(({ field, ref }) => ref.default === undefined && !(field in fixed))
+            .map(({ field }) => field),
+    )
+    const parsed = node.params.safeParse(fixed)
+    return parsed.success || parsed.error.issues.every((issue) => unbound.has(String(issue.path[0] ?? "")))
 }
+
+/** Whether a grant names each of the tools a node declares. */
+const granted = (node: NodeDefinition, grant: NodeGrant): boolean =>
+    (node.tools ?? []).every((name) => (grant.tools ?? []).includes(name))
 
 /**
  * The problems of one graph node against the install and the agent's grant. A step that is not a namespaced id is a built-in step and
  * is not judged here; a namespaced one must be installed, under its role, with params its schema takes, a route for each branch of a
- * condition, and a grant that covers its rights, its effects' and its tools', and names its tools.
+ * condition, and a grant that names its tools.
  */
 export const graphNodeProblems = (
     ref: GraphNodeRef,
     index: NodeIndex,
-    grant: RightsGrant,
+    grant: NodeGrant,
 ): ReadonlyArray<NodeProblem> => {
     if (!isNamespaced(ref.step)) return []
     const node = index.nodes.get(ref.step)
     if (node === undefined) return [{ code: "NODE_UNKNOWN", at: ref.key }]
     return [
         ...(node.role === ref.kind ? [] : [{ code: "NODE_ROLE_MISMATCH", at: ref.key } as const]),
-        ...(node.params.safeParse(ref.params ?? {}).success
+        ...(paramsSound(node, ref.params)
             ? []
             : [{ code: "NODE_PARAMS_INVALID", at: ref.key } as const]),
         ...routeProblems(node, ref),
-        ...(granted(node, index, grant) ? [] : [{ code: "NODE_RIGHTS_UNGRANTED", at: ref.key } as const]),
+        ...(granted(node, grant) ? [] : [{ code: "NODE_TOOLS_UNGRANTED", at: ref.key } as const]),
     ]
 }

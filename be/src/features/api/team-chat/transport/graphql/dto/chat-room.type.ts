@@ -1,5 +1,6 @@
 import { Field, ID, Int, ObjectType } from "@nestjs/graphql"
 import { ChatRoomKind } from "./chat-room-kind.type"
+import { ChatRoomPurpose } from "./chat-room-purpose.type"
 import { ChatMemberType } from "./chat-member.type"
 import { ChatMessageType } from "./chat-message.type"
 
@@ -14,9 +15,21 @@ export class ChatRoomType {
     @Field(() => ChatRoomKind)
     kind!: string
 
-    /** A group's name; a direct room shows the other party. */
+    /** What the room is for. */
+    @Field(() => ChatRoomPurpose)
+    purpose!: string
+
+    /** The module whose team room it is; null unless the purpose is module. */
+    @Field(() => String, { nullable: true })
+    purposeModule!: string | null
+
+    /** A group's name; a direct room shows the other party; a NIVO room shows "NIVO". */
     @Field(() => String)
     name!: string
+
+    /** Whether it is the viewer's NIVO room: the direct room where NIVO itself (no agent) reports to the founder; only the founder sits in it. */
+    @Field(() => Boolean)
+    withNivo!: boolean
 
     /** Where it sorts among rooms without a message. */
     @Field(() => Int)

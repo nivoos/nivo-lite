@@ -2,6 +2,7 @@ import { Test } from "@nestjs/testing"
 import { FakeClock, mockEntityManager } from "@starci/jest-preset"
 import type { MockEntityManager } from "@starci/jest-preset"
 import { In, MoreThan } from "typeorm"
+import { evaluatedValues } from "@tests/fixtures/builders/evaluated-calls.builder"
 import { answerQueryBuilders, fakeQueryBuilder } from "@tests/fixtures/builders/fake-query-builder.builder"
 import {
     AT_DEADLINE_ROW,
@@ -20,8 +21,6 @@ import { PaymentOrderEntity } from "./persistence/entities"
 
 const NOW = PAYMENT_ORDER_NOW
 const ROW = paymentOrderRowOf()
-/** Any freshly drawn order code. */
-const DRAWN_CODE: unknown = expect.stringMatching(/^NIVO[2-9A-HJKMNP-Z]{5}$/)
 /** What the insert answers with `RETURNING id`. */
 const WRITTEN = { id: "order-1" }
 const NEW_ORDER = {
@@ -137,54 +136,48 @@ describe("PaymentOrdersService", () => {
     })
 
     describe("create", () => {
-        it("writes the pending order with a fresh code and answers it", async () => {
-            const em = mockEntityManager({ findOneOrFail: [PaymentOrderEntity, ROW] })
+        it("writes the pending order with the code the database draws in the same statement and answers it", async () => {
+            const em = mockEntityManager({ findOne: [PaymentOrderEntity, ROW] })
             const insert = fakeQueryBuilder({ execute: { raw: [WRITTEN] } })
             answerQueryBuilders(em, insert)
             const orders = await build(em)
 
             await expect(orders.create(NEW_ORDER)).resolves.toMatchObject({ id: "order-1", orderCode: "NIVO8F3K2" })
 
-            expect(insert.argsOf("values")).toEqual([
-                [
-                    {
-                        workspaceId: "ws-1",
-                        createdBy: "person-1",
-                        planCode: "starter",
-                        amountVnd: 990000,
-                        orderCode: DRAWN_CODE,
-                        kind: "plan",
-                        packCode: null,
-                        detail: { credits: 5 },
-                    },
-                ],
-            ])
-            expect(insert.argsOf("orUpdate")).toEqual([
-                [["order_code"], ["order_code"], { skipUpdateIfNoValuesChanged: true }],
-            ])
-            expect(insert.argsOf("orIgnore")).toHaveLength(0)
+            // The code is a database expression run in the insert itself: its SQL text is what the spec reads.
+            expect(evaluatedValues(insert.argsOf("values")[0]?.[0])).toEqual({
+                workspaceId: "ws-1",
+                createdBy: "person-1",
+                planCode: "starter",
+                amountVnd: 990000,
+                orderCode: "public.next_payment_order_code()",
+                kind: "plan",
+                packCode: null,
+                detail: { credits: 5 },
+                requestId: null,
+            })
+            expect(insert.argsOf("orIgnore")).toHaveLength(1)
+            expect(insert.argsOf("orUpdate")).toHaveLength(0)
+            expect(em.createQueryBuilder).toHaveBeenCalledTimes(1)
         })
 
-        it("draws a new code when the first one collides", async () => {
-            const em = mockEntityManager({ findOneOrFail: [PaymentOrderEntity, ROW] })
-            answerQueryBuilders(
-                em,
-                fakeQueryBuilder({ execute: { raw: [] } }),
-                fakeQueryBuilder({ execute: { raw: [WRITTEN] } }),
-            )
+        it("makes the order of a request once: a second call writes nothing and answers the order the first one made", async () => {
+            const em = mockEntityManager({ findOne: [PaymentOrderEntity, ROW] })
+            answerQueryBuilders(em, fakeQueryBuilder({ execute: { raw: [] } }))
             const orders = await build(em)
 
-            await expect(orders.create(NEW_ORDER)).resolves.toMatchObject({ id: "order-1" })
-            expect(em.createQueryBuilder).toHaveBeenCalledTimes(2)
+            await expect(orders.create({ ...NEW_ORDER, requestId: "request-1" })).resolves.toMatchObject({ id: "order-1" })
+
+            expect(em.findOne).toHaveBeenCalledWith(PaymentOrderEntity, { where: { requestId: "request-1" } })
+            expect(em.createQueryBuilder).toHaveBeenCalledTimes(1)
         })
 
-        it("gives up after five collisions", async () => {
+        it("throws a typed failure when an order of no request was not written", async () => {
             const em = mockEntityManager()
             answerQueryBuilders(em, fakeQueryBuilder({ execute: { raw: [] } }))
             const orders = await build(em)
 
-            await expect(orders.create(NEW_ORDER)).rejects.toMatchObject({ code: PaymentOrdersErrorCode.CodeExhausted })
-            expect(em.createQueryBuilder).toHaveBeenCalledTimes(5)
+            await expect(orders.create(NEW_ORDER)).rejects.toMatchObject({ code: PaymentOrdersErrorCode.NotCreated })
         })
     })
 })
@@ -242,21 +235,6 @@ describe("PaymentOrdersService", () => {
             expect(hit.argsOf("andWhere")[1]).toEqual(["o.planCode = :target", { target: "credits_1000" }])
             expect(hit.argsOf("where")[0]?.[1]).toEqual({ workspaceId: "ws-1", kind: "upgrade" })
             await expect(orders.findOpenUpgrade(query)).resolves.toBeNull()
-        })
-
-        it("finds the pending order of a paid listing for the listing and amount, or none", async () => {
-            const em = mockEntityManager()
-            const hit = fakeQueryBuilder({ getOne: ROW })
-            answerQueryBuilders(em, hit, fakeQueryBuilder({ getOne: null }))
-            const orders = await build(em)
-
-            await expect(orders.findOpenAgentTemplate(query)).resolves.toMatchObject({ id: "order-1" })
-            expect(hit.argsOf("andWhere")[1]).toEqual([
-                "o.detail ->> 'listingId' = :target",
-                { target: "credits_1000" },
-            ])
-            expect(hit.argsOf("where")[0]?.[1]).toEqual({ workspaceId: "ws-1", kind: "agent_template" })
-            await expect(orders.findOpenAgentTemplate(query)).resolves.toBeNull()
         })
     })
 })

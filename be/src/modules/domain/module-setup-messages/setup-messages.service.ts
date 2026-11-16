@@ -35,7 +35,7 @@ export class SetupMessagesService {
             order: { createdAt: "ASC", id: "ASC" },
             take: CHAT_LIMIT,
         })
-        return rows.map((row) => toRecord(row))
+        return rows.map((item) => toRecord(item))
     }
 
     /** The chat of one session, oldest first. */
@@ -45,7 +45,7 @@ export class SetupMessagesService {
             order: { createdAt: "ASC", id: "ASC" },
             take: CHAT_LIMIT,
         })
-        return rows.map((row) => toRecord(row))
+        return rows.map((item) => toRecord(item))
     }
 
     /** One message of the workspace by id; null when there is none. */

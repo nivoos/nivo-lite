@@ -1,15 +1,17 @@
 import type { ConnectionStatus } from "@modules/domain/connections"
 import type { DataEntity, DataRecordInput } from "@modules/domain/data-records"
 
-/** The kinds of connection that bring a workspace's own systems into the data hub. */
-export type DataProvider = "openapi" | "database" | "csv_import" | "imap" | "telegram_user"
+/**
+ * The kinds of connection that bring a workspace's own systems into the data hub. A mailbox (`imap`, or the inbound half of a mailbox
+ * `smtp` account) is no data provider: its mails are the account's own `imap.mail` rows, read by the connection poll (MAIL-IN rule MI-4).
+ */
+export type DataProvider = "openapi" | "database" | "csv_import" | "telegram_user"
 
 /** The providers, for filters. */
 export const DATA_PROVIDERS: ReadonlyArray<DataProvider> = [
     "openapi",
     "database",
     "csv_import",
-    "imap",
     "telegram_user",
 ]
 
@@ -47,6 +49,8 @@ export interface DataConnection {
     readonly everyMinutes: number | null
     /** When the last sync finished, ISO 8601; null when none did. */
     readonly lastSyncAt: string | null
+    /** True for a SANDBOX account (lane concept provider-sandbox): its sandbox connector reads it and it holds no credential; absent for a live one. */
+    readonly sandbox?: true
 }
 
 /** What a sync run is given. */

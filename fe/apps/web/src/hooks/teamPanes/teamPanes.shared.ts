@@ -3,6 +3,7 @@ import {
     ROLE_KEYS,
     canManageMember,
     roleChoices,
+    type TeamDeclinedView,
     type TeamInviteView,
     type TeamMemberView,
     type TeamRole,
@@ -104,6 +105,7 @@ export const listRowsOf = (
     members: ReadonlyArray<TeamMemberView>,
     invites: ReadonlyArray<TeamInviteView>,
     viewer: Viewer,
+    declined: ReadonlyArray<TeamDeclinedView> = [],
 ): ReadonlyArray<TeamListRowView> => [
     ...members.map((row): TeamListRowView => ({
         id: `member:${row.userId}`,
@@ -122,6 +124,14 @@ export const listRowsOf = (
         badge: invite.isExpired
             ? { label: t("inviteStateExpired"), tone: "warning" }
             : { label: t("inviteStateWaiting"), tone: "neutral" },
+    })),
+    ...declined.map((invite): TeamListRowView => ({
+        id: `declined:${invite.id}`,
+        kind: "invite",
+        title: invite.email,
+        description: `${t(ROLE_KEYS[invite.role])} · ${t("inviteDeclinedOn", { date: dayOf(format, invite.declinedAt) })}`,
+        isYou: false,
+        badge: { label: t("inviteStateDeclined"), tone: "neutral" },
     })),
 ]
 

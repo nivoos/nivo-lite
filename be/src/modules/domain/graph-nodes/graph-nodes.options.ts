@@ -9,4 +9,13 @@ export interface GraphNodesOptions {
     readonly model: InjectionToken
     /** The class of the `NodeToolDoor` port: the NIVO MCP gateway's door, which the app root names so the host never imports it. */
     readonly tools: Type<NodeToolDoor>
+    /**
+     * The host's own loop for a step's agent (native tool calling), and the nodes it takes the turns of (`AGENT_LOOP`). Absent, or
+     * with no node named, every step's agent runs the runner's JSON loop. `loops` is the provider of the `NodeAgentLoops` port.
+     */
+    readonly agentLoop?: { readonly nodes: ReadonlyArray<string>; readonly loops?: InjectionToken | undefined } | undefined
+    /** Provider of the `NodeRouteReach` port (the routes a step cannot follow in the workspace); absent: every route is open. */
+    readonly routes?: InjectionToken | undefined
+    /** Provider of the `NodeWorkspacePolicies` port (the workspace's policies, L2 of the agents' model calls); absent: no L2. */
+    readonly policies?: InjectionToken | undefined
 }

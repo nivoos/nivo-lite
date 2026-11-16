@@ -3,20 +3,21 @@ import { Secret } from "@modules/platform/config"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { I18nModule } from "@modules/platform/i18n"
 import { JobsModule } from "@modules/platform/jobs"
+import { EffectsModule } from "@modules/platform/effects"
 import { HttpSecurityModule } from "@modules/platform/http-security"
 import { refused } from "@modules/platform/primitives"
 import { ZaloModule } from "@modules/integrations/zalo"
 import { MetaModule } from "@modules/integrations/meta"
+import { TelegramModule } from "@modules/integrations/telegram"
+import { AccountDataModule } from "@modules/domain/account-data"
+import { ACCOUNT_DATA_CATALOG } from "@modules/domain/account-data-catalog"
 import { ConnectionsModule } from "@modules/domain/connections"
 import { ConnectionSecretsModule } from "@modules/domain/connection-secrets"
-import { ConversationsService, CONVERSATIONS_MESSAGES } from "@modules/domain/conversations"
-import { CustomerHearingService } from "../../modules/domain/conversations/customer-hearing.service"
+import { CONVERSATIONS_MESSAGES } from "@modules/domain/conversations"
 import { ZaloCredentialsService } from "@modules/domain/channels"
 import { CHANNELS_OPTIONS } from "../../modules/domain/channels/channels.decorators"
-import { ChatRecordsModule } from "@modules/domain/chat-records"
-import { EntityEngineModule, ReadOnlyEngineAlertsService } from "@modules/domain/entity-engine"
-import { FLOW_F_ENTITIES } from "@nivo-lite/blocks-core/entities"
-import { MODULE_JOBS } from "@nivo-lite/blocks-core/modules"
+import { chatRecordsModules } from "./chat-records-modules"
+import { EntityEngineModule } from "@modules/domain/entity-engine"
 import { AgentConnectionsModule } from "@modules/domain/agent-connections"
 import { AGENTS_INSTALLATIONS, AgentDirectoryService, AgentsModule } from "@modules/domain/agents"
 import { InboundEventsModule } from "@modules/domain/inbound-events"
@@ -30,16 +31,15 @@ import { ChannelSetupModule } from "@modules/integrations/channel-setup"
 import { ConnectionPollModule } from "@modules/domain/connection-poll"
 import { ProviderRegistryModule } from "@modules/domain/provider-registry"
 import { BillingModule, BILLING_MESSAGES } from "@modules/domain/billing"
-import { PaymentTransactionsModule } from "@modules/domain/payment-transactions"
 import { SepayTransactionsModule } from "@modules/domain/sepay-transactions"
 import { BankFeedInboxModule } from "@modules/domain/bank-feed-inbox"
 import { TelegramInboxModule } from "@modules/domain/telegram-inbox"
 import { MetaInboxModule } from "@modules/domain/meta-inbox"
-import { QUIET_AGENT_TAGS, QUIET_CUSTOMER_INTAKE, QUIET_INSTALLATIONS } from "./quiet-peers.options"
-import { AgentTagService } from "../../modules/domain/agent-work/agent-tag.service"
+import { QUIET_CUSTOMER_FILES, QUIET_PROVIDER_TRIGGERS, QUIET_INSTALLATIONS } from "./quiet-peers.options"
 import { DEFAULT_POLL_SCHEDULE } from "../../modules/domain/connection-poll/poll-schedule.policy"
 import { worldIds } from "./lite-world.service"
 import { QUEUE_MODULES } from "./test-capabilities.options"
+import { INSTALLED } from "@modules/domain/installed-plugins"
 
 /** The members proof needs an account directory but reads no account. */
 class ProofAccounts {
@@ -55,16 +55,14 @@ class DeliveryPeersModule {
             module: DeliveryPeersModule,
             global: true,
             providers: [
-                ConversationsService,
-                CustomerHearingService,
                 ProofAccounts,
-                QUIET_AGENT_TAGS,
-                QUIET_CUSTOMER_INTAKE,
+                QUIET_CUSTOMER_FILES,
+                QUIET_PROVIDER_TRIGGERS,
                 QUIET_INSTALLATIONS,
                 { provide: CHANNELS_OPTIONS, useFactory: () => ({ siteUrl: "http://localhost" }) },
                 ZaloCredentialsService,
             ],
-            exports: [ConversationsService, ProofAccounts, AgentTagService, AGENTS_INSTALLATIONS],
+            exports: [ProofAccounts, AGENTS_INSTALLATIONS],
         }
     }
 }
@@ -78,6 +76,7 @@ const platformModules = (tokenKey: Secret): Array<DynamicModule> => [
         leaseMs: 100,
         scheduler: { enabled: false },
     }),
+    EffectsModule.register({ isGlobal: true, connection: PRIMARY_ENTITY_MANAGER }),
     I18nModule.register({ isGlobal: true, bundles: [CONVERSATIONS_MESSAGES, BILLING_MESSAGES] }),
     HttpSecurityModule.register({
         isGlobal: true,
@@ -104,6 +103,8 @@ const platformModules = (tokenKey: Secret): Array<DynamicModule> => [
         sendPerMinute: 60,
         timeoutMs: 1000,
     }),
+    // The Telegram consumer names the pictures of a message by their download address; the proofs' messages carry none, so no call is made.
+    TelegramModule.register({ isGlobal: true, apiBase: "http://127.0.0.1:1", timeoutMs: 100 }),
 ]
 
 const domainModules = (tokenKey: Secret): Array<DynamicModule> => [
@@ -114,14 +115,14 @@ const domainModules = (tokenKey: Secret): Array<DynamicModule> => [
         siteUrl: "http://localhost",
         publicSiteUrl: undefined,
     }),
+    AccountDataModule.register({ isGlobal: true, types: ACCOUNT_DATA_CATALOG }),
     EntityEngineModule.register({
         isGlobal: true,
-        alerts: ReadOnlyEngineAlertsService,
-        entities: FLOW_F_ENTITIES,
-        jobs: MODULE_JOBS,
+        entities: INSTALLED.entities(),
+        jobs: INSTALLED.jobs(),
         cursorKey: tokenKey,
     }),
-    ChatRecordsModule.register({ isGlobal: true }),
+    ...chatRecordsModules(),
     AgentsModule.register({ isGlobal: true, directoryOnly: true }),
     AgentConnectionsModule.register({ isGlobal: true, ports: { agents: AgentDirectoryService } }),
     InboundEventsModule.register({ isGlobal: true }),
@@ -140,7 +141,6 @@ const domainModules = (tokenKey: Secret): Array<DynamicModule> => [
         sepayApiKey: new Secret("delivery-proof-key"),
         bankAccount: { account: "", bank: "", holder: "" },
     }),
-    PaymentTransactionsModule.register({ isGlobal: true }),
     SepayTransactionsModule.register({ isGlobal: true }),
     DeliveryPeersModule.register(),
     TelegramInboxModule.register({ isGlobal: true }),

@@ -1,15 +1,21 @@
 import { Test } from "@nestjs/testing"
 import { builder } from "@starci/jest-preset"
 import { KnowledgeSourcesErrorCode } from "./errors/knowledge-sources.error"
+import { MAX_UPLOAD_BYTES } from "./knowledge-sources.contracts"
 import type { AddSourceInput } from "./knowledge-sources.contracts"
 import {
     NOW,
+    columnsOf,
+    embedPercent,
     metaChanges,
+    moveOf,
     tagsOf,
     normalizeSource,
     normalizeUpdate,
     replacementContent,
+    replacementUpload,
     safeFileName,
+    uploadVerdict,
 } from "./source-input.policy"
 
 const SUBJECT = Symbol("source-input.policy")
@@ -18,6 +24,7 @@ type Subject = {
     normalizeSource: typeof normalizeSource
     normalizeUpdate: typeof normalizeUpdate
     metaChanges: typeof metaChanges
+    moveOf: typeof moveOf
     replacementContent: typeof replacementContent
     safeFileName: typeof safeFileName
 }
@@ -31,6 +38,7 @@ const buildSubject = async () => {
                     normalizeSource,
                     normalizeUpdate,
                     metaChanges,
+                    moveOf,
                     replacementContent,
                     safeFileName,
                 },
@@ -55,17 +63,23 @@ describe("normalizeSource audience", () => {
         ["unknown", "other"],
         ["empty", ""],
         ["internal", "internal"],
-    ])(
-        "adds a source whose audience is %s as internal: there is no picker, the part of the Brain decides",
-        async (_name, visibility) => {
-            const subject = await buildSubject()
+    ])("adds a source whose area is %s to the internal area (the default upload area)", async (_name, visibility) => {
+        const subject = await buildSubject()
 
-            expect(subject.normalizeSource(WS, inputOf({ visibility }))).toMatchObject({
-                kind: "ok",
-                value: { visibility: "internal" },
-            })
-        },
-    )
+        expect(subject.normalizeSource(WS, inputOf({ visibility }))).toMatchObject({
+            kind: "ok",
+            value: { visibility: "internal" },
+        })
+    })
+
+    it("adds a source to the public area when the member uploads it there (what you upload is what you get)", async () => {
+        const subject = await buildSubject()
+
+        expect(subject.normalizeSource(WS, inputOf({ visibility: "public" }))).toMatchObject({
+            kind: "ok",
+            value: { visibility: "public" },
+        })
+    })
 })
 
 describe("normalizeSource", () => {
@@ -148,11 +162,6 @@ describe("normalizeSource", () => {
 describe("normalizeSource", () => {
     it.each([
         ["an unknown kind", inputOf({ kind: "audio" }), KnowledgeSourcesErrorCode.SourceKindUnknown],
-        [
-            "a public document, which only an approved public document is",
-            inputOf({ visibility: "public" }),
-            KnowledgeSourcesErrorCode.PublicByApproval,
-        ],
         ["a link that is not http", inputOf({ kind: "url", url: "ftp://x" }), KnowledgeSourcesErrorCode.UrlInvalid],
         [
             "a file outside the workspace",
@@ -197,13 +206,37 @@ describe("normalizeUpdate", () => {
         ).toEqual({ kind: "ok", value: { title: "T", topic: "x", tags: ["a"], module: "m", visibility: null } })
     })
 
-    it("refuses to make a document public", async () => {
+    it("moves a document to either area, and refuses a visibility that names neither", async () => {
         const subject = await buildSubject()
 
         expect(subject.normalizeUpdate({ sourceId: "s", visibility: "public" })).toMatchObject({
-            kind: "refused",
-            code: KnowledgeSourcesErrorCode.PublicByApproval,
+            kind: "ok",
+            value: { visibility: "public" },
         })
+        expect(subject.normalizeUpdate({ sourceId: "s", visibility: "internal" })).toMatchObject({
+            kind: "ok",
+            value: { visibility: "internal" },
+        })
+        expect(subject.normalizeUpdate({ sourceId: "s", visibility: "everyone" })).toMatchObject({
+            kind: "refused",
+            code: KnowledgeSourcesErrorCode.VisibilityUnknown,
+        })
+    })
+
+    it("answers the move of a whole document with its parts, or none when no area is asked", async () => {
+        const subject = await buildSubject()
+        const whole = { ids: ["s1", "p2"], title: "Wash price list", visibility: "internal", origin: null }
+        const toPublic = { title: null, topic: null, tags: null, module: null, visibility: "public" as const }
+
+        expect(subject.moveOf(whole, toPublic, "Lan")).toEqual({
+            sourceIds: ["s1", "p2"],
+            title: "Wash price list",
+            from: "internal",
+            to: "public",
+            movedBy: "Lan",
+        })
+        expect(subject.moveOf(whole, { ...toPublic, visibility: null }, "Lan")).toBeNull()
+        expect(subject.moveOf(null, toPublic, "Lan")).toBeNull()
     })
 
     it("clears a topic and a module with an empty text and names an empty title", async () => {
@@ -313,5 +346,72 @@ describe("metaChanges", () => {
 describe("NOW", () => {
     it("is the database instant", () => {
         expect(NOW()).toBe("now()")
+    })
+})
+
+describe("replacementUpload and uploadVerdict", () => {
+    const WORKSPACE = "11111111-1111-4111-8111-111111111111"
+
+    it("takes a new upload inside the workspace, none when absent, and refuses one outside it", () => {
+        expect(replacementUpload(WORKSPACE, undefined)).toEqual({ kind: "ok", value: null })
+        expect(replacementUpload(WORKSPACE, ` ${WORKSPACE}/u/a.pdf `)).toEqual({
+            kind: "ok",
+            value: `${WORKSPACE}/u/a.pdf`,
+        })
+        expect(replacementUpload(WORKSPACE, `${WORKSPACE}/../x/a.pdf`)).toMatchObject({
+            code: KnowledgeSourcesErrorCode.StoragePathInvalid,
+        })
+        expect(replacementUpload(WORKSPACE, "other/u/a.pdf")).toMatchObject({
+            code: KnowledgeSourcesErrorCode.StoragePathInvalid,
+        })
+    })
+
+    it("refuses an old Office file and a file over the limit at the door, and lets the rest through", () => {
+        expect(uploadVerdict("Bang gia.XLS", null)).toMatchObject({ code: KnowledgeSourcesErrorCode.LegacyOffice })
+        expect(uploadVerdict("slides.ppt", 10)).toMatchObject({ code: KnowledgeSourcesErrorCode.LegacyOffice })
+        // One file is at most MAX_UPLOAD_BYTES (never more than the Second Brain's whole limit).
+        expect(uploadVerdict("scan.pdf", MAX_UPLOAD_BYTES + 1)).toMatchObject({
+            code: KnowledgeSourcesErrorCode.FileTooLarge,
+        })
+        expect(uploadVerdict("scan.pdf", MAX_UPLOAD_BYTES)).toEqual({ kind: "ok", value: null })
+        expect(uploadVerdict("anh.jpg", null)).toEqual({ kind: "ok", value: null })
+    })
+})
+
+describe("embedPercent", () => {
+    it("fills 25 to 80 while the passages get their vectors", () => {
+        
+        expect(embedPercent(0, 4)).toBe(25)
+        expect(embedPercent(1, 4)).toBe(38.75)
+        expect(embedPercent(4, 4)).toBe(80)
+        expect(embedPercent(0, 0)).toBe(25)
+    })
+})
+
+describe("columnsOf", () => {
+    it("writes only the columns the change names", () => {
+        
+        expect(columnsOf({})).toEqual({})
+        expect(columnsOf({ status: "failed", error: "CODE", stage: null, done: null, total: null })).toEqual({
+            status: "failed",
+            error: "CODE",
+            stage: null,
+            stageDone: null,
+            stageTotal: null,
+        })
+        expect(columnsOf({ stage: "embed", done: 3, total: 9, chunkCount: 9, contentHash: "hash" })).toEqual({
+            stage: "embed",
+            stageDone: 3,
+            stageTotal: 9,
+            chunkCount: 9,
+            contentHash: "hash",
+        })
+    })
+
+    it("rounds and clamps the progress bar inside 0 to 100", () => {
+        
+        expect(columnsOf({ progress: 42.4 })).toEqual({ progress: 42 })
+        expect(columnsOf({ progress: -3 })).toEqual({ progress: 0 })
+        expect(columnsOf({ progress: 140 })).toEqual({ progress: 100 })
     })
 })

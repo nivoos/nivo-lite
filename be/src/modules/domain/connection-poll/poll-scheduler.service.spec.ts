@@ -12,22 +12,22 @@ import {
 } from "@tests/fixtures/builders/connection-poll.builder"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
-import { TIMER } from "@modules/platform/retry"
-import type { Timer } from "@modules/platform/retry"
 import { CONNECTION_POLL_OPTIONS, POLL_RANDOM } from "./connection-poll.decorators"
 import type { PollRandom } from "./connection-poll.decorators"
-import type { ConnectionPoller, PollFailure } from "./connection-poll.contracts"
+import { PollReceiverRegistryService, type PollReceiver } from "@modules/domain/provider-registry"
+import type { PollFailure } from "./connection-poll.contracts"
 import { ConnectionPollLogEvent } from "./connection-poll.log-events"
 import { POLL_CURSOR_KEY } from "./connection-poll.policy"
 import { ConnectionPollError, ConnectionPollErrorCode } from "./errors/connection-poll.error"
+import { POLL_RATE_DEFERRED_REASON } from "./messages/connection-poll.messages"
 import { PollLimiterService } from "./poll-limiter.service"
 import { PollOwnerNoticeService } from "./poll-owner-notice.service"
 import type { DueConnection } from "./poll-schedule.service"
 import { PollScheduleService } from "./poll-schedule.service"
 import { DEFAULT_POLL_SCHEDULE } from "./poll-schedule.policy"
-import type { PollScheduleRow, PollSourceDirectory, ScheduledPollSource } from "./poll-schedule.contracts"
+import type { PollScheduleRow } from "./poll-schedule.contracts"
+import { PollReceiptsService } from "./poll-receipts.service"
 import { PollSchedulerService } from "./poll-scheduler.service"
-import { PollSourceRegistryService } from "./poll-source-registry.service"
 
 const NOW = POLL_NOW
 const NOW_MS = POLL_NOW_MS
@@ -39,28 +39,40 @@ const dueOf = (over: Partial<PollScheduleRow> = {}, lagMs = 2000): DueConnection
     dueAt: new Date(NOW_MS - lagMs),
 })
 
-const build = async (
-    classified: PollFailure = { kind: "transient" },
-    directoryOf: (source: ScheduledPollSource) => PollSourceDirectory = (source) => ({
-        providers: () => ["sepay"],
-        sourceOf: (provider) => (provider === "sepay" ? source : undefined),
-    }),
-) => {
-    const poller = mock<ConnectionPoller<unknown>>()
-    poller.fetch.mockResolvedValue(readPollPageOf(2))
-    poller.store.mockResolvedValue(true)
-    const source: ScheduledPollSource = {
-        provider: "sepay",
-        limits,
-        poller,
-        classify: jest.fn().mockReturnValue(classified),
+/** The receiver of Sepay: dense (4 minutes) when poll is the only way, sparse (20 minutes) while its webhook delivers. */
+const CADENCE = { aloneMs: 4 * MIN, besideWebhookMs: 20 * MIN }
+
+/** A receiver of a provider: its read and its classification are the doubles the tests answer with. */
+const receiverOf = (provider: string, dataType: string, classified: PollFailure): jest.Mocked<PollReceiver> => ({
+    provider,
+    dataType,
+    limits,
+    cadence: CADENCE,
+    read: jest.fn().mockResolvedValue(readPollPageOf(2)),
+    classify: jest.fn().mockReturnValue(classified),
+})
+
+interface BuildOptions {
+    /** How the receiver classifies a failed read. */
+    readonly classified?: PollFailure
+    /** Registers nothing: no provider can be polled. */
+    readonly empty?: boolean
+}
+
+const build = async ({ classified = { kind: "transient" }, empty = false }: BuildOptions = {}) => {
+    const live = receiverOf("sepay", "sepay.transaction", classified)
+    const sandbox = receiverOf("sepay", "sepay.transaction", classified)
+    const imapLive = receiverOf("imap", "imap.mail", classified)
+    const imapSandbox = receiverOf("imap", "imap.mail", classified)
+    const receivers = new PollReceiverRegistryService()
+    if (!empty) {
+        receivers.register({ live, sandbox })
+        receivers.register({ live: imapLive, sandbox: imapSandbox })
     }
-    const directory = directoryOf(source)
+    const receipts = mock<PollReceiptsService>()
+    receipts.keep.mockResolvedValue(2)
     const random = mock<PollRandom>()
     random.next.mockReturnValue(0.5)
-    const sources = mock<PollSourceRegistryService>()
-    sources.providers.mockImplementation(() => directory.providers())
-    sources.sourceOf.mockImplementation((provider) => directory.sourceOf(provider))
     const connections = mock<ConnectionsService>()
     connections.find.mockResolvedValue(pollConnectionRecordOf())
     connections.get.mockResolvedValue(pollConnectionRecordOf())
@@ -72,30 +84,27 @@ const build = async (
     limiter.pass.mockResolvedValue(undefined)
     const notice = mock<PollOwnerNoticeService>()
     const logger = mock<Logger>()
-    const timer = mock<Timer>()
-    timer.schedule.mockImplementation((callback) => {
-        callback()
-        return () => undefined
-    })
     const moduleRef = await Test.createTestingModule({
         providers: [
             PollSchedulerService,
             { provide: CLOCK, useValue: new FakeClock(NOW) },
             { provide: LOGGER, useValue: logger },
-            { provide: TIMER, useValue: timer },
             { provide: POLL_RANDOM, useValue: random },
             { provide: CONNECTION_POLL_OPTIONS, useValue: { schedule: DEFAULT_POLL_SCHEDULE, redis: undefined } },
             { provide: ConnectionsService, useValue: connections },
             { provide: PollScheduleService, useValue: schedule },
-            { provide: PollSourceRegistryService, useValue: sources },
+            { provide: PollReceiverRegistryService, useValue: receivers },
+            { provide: PollReceiptsService, useValue: receipts },
             { provide: PollLimiterService, useValue: limiter },
             { provide: PollOwnerNoticeService, useValue: notice },
         ],
     }).compile()
     return {
         scheduler: moduleRef.get(PollSchedulerService),
-        poller,
-        source,
+        live,
+        sandbox,
+        imapLive,
+        receipts,
         connections,
         schedule,
         limiter,
@@ -106,10 +115,7 @@ const build = async (
 
 describe("PollSchedulerService tick picking", () => {
     it("does nothing when no provider can be polled", async () => {
-        const { scheduler, schedule } = await build({ kind: "fatal" }, () => ({
-            providers: () => [],
-            sourceOf: () => undefined,
-        }))
+        const { scheduler, schedule } = await build({ empty: true })
 
         await expect(scheduler.tick()).resolves.toEqual(new Map())
 
@@ -121,8 +127,8 @@ describe("PollSchedulerService tick picking", () => {
 
         await scheduler.tick()
 
-        expect(schedule.enroll).toHaveBeenCalledWith(["sepay"])
-        expect(schedule.claimDue).toHaveBeenCalledWith(["sepay"], DEFAULT_POLL_SCHEDULE.batchSize)
+        expect(schedule.enroll).toHaveBeenCalledWith(["sepay", "imap", "smtp"])
+        expect(schedule.claimDue).toHaveBeenCalledWith(["sepay", "imap", "smtp"], DEFAULT_POLL_SCHEDULE.batchSize)
     })
 
     it("polls the claimed connections one workspace after the other so none starves", async () => {
@@ -157,34 +163,35 @@ describe("PollSchedulerService connections that cannot be polled", () => {
         ["a connection that is gone", null],
         ["a disconnected connection", pollConnectionRecordOf({ status: "disconnected" })],
     ])("plans %s again at the healthy interval without polling it", async (_name, found) => {
-        const { scheduler, schedule, connections, poller } = await build()
+        const { scheduler, schedule, connections, live } = await build()
         schedule.claimDue.mockResolvedValue([dueOf()])
         connections.find.mockResolvedValue(found)
 
         await scheduler.tick()
 
-        expect(poller.fetch).not.toHaveBeenCalled()
+        expect(live.read).not.toHaveBeenCalled()
         expect(schedule.defer).toHaveBeenCalledWith("c-1", new Date(NOW_MS + 30 * MIN))
     })
 
-    it("plans a connection whose provider has no source again without polling it", async () => {
-        const { scheduler, schedule, poller } = await build()
+    it("plans a connection whose provider has no receiver again without polling it", async () => {
+        const { scheduler, schedule, connections, live } = await build()
+        connections.find.mockResolvedValue(pollConnectionRecordOf({ provider: "casso" }))
         schedule.claimDue.mockResolvedValue([dueOf({ provider: "casso" })])
 
         await scheduler.tick()
 
-        expect(poller.fetch).not.toHaveBeenCalled()
+        expect(live.read).not.toHaveBeenCalled()
         expect(schedule.defer).toHaveBeenCalledTimes(1)
     })
 
     it("plans a connection again shortly when the provider's concurrency cap is full", async () => {
-        const { scheduler, schedule, limiter, poller } = await build()
+        const { scheduler, schedule, limiter, live } = await build()
         schedule.claimDue.mockResolvedValue([dueOf()])
         limiter.enter.mockResolvedValue(undefined)
 
         const tallies = await scheduler.tick()
 
-        expect(poller.fetch).not.toHaveBeenCalled()
+        expect(live.read).not.toHaveBeenCalled()
         expect(schedule.defer).toHaveBeenCalledWith("c-1", new Date(NOW_MS + 5000))
         expect(tallies.get("sepay")?.deferred).toBe(1)
     })
@@ -203,7 +210,7 @@ describe("PollSchedulerService a poll that read", () => {
         expect(release).toHaveBeenCalledTimes(1)
         expect(schedule.settle).toHaveBeenCalledWith(
             "c-1",
-            expect.objectContaining({ nextPollAt: NOW_MS + 30 * MIN, failures: 0, succeeded: true }),
+            expect.objectContaining({ nextPollAt: NOW_MS + CADENCE.besideWebhookMs, failures: 0, succeeded: true }),
         )
     })
 
@@ -217,14 +224,24 @@ describe("PollSchedulerService a poll that read", () => {
     })
 
     it("does not count a connection the provider could not read as a read", async () => {
-        const { scheduler, schedule, poller } = await build()
+        const { scheduler, schedule, live } = await build()
         schedule.claimDue.mockResolvedValue([dueOf()])
-        poller.fetch.mockResolvedValue({ kind: "skipped", reason: "no_token" })
+        live.read.mockResolvedValue({ kind: "skipped", reason: "no_token" })
 
         const tallies = await scheduler.tick()
 
         expect(tallies.get("sepay")).toMatchObject({ found: 0, missedByWebhook: 0 })
         expect(schedule.settle).toHaveBeenCalledWith("c-1", expect.objectContaining({ succeeded: false }))
+    })
+
+    it("clears the degraded mark when the probe of an open breaker reads", async () => {
+        const built = await build({ classified: { kind: "fatal" } })
+        built.schedule.claimDue.mockResolvedValue([dueOf({ breakerState: "open", failures: 5 })])
+        built.live.read.mockResolvedValue({ kind: "page", items: [], fetched: 0, oldestAt: undefined, newestAt: undefined })
+        await built.scheduler.tick()
+
+        expect(built.connections.markHealth).toHaveBeenCalledWith("c-1", expect.objectContaining({ state: "ok" }))
+        expect(built.connections.markRecovered).not.toHaveBeenCalled()
     })
 
     it("lets an open breaker's due poll through as its probe and closes it on success", async () => {
@@ -243,9 +260,9 @@ describe("PollSchedulerService a poll that read", () => {
 })
 
 /** Answers full pages, each older than the last, then an empty page: a provider with a long history. */
-const olderPages = (poller: ReturnType<typeof mock<ConnectionPoller<unknown>>>, full = 100): void => {
+const olderPages = (poller: jest.Mocked<PollReceiver>, full = 100): void => {
     let served = 0
-    poller.fetch.mockImplementation(() => {
+    poller.read.mockImplementation(() => {
         served += 1
         return Promise.resolve(
             served > full
@@ -257,14 +274,14 @@ const olderPages = (poller: ReturnType<typeof mock<ConnectionPoller<unknown>>>, 
 
 describe("PollSchedulerService backfill in chunks", () => {
     it("reads a first connect in a chunk of pages and carries where it stopped", async () => {
-        const { scheduler, schedule, connections, poller } = await build()
+        const { scheduler, schedule, connections, live } = await build()
         connections.find.mockResolvedValue(pollConnectionRecordOf({ meta: {} }))
         schedule.claimDue.mockResolvedValue([dueOf()])
-        olderPages(poller)
+        olderPages(live)
 
         await scheduler.tick()
 
-        expect(poller.fetch).toHaveBeenCalledTimes(DEFAULT_POLL_SCHEDULE.backfillChunkPages)
+        expect(live.read).toHaveBeenCalledTimes(DEFAULT_POLL_SCHEDULE.backfillChunkPages)
         expect(connections.patch).not.toHaveBeenCalled()
         expect(schedule.settle).toHaveBeenCalledWith(
             "c-1",
@@ -277,7 +294,7 @@ describe("PollSchedulerService backfill in chunks", () => {
     })
 
     it("resumes at the page end the last chunk stopped at", async () => {
-        const { scheduler, schedule, connections, poller } = await build()
+        const { scheduler, schedule, connections, live } = await build()
         connections.find.mockResolvedValue(pollConnectionRecordOf({ meta: {} }))
         schedule.claimDue.mockResolvedValue([
             dueOf({ backfillTo: new Date(NOW_MS - 30 * MIN), backfillNewest: new Date(NOW_MS - MIN) }),
@@ -285,7 +302,7 @@ describe("PollSchedulerService backfill in chunks", () => {
 
         await scheduler.tick()
 
-        expect(poller.fetch).toHaveBeenCalledWith(
+        expect(live.read).toHaveBeenCalledWith(
             expect.anything(),
             expect.objectContaining({ to: new Date(NOW_MS - 30 * MIN) }),
         )
@@ -299,33 +316,33 @@ describe("PollSchedulerService backfill in chunks", () => {
     })
 
     it("resumes without a newest instant when the earlier chunks read none", async () => {
-        const { scheduler, schedule, connections, poller } = await build()
+        const { scheduler, schedule, connections, live } = await build()
         connections.find.mockResolvedValue(pollConnectionRecordOf({ meta: {} }))
         schedule.claimDue.mockResolvedValue([dueOf({ backfillTo: new Date(NOW_MS - 30 * MIN) })])
-        poller.fetch.mockResolvedValue(readPollPageOf(0, { items: [], oldestAt: undefined, newestAt: undefined }))
+        live.read.mockResolvedValue(readPollPageOf(0, { items: [], oldestAt: undefined, newestAt: undefined }))
 
         await scheduler.tick()
 
-        expect(poller.fetch).toHaveBeenCalledTimes(1)
+        expect(live.read).toHaveBeenCalledTimes(1)
         expect(schedule.settle).toHaveBeenCalledWith("c-1", expect.objectContaining({ backfillTo: null }))
     })
 
     it("reads a connection that has a cursor without a page cap", async () => {
-        const { scheduler, schedule, poller } = await build()
+        const { scheduler, schedule, live } = await build()
         schedule.claimDue.mockResolvedValue([dueOf()])
-        olderPages(poller, 3)
+        olderPages(live, 3)
 
         await scheduler.tick()
 
-        expect(poller.fetch).toHaveBeenCalledTimes(4)
+        expect(live.read).toHaveBeenCalledTimes(4)
     })
 })
 
 describe("PollSchedulerService failures", () => {
     const failing = async (failure: PollFailure, row: Partial<PollScheduleRow> = {}) => {
-        const built = await build(failure)
+        const built = await build({ classified: failure })
         built.schedule.claimDue.mockResolvedValue([dueOf(row)])
-        built.poller.fetch.mockRejectedValue(new Error("provider failed"))
+        built.live.read.mockRejectedValue(new Error("provider failed"))
         const tallies = await built.scheduler.tick()
         return { ...built, tallies }
     }
@@ -386,9 +403,9 @@ describe("PollSchedulerService failures", () => {
 
 describe("PollSchedulerService failures of the provider's side", () => {
     const failing = async (failure: PollFailure, row: Partial<PollScheduleRow> = {}) => {
-        const built = await build(failure)
+        const built = await build({ classified: failure })
         built.schedule.claimDue.mockResolvedValue([dueOf(row)])
-        built.poller.fetch.mockRejectedValue(new Error("provider failed"))
+        built.live.read.mockRejectedValue(new Error("provider failed"))
         const tallies = await built.scheduler.tick()
         return { ...built, tallies }
     }
@@ -433,6 +450,15 @@ describe("PollSchedulerService failures of the provider's side", () => {
         expect(notice.unavailable).not.toHaveBeenCalled()
     })
 
+    it("marks a connection degraded when the breaker opens for a reason that is no refused credential, and never for a refused one", async () => {
+        const fatal = await failing({ kind: "fatal" })
+        expect(fatal.connections.markHealth).toHaveBeenCalledWith("c-1", expect.objectContaining({ state: "degraded" }))
+        const refused = await failing({ kind: "auth_failed" })
+        expect(refused.connections.markHealth).not.toHaveBeenCalled()
+        const slow = await failing({ kind: "transient" }, { failures: 0 })
+        expect(slow.connections.markHealth).not.toHaveBeenCalled()
+    })
+
     it("opens the breaker for a fatal failure without the owner", async () => {
         const { schedule, tallies, notice } = await failing({ kind: "fatal" })
 
@@ -446,44 +472,205 @@ describe("PollSchedulerService failures of the provider's side", () => {
 })
 
 describe("PollSchedulerService a poll that waited for the rate limit", () => {
-    it("plans the connection again after the wait the limiter named, and is no failure", async () => {
-        const { scheduler, schedule, limiter, source, logger } = await build()
+    const deferred = (waitMs?: number) =>
+        new ConnectionPollError({ code: ConnectionPollErrorCode.Deferred, ...(waitMs === undefined ? {} : { params: { waitMs } }) })
+
+    it("plans the connection again once the window the limiter named has passed, counts the cycle and is no failure", async () => {
+        const { scheduler, schedule, limiter, live, logger } = await build()
         schedule.claimDue.mockResolvedValue([dueOf()])
-        limiter.pass.mockRejectedValue(
-            new ConnectionPollError({ code: ConnectionPollErrorCode.Deferred, params: { waitMs: 12_000 } }),
-        )
+        limiter.pass.mockRejectedValue(deferred(12_000))
 
         const tallies = await scheduler.tick()
 
         expect(tallies.get("sepay")?.deferred).toBe(1)
-        expect(schedule.defer).toHaveBeenCalledWith("c-1", new Date(NOW_MS + 12_000))
-        expect(schedule.settle).not.toHaveBeenCalled()
-        expect(source.classify).not.toHaveBeenCalled()
+        expect(tallies.get("sepay")?.polled).toBe(1)
+        expect(schedule.settle).toHaveBeenCalledWith(
+            "c-1",
+            expect.objectContaining({ nextPollAt: NOW_MS + 12_000, failures: 1, breakerState: "closed", succeeded: false, raiseOwnerNotice: false }),
+        )
+        expect(schedule.defer).not.toHaveBeenCalled()
+        expect(live.classify).not.toHaveBeenCalled()
         expect(logger.info).toHaveBeenCalledWith(
             ConnectionPollLogEvent.Deferred,
-            expect.objectContaining({ connectionId: "c-1" }),
+            expect.objectContaining({ connectionId: "c-1", waitMs: 12_000, cycles: 1 }),
         )
+        expect(logger.error).not.toHaveBeenCalled()
     })
 
     it("falls back to a short wait when the error names none that can be read", async () => {
         const { scheduler, schedule, limiter } = await build()
         schedule.claimDue.mockResolvedValue([dueOf()])
-        limiter.pass.mockRejectedValue(new ConnectionPollError({ code: ConnectionPollErrorCode.Deferred }))
+        limiter.pass.mockRejectedValue(deferred())
 
         await scheduler.tick()
 
-        expect(schedule.defer).toHaveBeenCalledWith("c-1", new Date(NOW_MS + 5000))
+        expect(schedule.settle).toHaveBeenCalledWith("c-1", expect.objectContaining({ nextPollAt: NOW_MS + 5000 }))
     })
 
-    it("lets a call through when its provider has no source any more", async () => {
-        const { scheduler, schedule, limiter } = await build({ kind: "fatal" }, (source) => ({
-            providers: () => ["sepay"],
-            sourceOf: jest.fn().mockReturnValueOnce(source).mockReturnValue(undefined),
-        }))
+    it("tells the owner ONCE through the poll's owner item at the cycle that reaches the threshold, and none at the cycles past it", async () => {
+        const { scheduler, schedule, limiter, notice } = await build()
+        limiter.pass.mockRejectedValue(deferred(300))
+        const cycle = async (failures: number): Promise<void> => {
+            schedule.claimDue.mockResolvedValueOnce([dueOf({ failures })])
+            await scheduler.tick()
+        }
+
+        await cycle(3)
+        expect(notice.unavailable).not.toHaveBeenCalled()
+        await cycle(DEFAULT_POLL_SCHEDULE.breakerThreshold - 1)
+        await cycle(DEFAULT_POLL_SCHEDULE.breakerThreshold)
+        await cycle(DEFAULT_POLL_SCHEDULE.breakerThreshold + 1)
+
+        expect(notice.unavailable).toHaveBeenCalledTimes(1)
+        expect(notice.unavailable).toHaveBeenCalledWith(expect.objectContaining({ id: "c-1" }), POLL_RATE_DEFERRED_REASON, NOW_MS)
+    })
+
+    it("logs an item that could not be filed and goes on", async () => {
+        const { scheduler, schedule, limiter, notice, logger } = await build()
+        limiter.pass.mockRejectedValue(deferred(300))
+        notice.unavailable.mockRejectedValue(new Error("no door"))
+        schedule.claimDue.mockResolvedValue([dueOf({ failures: DEFAULT_POLL_SCHEDULE.breakerThreshold - 1 })])
+
+        await scheduler.tick()
+
+        expect(logger.error).toHaveBeenCalledWith(
+            ConnectionPollLogEvent.DeferredOwnerNotTold,
+            expect.any(Error),
+            expect.objectContaining({ connectionId: "c-1" }),
+        )
+    })
+
+    it("a poll that reads after deferrals resets the count: the next outage is a new item", async () => {
+        const { scheduler, schedule } = await build()
+        schedule.claimDue.mockResolvedValue([dueOf({ failures: 4 })])
+
+        await scheduler.tick()
+
+        expect(schedule.settle).toHaveBeenCalledWith("c-1", expect.objectContaining({ failures: 0, succeeded: true }))
+    })
+})
+
+describe("PollSchedulerService the receivers of the one registry", () => {
+    it("polls the providers that have a receiver and every provider whose accounts may hold the half of one", async () => {
+        const { scheduler, schedule } = await build()
+
+        await scheduler.tick()
+
+        expect(schedule.enroll).toHaveBeenCalledWith(["sepay", "imap", "smtp"])
+        expect(schedule.claimDue).toHaveBeenCalledWith(["sepay", "imap", "smtp"], DEFAULT_POLL_SCHEDULE.batchSize)
+    })
+
+    it("reads a mailbox smtp account through the receiver of the imap half it holds, under that provider's limits", async () => {
+        const { scheduler, schedule, connections, live, imapLive, limiter, receipts } = await build()
+        const mailbox = pollConnectionRecordOf({ provider: "smtp", meta: { config: "sealed" } })
+        connections.find.mockResolvedValue(mailbox)
+        schedule.claimDue.mockResolvedValue([dueOf({ provider: "smtp" })])
+
+        await scheduler.tick()
+
+        expect(imapLive.read).toHaveBeenCalledWith(mailbox, expect.objectContaining({ limit: 200 }))
+        expect(live.read).not.toHaveBeenCalled()
+        expect(limiter.enter).toHaveBeenCalledWith("imap", "c-1", limits)
+        expect(receipts.keep).toHaveBeenCalledWith(mailbox, "imap.mail", expect.any(Array))
+    })
+
+    it("leaves a smtp account that holds no inbound half alone and plans it again", async () => {
+        const { scheduler, schedule, connections, imapLive } = await build()
+        connections.find.mockResolvedValue(pollConnectionRecordOf({ provider: "smtp", meta: {} }))
+        schedule.claimDue.mockResolvedValue([dueOf({ provider: "smtp" })])
+
+        await scheduler.tick()
+
+        expect(imapLive.read).not.toHaveBeenCalled()
+        expect(schedule.defer).toHaveBeenCalledTimes(1)
+        expect(schedule.settle).not.toHaveBeenCalled()
+    })
+
+    it("keeps the rows of the walk under the receiver's data type through the generic store", async () => {
+        const { scheduler, schedule, receipts, connections } = await build()
         schedule.claimDue.mockResolvedValue([dueOf()])
 
         await scheduler.tick()
 
-        expect(limiter.pass).not.toHaveBeenCalled()
+        expect(receipts.keep).toHaveBeenCalledWith(pollConnectionRecordOf(), "sepay.transaction", readPollPageOf(2).items)
+    })
+})
+
+describe("PollSchedulerService live and sandbox accounts", () => {
+    it("reads a live account through the live receiver and never the sandbox one", async () => {
+        const { scheduler, schedule, live, sandbox } = await build()
+        schedule.claimDue.mockResolvedValue([dueOf()])
+
+        await scheduler.tick()
+
+        expect(live.read).toHaveBeenCalledTimes(1)
+        expect(sandbox.read).not.toHaveBeenCalled()
+    })
+
+    it("reads a sandbox account through the sandbox receiver and never the live one (the one switch)", async () => {
+        const { scheduler, schedule, connections, live, sandbox } = await build()
+        connections.find.mockResolvedValue(pollConnectionRecordOf({ sandbox: true }))
+        schedule.claimDue.mockResolvedValue([dueOf()])
+
+        await scheduler.tick()
+
+        expect(sandbox.read).toHaveBeenCalledTimes(1)
+        expect(live.read).not.toHaveBeenCalled()
+    })
+})
+
+describe("PollSchedulerService the cadence of the receiver", () => {
+    it("plans the sparse interval while the webhook beside the poll delivers", async () => {
+        const { scheduler, schedule } = await build()
+        schedule.claimDue.mockResolvedValue([dueOf({ lastWebhookAt: new Date(NOW_MS - MIN) })])
+
+        await scheduler.tick()
+
+        expect(schedule.settle).toHaveBeenCalledWith("c-1", expect.objectContaining({ nextPollAt: NOW_MS + CADENCE.besideWebhookMs }))
+    })
+
+    it("plans the dense interval when no webhook was ever heard", async () => {
+        const { scheduler, schedule } = await build()
+        schedule.claimDue.mockResolvedValue([dueOf({ lastWebhookAt: null })])
+
+        await scheduler.tick()
+
+        expect(schedule.settle).toHaveBeenCalledWith("c-1", expect.objectContaining({ nextPollAt: NOW_MS + CADENCE.aloneMs }))
+    })
+
+    it("plans the dense interval when the webhook has been silent longer than the declared silence", async () => {
+        const { scheduler, schedule } = await build()
+        const silent = NOW_MS - DEFAULT_POLL_SCHEDULE.webhookSilentAfterMs - MIN
+        schedule.claimDue.mockResolvedValue([dueOf({ lastWebhookAt: new Date(silent) })])
+
+        await scheduler.tick()
+
+        expect(schedule.settle).toHaveBeenCalledWith("c-1", expect.objectContaining({ nextPollAt: NOW_MS + CADENCE.aloneMs }))
+    })
+})
+
+describe("PollSchedulerService ready", () => {
+    it("makes the account of a polled provider ready and hot", async () => {
+        const { scheduler, schedule } = await build()
+
+        await expect(scheduler.ready({ connectionId: "c-9", provider: "sepay" })).resolves.toBe(true)
+
+        expect(schedule.markReady).toHaveBeenCalledWith("c-9")
+    })
+
+    it("also takes a provider whose accounts hold the half of a polled one (a mailbox smtp account)", async () => {
+        const { scheduler, schedule } = await build()
+
+        await expect(scheduler.ready({ connectionId: "c-9", provider: "smtp" })).resolves.toBe(true)
+
+        expect(schedule.markReady).toHaveBeenCalledWith("c-9")
+    })
+
+    it("does nothing for a provider that is not polled", async () => {
+        const { scheduler, schedule } = await build()
+
+        await expect(scheduler.ready({ connectionId: "c-9", provider: "telegram" })).resolves.toBe(false)
+
+        expect(schedule.markReady).not.toHaveBeenCalled()
     })
 })

@@ -1,6 +1,6 @@
 import type { MessageBundle } from "@modules/platform/i18n"
 
-/** Display text of the ai-generations codes, the sentence an interactive screen shows when OpenClaw cannot answer, and the NIVO guide's prompt words. */
+/** Display text of the ai-generations codes, the sentence an interactive screen shows when the model cannot answer, and the NIVO guide's prompt words. */
 export const AI_GENERATIONS_MESSAGES: MessageBundle = {
     vi: {
         "errors.AI_GENERATIONS_QUOTA_BLOCKED": "Hạn mức AI của không gian làm việc đã hết.",
@@ -10,7 +10,8 @@ export const AI_GENERATIONS_MESSAGES: MessageBundle = {
         "errors.AI_GENERATIONS_NOT_FOUND": "Không tìm thấy yêu cầu viết văn bản.",
         "errors.AI_GENERATIONS_KIND_NOT_ALLOWED": "Không thể yêu cầu loại văn bản này từ đây.",
         "errors.AI_GENERATIONS_GUIDE_RATE_LIMITED": "Bạn đã hỏi trợ lý NIVO quá nhiều lần. Hãy thử lại sau ít phút.",
-        "errors.AI_GENERATIONS_DEADLINE_PASSED": "NIVO đang bận, hãy thử lại sau ít phút.",
+        "errors.AI_GENERATIONS_PAYLOAD_INVALID": "Yêu cầu viết văn bản không hợp lệ.",
+        "errors.AI_GENERATIONS_NO_ANSWER": "NIVO đang bận, thử lại sau ít phút.",
         "generation.busy": "NIVO đang bận, thử lại sau ít phút.",
         "guide.page.office.title": "Office",
         "guide.page.office.what": "Phòng làm việc chung: nhắn với đội và các agent AI, duyệt việc AI đề xuất.",
@@ -50,7 +51,7 @@ export const AI_GENERATIONS_MESSAGES: MessageBundle = {
         "guide.page.brain.how":
             "Mở Bộ não > Xem tab Cần duyệt: áp dụng hoặc từ chối theo gợi ý của NIVO > Tab Sự thật: Thêm sự thật hoặc Giá trị mới",
         "guide.page.modules.title": "Agent",
-        "guide.page.modules.what": "Cài và cấu hình các agent: Chatbot, Bán hàng, Kế toán, Đặt lịch, Kho, Tuyển dụng…",
+        "guide.page.modules.what": "Cài và cấu hình các agent: Chatbot, Bán hàng, Đặt lịch, Tuyển dụng…",
         "guide.page.modules.how": "Mở Agent > Chọn agent cần dùng và bấm Cài > Làm theo các bước thiết lập",
         "guide.page.team.title": "Đội ngũ",
         "guide.page.team.what": "Mời người vào workspace và chọn vai trò: Chủ sở hữu, Quản lý, Nhân viên.",
@@ -60,7 +61,7 @@ export const AI_GENERATIONS_MESSAGES: MessageBundle = {
         "guide.page.connections.what": "Nối NIVO với ngân hàng, Telegram, Zalo OA, email, Google Sheets, n8n.",
         "guide.page.connections.how": "Mở Kết nối > Chọn dịch vụ và bấm Thêm kết nối > Làm theo hướng dẫn từng bước",
         "guide.page.connections.sepay.title": "Kết nối SePay (tiền về)",
-        "guide.page.connections.sepay.what": "Tiền vào tài khoản ngân hàng được báo cho agent Kế toán để đối soát.",
+        "guide.page.connections.sepay.what": "Tiền vào tài khoản ngân hàng được báo cho agent Bán hàng để đối soát.",
         "guide.page.connections.sepay.how":
             "Mở Kết nối › Nguồn tiền về (SePay) › Thêm kết nối > Chọn Thử nghiệm trước, nhập ngân hàng và số tài khoản > Dán URL nhận webhook và API Key sang trang Webhook của SePay > Gửi một giao dịch thử 2.000đ từ SePay để kiểm tra kết nối (môi trường thử — không ghi sổ)",
         "guide.page.connections.telegram.title": "Kết nối bot Telegram",
@@ -115,7 +116,8 @@ export const AI_GENERATIONS_MESSAGES: MessageBundle = {
         "errors.AI_GENERATIONS_KIND_NOT_ALLOWED": "This kind of text cannot be requested from here.",
         "errors.AI_GENERATIONS_GUIDE_RATE_LIMITED":
             "You have asked the NIVO guide too often. Try again in a few minutes.",
-        "errors.AI_GENERATIONS_DEADLINE_PASSED": "NIVO is busy, please try again in a few minutes.",
+        "errors.AI_GENERATIONS_PAYLOAD_INVALID": "The text request is not valid.",
+        "errors.AI_GENERATIONS_NO_ANSWER": "NIVO is busy, please try again in a few minutes.",
         "generation.busy": "NIVO is busy, please try again in a few minutes.",
         "guide.page.office.title": "Office",
         "guide.page.office.what": "The shared office: talk to your team and AI agents, approve what the AI proposes.",
@@ -158,7 +160,7 @@ export const AI_GENERATIONS_MESSAGES: MessageBundle = {
         "guide.page.brain.how":
             "Open Brain > Check To review: apply or reject as NIVO suggests > Facts tab: Add fact or New value",
         "guide.page.modules.title": "Agents",
-        "guide.page.modules.what": "Install and set up agents: Chatbot, Sales, Accounting, Booking, Inventory, Hiring…",
+        "guide.page.modules.what": "Install and set up agents: Chatbot, Sales, Booking, Hiring…",
         "guide.page.modules.how": "Open Agents > Pick an agent and install it > Follow the setup steps",
         "guide.page.team.title": "Team",
         "guide.page.team.what": "Invite people to the workspace and choose their role: Owner, Manager, Staff.",
@@ -169,7 +171,7 @@ export const AI_GENERATIONS_MESSAGES: MessageBundle = {
         "guide.page.connections.how": "Open Connections > Pick a service and press Add connection > Follow the steps",
         "guide.page.connections.sepay.title": "SePay bank feed",
         "guide.page.connections.sepay.what":
-            "Money arriving in your bank account reaches the Accounting agent for matching.",
+            "Money arriving in your bank account reaches the Sales agent for matching.",
         "guide.page.connections.sepay.how":
             "Open Connections › SePay › Add connection > Start in Test mode, enter the bank and account > Paste the webhook URL and API key into SePay's Webhook page > Send a 2,000 VND test transfer from SePay to check the connection (test mode — nothing is booked)",
         "guide.page.connections.telegram.title": "Telegram bot",

@@ -4,24 +4,21 @@ import type { ImapAddress, ImapMessageRow } from "./imap-mailbox.contracts"
 /** The most text kept from one message. */
 export const IMAP_MAX_TEXT: number = 20 * 1024
 
-/** The folder cursor `<uidvalidity>:<uid>`, parsed. */
-export interface ImapCursor {
-    /** The folder's UIDVALIDITY when the cursor was saved. */
-    readonly validity: string
-    /** The highest UID already read. */
-    readonly uid: number
+/** The raw text of a header as the message carries it (the first one of its name), trimmed; null when the message has none. */
+const headerOf = (mail: ParsedMail, name: string): string | null => {
+    const line = mail.headerLines.find((one) => one.key === name)?.line
+    if (line === undefined) return null
+    const colon = line.indexOf(":")
+    const value = (colon < 0 ? "" : line.slice(colon + 1)).replaceAll(/\s+/gu, " ").trim()
+    return value === "" ? null : value
 }
 
-/** Parses a saved folder cursor; null when absent or malformed. */
-export const parseImapCursor = (value: string | null): ImapCursor | null => {
-    const match = /^(\d+):(\d+)$/u.exec(value ?? "")
-    const validity = match?.[1]
-    const uid = match?.[2]
-    return validity === undefined || uid === undefined ? null : { validity, uid: Number(uid) }
+/** The ids of the `References` header, in order (the thread the message belongs to). */
+const referencesOf = (mail: ParsedMail): ReadonlyArray<string> => {
+    const value = mail.references
+    if (value === undefined) return []
+    return (Array.isArray(value) ? value : [value]).filter((one) => one.trim() !== "")
 }
-
-/** Writes a folder cursor. */
-export const formatImapCursor = (validity: string, uid: number): string => `${validity}:${uid}`
 
 const addresses = (value: AddressObject | Array<AddressObject> | undefined): Array<ImapAddress> => {
     if (value === undefined) return []
@@ -127,6 +124,12 @@ export const messageToRow = (
             })),
             messageId: mail.messageId ?? null,
             inReplyTo: mail.inReplyTo ?? null,
+            references: referencesOf(mail),
+            // The headers the standards define for mail no person wrote (RFC 3834 Auto-Submitted and Precedence, RFC 5321 null reverse
+            // path): kept as the message carries them; what they mean is the mail trigger's translate's to decide.
+            autoSubmitted: headerOf(mail, "auto-submitted"),
+            precedence: headerOf(mail, "precedence"),
+            returnPath: headerOf(mail, "return-path"),
         },
     }
 }

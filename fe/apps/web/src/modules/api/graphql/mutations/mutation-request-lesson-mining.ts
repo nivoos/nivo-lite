@@ -1,6 +1,6 @@
 import { gql, type ApolloClient, type TypedDocumentNode } from "@apollo/client"
-import { createAuthApolloClient } from "../clients"
-import type { InputVariables, MutateParams, WireInput } from "../types"
+import { createAuthApolloClient, type InputVariables, type MutateParams, type WireInput } from "@nivo-lite/api"
+import { webApiTransport } from "@/modules/api-transport"
 import type { RequestLessonMiningMutation, RequestLessonMiningMutationVariables } from "../__generated__/graphql"
 
 /** The response of the `requestLessonMining` mutation: the typed payload straight from the back end contract. */
@@ -44,7 +44,7 @@ export const mutateRequestLessonMining = async ({
     request,
     signal,
 }: MutateRequestLessonMiningParams): Promise<ApolloClient.MutateResult<MutateRequestLessonMiningResponse>> => {
-    const apollo = createAuthApolloClient({ signal })
+    const apollo = createAuthApolloClient(webApiTransport, { signal })
     return apollo.mutate({
         mutation: mutationMap[mutation],
         variables: { input: request },

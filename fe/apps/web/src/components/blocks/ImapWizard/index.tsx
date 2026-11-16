@@ -4,10 +4,9 @@ import { type SlotRead, useSlotLabels, slotOfReads } from "@/hooks/slot"
 
 import { useFormatter, useTranslations } from "next-intl"
 import { providerKey } from "@/hooks/connection-providers"
-import { agentChoicesOf } from "@/hooks/connection-wizard"
-import type { AgentOption, SlotLabels } from "@/modules/types"
+import { agentChoicesOf, useWizardPhases } from "@/hooks/connection-wizard"
+import type { AgentOption, SlotLabels, WizardPhases } from "@/modules/types"
 import {
-    IMAP_EVERY,
     IMAP_GUIDE_KEY,
     IMAP_PRESET_KEY,
     IMAP_PRESETS,
@@ -23,7 +22,7 @@ import { ImapWizardBase } from "./component"
 interface ImapWizardProps {
     /** The actual workspace reads shared with this selected wizard. */
     readonly dependencyReads: ReadonlyArray<SlotRead<unknown>>
-    /** Workspace agents (any module): every agent may be given read access to the mailbox. */
+    /** Workspace agents (any module): every agent may be bound to the mailbox. */
     readonly agents: ReadonlyArray<AgentOption>
     /** Continue or edit this existing mailbox instead of creating a new one. */
     readonly resumeId?: string
@@ -48,10 +47,9 @@ interface BuildMailboxAccountViewContext {
 interface BuildImapWizardViewContext extends BuildMailboxAccountViewContext {
     readonly tc: ReturnType<typeof useTranslations<"connections">>
     readonly tw: ReturnType<typeof useTranslations<"connectionWizard">>
-    readonly dependencyReads: ImapWizardProps["dependencyReads"]
-    readonly agents: ImapWizardProps["agents"]
-    readonly resumeId: ImapWizardProps["resumeId"]
+    readonly props: ImapWizardProps
     readonly slotLabelsOf: (empty: string) => SlotLabels
+    readonly phases: WizardPhases
 }
 
 /**
@@ -62,6 +60,7 @@ interface BuildImapWizardViewContext extends BuildMailboxAccountViewContext {
 export const ImapWizard = (props: ImapWizardProps) => {
     const t = useTranslations("connectorImap")
     const tw = useTranslations("connectionWizard")
+    const phases = useWizardPhases("imap")
     const tc = useTranslations("connections")
     const format = useFormatter()
     const slotLabelsOf = useSlotLabels()
@@ -81,10 +80,9 @@ export const ImapWizard = (props: ImapWizardProps) => {
         isCustom,
         isPending,
         format,
-        dependencyReads: props.dependencyReads,
-        agents: props.agents,
-        resumeId: props.resumeId,
+        props,
         slotLabelsOf,
+        phases,
     }
     return (
         <ImapWizardBase
@@ -98,7 +96,6 @@ export const ImapWizard = (props: ImapWizardProps) => {
                 retry: wizard.reload,
                 folders: wizard.setFolders,
                 since: (value: string) => wizard.setSinceDays(Number(value)),
-                schedule: (value: string) => wizard.setEvery(value === "null" ? null : Number(value)),
                 agents: wizard.setAgentIds,
             }}
         />
@@ -153,19 +150,19 @@ const buildImapWizardView = ({
     isCustom,
     isPending,
     format,
-    dependencyReads,
-    agents,
-    resumeId,
+    props,
     slotLabelsOf,
+    phases,
 }: BuildImapWizardViewContext) =>
     ({
-        resume: slotOfReads([...dependencyReads, ...wizard.reads], () => ({
-            isResumed: resumeId !== undefined,
+        resume: slotOfReads([...props.dependencyReads, ...wizard.reads], () => ({
+            isResumed: props.resumeId !== undefined,
         })),
         slotLabels: { ...slotLabelsOf(""), ...(wizard.loadError === null ? {} : { error: wizard.loadError }) },
         title: tc(providerKey("imap", "title")),
         stepLabel: tw("stepOf", { n: wizard.index + 1, total: IMAP_STEPS.length }),
-        steps: [t("stepAccount"), t("stepFolders"), t("stepSchedule"), t("stepAgent")],
+        phases,
+        steps: [t("stepAccount"), t("stepFolders"), t("stepAgent")],
         index: wizard.index,
         step: wizard.step,
         account: buildMailboxAccountView({ copy, values, savedId, preset, t, isCustom, isPending, wizard, format }),
@@ -179,14 +176,10 @@ const buildImapWizardView = ({
                 label: t(IMAP_SINCE_KEY[days]),
             })),
         },
-        schedule: {
-            value: String(wizard.every),
-            options: IMAP_EVERY.map((e) => ({ value: String(e.minutes), label: t(e.key) })),
-        },
         agentStep: {
             title: t("agentTitle"),
             notice: null,
-            agents: agentChoicesOf(agents, "imap", tw),
+            agents: agentChoicesOf(props.agents, tw),
             value: wizard.agentIds,
             hint: tw("agentHint"),
             none: tw("agentNone"),

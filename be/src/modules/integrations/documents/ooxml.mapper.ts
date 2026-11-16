@@ -157,11 +157,7 @@ export const xlsxToText = (bytes: Uint8Array): string => joinedText(xlsxSheets(b
 
 /** The paragraphs of a slide, one line each; the slide number field is left out. */
 const paragraphs = (xml: string): string =>
-    [
-        ...xml
-            .replaceAll(/<a:fld\b[^>]*type="slidenum"[\s\S]*?<\/a:fld>/gu, "")
-            .matchAll(/<a:p\b[^>]*>([\s\S]*?)<\/a:p>/gu),
-    ]
+    [...xml.replaceAll(/<a:fld\b[^>]*type="slidenum"[\s\S]*?<\/a:fld>/gu, "").matchAll(/<a:p\b[^>]*>([\s\S]*?)<\/a:p>/gu)]
         .map((match) => textRuns(captured(match, 1).replaceAll(/<a:br\s*\/>/gu, "<a:t>\n</a:t>"), "a:t").trim())
         .filter((line) => line !== "")
         .join("\n")

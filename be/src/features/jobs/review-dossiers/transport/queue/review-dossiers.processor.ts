@@ -1,19 +1,24 @@
 import { Injectable } from "@nestjs/common"
 import { DossierReviewRunnerService } from "@modules/domain/dossier-review"
-import { FencedProcessor, type ClaimedJob } from "@modules/platform/jobs"
+import { KnowledgeJobsService } from "@modules/domain/knowledge"
+import { FencedProcessor, type ClaimedJob, type JobDefinition } from "@modules/platform/jobs"
 import type { QueueDelivery } from "@modules/platform/queue"
-import { KNOWLEDGE_QUEUE, KnowledgeJob } from "@modules/queues/knowledge"
+import { KNOWLEDGE_QUEUE, REVIEW_DOSSIERS_JOB, type DossierReviewPayload } from "@modules/queues/knowledge"
 import { ReviewDossiersStep } from "../../steps/review-dossiers.step"
 
 @Injectable()
-/** The processor of the review-dossiers job: the runner claims and settles it; `process` delegates to the one step. */
+/** The processor of the review-dossiers job (`REVIEW_DOSSIERS_JOB`): the runner claims and settles it; `process` delegates to the one step. */
 export class ReviewDossiersProcessor extends FencedProcessor {
     override readonly queue: "knowledge" = KNOWLEDGE_QUEUE
-    override readonly job: KnowledgeJob.DossierReview = KnowledgeJob.DossierReview
+    override readonly definition: JobDefinition<DossierReviewPayload> = REVIEW_DOSSIERS_JOB
+
+    /** The review runs form one fair group (D-R-8): while none runs, a review does not wait behind a big document's truths jobs. */
+    override readonly fairGroupOf = (): Promise<string | null> => this.knowledge.critiqueGroupOf()
 
     constructor(
         private readonly reviewDossiers: ReviewDossiersStep,
         private readonly runner: DossierReviewRunnerService,
+        private readonly knowledge: KnowledgeJobsService,
     ) {
         super()
     }
@@ -23,7 +28,7 @@ export class ReviewDossiersProcessor extends FencedProcessor {
         await this.reviewDossiers.run(job)
     }
 
-    /** The job ended as failed: the run is closed as failed with its error. */
+    /** The job was dead-lettered (one item for a person): the run is closed as failed and its documents stop waiting; no critique runs here, a resume takes them back. */
     override async onFailed(delivery: QueueDelivery): Promise<void> {
         await this.runner.fail(delivery.payload)
     }

@@ -1,32 +1,11 @@
 "use client"
 
 import { useWorkspaceCards } from "@/hooks/workspaces"
-import type { SWRResponse } from "swr"
 import { useOpenWorkspaceId } from "@/hooks/workspaceKey"
 
 /** The view `useConnectionsRole` returns. */
 export interface ConnectionsRoleView {
-    read: SWRResponse<
-        {
-            workspace: {
-                id: string
-                name: string
-                status: string
-                ownerId: string
-                createdAt: string
-                businessType: string | null
-            }
-            member: {
-                userId: string
-                workspaceId: string
-                role: string
-                staffId: string | null
-                displayName: string
-                status: string
-            }
-        }[],
-        Error
-    >
+    read: ReturnType<typeof useWorkspaceCards>["read"]
     retry: () => void
     role: "owner" | "manager" | "staff" | undefined
     isLoading: boolean
@@ -37,5 +16,5 @@ export const useConnectionsRole = (): ConnectionsRoleView => {
     const workspaceId = useOpenWorkspaceId()
     const workspaces = useWorkspaceCards()
     const role = workspaces.cards.find((card) => card.id === workspaceId)?.role
-    return { read: workspaces.read, retry: workspaces.reload, role, isLoading: workspaces.status === "loading" }
+    return { read: workspaces.read, retry: workspaces.reload, role, isLoading: "isLoading" in workspaces.slot }
 }

@@ -143,6 +143,21 @@ describe("KnowledgeSourcesReadService briefsOf", () => {
     })
 })
 
+describe("KnowledgeSourcesReadService originOf", () => {
+    it("answers the origin of one source of the workspace, and null for a source that is gone or has none", async () => {
+        const em = mockEntityManager({ findOne: [KnowledgeSourceEntity, { ...row, origin: "part:first" }] })
+
+        await expect((await build(em)).originOf("ws-1", row.id)).resolves.toBe("part:first")
+        expect(em.findOne).toHaveBeenCalledWith(KnowledgeSourceEntity, {
+            select: { id: true, origin: true },
+            where: { workspaceId: "ws-1", id: row.id },
+        })
+
+        const gone = mockEntityManager({ findOne: [KnowledgeSourceEntity, null] })
+        await expect((await build(gone)).originOf("ws-1", row.id)).resolves.toBeNull()
+    })
+})
+
 describe("KnowledgeSourcesReadService ofOrigin", () => {
     const stored = { ...row, updatedAt: new Date("2026-10-11T10:00:00.000Z") }
 
@@ -217,5 +232,35 @@ describe("KnowledgeSourcesReadService textOf", () => {
         const em = mockEntityManager({ findOne: [KnowledgeSourceEntity, null] })
 
         await expect((await build(em)).textOf("ws-1", "s1")).resolves.toBeNull()
+    })
+})
+
+describe("KnowledgeSourcesReadService readyOfInstance", () => {
+    it("reads the ready documents kept for one agent instance alone, with their text, never the shared ones", async () => {
+        const em = mockEntityManager({
+            find: [KnowledgeSourceEntity, [{ ...row, installationId: "i1", status: "ready", content: "Open 8-21" }]],
+        })
+        const service = await build(em)
+
+        const documents = await service.readyOfInstance("ws-1", "i1")
+
+        expect(documents).toEqual([
+            {
+                id: row.id,
+                kind: row.kind,
+                title: row.title,
+                content: "Open 8-21",
+                topic: row.topic,
+                tags: row.tags,
+                visibility: row.visibility,
+            },
+        ])
+        expect(em.find).toHaveBeenCalledWith(
+            KnowledgeSourceEntity,
+            expect.objectContaining({
+                where: { workspaceId: "ws-1", installationId: "i1", status: "ready" },
+                order: { createdAt: "ASC", id: "ASC" },
+            }),
+        )
     })
 })

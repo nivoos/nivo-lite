@@ -5,17 +5,16 @@ export { ConnectionPollModule } from "./connection-poll.module"
 export { CONNECTION_POLL_ERROR_KINDS } from "./errors/connection-poll.error"
 export { CONNECTION_POLL_MESSAGES } from "./messages/connection-poll.messages"
 export { connectionPollEntities } from "./persistence/entities"
-export { FirstPollEnqueueService } from "./first-poll-enqueue.service"
 export { PollLimiterService } from "./poll-limiter.service"
 export { PollScheduleService } from "./poll-schedule.service"
 export { PollSchedulerService } from "./poll-scheduler.service"
-export { PollSourceRegistryService } from "./poll-source-registry.service"
+export { PollReceiptsService } from "./poll-receipts.service"
 export type {
-    ConnectionPoller,
+    PolledAccount,
     PollFailure,
     PollLimits,
     PollPage,
     PollSummary,
     PollWindow,
 } from "./connection-poll.contracts"
-export type { PollScheduleRow, PollSourceDirectory, ScheduledPollSource } from "./poll-schedule.contracts"
+export type { PollScheduleRow } from "./poll-schedule.contracts"

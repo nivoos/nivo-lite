@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Seed standard declaration: one -seed-standard repository pinned by commit, loaded once by the bring-up",
+  "type": "object",
+  "required": [
+    "schema",
+    "name",
+    "repository",
+    "commit",
+    "completeness"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "nivo/seed-standard@1"
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 40,
+      "pattern": "^[a-z0-9][a-z0-9-]*-seed-standard$"
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "completeness": {
+      "const": "ext:seed-standards"
+    },
+    "force": {
+      "type": "boolean"
+    },
+    "forceKinds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "credentials",
+          "truths",
+          "node-settings"
+        ]
+      }
+    },
+    "owner": {
+      "description": "The workspace owner's sign-in address, or {secret: <member>} the seed step resolves to that member's map (its WORKSPACE_OWNER_EMAIL); absent = the owner of the document's ownerWorkspace",
+      "oneOf": [
+        {
+          "type": "string",
+          "maxLength": 254
+        },
+        {
+          "type": "object"
+        }
+      ]
+    }
+  }
+}

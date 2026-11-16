@@ -1,73 +1,23 @@
 import { AgentGraphDetail } from "@/components/branches/AgentGraphDetail"
-import { AgentGraphAdder } from "@/components/branches/AgentGraphAdder"
-import { AgentGraphDecideEditor } from "@/components/branches/AgentGraphDecideEditor"
-import { AgentGraphProposals } from "@/components/branches/AgentGraphProposals"
 import { AgentGraphRun } from "@/components/branches/AgentGraphRun"
-import { AgentGraphVersions } from "@/components/branches/AgentGraphVersions"
-import type { AgentGraphAction, AgentGraphPanelView, AgentGraphSideTab } from "@/modules/types"
+import type { AgentGraphAction, AgentGraphPanelView } from "@/modules/types"
 
-/** The graph view, the tab that shows and the commands of the panes. */
+/** The graph view and the commands of the panes. */
 interface AgentGraphInspectorProps {
     readonly view: AgentGraphPanelView
-    readonly sideTab: AgentGraphSideTab
     readonly isLoading: boolean
     readonly onAction: (action: AgentGraphAction) => void
 }
 
-/**
- * What the pane beside the graph shows for a tab that is not the chat: the proposals, the versions, or, on Detail, the form of a
- * branch being edited, the run being traced, or the seven answers of the selected node.
- */
+/** What the pane beside the graph shows for a tab that is not the chat: the run being traced, or the seven answers of the selected node (read only). */
 export const AgentGraphInspector = (props: AgentGraphInspectorProps) => {
     const { view, onAction } = props
-    if (props.sideTab === "proposals") {
-        return (
-            <AgentGraphProposals
-                view={view.proposals}
-                isLoading={props.isLoading}
-                onDecide={(value, isConfirmed) => onAction({ kind: "decide", value, isConfirmed })}
-            />
-        )
-    }
-    if (props.sideTab === "versions") {
-        return (
-            <AgentGraphVersions
-                view={view.versions}
-                isLoading={props.isLoading}
-                onRestore={(value) => onAction({ kind: "restore", value })}
-            />
-        )
-    }
-    if (view.inspector === "editor" && view.editor !== null) {
-        return (
-            <AgentGraphDecideEditor
-                view={view.editor}
-                isLoading={props.isLoading}
-                onChange={(change) => onAction({ kind: "form", change })}
-                onSave={() => onAction({ kind: "save" })}
-                onCancel={() => onAction({ kind: "cancel" })}
-            />
-        )
-    }
     if (view.inspector === "run" && view.run !== null) {
         return (
             <AgentGraphRun view={view.run} isLoading={props.isLoading} onBack={() => onAction({ kind: "untrace" })} />
         )
     }
     return (
-        <>
-            <AgentGraphDetail
-                view={view.detail}
-                isLoading={props.isLoading}
-                onEdit={(value) => onAction({ kind: "edit", value })}
-                onRuns={() => onAction({ kind: "trace" })}
-            />
-            <AgentGraphAdder
-                view={view.adder}
-                isLoading={props.isLoading}
-                onPick={(field, value) => onAction({ kind: "adderPick", field, value })}
-                onAdd={(action, fact) => onAction({ kind: "addDecide", action, fact })}
-            />
-        </>
+        <AgentGraphDetail view={view.detail} isLoading={props.isLoading} onRuns={() => onAction({ kind: "trace" })} />
     )
 }

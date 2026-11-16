@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
+import { WorkspaceTimeZoneService } from "@modules/domain/workspace-settings/workspace-time-zone.service"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { AgentWorkAccessService } from "./agent-work-access.service"
 import { toTriggerRecord } from "./agent-work.mapper"
@@ -26,6 +27,7 @@ export class AgentTriggersService {
     constructor(
         @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
         private readonly access: AgentWorkAccessService,
+        private readonly zones: WorkspaceTimeZoneService,
     ) {}
 
     /** The triggers of an agent, oldest first. */
@@ -49,9 +51,7 @@ export class AgentTriggersService {
         source: AgentWakeSource,
     ): Promise<ReadonlyArray<AgentTriggerRecord>> {
         const rows = await this.eventRows(workspaceId, eventName, limit)
-        return rows
-            .filter((row) => row.sources.length === 0 || row.sources.includes(source))
-            .map((item) => toTriggerRecord(item))
+        return rows.filter((row) => row.sources.length === 0 || row.sources.includes(source)).map((item) => toTriggerRecord(item))
     }
 
     /** One trigger by id, or null. */
@@ -68,7 +68,7 @@ export class AgentTriggersService {
     async save(actorUserId: OptionalActorId, write: AgentTriggerWrite): Promise<AgentTriggerRecord> {
         if (actorUserId !== null) await this.access.manager(actorUserId, write.workspaceId)
         await this.access.agent(write.workspaceId, write.agentId)
-        const fields = triggerFields(write)
+        const fields = triggerFields(write, await this.zones.timeZoneOf(write.workspaceId))
         if (write.triggerId === null) return this.create(write, fields, null)
         const updated = await this.entityManager.update(
             AgentTriggerEntity,
@@ -91,7 +91,7 @@ export class AgentTriggersService {
             where: { agentId: write.agentId, seedKey },
         })
         if (known !== null) return toTriggerRecord(known)
-        return this.create(write, triggerFields(write), seedKey)
+        return this.create(write, triggerFields(write, await this.zones.timeZoneOf(write.workspaceId)), seedKey)
     }
 
     /** Removes a trigger. The scheduler entry it leaves is dropped by the next reconcile. Owner or manager. */

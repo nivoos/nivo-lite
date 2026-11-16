@@ -14,6 +14,13 @@ describe("isNamespaced and namespaceOf", () => {
         expect(isNamespaced("Core.x")).toBe(false)
         expect(isNamespaced("core.1x")).toBe(false)
     })
+
+    it("takes two to four parts", () => {
+        expect(isNamespaced("sales.consult-turn")).toBe(true)
+        expect(isNamespaced("crm.customer.contact.update")).toBe(true)
+        expect(isNamespaced("crm.customer.contact.update.more")).toBe(false)
+        expect(namespaceOf("crm.customer.contact.update")).toBe("crm")
+    })
 })
 
 describe("wordsOf", () => {

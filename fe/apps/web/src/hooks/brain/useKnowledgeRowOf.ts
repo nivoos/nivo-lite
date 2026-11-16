@@ -3,16 +3,18 @@
 import { useFormatter, useTranslations } from "next-intl"
 import {
     DOCUMENT_STATUS_TONE,
-    isAgentModule,
     isDuplicateNote,
     isFinalFailure,
     isReadyNote,
     noteKeyOf,
+    type KnowledgeJobStateOf,
     useKnowledgeProgressViewOf,
     useLibraryCommands,
     useWorkspaceMember,
     type WorkspaceMember,
 } from "@/hooks/knowledge"
+import { useModuleLabels } from "@/hooks/moduleCatalog"
+import type { ModuleLabelOf } from "@/modules/catalog"
 import { appliedBatchOf, sourceStatusLabelOf, waitingFactCountOf, type SourceStatusInput } from "@/modules/brain"
 import type { DocumentRowBadgeView, DocumentRowView, LiveProgress } from "@/modules/documents"
 import type { KnowledgeDocument, RowActionView } from "@/modules/types"
@@ -24,11 +26,11 @@ type Translate = ReturnType<typeof useTranslations<"knowledge">>
 type SourceBadgesInput = Pick<SourceStatusInput, "source" | "reading"> & { readonly status: string }
 
 /** The agent a document is kept for, or every agent. */
-const moduleLabelOf = (t: Translate, source: KnowledgeDocument): string =>
-    source.module !== null && isAgentModule(source.module) ? t(`module_${source.module}`) : t("moduleAll")
+const moduleLabelOf = (t: Translate, labelOf: ModuleLabelOf, source: KnowledgeDocument): string =>
+    source.module === null ? t("moduleAll") : (labelOf(source.module) ?? source.module)
 
 /** The badges of a row: where the document stands (a ready one whose facts were not read is neutral), who may read it and for which agent. */
-const badgesOf = (t: Translate, input: SourceBadgesInput): ReadonlyArray<DocumentRowBadgeView> => {
+const badgesOf = (t: Translate, labelOf: ModuleLabelOf, input: SourceBadgesInput): ReadonlyArray<DocumentRowBadgeView> => {
     const { source, status, reading } = input
     return [
         {
@@ -37,9 +39,9 @@ const badgesOf = (t: Translate, input: SourceBadgesInput): ReadonlyArray<Documen
         },
         {
             label: t(source.visibility === "public" ? "vis_public" : "vis_internal"),
-            tone: source.visibility === "public" ? "accent" : "neutral",
+            tone: "neutral",
         },
-        { label: moduleLabelOf(t, source), tone: "neutral" },
+        { label: moduleLabelOf(t, labelOf, source), tone: "neutral" },
     ]
 }
 
@@ -80,6 +82,9 @@ const retryActionsOf = (t: Translate, choice: RetryChoice, pending: string | und
         disabledReason: t("actionBusy"),
     }))
 
+/** No chain of jobs is followed: every row shows its stored status. */
+const NO_JOB_STATE: KnowledgeJobStateOf = () => undefined
+
 /** The view `useKnowledgeRowOf` returns. */
 export interface KnowledgeRowOfView {
     rowOf: (source: KnowledgeDocument) => DocumentRowView
@@ -92,9 +97,13 @@ export interface KnowledgeRowOfView {
 /**
  * The row of a document as every list of documents draws it: the kind, topic and date, where it stands, the plain reason it failed,
  * who may read it, the live stage with its count and bar while a worker is on it, and the retry when it may be run again.
- * `live` is what `useKnowledgeSources` gives; the facts reading comes from the Second Brain.
+ * `live` is what `useKnowledgeSources` gives; `jobOf` (from `useKnowledgeJobs`) says where the chain of jobs on a document stands;
+ * the facts reading comes from the Second Brain.
  */
-export const useKnowledgeRowOf = (live: Readonly<Record<string, LiveProgress>>): KnowledgeRowOfView => {
+export const useKnowledgeRowOf = (
+    live: Readonly<Record<string, LiveProgress>>,
+    jobOf: KnowledgeJobStateOf = NO_JOB_STATE,
+): KnowledgeRowOfView => {
     const t = useTranslations("knowledge")
     const feedback = useTranslations("toast")
     const format = useFormatter()
@@ -102,6 +111,7 @@ export const useKnowledgeRowOf = (live: Readonly<Record<string, LiveProgress>>):
     const member = useWorkspaceMember()
     const progressOf = useKnowledgeProgressViewOf(live)
     const board = useBrainBoard()
+    const modules = useModuleLabels()
     const failed = () => {
         toast.danger(feedback("errorTitle"), { description: feedback("defaultError") })
     }
@@ -132,8 +142,9 @@ export const useKnowledgeRowOf = (live: Readonly<Record<string, LiveProgress>>):
             id: source.id,
             title: source.title,
             lines: [parts.join(" · "), ...(source.error === null ? [] : [t(noteKeyOf(source.error))])],
-            badges: badgesOf(t, { source, status, reading }),
+            badges: badgesOf(t, modules.labelOf, { source, status, reading }),
             progress: progressOf(source.id) ?? undefined,
+            job: jobOf(source.id),
             actions: retryActionsOf(
                 t,
                 {

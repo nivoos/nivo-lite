@@ -1,5 +1,7 @@
+import { sdkFailureOf } from "../../invoke/sdk-failure"
 import type { EffectDefinition, ToolDefinition } from "../../node/effect.types"
 import { runNode } from "../../node/host"
+import { isBusinessFailure } from "../../node/memory"
 import type { NodeDefinition, NodeExample, NodeExampleEffect, TurnRef } from "../../node/node.types"
 import { canonicalJson } from "../../template/canonical"
 import { type FakeExecuted, scriptedNodePorts } from "./node-ports"
@@ -39,7 +41,12 @@ export const nodeExampleMismatches = async (
     effects: ReadonlyArray<EffectDefinition>,
     tools: ReadonlyArray<ToolDefinition> = [],
 ): Promise<ReadonlyArray<string>> => {
-    const fake = scriptedNodePorts({ store: example.store, model: example.model, tools: example.tools })
+    const fake = scriptedNodePorts({
+        store: example.store,
+        model: example.model,
+        tools: example.tools,
+        answers: example.answers,
+    })
     try {
         const run = await runNode(
             {
@@ -47,16 +54,21 @@ export const nodeExampleMismatches = async (
                 params: example.params,
                 input: example.input,
                 turn: EXAMPLE_TURN,
-                grant: example.grant ?? { rights: node.rights, tools: node.tools ?? [] },
+                grant: example.grant ?? { tools: node.tools ?? [] },
                 effects: new Map(effects.map((effect) => [effect.id, effect])),
                 tools: new Map(tools.map((tool) => [tool.id, tool])),
                 key: `${node.id}:${example.name}`,
             },
             fake.ports,
         )
+        if (example.failure !== undefined) return [`expected failure ${example.failure}`]
         const output = canonicalJson(run.output) === canonicalJson(example.output) ? [] : ["output differs"]
         return [...output, ...effectMismatches(example.effects, fake.executed)]
     } catch (cause) {
+        if (isBusinessFailure(cause) && cause.failure.code === example.failure)
+            return effectMismatches(example.effects, fake.executed)
+        const failure = sdkFailureOf(cause)
+        if (failure !== undefined) return [`threw ${failure.code}: ${failure.at}`]
         return [`threw ${cause instanceof Error ? cause.message : String(cause)}`]
     }
 }

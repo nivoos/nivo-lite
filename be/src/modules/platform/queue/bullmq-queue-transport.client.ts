@@ -48,7 +48,7 @@ const TRANSPORT_STATES: Readonly<Record<string, QueueTransportState>> = {
 @Injectable()
 /**
  * The QueueTransport port over BullMQ on Redis: the relay publishes committed outbox rows as jobs keyed by their row id
- * and a worker per queue hands each job to the delivery client, which runs it against the durable record — the
+ * and a worker per queue hands each job to the delivery client, which runs it against the durable record - the
  * per-workspace slot limit, the start count and the reason of a failure stay in PostgreSQL, while the broker orders,
  * retries and holds the deliveries.
  */
@@ -208,8 +208,7 @@ export class BullmqQueueTransportClient implements QueueTransport {
                     cause,
                     { queue: handler.queue, jobId: delivery.id, job: delivery.job, attempt: delivery.attempt },
                 )
-                if (dead) throw new UnrecoverableError(reasonOf(cause))
-                throw cause
+                throw dead ? new UnrecoverableError(reasonOf(cause)) : cause
             })
     }
 

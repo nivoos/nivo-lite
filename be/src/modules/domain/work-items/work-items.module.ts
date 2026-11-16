@@ -1,12 +1,10 @@
+import { WorkInHandService } from "./work-in-hand.service"
+import { WorkItemsDashboardReadService } from "./work-items-dashboard-read.service"
 import { Module, type DynamicModule } from "@nestjs/common"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./work-items.module-definition"
 import { WorkItemsService } from "./work-items.service"
 import { WorkItemsActivityService } from "./work-items-activity.service"
-import { WorkItemsReplyProgressService } from "./work-items-reply-progress.service"
-import { WorkItemsReadService } from "./work-items-read.service"
-import { WorkItemsChainReadService } from "./work-items-chain-read.service"
 import { WorkItemsViewsReadService } from "./work-items-views-read.service"
-import { WorkItemsDecisionsReadService } from "./work-items-decisions-read.service"
 
 @Module({})
 /** The work items of a workspace over the primary PostgreSQL connection. */
@@ -19,21 +17,17 @@ export class WorkItemsModule extends ConfigurableModuleClass {
             providers: [
                 ...(base.providers ?? []),
                 WorkItemsService,
-                WorkItemsReadService,
                 WorkItemsActivityService,
-                WorkItemsReplyProgressService,
-                WorkItemsDecisionsReadService,
                 WorkItemsViewsReadService,
-                WorkItemsChainReadService,
+                WorkInHandService,
+                WorkItemsDashboardReadService,
             ],
             exports: [
                 WorkItemsService,
-                WorkItemsReadService,
                 WorkItemsActivityService,
-                WorkItemsReplyProgressService,
-                WorkItemsDecisionsReadService,
                 WorkItemsViewsReadService,
-                WorkItemsChainReadService,
+                WorkInHandService,
+                WorkItemsDashboardReadService,
             ],
         }
     }

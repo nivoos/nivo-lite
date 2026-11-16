@@ -1,6 +1,6 @@
 import { gql, type ApolloClient, type TypedDocumentNode } from "@apollo/client"
-import { createAuthApolloClient } from "../clients"
-import type { InputVariables, QueryParams, WireInput } from "../types"
+import { createAuthApolloClient, type InputVariables, type QueryParams, type WireInput } from "@nivo-lite/api"
+import { webApiTransport } from "@/modules/api-transport"
 import type { TelegramConnectionPageQuery, TelegramConnectionPageQueryVariables } from "../__generated__/graphql"
 
 /** The variables of the `telegramPage` query. */
@@ -19,6 +19,7 @@ const query1: TypedDocumentNode<
             name
             status
             healthy
+            attention
             botUsername
             webhookUrl
             lastError
@@ -53,7 +54,7 @@ export const queryTelegramConnectionPage = async ({
     request,
     signal,
 }: QueryTelegramConnectionPageParams): Promise<ApolloClient.QueryResult<QueryTelegramConnectionPageResponse>> => {
-    const apollo = createAuthApolloClient({ signal })
+    const apollo = createAuthApolloClient(webApiTransport, { signal })
     return apollo.query({
         query: queryMap[query],
         variables: { input: request },

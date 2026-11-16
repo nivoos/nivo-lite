@@ -1,7 +1,7 @@
 import {
+    type AdvanceWrite,
     JOB_CLAIMS,
     JOB_PROCESSOR_REGISTRY,
-    type AdvanceWrite,
     type FencedProcessor,
     type ClaimedJob,
     type JobsLogEvent,

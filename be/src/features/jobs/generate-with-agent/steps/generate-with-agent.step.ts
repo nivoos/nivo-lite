@@ -3,7 +3,7 @@ import { GenerationRunnerService } from "@modules/domain/ai-generations"
 import { InjectJobClaims, type ClaimedJob, type JobClaims, type JobStep } from "@modules/platform/jobs"
 
 @Injectable()
-/** The one effect of the job: the queued generation runs on OpenClaw and its answer, or its failure, is written on the row (it never retries). */
+/** The one effect of the job: the queued generation runs on the model (an effect keyed by the job, its answer kept) and its answer, or its typed failure, is written on the row. */
 export class GenerateWithAgentStep implements JobStep {
     constructor(
         private readonly runner: GenerationRunnerService,
@@ -11,7 +11,7 @@ export class GenerateWithAgentStep implements JobStep {
     ) {}
 
     /**
-     * Records the step with the token this worker holds FIRST, so a stale token stops here before any effect; then the queued generation the payload names runs once on the internal OpenClaw agent and its text lands on the row the caller waits on.
+     * Records the step with the token this worker holds FIRST, so a stale token stops here before any effect; then the queued generation the payload names runs once and its text lands on the row the caller waits on.
      * The service ignores a payload of another shape.
      */
     async run(job: ClaimedJob): Promise<void> {

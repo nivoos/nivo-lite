@@ -6,6 +6,7 @@ import type {
     QuotaStatus,
     UsageKind,
 } from "./ai-usage-events.contracts"
+import { creditsAtLeast, creditsFromSql } from "./credits.policy"
 import { creditsOf } from "./usage-cost.policy"
 
 /** The soft warning starts at this share of the monthly allowance. */
@@ -21,12 +22,6 @@ const CUSTOMER_FACING: ReadonlySet<UsageKind> = new Set<UsageKind>(["chat_reply"
 const ratioOf = (used: number, limit: number | null): number => {
     if (limit === null) return 0
     return limit <= 0 ? 1 : used / limit
-}
-
-/** The sentence to show when the allowance is spent: trimmed, and none when blank. */
-const fallbackReplyOf = (raw: string | null): string | null => {
-    const reply = raw?.trim()
-    return reply === undefined || reply === "" ? null : reply
 }
 
 /**
@@ -62,7 +57,7 @@ export const quotaFiguresOf = (record: QuotaRecord): QuotaFigures => ({
     messages_limit: optionalNumberOf(record.messages_limit),
     tokens_limit: optionalNumberOf(record.tokens_limit),
     fallback_reply: record.fallback_reply,
-    credits_used: optionalNumberOf(record.credits_used),
+    credits_used: record.credits_used === null ? null : creditsFromSql(record.credits_used),
     credits_limit: optionalNumberOf(record.credits_limit),
     credits_carried: optionalNumberOf(record.credits_carried),
     topup_balance: optionalNumberOf(record.topup_balance),
@@ -78,8 +73,9 @@ export const quotaOf = (row: QuotaFigures): QuotaStatus => {
     const creditsRatio = creditRatioOf(creditsUsed, creditsLimit, topupBalance)
     const messagesExceeded = row.messages_limit !== null && messagesRatio >= 1
     const tokensExceeded = row.tokens_limit !== null && tokensRatio >= 1
-    const creditsExceeded = creditsLimit !== null && creditsUsed >= creditsLimit && topupBalance <= 0
+    const creditsExceeded = creditsLimit !== null && creditsAtLeast(creditsUsed, creditsLimit) && topupBalance <= 0
     const ratio = Math.max(messagesRatio, tokensRatio, creditsRatio)
+    const fallbackReply = row.fallback_reply?.trim()
     return {
         periodStart: row.period_start,
         messagesUsed: row.messages_used,
@@ -87,7 +83,7 @@ export const quotaOf = (row: QuotaFigures): QuotaStatus => {
         costUsd: row.cost_usd,
         messagesLimit: row.messages_limit,
         tokensLimit: row.tokens_limit,
-        fallbackReply: fallbackReplyOf(row.fallback_reply),
+        fallbackReply: fallbackReply === undefined || fallbackReply === "" ? null : fallbackReply,
         creditsUsed,
         creditsLimit,
         creditsCarried: row.credits_carried ?? 0,

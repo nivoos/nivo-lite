@@ -1,20 +1,18 @@
 import { Test } from "@nestjs/testing"
 import { In } from "typeorm"
-import { FakeClock, fakeTransaction, mock, mockEntityManager, recordingEventBus } from "@starci/jest-preset"
+import { FakeClock, fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
 import type { MockEntityManager } from "@starci/jest-preset"
-import { OPENCLAW_GATEWAY } from "@modules/integrations/openclaw"
-import type { GatewayClient, TurnResult } from "@modules/integrations/openclaw"
+import { AI } from "@modules/integrations/ai"
+import type { AiChatAnswer, AiChatAttempt, AiService } from "@modules/integrations/ai"
 import { CLOCK } from "@modules/platform/clock"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
-import { EVENT_BUS } from "@modules/platform/event-bus"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
-import { AgentSyncService } from "@modules/domain/openclaw-agent-sync"
 import { generationRow } from "@tests/fixtures/builders/ai-generations.builder"
+import { aiChainProviders } from "@tests/fixtures/builders/brain-ai-effects.builder"
 import { queueQueryBuilders } from "@tests/fixtures/builders/entity-query-builder.builder"
 import { AI_GENERATIONS_USAGE } from "./ai-generations.decorators"
 import { AiGenerationsLogEvent } from "./ai-generations.log-events"
-import { AiGenerationsError, AiGenerationsErrorCode } from "./errors/ai-generations.error"
 import type { UsageGate } from "./ai-generations.port"
 import { GenerationRunnerService } from "./generation-runner.service"
 import { AiGenerationEntity } from "./persistence/entities"
@@ -60,110 +58,102 @@ const USAGE = { prompt_tokens: 10, completion_tokens: 5, cached_tokens: 0, cost:
 
 const PAYLOAD = { generationId: "g1", workspaceId: "w1" }
 
+/** The effect key of the model call of the job of these specs. */
+const KEY = "job-1:generate"
+
+/** What the AI endpoint answers for the prompt, with the usage it reports. */
+const ANSWER: AiChatAnswer = {
+    text: "hello",
+    parsed: null,
+    model: "m",
+    usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, costUsd: 0.1 },
+    retrieved: 0,
+}
+
 interface Setup {
-    enabled?: boolean
-    turn?: TurnResult
+    available?: boolean
+    answer?: AiChatAnswer | null
+    /** How long the model call takes, ms. */
+    takesMs?: number
+    /** The whole try the endpoint answers, in place of `answer`. */
+    tried?: AiChatAttempt
+    /** True when the credit pool is empty. */
+    blocked?: boolean
 }
 
 const build = async (entityManager: MockEntityManager, setup: Setup = {}) => {
     fakeTransaction(entityManager)
     const clock = new FakeClock("2026-10-12T10:00:00.000Z")
-    const gateway = mock<GatewayClient>({
-        runTurn: jest.fn(() => {
-            clock.advance(1500)
-            return Promise.resolve(setup.turn ?? { text: "hello", usage: USAGE, timings: { model_ms: 900 } })
+    const ai = mock<AiService>({
+        available: jest.fn(() => setup.available ?? true),
+        attempt: jest.fn(() => {
+            clock.advance(setup.takesMs ?? 1500)
+            if (setup.tried !== undefined) return Promise.resolve(setup.tried)
+            const answer = setup.answer === undefined ? ANSWER : setup.answer
+            return Promise.resolve(
+                answer === null ? { ok: false as const, failure: "provider" as const } : { ok: true as const, answer },
+            )
         }),
     })
-    Object.defineProperty(gateway, "enabled", { value: setup.enabled ?? true })
-    const sync = mock<AgentSyncService>({
-        ensureInternalAgent: jest.fn(() => {
-            clock.advance(100)
-            return Promise.resolve("ws-12345678-nivo")
-        }),
+    const usage = mock<UsageGate>({
+        record: jest.fn(() => Promise.resolve()),
+        blockedBy: jest.fn(() => Promise.resolve(setup.blocked === true ? { message: "out of credits" } : null)),
     })
-    const usage = mock<UsageGate>({ record: jest.fn(() => Promise.resolve()) })
     const logger = mock<Logger>()
-    const bus = recordingEventBus()
+    const chain = aiChainProviders()
     const moduleRef = await Test.createTestingModule({
         providers: [
+            ...chain.providers,
             GenerationRunnerService,
             { provide: PRIMARY_ENTITY_MANAGER, useValue: entityManager },
             { provide: CLOCK, useValue: clock },
             { provide: LOGGER, useValue: logger },
             { provide: AI_GENERATIONS_USAGE, useValue: usage },
-            { provide: OPENCLAW_GATEWAY, useValue: gateway },
-            { provide: AgentSyncService, useValue: sync },
-            { provide: EVENT_BUS, useValue: bus },
+            { provide: AI, useValue: ai },
         ],
     }).compile()
-    return { runner: moduleRef.get(GenerationRunnerService), clock, gateway, sync, usage, logger, bus }
+    return { runner: moduleRef.get(GenerationRunnerService), clock, ai, usage, logger, ledger: chain.ledger }
 }
 
-/** The event the runner publishes for generation g1 of workspace w1. */
-const completedAs = (status: "done" | "error" | "cancelled"): unknown =>
-    expect.objectContaining({
-        eventName: "ai_generation_completed",
-        eventId: "g1",
-        payload: { dedupeKey: "g1", generationId: "g1", workspaceId: "w1", purpose: "relay", status },
-    })
-
 describe("GenerationRunnerService", () => {
-    it("runs the generation of a job and publishes its end in the transaction that wrote it", async () => {
+    it("runs the generation of a job", async () => {
         const { em } = managerOf()
-        const { runner, bus } = await build(em)
+        const { runner } = await build(em)
         const job = { jobId: "job-1", kind: "generate", fencingToken: 4, currentStep: null, payload: PAYLOAD }
 
         await expect(runner.runJob(job)).resolves.toBeUndefined()
-
-        expect(bus.writes).toEqual([completedAs("done")])
     })
 
-    it("publishes nothing for a job of another shape", async () => {
-        const { runner, bus } = await build(mockEntityManager())
+    it("refuses a job of another shape with a typed error (the job's declaration refuses it before this)", async () => {
+        const { runner } = await build(mockEntityManager())
         const job = { jobId: "job-2", kind: "generate", fencingToken: 1, currentStep: null, payload: { other: true } }
 
-        await expect(runner.runJob(job)).resolves.toBeUndefined()
-
-        expect(bus.writes).toEqual([])
-    })
-
-    it("lets a failure to publish undo the finishing write, so nothing is metered", async () => {
-        const { em } = managerOf()
-        const { runner, bus, usage } = await build(em)
-        bus.failNext("publish", new Error("bus down"))
-
-        await expect(runner.run(PAYLOAD)).rejects.toThrow("bus down")
-
-        expect(usage.record).not.toHaveBeenCalled()
+        await expect(runner.runJob(job)).rejects.toMatchObject({ code: "AI_GENERATIONS_PAYLOAD_INVALID" })
     })
 })
 
 describe("GenerationRunnerService", () => {
-    it("runs the prompt on the internal agent, writes the text and meters it", async () => {
+    it("runs the prompt on the AI endpoint as a plain model answer, writes the text and meters it", async () => {
         const { em, finisher } = managerOf()
-        const { runner, gateway, sync, usage, bus } = await build(em)
+        const { runner, ai, usage } = await build(em)
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("done")
 
-        expect(sync.ensureInternalAgent).toHaveBeenCalledWith("w1")
-        expect(gateway.runTurn).toHaveBeenCalledWith(
-            {
-                agentId: "ws-12345678-nivo",
-                threadKey: "agent:ws-12345678-nivo:explicit:model-run-g1",
-                message: [
-                    "[REQUEST: follow these instructions exactly]",
-                    "(no extra instructions)",
-                    "",
-                    "[INPUT]",
-                    "hi",
-                    "",
-                    "[OUTPUT] Answer with ONLY the requested text. No preface, no explanation.",
-                ].join("\n"),
-                idempotencyKey: "gen-g1",
-                timeoutMs: 16_900,
-            },
-            expect.any(AbortSignal),
-        )
+        expect(ai.attempt.mock.calls).toEqual([
+            [
+                {
+                    messages: [
+                        { role: "user", content: "hi" },
+                        { role: "system", content: "Answer with ONLY the requested text. No preface, no explanation." },
+                    ],
+                    json: false,
+                    schema: null,
+                    timeoutMs: 17_000,
+                    context: null,
+                    affinity: "w1",
+                },
+            ],
+        ])
         expect(em.findOne).toHaveBeenCalledWith(AiGenerationEntity, FIND_OPTIONS)
         expect(em.update).toHaveBeenCalledWith(
             AiGenerationEntity,
@@ -176,8 +166,8 @@ describe("GenerationRunnerService", () => {
                     status: "done",
                     output: { text: "hello" },
                     usage: USAGE,
-                    timings: { model_ms: 900, ready_ms: 100, total_ms: 1600 },
-                    finishedAt: new Date("2026-10-12T10:00:01.600Z"),
+                    timings: { model_ms: 1500, total_ms: 1500 },
+                    finishedAt: new Date("2026-10-12T10:00:01.500Z"),
                 },
             ],
         ])
@@ -190,73 +180,42 @@ describe("GenerationRunnerService", () => {
             usage: USAGE,
             completionChars: 5,
         })
-        expect(bus.writes).toEqual([completedAs("done")])
     })
+
+    it("asks for one JSON object when the generation is a JSON one", async () => {
+        const { em } = managerOf(generationRow({ input: { ...INPUT, response_format: "json" } }))
+        const { runner, ai } = await build(em)
+
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("done")
+
+        expect(ai.attempt.mock.calls[0]?.[0]).toMatchObject({ json: true, schema: null })
+        expect(ai.attempt.mock.calls[0]?.[0].messages.at(-1)).toEqual({
+            role: "system",
+            content: "Answer with ONLY the JSON object described above. No prose, no code fences.",
+        })
+    })
+
 })
 
-describe("GenerationRunnerService", () => {
-    it("subtracts the time spent setting up the agent from the turn budget", async () => {
-        const { em, finisher } = managerOf()
-        const { runner, clock, sync, gateway } = await build(em)
-        sync.ensureInternalAgent.mockImplementation(() => {
-            clock.advance(4500)
-            return Promise.resolve("ws-12345678-nivo")
+describe("GenerationRunnerService: usage the endpoint did not report", () => {
+    it("counts what the endpoint did not report as zero", async () => {
+        const { em, finisher } = managerOf(generationRow({ status: "running" }))
+        const { runner } = await build(em, {
+            answer: {
+                ...ANSWER,
+                text: "ok",
+                usage: { promptTokens: null, completionTokens: null, totalTokens: null, costUsd: null },
+            },
         })
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
-
-        expect(sync.ensureInternalAgent.mock.calls).toEqual([["w1"]])
-        expect(gateway.runTurn.mock.calls).toEqual([
-            [
-                {
-                    agentId: "ws-12345678-nivo",
-                    threadKey: "agent:ws-12345678-nivo:explicit:model-run-g1",
-                    message: [
-                        "[REQUEST: follow these instructions exactly]",
-                        "(no extra instructions)",
-                        "",
-                        "[INPUT]",
-                        "hi",
-                        "",
-                        "[OUTPUT] Answer with ONLY the requested text. No preface, no explanation.",
-                    ].join("\n"),
-                    idempotencyKey: "gen-g1",
-                    timeoutMs: 12_500,
-                },
-                expect.any(AbortSignal),
-            ],
-        ])
-        const signal = gateway.runTurn.mock.calls[0]?.[1]
-        expect(signal).toBeInstanceOf(AbortSignal)
-        expect(signal?.aborted).toBe(false)
-        expect(finisher?.callsOf("set")).toEqual([
-            [
-                {
-                    status: "done",
-                    output: { text: "hello" },
-                    usage: USAGE,
-                    timings: { model_ms: 900, ready_ms: 4500, total_ms: 6000 },
-                    finishedAt: new Date("2026-10-12T10:00:06.000Z"),
-                },
-            ],
-        ])
-    })
-
-    it("writes the text without usage when the gateway reported none", async () => {
-        const { em, finisher } = managerOf(generationRow({ status: "running" }))
-        const { runner } = await build(em, { turn: { text: "ok", usage: null, timings: {} } })
-
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("done")
 
         expect(finisher?.callsOf("set")).toEqual([
             [
-                {
-                    status: "done",
+                expect.objectContaining({
                     output: { text: "ok" },
-                    usage: null,
-                    timings: { ready_ms: 100, total_ms: 1600 },
-                    finishedAt: new Date("2026-10-12T10:00:01.600Z"),
-                },
+                    usage: { prompt_tokens: 0, completion_tokens: 0, cached_tokens: 0, cost: 0, model: "m" },
+                }),
             ],
         ])
     })
@@ -265,11 +224,10 @@ describe("GenerationRunnerService", () => {
 describe("GenerationRunnerService", () => {
     it("leaves a row the caller cancelled alone and meters nothing", async () => {
         const { em } = managerOf(generationRow(), [])
-        const { runner, usage, bus } = await build(em)
+        const { runner, usage } = await build(em)
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("dropped")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("dropped")
         expect(usage.record).not.toHaveBeenCalled()
-        expect(bus.writes).toEqual([])
     })
 
     it.each<[string, unknown]>([
@@ -280,132 +238,142 @@ describe("GenerationRunnerService", () => {
     ])("treats a finishing write that answered %s as a dropped row", async (_name, raw) => {
         const { em } = managerOf(generationRow(), null)
         queueQueryBuilders(em, [{ execute: { raw } }])
-        const { runner, usage, bus } = await build(em)
+        const { runner, usage } = await build(em)
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("dropped")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("dropped")
         expect(usage.record).not.toHaveBeenCalled()
-        expect(bus.writes).toEqual([])
-    })
-
-    it("drops a payload of another shape", async () => {
-        const em = mockEntityManager()
-        const { runner } = await build(em)
-
-        await expect(runner.run({ orderId: "o1" })).resolves.toBe("dropped")
-        expect(em.findOne).not.toHaveBeenCalled()
-        expect(em.update).not.toHaveBeenCalled()
     })
 
     it("drops a generation that is gone or no longer waiting", async () => {
         const gone = await build(managerOf(null, null).em)
         const ended = await build(managerOf(generationRow({ status: "cancelled" }), null).em)
 
-        await expect(gone.runner.run(PAYLOAD)).resolves.toBe("dropped")
-        await expect(ended.runner.run(PAYLOAD)).resolves.toBe("dropped")
-        expect(gone.gateway.runTurn).not.toHaveBeenCalled()
-        expect(ended.gateway.runTurn).not.toHaveBeenCalled()
+        await expect(gone.runner.run(PAYLOAD, KEY)).resolves.toBe("dropped")
+        await expect(ended.runner.run(PAYLOAD, KEY)).resolves.toBe("dropped")
+        expect(gone.ai.attempt).not.toHaveBeenCalled()
+        expect(ended.ai.attempt).not.toHaveBeenCalled()
     })
 
-    it("writes the failure on the row when no gateway is configured", async () => {
+    it("writes the failure on the row when the AI endpoint is not configured", async () => {
         const { em } = managerOf(generationRow(), null)
-        const { runner, sync, bus } = await build(em, { enabled: false })
+        const { runner, ai } = await build(em, { available: false })
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("error")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("error")
 
-        expect(sync.ensureInternalAgent).not.toHaveBeenCalled()
+        expect(ai.attempt).not.toHaveBeenCalled()
         expect(em.update).toHaveBeenCalledWith(
             AiGenerationEntity,
             { id: "g1", workspaceId: "w1", status: OPEN },
             {
                 status: "error",
-                error: "openclaw_not_configured",
+                error: "ai_not_configured",
                 timings: { total_ms: 0 },
                 finishedAt: new Date("2026-10-12T10:00:00.000Z"),
             },
         )
-        expect(bus.writes).toEqual([completedAs("error")])
     })
 })
 
 describe("GenerationRunnerService", () => {
-    it("writes an empty answer as a failure", async () => {
+    it("writes an unanswered call as a failure, logs it and books the failed try (estimated, never billed)", async () => {
         const { em } = managerOf(generationRow(), null)
-        const { runner } = await build(em, { turn: { text: "  ", usage: USAGE, timings: {} } })
+        const { runner, usage, logger } = await build(em, { answer: null })
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("error")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("error")
 
+        expect(logger.warn).toHaveBeenCalledWith(AiGenerationsLogEvent.GenerationUnanswered, {
+            purpose: "relay",
+            timedOut: false,
+        })
         expect(em.update).toHaveBeenLastCalledWith(
             AiGenerationEntity,
             { id: "g1", workspaceId: "w1", status: OPEN },
             {
                 status: "error",
-                error: "empty answer",
-                timings: { ready_ms: 100, total_ms: 1600 },
-                finishedAt: new Date("2026-10-12T10:00:01.600Z"),
+                error: "no_answer",
+                timings: { model_ms: 1500, total_ms: 1500 },
+                finishedAt: new Date("2026-10-12T10:00:01.500Z"),
             },
         )
+        expect(usage.record).toHaveBeenCalledTimes(1)
+        expect(usage.record.mock.calls[0]?.[0]).toMatchObject({
+            workspaceId: "w1",
+            usage: null,
+            completionChars: 0,
+            model: "work",
+            failure: "no_answer",
+        })
     })
 
-    it("writes the failure of the gateway on the row and logs it", async () => {
+    it("writes a try that LEFT NO REQUEST (`sent: false`, a runner that failed it itself) as the same failure, and books nothing", async () => {
         const { em } = managerOf(generationRow(), null)
-        const { runner, gateway, logger, bus } = await build(em)
-        const failure = new Error("gateway closed")
-        gateway.runTurn.mockRejectedValue(failure)
+        const { runner, usage } = await build(em, { tried: { ok: false, failure: "timeout", sent: false } })
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("error")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("error")
 
-        expect(logger.error).toHaveBeenCalledWith(AiGenerationsLogEvent.GenerationFailed, failure, { purpose: "relay" })
         expect(em.update).toHaveBeenLastCalledWith(
             AiGenerationEntity,
             { id: "g1", workspaceId: "w1", status: OPEN },
-            {
-                status: "error",
-                error: "gateway closed",
-                timings: { total_ms: 100 },
-                finishedAt: new Date("2026-10-12T10:00:00.100Z"),
-            },
+            expect.objectContaining({ status: "error", error: "no_answer" }),
         )
-        expect(bus.writes).toEqual([completedAs("error")])
+        expect(usage.record).not.toHaveBeenCalled()
+    })
+
+    it("cancels a generation whose model call gave no answer by its deadline", async () => {
+        const { em } = managerOf(generationRow(), null)
+        const { runner, usage } = await build(em, { answer: null, takesMs: 17_000 })
+
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("error")
+
+        expect(em.findOne.mock.calls).toEqual([[AiGenerationEntity, FIND_OPTIONS]])
+        expect(em.update.mock.calls).toEqual([STARTED, cancelledAt("2026-10-12T10:00:17.000Z")])
+        expect(usage.record.mock.calls.map(([entry]) => entry.failure)).toEqual(["timeout"])
     })
 })
 
-describe("GenerationRunnerService", () => {
-    it("cancels a generation when its deadline passes while the internal agent is still being prepared", async () => {
-        const { em } = managerOf(generationRow({ input: { ...INPUT, timeout_ms: 20 } }), null)
-        const { runner, sync, gateway, usage, logger, bus } = await build(em)
-        sync.ensureInternalAgent.mockReturnValue(new Promise<string>(() => {}))
+describe("GenerationRunnerService: credits and cut calls", () => {
+    it("books a try cut at its cap with what it spent, once, never billed (a failed try), and writes the failure on the row", async () => {
+        const { em } = managerOf(generationRow(), null)
+        const spent = { promptTokens: 40, completionTokens: 900, totalTokens: 940, costUsd: 0.2 }
+        const served = { upstream: "anthropic", finishReason: "max_tokens", durationMs: 1500 }
+        const { runner, usage } = await build(em, {
+            tried: {
+                ok: false,
+                failure: "length",
+                spent: { model: "claude-haiku-5-5", usage: spent, served, cap: 900 },
+            },
+        })
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("error")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("error")
 
-        expect(sync.ensureInternalAgent.mock.calls).toEqual([["w1"]])
-        expect(gateway.runTurn).not.toHaveBeenCalled()
-        expect(usage.record).not.toHaveBeenCalled()
-        expect(em.findOne.mock.calls).toEqual([[AiGenerationEntity, FIND_OPTIONS]])
-        expect(em.update.mock.calls).toEqual([STARTED, cancelledAt("2026-10-12T10:00:00.000Z")])
-        expect(bus.writes).toEqual([completedAs("cancelled")])
-        const [event, failure, context] = logger.error.mock.calls[0] ?? []
-        expect(event).toBe(AiGenerationsLogEvent.GenerationFailed)
-        expect(failure).toBeInstanceOf(AiGenerationsError)
-        expect(failure).toHaveProperty("code", AiGenerationsErrorCode.DeadlinePassed)
-        expect(failure).toHaveProperty("cause.name", "TimeoutError")
-        expect(context).toEqual({ purpose: "relay" })
+        expect(usage.record).toHaveBeenCalledTimes(1)
+        expect(usage.record.mock.calls[0]?.[0]).toMatchObject({
+            workspaceId: "w1",
+            usage: {
+                prompt_tokens: 40,
+                completion_tokens: 900,
+                cached_tokens: 0,
+                cost: 0.2,
+                model: "claude-haiku-5-5",
+            },
+            completionChars: 0,
+            failure: "no_answer",
+            reported: true,
+        })
     })
 
-    it.each(["TimeoutError", "AbortError"])("cancels a generation when the turn rejects with %s", async (name) => {
+    it("makes no call and books nothing while the credit pool is empty: the row says no_credits", async () => {
         const { em } = managerOf(generationRow(), null)
-        const { runner, gateway, usage, logger, bus } = await build(em)
-        const failure = new Error("the deadline passed")
-        failure.name = name
-        gateway.runTurn.mockRejectedValue(failure)
+        const { runner, ai, usage } = await build(em, { blocked: true })
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("error")
+        await expect(runner.run(PAYLOAD, KEY)).resolves.toBe("error")
 
-        expect(logger.error.mock.calls).toEqual([
-            [AiGenerationsLogEvent.GenerationFailed, failure, { purpose: "relay" }],
-        ])
-        expect(em.findOne.mock.calls).toEqual([[AiGenerationEntity, FIND_OPTIONS]])
-        expect(em.update.mock.calls).toEqual([STARTED, cancelledAt("2026-10-12T10:00:00.100Z")])
-        expect(bus.writes).toEqual([completedAs("cancelled")])
+        expect(ai.attempt).not.toHaveBeenCalled()
         expect(usage.record).not.toHaveBeenCalled()
+        expect(em.update).toHaveBeenLastCalledWith(
+            AiGenerationEntity,
+            { id: "g1", workspaceId: "w1", status: OPEN },
+            expect.objectContaining({ status: "error", error: "no_credits" }),
+        )
     })
 })

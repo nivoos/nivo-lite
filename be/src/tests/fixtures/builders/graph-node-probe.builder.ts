@@ -13,47 +13,18 @@ import {
     PROBE_COUNT,
     PROBE_LOOK_RESULT,
     PROBE_NOTHING,
-    PROBE_PING_PAYLOAD,
     PROBE_INPUT,
     PROBE_OUTPUT,
     PROBE_RECORD_FIELDS,
     PROBE_SWALLOW_OUTPUT,
-    PROBE_UNPING_PAYLOAD,
     type ProbeSchema,
 } from "@modules/domain/graph-nodes"
 
-/** The right to read the `record` kind of the turn. */
-export const READ = { kind: "record", access: "read", scope: "turn", fields: ["id"] } as const
-
-/** The right to write the `record` kind of the turn. */
-export const WRITE = { kind: "record", access: "write", scope: "turn", fields: ["id"] } as const
-
-/** The compensation of `core.ping`. */
-export const unping: EffectDefinition = defineEffect({
-    id: "core.unping",
-    title: { key: "u" },
-    payload: PROBE_UNPING_PAYLOAD,
-    rights: [],
-})
-
-/** An effect with a compensation. */
-export const ping: EffectDefinition = defineEffect({
-    id: "core.ping",
-    title: { key: "p" },
-    payload: PROBE_PING_PAYLOAD,
-    rights: [],
-    compensation: "core.unping",
-})
-
-/** An effect whose compensation is not installed. */
-export const lost: EffectDefinition = defineEffect({ ...ping, id: "core.lost", compensation: "core.gone" })
-
-/** An effect with an empty payload and no compensation. */
+/** An effect with an empty payload. */
 export const emptyPing: EffectDefinition = defineEffect({
     id: "core.ping",
     title: { key: "p" },
     payload: PROBE_NOTHING,
-    rights: [],
 })
 
 /** A read-only tool. */
@@ -63,7 +34,6 @@ export const look: ToolDefinition = defineTool({
     args: PROBE_NOTHING,
     result: PROBE_LOOK_RESULT,
     mutates: false,
-    rights: [],
 })
 
 /** The `record` data kind. */
@@ -81,7 +51,6 @@ export const probe: NodeDefinition = defineNode<ProbeSchema, ProbeSchema, ProbeS
     params: PROBE_NOTHING,
     input: PROBE_INPUT,
     output: PROBE_OUTPUT,
-    rights: [READ, WRITE],
     effects: ["core.ping"],
     tools: ["core.look"],
     run: async (input, context) => {
@@ -121,7 +90,6 @@ export const swallow: NodeDefinition = defineNode<ProbeSchema, ProbeSchema, Prob
     params: PROBE_NOTHING,
     input: PROBE_NOTHING,
     output: PROBE_SWALLOW_OUTPUT,
-    rights: [],
     effects: ["core.ping"],
     tools: ["core.look"],
     run: async (_input, context) => {
@@ -143,7 +111,6 @@ export const echo: NodeDefinition = defineNode<ProbeSchema, ProbeSchema, ProbeSc
     params: PROBE_NOTHING,
     input: PROBE_NOTHING,
     output: PROBE_NOTHING,
-    rights: [],
     effects: ["core.ping", "core.ghost"],
     run: () => Promise.resolve({}),
     examples: [{ name: "e", params: {}, input: {}, output: {}, effects: [] }],

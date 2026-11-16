@@ -1,6 +1,6 @@
 import { gql, type ApolloClient, type TypedDocumentNode } from "@apollo/client"
-import { createAuthApolloClient } from "../clients"
-import type { QueryParams } from "../types"
+import { createAuthApolloClient, type QueryParams } from "@nivo-lite/api"
+import { webApiTransport } from "@/modules/api-transport"
 import type { ModuleInstallationsQuery } from "../__generated__/graphql"
 
 /** The response of the `moduleInstallations` query: the typed payload straight from the back end contract. */
@@ -11,6 +11,7 @@ const query1: TypedDocumentNode<QueryModuleInstallationsResponse> = gql`
         moduleInstallations {
             activeContextVersionId
             activeVersion
+            agentAvatarPreset
             agentAvatarUrl
             agentHandle
             agentId
@@ -57,6 +58,6 @@ export const queryModuleInstallations = async ({
     query = QueryModuleInstallations.Query1,
     signal,
 }: QueryModuleInstallationsParams = {}): Promise<ApolloClient.QueryResult<QueryModuleInstallationsResponse>> => {
-    const apollo = createAuthApolloClient({ signal })
+    const apollo = createAuthApolloClient(webApiTransport, { signal })
     return apollo.query({ query: queryMap[query] })
 }

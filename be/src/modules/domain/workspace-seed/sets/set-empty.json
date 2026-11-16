@@ -1,0 +1,20 @@
+{
+  "schema": "nivo/set-seed@1",
+  "use": "test",
+  "name": "set-empty",
+  "workspaceName": "set-empty",
+  "ownerWorkspace": "NIVO",
+  "kind": "workspace",
+  "agents": [{ "module": "chatbot" }, { "module": "sales" }],
+  "accounts": [
+    {
+      "key": "zalo-a",
+      "provider": "zalo_oa",
+      "name": "Sandbox Zalo OA",
+      "say": { "caseId": "ZALO-1", "person": "userId", "text": "text", "idPrefix": "880011" }
+    },
+    { "key": "sepay-a", "provider": "sepay", "name": "Sandbox SePay" }
+  ],
+  "truths": [],
+  "people": []
+}

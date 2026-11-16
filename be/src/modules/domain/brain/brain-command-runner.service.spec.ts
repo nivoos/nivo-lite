@@ -3,17 +3,24 @@ import { builder, mock } from "@starci/jest-preset"
 import { BrainCommandsService } from "@modules/domain/brain-commands"
 import type { FactRecord } from "@modules/domain/brain-facts"
 import type { LessonRecord } from "@modules/domain/brain-lessons"
-import { KnowledgeDriveService, KnowledgeReembedService, KnowledgeSearchService } from "@modules/domain/knowledge"
+import { KnowledgeDriveService, KnowledgeSearchService } from "@modules/domain/knowledge"
 import { KnowledgeSourcesService } from "@modules/domain/knowledge-sources"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
+import { DocumentAreaService } from "./document-area.service"
 import { BrainCommandRunnerService } from "./brain-command-runner.service"
 import { BrainLearningService } from "./brain-learning.service"
+import { JOB_TICKS } from "@modules/platform/jobs/job-ticks.contracts"
+import { BRAIN_UPKEEP_PAYLOAD, isBrainUpkeepTickPayload, KNOWLEDGE_QUEUE, KnowledgeJob } from "@modules/queues/knowledge"
+import { claimedAiJob } from "@tests/fixtures/builders/brain-ai-effects.builder"
 import { BrainLogEvent } from "./brain.log-events"
 import { BrainService } from "./brain.service"
 import { BrainError, BrainErrorCode } from "./errors/brain.error"
 
 const PAYLOAD = { commandId: "cmd-1", workspaceId: "ws-1" }
+
+/** The claimed job of a command: its id keys the model call of the lessons. */
+const JOB = claimedAiJob(PAYLOAD, { kind: "brain.command" })
 const AT = "2026-10-14T00:00:00.000Z"
 const fact: FactRecord = {
     id: "fact-1",
@@ -76,6 +83,7 @@ const build = async (command: CommandRecord | null = commandOf()) => {
     const commands = mock<BrainCommandsService>({
         get: jest.fn(() => Promise.resolve(command)),
         begin: jest.fn(() => Promise.resolve(true)),
+        reopen: jest.fn(() => Promise.resolve()),
         finish: jest.fn(() => Promise.resolve()),
         fail: jest.fn(() => Promise.resolve()),
     })
@@ -84,7 +92,7 @@ const build = async (command: CommandRecord | null = commandOf()) => {
     const sources = mock<KnowledgeSourcesService>()
     const search = mock<KnowledgeSearchService>({ ask: jest.fn(() => Promise.resolve([])) })
     const drive = mock<KnowledgeDriveService>()
-    const reembed = mock<KnowledgeReembedService>()
+    const areas = mock<DocumentAreaService>()
     const moduleRef = await Test.createTestingModule({
         providers: [
             BrainCommandRunnerService,
@@ -95,11 +103,12 @@ const build = async (command: CommandRecord | null = commandOf()) => {
             { provide: KnowledgeSourcesService, useValue: sources },
             { provide: KnowledgeSearchService, useValue: search },
             { provide: KnowledgeDriveService, useValue: drive },
-            { provide: KnowledgeReembedService, useValue: reembed },
+            { provide: DocumentAreaService, useValue: areas },
         ],
     }).compile()
     return {
         runner: moduleRef.get(BrainCommandRunnerService),
+        areas,
         logger,
         commands,
         brain,
@@ -107,7 +116,6 @@ const build = async (command: CommandRecord | null = commandOf()) => {
         learning,
         sources,
         drive,
-        reembed,
     }
 }
 
@@ -115,7 +123,7 @@ describe("BrainCommandRunnerService run", () => {
     it("carries out the command as the person who asked and closes it with the result", async () => {
         const { runner, commands, brain } = await build()
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(JOB)).resolves.toBe("done")
 
         expect(brain.dismissGap).toHaveBeenCalledWith("user-1", "ws-1", "gap-1")
         expect(commands.finish.mock.calls).toEqual([["ws-1", "cmd-1", null]])
@@ -129,7 +137,7 @@ describe("BrainCommandRunnerService run", () => {
             }),
         )
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(JOB)).resolves.toBe("done")
 
         expect(search.ask).toHaveBeenCalledWith("user-1", "ws-1", {
             question: "Opening hours?",
@@ -155,7 +163,7 @@ describe("BrainCommandRunnerService run", () => {
         const { runner, commands, brain } = await build(commandOf({ kind: "fact.save", payload: form }))
         brain.saveFact.mockResolvedValue({ outcome: "applied", fact })
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(JOB)).resolves.toBe("done")
 
         expect(brain.saveFact.mock.calls).toEqual([["user-1", "ws-1", form]])
         expect(commands.finish.mock.calls).toEqual([["ws-1", "cmd-1", { outcome: "applied", factId: "fact-1" }]])
@@ -166,7 +174,7 @@ describe("BrainCommandRunnerService run", () => {
         const { runner, commands, brain } = await build(commandOf({ kind: "fact.decide", payload: decision }))
         brain.decideFact.mockResolvedValue(fact)
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(JOB)).resolves.toBe("done")
 
         expect(brain.decideFact.mock.calls).toEqual([["user-1", { workspaceId: "ws-1", ...decision }]])
         expect(commands.finish.mock.calls).toEqual([["ws-1", "cmd-1", { factId: "fact-1" }]])
@@ -177,7 +185,7 @@ describe("BrainCommandRunnerService run", () => {
         const { runner, commands, brain } = await build(commandOf({ kind: "fact.keep", payload: keep }))
         brain.keepCurrent.mockResolvedValue(3)
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(JOB)).resolves.toBe("done")
 
         expect(brain.keepCurrent.mock.calls).toEqual([["user-1", { workspaceId: "ws-1", ...keep }]])
         expect(commands.finish.mock.calls).toEqual([["ws-1", "cmd-1", { rejected: 3 }]])
@@ -189,7 +197,7 @@ describe("BrainCommandRunnerService run", () => {
         const { runner, commands, brain } = await build(commandOf({ kind: "lesson.save", payload: form }))
         brain.saveLesson.mockResolvedValue(lesson)
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(JOB)).resolves.toBe("done")
 
         expect(brain.saveLesson.mock.calls).toEqual([["user-1", { workspaceId: "ws-1", ...form }]])
         expect(commands.finish.mock.calls).toEqual([["ws-1", "cmd-1", { lessonId: "lesson-1" }]])
@@ -200,7 +208,7 @@ describe("BrainCommandRunnerService run", () => {
         const { runner, commands, brain } = await build(commandOf({ kind: "lesson.decide", payload: decision }))
         brain.decideLesson.mockResolvedValue(lesson)
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(JOB)).resolves.toBe("done")
 
         expect(brain.decideLesson.mock.calls).toEqual([["user-1", { workspaceId: "ws-1", ...decision }]])
         expect(commands.finish.mock.calls).toEqual([["ws-1", "cmd-1", { lessonId: "lesson-1" }]])
@@ -210,7 +218,7 @@ describe("BrainCommandRunnerService run", () => {
         const { runner, commands, brain } = await build(commandOf({ kind: "brain.maintain", payload: {} }))
         brain.maintain.mockResolvedValue()
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(JOB)).resolves.toBe("done")
 
         expect(brain.maintain.mock.calls).toEqual([["user-1", "ws-1"]])
         expect(commands.finish.mock.calls).toEqual([["ws-1", "cmd-1", null]])
@@ -223,9 +231,9 @@ describe("BrainCommandRunnerService run", () => {
         const result = { corrections: 5, newCases: 3, proposed: 2 }
         learning.mine.mockResolvedValue(result)
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(JOB)).resolves.toBe("done")
 
-        expect(learning.mine.mock.calls).toEqual([["user-1", "ws-1", "sales"]])
+        expect(learning.mine.mock.calls).toEqual([["user-1", "ws-1", "sales", "job-1:lessons"]])
         expect(commands.finish.mock.calls).toEqual([["ws-1", "cmd-1", result]])
     })
 
@@ -235,7 +243,7 @@ describe("BrainCommandRunnerService run", () => {
         )
         brain.removeSource.mockResolvedValue()
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(JOB)).resolves.toBe("done")
 
         expect(brain.removeSource.mock.calls).toEqual([["user-1", "ws-1", "source-1"]])
         expect(commands.finish.mock.calls).toEqual([["ws-1", "cmd-1", null]])
@@ -246,7 +254,7 @@ describe("BrainCommandRunnerService run", () => {
         const { runner, commands, sources } = await build(commandOf({ kind: "source.reindex", payload: reindex }))
         sources.reindexSource.mockResolvedValue({ id: "source-1" })
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(JOB)).resolves.toBe("done")
 
         expect(sources.reindexSource.mock.calls).toEqual([["user-1", "ws-1", reindex]])
         expect(commands.finish.mock.calls).toEqual([["ws-1", "cmd-1", { id: "source-1" }]])
@@ -262,22 +270,13 @@ describe("BrainCommandRunnerService run", () => {
             module: "sales",
             visibility: "internal",
         }
-        const { runner, commands, sources } = await build(commandOf({ kind: "source.update", payload: update }))
-        sources.updateSource.mockResolvedValue()
+        const { runner, commands, areas } = await build(commandOf({ kind: "source.update", payload: update }))
+        areas.update.mockResolvedValue()
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(JOB)).resolves.toBe("done")
 
-        expect(sources.updateSource.mock.calls).toEqual([["user-1", "ws-1", update]])
-        expect(commands.finish.mock.calls).toEqual([["ws-1", "cmd-1", null]])
-    })
-
-    it("requests reembedding as the requester and closes without a result", async () => {
-        const { runner, commands, reembed } = await build(commandOf({ kind: "knowledge.reembed", payload: {} }))
-        reembed.request.mockResolvedValue()
-
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
-
-        expect(reembed.request.mock.calls).toEqual([["user-1", "ws-1"]])
+        // One door for a change of metadata: a change of area moves the document's truths too.
+        expect(areas.update.mock.calls).toEqual([["user-1", "ws-1", update]])
         expect(commands.finish.mock.calls).toEqual([["ws-1", "cmd-1", null]])
     })
 
@@ -288,7 +287,7 @@ describe("BrainCommandRunnerService run", () => {
         const listing = { name: "Guides", files: [], truncated: false }
         drive.listLinkedFolder.mockResolvedValue(listing)
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(JOB)).resolves.toBe("done")
 
         expect(drive.listLinkedFolder.mock.calls).toEqual([["user-1", "ws-1", "https://drive.example/folder"]])
         expect(commands.finish.mock.calls).toEqual([["ws-1", "cmd-1", listing]])
@@ -301,7 +300,7 @@ describe("BrainCommandRunnerService run", () => {
         const listing = { name: "Guides", files: [], truncated: false, empty: true }
         drive.listPickedFolder.mockResolvedValue(listing)
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("done")
+        await expect(runner.run(JOB)).resolves.toBe("done")
 
         expect(drive.listPickedFolder.mock.calls).toEqual([["user-1", "ws-1", "folder-1", "picker-token"]])
         expect(commands.finish.mock.calls).toEqual([["ws-1", "cmd-1", listing]])
@@ -310,7 +309,7 @@ describe("BrainCommandRunnerService run", () => {
     it("skips failed commands without beginning them again", async () => {
         const { runner, commands } = await build(commandOf({ status: "failed" }))
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("skipped")
+        await expect(runner.run(JOB)).resolves.toBe("skipped")
 
         expect(commands.get.mock.calls).toEqual([["ws-1", "cmd-1"]])
         expect(commands.begin).not.toHaveBeenCalled()
@@ -321,7 +320,7 @@ describe("BrainCommandRunnerService run", () => {
     it("closes a command whose fields are not valid as invalid", async () => {
         const { runner, commands } = await build(commandOf({ payload: {} }))
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("failed")
+        await expect(runner.run(JOB)).resolves.toBe("failed")
 
         expect(commands.fail.mock.calls).toEqual([["ws-1", "cmd-1", "BRAIN_COMMAND_INVALID"]])
     })
@@ -331,7 +330,7 @@ describe("BrainCommandRunnerService run", () => {
         const { runner, commands, brain, logger } = await build()
         brain.dismissGap.mockRejectedValue(new BrainError({ code: BrainErrorCode.CommandNotFound }))
 
-        await expect(runner.run(PAYLOAD)).resolves.toBe("failed")
+        await expect(runner.run(JOB)).resolves.toBe("failed")
 
         expect(commands.fail.mock.calls).toEqual([["ws-1", "cmd-1", BrainErrorCode.CommandNotFound]])
         expect(logger.warn).toHaveBeenCalledWith(BrainLogEvent.CommandRefused, {
@@ -340,37 +339,116 @@ describe("BrainCommandRunnerService run", () => {
         })
     })
 
-    it("lets any other failure through for the queue to retry", async () => {
+    it("lets any other failure through for the runner to judge", async () => {
         const { runner, commands, brain } = await build()
         const failure = new Error("connection reset")
         brain.dismissGap.mockRejectedValue(failure)
 
-        await expect(runner.run(PAYLOAD)).rejects.toBe(failure)
+        await expect(runner.run(JOB)).rejects.toBe(failure)
         expect(commands.fail).not.toHaveBeenCalled()
     })
 
-    it("skips a payload of another shape, a closed command and one another worker took", async () => {
-        const refused = await build()
+    it("lets a capability error that heals (its code says the other side is unavailable) through: the job's ladder decides, the row is not closed", async () => {
+        const { runner, commands, brain } = await build()
+        const outage = new BrainError({ code: BrainErrorCode.ModelUnavailable })
+        brain.dismissGap.mockRejectedValue(outage)
+
+        await expect(runner.run(JOB)).rejects.toBe(outage)
+        expect(commands.fail).not.toHaveBeenCalled()
+    })
+
+    it("refuses a payload of another shape with a typed error (the job's declaration refuses it before this)", async () => {
+        const { runner } = await build()
+
+        await expect(runner.run(claimedAiJob({ other: true }))).rejects.toMatchObject({ code: BrainErrorCode.PayloadInvalid })
+    })
+
+    it("skips a closed command and one another worker took", async () => {
         const closed = await build(commandOf({ status: "done" }))
         const missing = await build(null)
         const taken = await build()
         taken.commands.begin.mockResolvedValue(false)
 
-        await expect(refused.runner.run({ other: true })).resolves.toBe("skipped")
-        await expect(closed.runner.run(PAYLOAD)).resolves.toBe("skipped")
-        await expect(missing.runner.run(PAYLOAD)).resolves.toBe("skipped")
-        await expect(taken.runner.run(PAYLOAD)).resolves.toBe("skipped")
-        expect(refused.logger.warn).toHaveBeenCalledWith(BrainLogEvent.PayloadRefused, { job: "command" })
+        await expect(closed.runner.run(JOB)).resolves.toBe("skipped")
+        await expect(missing.runner.run(JOB)).resolves.toBe("skipped")
+        await expect(taken.runner.run(JOB)).resolves.toBe("skipped")
         expect(taken.commands.finish).not.toHaveBeenCalled()
+    })
+
+    it("opens the command its dead letter closed when the job is handed back by a person, then runs it", async () => {
+        const { runner, commands, brain } = await build()
+        const resumed = claimedAiJob(PAYLOAD, { resumeCount: 1 })
+
+        await expect(runner.run(resumed)).resolves.toBe("done")
+
+        expect(commands.reopen.mock.calls).toEqual([["ws-1", "cmd-1"]])
+        expect(brain.dismissGap).toHaveBeenCalledTimes(1)
+        expect(commands.finish.mock.calls).toEqual([["ws-1", "cmd-1", null]])
+    })
+
+    it("opens nothing on the first run", async () => {
+        const { runner, commands } = await build()
+
+        await runner.run(JOB)
+
+        expect(commands.reopen).not.toHaveBeenCalled()
     })
 })
 describe("BrainCommandRunnerService giveUp", () => {
-    it("closes the command of a job that ran out of retries, and ignores another payload", async () => {
+    it("closes the command of a job that was dead-lettered, and ignores another payload", async () => {
         const { runner, commands } = await build()
 
         await runner.giveUp(PAYLOAD)
         await runner.giveUp({ other: true })
 
         expect(commands.fail.mock.calls).toEqual([["ws-1", "cmd-1", "BRAIN_COMMAND_FAILED"]])
+    })
+})
+
+describe("BrainCommandRunnerService: the timed upkeep tick (BR1)", () => {
+    it("answers the tick of the one app scheduler with the upkeep, reading no command row", async () => {
+        const { runner, brain, commands } = await build()
+        brain.upkeep.mockResolvedValue({ workspaces: 1, readingsResumed: 0 })
+
+        await expect(runner.run(claimedAiJob({ ...BRAIN_UPKEEP_PAYLOAD }))).resolves.toBe("done")
+
+        expect(brain.upkeep).toHaveBeenCalledTimes(1)
+        expect(commands.get).not.toHaveBeenCalled()
+    })
+
+    it("answers the upkeep of one workspace, queued by the tick's job, with that workspace's upkeep alone", async () => {
+        const { runner, brain, commands } = await build()
+        brain.upkeepWorkspace.mockResolvedValue()
+
+        await expect(runner.run(claimedAiJob({ upkeep: "workspace", workspaceId: "ws-9", at: 1_800_000 }))).resolves.toBe("done")
+
+        expect(brain.upkeepWorkspace.mock.calls).toEqual([["ws-9"]])
+        expect(brain.upkeep).not.toHaveBeenCalled()
+        expect(commands.get).not.toHaveBeenCalled()
+    })
+
+    it("lets the failure of one workspace's upkeep through: that workspace's job retries and parks alone", async () => {
+        const { runner, brain } = await build()
+        const failure = new Error("db down")
+        brain.upkeepWorkspace.mockRejectedValue(failure)
+
+        await expect(runner.run(claimedAiJob({ upkeep: "workspace", workspaceId: "ws-9", at: 1_800_000 }))).rejects.toBe(failure)
+    })
+
+    it("is wired to the tick: JOB_TICKS names this queue, job and payload, every 5 minutes, once (one timer system)", () => {
+        const ticks = JOB_TICKS.filter((tick) => tick.name === "brain-upkeep")
+
+        expect(ticks).toEqual([
+            {
+                name: "brain-upkeep",
+                cron: "*/5 * * * *",
+                timeZone: "UTC",
+                queue: KNOWLEDGE_QUEUE,
+                job: KnowledgeJob.BrainCommand,
+                payload: BRAIN_UPKEEP_PAYLOAD,
+            },
+        ])
+        expect(isBrainUpkeepTickPayload({ ...PAYLOAD })).toBe(false)
+        expect(isBrainUpkeepTickPayload({ upkeep: "brain", commandId: "x" })).toBe(false)
     })
 })

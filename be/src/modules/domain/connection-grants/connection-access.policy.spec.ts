@@ -1,12 +1,10 @@
 import { Test } from "@nestjs/testing"
+import type { ChannelAgent } from "@modules/domain/installed-plugins"
 import {
-    ACCESS_LEVELS,
-    DEFAULT_ACCESS,
-    isAccess as realIsAccess,
     isDataProvider as realIsDataProvider,
-    normaliseAccess as realNormaliseAccess,
     planExactly as realPlanExactly,
     purposeFor as realPurposeFor,
+    purposeOfAgent as realPurposeOfAgent,
 } from "./connection-access.policy"
 
 const SUBJECT = Symbol("connection-access.policy")
@@ -16,48 +14,40 @@ const buildSubject = async () => {
             {
                 provide: SUBJECT,
                 useValue: {
-                    isAccess: realIsAccess,
                     isDataProvider: realIsDataProvider,
-                    normaliseAccess: realNormaliseAccess,
                     planExactly: realPlanExactly,
                     purposeFor: realPurposeFor,
+                    purposeOfAgent: realPurposeOfAgent,
                 },
             },
         ],
     }).compile()
     const subject = moduleRef.get<{
-        isAccess: typeof realIsAccess
         isDataProvider: typeof realIsDataProvider
-        normaliseAccess: typeof realNormaliseAccess
         planExactly: typeof realPlanExactly
         purposeFor: typeof realPurposeFor
+        purposeOfAgent: typeof realPurposeOfAgent
     }>(SUBJECT)
     return subject
 }
 
 describe("connection access policy", () => {
-    it("knows the three levels and starts a grant at ask", async () => {
-        const subject = await buildSubject()
-
-        expect(ACCESS_LEVELS).toEqual(["read", "ask", "auto"])
-        expect(DEFAULT_ACCESS).toBe("ask")
-        expect(subject.isAccess("auto")).toBe(true)
-        expect(subject.isAccess("read")).toBe(true)
-        expect(subject.isAccess("ask")).toBe(true)
-        expect(subject.isAccess("root")).toBe(false)
-    })
-
     describe("purposeFor", () => {
         it.each([
             ["chatbot", "telegram", "inbound_chat"],
-            ["loyalty", "meta", "inbound_chat"],
-            ["sales", "meta", "lead_source"],
-            ["shifts", "zalo_oa", "outbound_chat"],
-            ["accounting", "casso", "bank_feed"],
+            ["chatbot", "zalo_oa", "inbound_chat"],
+            ["webdesk", "zalo_oa", "inbound_chat"],
+            ["chatbot", "meta", "inbound_chat"],
+            ["booking", "meta", "outbound_chat"],
+            ["booking", "zalo_oa", "outbound_chat"],
+            ["sales", "telegram", "outbound_chat"],
+            ["sales", "sepay", "bank_feed"],
+            ["sales", "casso", "bank_feed"],
+            ["sales", "payos", "bank_feed"],
             ["chatbot", "database", "data_source"],
-            ["booking", "imap", "data_source"],
+            ["webmail", "imap", "data_source"],
             ["sales", "openapi", "tool"],
-        ])("%s on %s is %s", async (module, provider, purpose) => {
+        ])("%s on %s is %s, read from the installation", async (module, provider, purpose) => {
             const subject = await buildSubject()
 
             expect(subject.purposeFor(module, provider)).toBe(purpose)
@@ -66,8 +56,25 @@ describe("connection access policy", () => {
         it("answers null for a pair that cannot be granted", async () => {
             const subject = await buildSubject()
 
-            expect(subject.purposeFor("shifts", "sepay")).toBeNull()
+            expect(subject.purposeFor("booking", "sepay")).toBeNull()
+            expect(subject.purposeFor("accounting", "sepay")).toBeNull()
+            expect(subject.purposeFor("hiring", "zalo_oa")).toBeNull()
+            expect(subject.purposeFor("loyalty", "telegram")).toBeNull()
             expect(subject.purposeFor("constructor", "x")).toBeNull()
+        })
+
+        it("reads a template agent that wakes on a customer message of the provider as its inbound agent", async () => {
+            const subject = await buildSubject()
+            const agent: ChannelAgent = {
+                key: "front",
+                accounts: ["zalo_oa", "telegram"],
+                graphs: [{ spec: { triggers: [{ verb: "nivo.trigger.telegram.message.received", accounts: ["telegram"] }] } }],
+            }
+
+            expect(subject.purposeOfAgent(agent, "telegram")).toBe("inbound_chat")
+            expect(subject.purposeOfAgent(agent, "zalo_oa")).toBe("outbound_chat")
+            expect(subject.purposeOfAgent(agent, "sepay")).toBeNull()
+            expect(subject.purposeOfAgent(null, "telegram")).toBeNull()
         })
     })
 
@@ -78,37 +85,21 @@ describe("connection access policy", () => {
         expect(subject.isDataProvider("telegram")).toBe(false)
     })
 
-    it("normalises null to remove, a level to itself and anything else to the default", async () => {
-        const subject = await buildSubject()
-
-        expect(subject.normaliseAccess(null)).toBeNull()
-        expect(subject.normaliseAccess("auto")).toBe("auto")
-        expect(subject.normaliseAccess("nonsense")).toBe("ask")
-        expect(subject.normaliseAccess(undefined)).toBe("ask")
-    })
-
     describe("planExactly", () => {
-        it("keeps a current level, starts new ones at the default, honours a given level and removes the rest", async () => {
+        it("binds every wanted id and removes every current id that is not wanted", async () => {
             const subject = await buildSubject()
 
-            const current = new Map<string, "read" | "ask" | "auto">([
-                ["a", "auto"],
-                ["b", "read"],
-                ["gone", "ask"],
-            ])
-
-            expect(subject.planExactly(current, [{ id: "a" }, { id: "b", access: "ask" }, { id: "new" }])).toEqual([
-                { id: "a", access: "auto" },
-                { id: "b", access: "ask" },
-                { id: "new", access: "ask" },
-                { id: "gone", access: null },
+            expect(subject.planExactly(new Set(["a", "gone"]), ["a", "new"])).toEqual([
+                { id: "a", bound: true },
+                { id: "new", bound: true },
+                { id: "gone", bound: false },
             ])
         })
 
         it("removes everything when nothing is wanted", async () => {
             const subject = await buildSubject()
 
-            expect(subject.planExactly(new Map([["a", "read"]]), [])).toEqual([{ id: "a", access: null }])
+            expect(subject.planExactly(new Set(["a"]), [])).toEqual([{ id: "a", bound: false }])
         })
     })
 })

@@ -1,20 +1,17 @@
-import { DomainError } from "@modules/platform/errors"
 import { mock, mockEntityManager } from "@starci/jest-preset"
 import { Test } from "@nestjs/testing"
 import { ConnectionsErrorCode, ConnectionsService } from "@modules/domain/connections"
 import type { ConnectionRecord } from "@modules/domain/connections"
-import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
+import { DatabaseError, DatabaseErrorCode, PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
 import { answerByTable } from "@tests/fixtures/builders/table-query-builder.builder"
 import { evaluatedValues } from "@tests/fixtures/builders/evaluated-calls.builder"
+import { ChannelConnectionsError, ChannelConnectionsErrorCode } from "./errors/channel-connections.error"
 import { SepayConnectionService } from "./sepay-connection.service"
 
-/** A failing collaborator of the spec: carries a code, as every error of the application does. */
-class Outage extends DomainError<string> {}
-
 const actor = { principalId: "owner-1", workspaceId: "ws-1" }
-const BULLETS = "•".repeat(12)
+const BULLETS = "\u2022".repeat(12)
 
 const feed = (overrides: Partial<ConnectionRecord> = {}): ConnectionRecord => ({
     id: "c1",
@@ -23,13 +20,14 @@ const feed = (overrides: Partial<ConnectionRecord> = {}): ConnectionRecord => ({
     name: "VCB chinh",
     meta: {
         bank_code: "VCB",
-        account_masked: "•••• 6789",
+        account_masked: "\u2022\u2022\u2022\u2022 6789",
         account_number: "0123456789",
         account_holder: "LAN",
     },
     status: "connected",
     lastError: null,
     environment: "test",
+    sandbox: false,
     isDefault: false,
     lastEventAt: null,
     firstEvent: null,
@@ -48,18 +46,16 @@ const build = async (connection: ConnectionRecord = feed()) => {
     connections.patch.mockResolvedValue(undefined)
     const manager = mockEntityManager()
     let answer: ReadonlyArray<unknown> = []
-    let failing = false
-    const rejected = jest.fn<Promise<never>, []>()
+    let failure: unknown = null
     const seen = answerByTable(manager, {
-        "": () => (failing ? rejected() : answer),
+        "": () => (failure === null ? answer : Promise.reject(failure)),
     })
     const rows = {
         set: (next: ReadonlyArray<unknown>) => {
             answer = next
         },
-        fail: (reason: unknown) => {
-            failing = true
-            rejected.mockRejectedValue(reason)
+        fail: (error: unknown) => {
+            failure = error
         },
     }
     const logger = mock<Logger>()
@@ -120,7 +116,7 @@ describe("SepayConnectionService read", () => {
         expect(view).toMatchObject({
             id: "c1",
             environment: "test",
-            accountMasked: "•••• 6789",
+            accountMasked: "\u2022\u2022\u2022\u2022 6789",
             hasFullAccount: true,
             apiKeyMasked: `${BULLETS}3f9a`,
             pingSeenAt: "2026-10-28T06:58:00.000Z",
@@ -244,17 +240,6 @@ describe("SepayConnectionService read of a bare connection", () => {
     })
 })
 
-describe("SepayConnectionService setEnvironment", () => {
-    it("lets only the owner switch and patches the environment", async () => {
-        const { service, connections } = await build()
-
-        await service.setEnvironment(actor, "c1", "live")
-
-        expect(connections.authorize).toHaveBeenCalledWith(actor, ["owner"])
-        expect(connections.patch).toHaveBeenCalledWith("ws-1", "c1", { environment: "live" })
-    })
-})
-
 describe("SepayConnectionService deliveries", () => {
     it("remembers a ping before the intake and a credit after it", async () => {
         const { service, seen } = await build()
@@ -277,7 +262,7 @@ describe("SepayConnectionService deliveries", () => {
             [{ connectionId: "c1", outcome: "accepted", kind: "credit", amount: 2000, eventId: "2" }],
         ])
         const feedOf = (column: string) =>
-            `(SELECT c.${column} FROM public.connections c WHERE c.id = :connectionId AND c.provider = 'sepay')`
+            `(SELECT c.${column} FROM public.connections c WHERE c.id = :connectionId AND c.provider = 'sepay' AND c.deleted_at IS NULL)`
         expect(evaluatedValues(seen.queries[1]?.callsOf("values")[0]?.[0])).toEqual({
             workspaceId: feedOf("workspace_id"),
             connectionId: feedOf("id"),
@@ -293,16 +278,19 @@ describe("SepayConnectionService deliveries", () => {
         const { service, seen } = await build()
         const raw = Buffer.from(JSON.stringify({ id: 2, transferType: "in", transferAmount: 5 }))
 
-        await expect(
-            service.traceIntake("c1", raw, () => Promise.reject(new Outage({ code: "intake" }))),
-        ).rejects.toThrow("intake")
+        const intake = (): Promise<never> =>
+            Promise.reject(new ChannelConnectionsError({ code: ChannelConnectionsErrorCode.Failed }))
+
+        await expect(service.traceIntake("c1", raw, intake)).rejects.toMatchObject({
+            code: ChannelConnectionsErrorCode.Failed,
+        })
 
         expect(seen.queries).toHaveLength(0)
     })
 
     it("remembers a refused key as unauthorized, and logs instead of failing when the write fails", async () => {
         const { service, rows, logger, seen } = await build()
-        rows.fail(new Outage({ code: "down" }))
+        rows.fail(new DatabaseError({ code: DatabaseErrorCode.MigrationFailed }))
 
         await expect(service.traceRefusal("c1")).resolves.toBeUndefined()
 

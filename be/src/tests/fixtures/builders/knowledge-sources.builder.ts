@@ -129,7 +129,6 @@ export const readable: ReadableShape = {
 const ready = { status: "ready", progress: 100 }
 const blocked = { status: "blocked_credits" }
 const forIndex = StoredNote.NoCreditsForIndex
-const forFacts = StoredNote.NoCreditsForFacts
 const note = StoredNote.KeywordOnly
 const contentHash = contentHashOf("text")
 
@@ -157,7 +156,6 @@ export const SOURCE_STAGE_CASES: Array<[string, (service: KnowledgeSourcesServic
         (s) => s.blockIndexing(WS, "s1", forIndex, 60),
         { ...blocked, error: forIndex, chunkCount: 60, progress: 80 },
     ],
-    ["blocks the facts", (s) => s.blockFacts(WS, "s1", forFacts), { ...blocked, error: forFacts }],
 ]
 
 /** Test data for explicit reindex requests. */

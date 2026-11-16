@@ -5,7 +5,7 @@ import { ConfigurableModuleClass } from "./run-data-sync-queue.module-definition
 import { RunDataSyncProcessor } from "./run-data-sync.processor"
 
 @Module({ imports: [RunDataSyncModule.register({})], providers: [RunDataSyncProcessor] })
-/** The queue transport of the run-data-sync job: registers its processor with the job runner; the app registers the scheduler that ticks it. */
+/** The queue transport of the run-data-sync job: registers its processor with the job runner. */
 export class RunDataSyncQueueModule extends ConfigurableModuleClass implements OnModuleInit {
     constructor(
         @InjectJobProcessorRegistry() private readonly registry: JobProcessorRegistry,

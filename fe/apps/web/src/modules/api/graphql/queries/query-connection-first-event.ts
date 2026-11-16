@@ -1,6 +1,6 @@
 import { gql, type ApolloClient, type TypedDocumentNode } from "@apollo/client"
-import { createAuthApolloClient } from "../clients"
-import type { InputVariables, QueryParams, WireInput } from "../types"
+import { createAuthApolloClient, type InputVariables, type QueryParams, type WireInput } from "@nivo-lite/api"
+import { webApiTransport } from "@/modules/api-transport"
 import type { ConnectionFirstEventQuery, ConnectionFirstEventQueryVariables } from "../__generated__/graphql"
 
 /** The variables of the `connectionFirstEvent` query. */
@@ -50,7 +50,7 @@ export const queryConnectionFirstEvent = async ({
     request,
     signal,
 }: QueryConnectionFirstEventParams): Promise<ApolloClient.QueryResult<QueryConnectionFirstEventResponse>> => {
-    const apollo = createAuthApolloClient({ signal })
+    const apollo = createAuthApolloClient(webApiTransport, { signal })
     return apollo.query({
         query: queryMap[query],
         variables: { input: request },

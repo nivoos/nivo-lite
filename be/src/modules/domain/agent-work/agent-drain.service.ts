@@ -7,11 +7,21 @@ import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { startLocalInterval } from "@modules/platform/queue"
 import { InjectAgentTurnQueue, type AgentTurnDrainPayload, type AgentTurnQueue } from "@modules/queues/agent-turn"
 import { AgentTurnsService } from "./agent-turns.service"
-import { AgentEndedWakesService } from "./agent-ended-wakes.service"
+import { AgentEndedWakesService, SOURCE_RETIRED } from "./agent-ended-wakes.service"
 import { AgentWorkHandlersService } from "./agent-work-handlers.service"
-import { AgentWakeInterruptionService } from "./agent-wake-interruption.service"
 import { AgentWorkLogEvent } from "./agent-work.log-events"
-import { HEARTBEAT_MAX_BEATS, HEARTBEAT_MS, awaitsAnswer, sessionKeyOf } from "./agent-work.policy"
+import {
+    HEARTBEAT_MAX_BEATS,
+    HEARTBEAT_MS,
+    REARM_MAX_HOPS,
+    REARM_SOURCE,
+    awaitsAnswer,
+    rearmEventKeyOf,
+    rearmHopOf,
+    rearmWaitMsOf,
+    sessionKeyOf,
+} from "./agent-work.policy"
+import type { AgentBeginWait } from "./agent-work-turns.contracts"
 import type { AgentTurnEnding, AgentTurnUsage, AgentTurnView } from "./agent-work.contracts"
 import type {
     AgentHandlerEnding,
@@ -19,7 +29,27 @@ import type {
     AgentTurnPlan,
     AgentTurnRun,
     AgentWorkHandler,
+    OptionalAgentWorkFlow,
 } from "./agent-work.port"
+import { wakeSources } from "./agent-wake-source.policy"
+
+/** The code a person's line to an agent nobody can answer yet (still in setup) is reported with (`teamChat.reason.agent_not_ready`). */
+const NOT_READY_CODE = "agent_not_ready"
+
+/** How a wake of a source the engine no longer serves ends (rule RETIRED SOURCE): skipped by name, so it is never tried again. */
+const RETIRED: AgentTurnEnding = {
+    status: "skipped",
+    reason: SOURCE_RETIRED,
+    outcome: null,
+    errorCode: null,
+    usage: null,
+}
+
+/** The payload of a follow-up drain: the scope again, and how many follow-ups led to it. */
+interface RearmedDrainPayload extends AgentTurnDrainPayload {
+    /** The hop of this follow-up in its chain, from one. */
+    readonly rearm: number
+}
 
 /** Where a turn stands after one step: it ended, or its worker lost the lease and must stop with no further write. */
 type Step = { readonly kind: "ending"; readonly ending: AgentTurnEnding } | { readonly kind: "fenced" }
@@ -69,21 +99,33 @@ export class AgentDrainService {
         private readonly turns: AgentTurnsService,
         private readonly handlers: AgentWorkHandlersService,
         private readonly endedWakes: AgentEndedWakesService,
-        private readonly interruptions: AgentWakeInterruptionService,
     ) {
         this.owner = ids.next()
     }
 
-    /** Takes one turn of the scope and runs it; when more is due in the scope, starts the next drain after it. A busy or idle scope ends quietly. */
+    /**
+     * Takes one turn of the scope and runs it; when more is due in the scope, starts the next drain after it. A busy or idle scope
+     * ends quietly, except an idle one whose wake is not due yet: that drain comes back when the database says the wait is over.
+     */
     async drain(payload: AgentTurnDrainPayload): Promise<void> {
         const begin = await this.turns.begin(payload.agentId, payload.scopeKey, this.owner)
         await this.endedWakes.tell(begin.ended)
+        if (begin.result === "idle" && begin.wait !== undefined) {
+            await this.rearm(payload, begin.wait)
+            return
+        }
         if (begin.result === "busy") {
             this.logger.info(AgentWorkLogEvent.TurnBusy, { agentId: payload.agentId, scopeKey: payload.scopeKey })
             return
         }
         if (begin.result !== "begun") return
         const { turn } = begin
+        // Rule RETIRED SOURCE: a wake of a source this process no longer serves is closed once by name (skipped, never retried), told once.
+        if (wakeSources.lookup(turn.source) === undefined) {
+            await this.endedWakes.retired(turn)
+            await this.end(payload, turn, RETIRED)
+            return
+        }
         this.logger.info(AgentWorkLogEvent.TurnBegun, { agentId: turn.agentId, wakeId: turn.wakeId, fence: turn.fence })
         const abort = new AbortController()
         let beats = 0
@@ -97,6 +139,46 @@ export class AgentDrainService {
         } finally {
             heartbeat.cancel()
         }
+    }
+
+    /**
+     * Schedules the one follow-up of a drain that came before the burst window of its conversation ended. A drain's delay is
+     * counted by the broker on its own clock while the window is judged on the database's; when the two do not agree (a clock
+     * stepped while the drain waited) the drain comes early, and for a lone message no other drain is coming. The follow-up waits
+     * what the database said is left, so no clock has to agree with another. It is one job per waiting drain at most, and one per
+     * burst when several drains wait for the same newest message: the job is deduplicated on the scope, that wake and the hop. It
+     * takes no lease and begins no turn; the drain it starts goes through `begin` like any other, so one turn runs whatever the
+     * number of drains. Past the last hop the wake is left to the minute sweep.
+     */
+    private async rearm(payload: AgentTurnDrainPayload, wait: AgentBeginWait): Promise<void> {
+        const hop = rearmHopOf(payload) + 1
+        const fields = {
+            agentId: payload.agentId,
+            scopeKey: payload.scopeKey,
+            wakeId: wait.wakeId,
+            hop,
+            waitMs: wait.ms,
+        }
+        if (hop > REARM_MAX_HOPS) {
+            this.logger.warn(AgentWorkLogEvent.DrainRearmSpent, fields)
+            return
+        }
+        const next: RearmedDrainPayload = {
+            workspaceId: payload.workspaceId,
+            agentId: payload.agentId,
+            scopeKey: payload.scopeKey,
+            rearm: hop,
+        }
+        await this.entityManager.transaction((tx) =>
+            this.queue.enqueueDrain(
+                next,
+                REARM_SOURCE,
+                rearmEventKeyOf(payload.scopeKey, wait.wakeId, hop),
+                tx,
+                rearmWaitMsOf(wait.ms),
+            ),
+        )
+        this.logger.info(AgentWorkLogEvent.DrainRearmed, fields)
     }
 
     private async step(turn: AgentTurnView, signal: AbortSignal): Promise<Step> {
@@ -118,14 +200,48 @@ export class AgentDrainService {
         const exhausted = turn.attempts >= turn.maxAttempts
         if (exhausted) this.logger.warn(AgentWorkLogEvent.WakeDead, { agentId: turn.agentId, wakeId: turn.wakeId })
         const immediate = modelDown && awaitsAnswer(turn.source)
+        if ((immediate || exhausted) && (await this.toldByFlow(turn, failed.errorCode ?? failed.reason ?? "error")))
+            return failed
         const handler = this.handlers.of(turn.source)
         if (handler === undefined || !(immediate || exhausted)) return failed
         try {
             const ending = await handler.holdOver(turn, "error")
             return immediate ? { ...endingOf(ending, null), errorCode: failed.errorCode } : failed
-        } catch (error_) {
-            this.logger.error(AgentWorkLogEvent.TurnFailed, error_, { agentId: turn.agentId, wakeId: turn.wakeId })
+        } catch (error) {
+            this.logger.error(AgentWorkLogEvent.TurnFailed, error, { agentId: turn.agentId, wakeId: turn.wakeId })
             return failed
+        }
+    }
+
+    /**
+     * True when the wake is the flow's (an agent that runs on workflows) and the flow told its people about the failure: no handler
+     * then speaks for it, so no reply item of the turn path is opened and no coded line is written. A flow that cannot be asked or
+     * cannot tell leaves the wake to its handler, as before.
+     */
+    private async toldByFlow(turn: AgentTurnView, code: string): Promise<boolean> {
+        const flow = this.handlers.flowOf()
+        if (flow === undefined) return false
+        try {
+            if (!(await flow.takes(turn))) return false
+            await flow.stuck(turn, code)
+            return true
+        } catch (cause) {
+            this.logger.error(AgentWorkLogEvent.TurnFailed, cause, { agentId: turn.agentId, wakeId: turn.wakeId })
+            return false
+        }
+    }
+
+    /**
+     * A person's line no workflow takes and no handler answers (an agent still in setup: D-BR-14) is never dropped in silence: the
+     * founder is told once per wake through the engine's common wake report (`AgentWorkFlow.stuck`, code `agent_not_ready`), in place of
+     * an answer. A background wake (a timer, a schedule) is only logged. A report that fails is logged; the wake stays held as before.
+     */
+    private async toldUnanswered(flow: OptionalAgentWorkFlow, turn: AgentTurnView): Promise<void> {
+        if (flow === undefined || wakeSources.lookup(turn.source)?.background !== false) return
+        try {
+            await flow.stuck(turn, NOT_READY_CODE)
+        } catch (cause) {
+            this.logger.error(AgentWorkLogEvent.TurnFailed, cause, { agentId: turn.agentId, wakeId: turn.wakeId })
         }
     }
 
@@ -137,6 +253,7 @@ export class AgentDrainService {
         const handler = this.handlers.of(turn.source)
         if (handler === undefined) {
             this.logger.warn(AgentWorkLogEvent.NoHandler, { agentId: turn.agentId, source: turn.source })
+            await this.toldUnanswered(flow, turn)
             return { kind: "ending", ending: heldBy("no_handler") }
         }
         if (turn.proposal !== null) return this.settle(handler, turn, turn.proposal, null, signal)
@@ -156,7 +273,6 @@ export class AgentDrainService {
                 agentId: turn.agentId,
                 wakeId: turn.wakeId,
             })
-            await this.interruptions.tell(turn, signal)
             return { kind: "ending", ending: await this.failure(turn, attempt.cause, true) }
         }
         const { run } = attempt

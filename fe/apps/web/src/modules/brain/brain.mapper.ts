@@ -60,7 +60,7 @@ export const toBrainFact = (row: BrainFactType): BrainFact => ({
     validFrom: row.validFrom ?? null,
     validTo: row.validTo ?? null,
     proposalKind: row.proposalKind === "retire" ? "retire" : "set",
-    evidence: row.evidence.map((evidence) => toBrainEvidence(evidence)),
+    evidence: row.evidence.map((entry) => toBrainEvidence(entry)),
     proposedBy: row.proposedBy,
     proposedAt: row.proposedAt,
     decidedBy: row.decidedBy ?? null,
@@ -76,7 +76,7 @@ export const toBrainLesson = (row: BrainLessonType): BrainLesson => ({
     body: row.body,
     appliesWhen: row.appliesWhen,
     status: LESSON_STATUSES.find((known) => known === row.status) ?? "proposed",
-    evidence: row.evidence.map((evidence) => toBrainEvidence(evidence)),
+    evidence: row.evidence.map((entry) => toBrainEvidence(entry)),
 })
 
 /** The question a `brain` gap item stands for. */

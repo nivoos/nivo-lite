@@ -62,6 +62,15 @@ const emptyNoticeOf = (empty: PaneListEmpty) => (
     />
 )
 
+/** The filter group of a list pane: its search and its choice, whichever the pane brings. */
+const filterOf = (search: FilterGroupSearch | undefined, choice: FilterGroupChoice | undefined, isLoading: boolean) => (
+    <FilterGroup
+        {...(search === undefined ? {} : { search })}
+        {...(choice === undefined ? {} : { choice })}
+        isLoading={isLoading}
+    />
+)
+
 /**
  * The content of a list pane: the filter group, the summary line, the rows and a closing line, in one column that the pane
  * scrolls under its head. While the read waits, the controls and each row draw their own skeleton in the shape of the ready ones;
@@ -69,13 +78,9 @@ const emptyNoticeOf = (empty: PaneListEmpty) => (
  */
 export const PaneList = (props: PaneListProps) => {
     const isLoading = props.isLoading === true
-    const search = props.search === undefined ? {} : { search: props.search }
-    const choice = props.choice === undefined ? {} : { choice: props.choice }
     return (
         <Stack gap="row">
-            {props.search === undefined && props.choice === undefined ? null : (
-                <FilterGroup {...search} {...choice} isLoading={isLoading} />
-            )}
+            {props.search === undefined && props.choice === undefined ? null : filterOf(props.search, props.choice, isLoading)}
             {props.summary === undefined ? null : (
                 <Text size="xs" tone="muted" isLoading={isLoading}>
                     {props.summary}

@@ -1,6 +1,6 @@
 import { injector, type TypedParameterDecorator } from "@modules/platform/composition"
 import type { SeedAuth, WorkspaceSeedOptions } from "./workspace-seed.options"
-import type { SeedAgentRecords, SeedConnectors, SeedSources, SeedToolGrants } from "./workspace-seed.port"
+import type { SeedAgentRecords } from "./workspace-seed.port"
 
 /** Token of the workspace-seed options, exported so a spec can provide it. */
 export const WORKSPACE_SEED_OPTIONS: unique symbol = Symbol("domain.workspace-seed.options")
@@ -15,28 +15,17 @@ export const SEED_AUTH: unique symbol = Symbol("domain.workspace-seed.auth")
 /** Injects the Auth administration. Parameter type: SeedAuth. */
 export const InjectSeedAuth = (): TypedParameterDecorator<SeedAuth> => injector<SeedAuth>(SEED_AUTH)
 
-/** Token of the agents owner behind a profile run. */
+/** Token of the agents owner behind a seed run. */
 export const SEED_AGENTS: unique symbol = Symbol("domain.workspace-seed.agents")
 
 /** Injects the agents owner. Parameter type: SeedAgentRecords. */
 export const InjectSeedAgents = (): TypedParameterDecorator<SeedAgentRecords> => injector<SeedAgentRecords>(SEED_AGENTS)
 
-/** Token of the documents owner behind a profile run. */
-export const SEED_SOURCES: unique symbol = Symbol("domain.workspace-seed.sources")
+/** Token of the data driver that fetches, pins and opens a `-seed` repo (bound by the composition root when the harness driver is wired). */
+export const SEED_STANDARD_DRIVER: unique symbol = Symbol("domain.workspace-seed.standard-driver")
 
-/** Injects the documents owner. Parameter type: SeedSources. */
-export const InjectSeedSources = (): TypedParameterDecorator<SeedSources> => injector<SeedSources>(SEED_SOURCES)
+/** Token of the export targets the same driver writes a `-seed` repo checkout through. */
+export const SEED_STANDARD_TARGETS: unique symbol = Symbol("domain.workspace-seed.standard-targets")
 
-/** Token of the tool grants owner behind a profile run. */
-export const SEED_TOOL_GRANTS: unique symbol = Symbol("domain.workspace-seed.tool-grants")
-
-/** Injects the tool grants owner. Parameter type: SeedToolGrants. */
-export const InjectSeedToolGrants = (): TypedParameterDecorator<SeedToolGrants> =>
-    injector<SeedToolGrants>(SEED_TOOL_GRANTS)
-
-/** Token of the gateway console behind a profile run. */
-export const SEED_CONNECTORS: unique symbol = Symbol("domain.workspace-seed.connectors")
-
-/** Injects the gateway console. Parameter type: SeedConnectors. */
-export const InjectSeedConnectors = (): TypedParameterDecorator<SeedConnectors> =>
-    injector<SeedConnectors>(SEED_CONNECTORS)
+/** Token of the seed's DOOR STEPS (the time zone, the node settings), bound by the composition root to the app's own doors. */
+export const SEED_DOORS: unique symbol = Symbol("domain.workspace-seed.doors")

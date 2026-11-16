@@ -9,7 +9,6 @@ import {
     JobsModule,
 } from "@modules/platform/jobs"
 import assert from "node:assert/strict"
-import { ZaloWebhookGateService } from "@modules/domain/channels"
 import { ZaloInboxService } from "@modules/domain/zalo-inbox"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { QUEUE_OUTBOX, type QueueOutbox, type QueueWriteOptions } from "@modules/platform/queue"
@@ -20,7 +19,8 @@ import { ZaloDeliveryQueueModule } from "../../features/jobs/zalo-delivery/trans
 import type { LiteWorld } from "./lite-world.service"
 import { QUEUE_MODULES } from "./test-capabilities.options"
 import { RECEIPT_DOMAIN_MODULES } from "./receipt-domain-proof.module"
-import { deliveryEnvelopes, deliveryPublications, removeDeliveryOutbox } from "./proof-database.service"
+import { cleanupWorkspace, deliveryEnvelopes, deliveryPublications, removeDeliveryOutbox } from "./proof-database.service"
+import { persistReceiptAccount } from "../fixtures/builders/account-data.builder"
 import { receiptsOf, removeReceipts } from "./receipts-database.service"
 import type { DynamicModule } from "@nestjs/common"
 import type { ReceiptRow, WebhookJobRow, WebhookMessageRow } from "@tests/fixtures/persistence/proof.rows"
@@ -81,9 +81,6 @@ export const zaloPublicationBuilder = (world: LiteWorld): ZaloPublicationBuilder
         await removeReceipts(world.db.primary, "zalo", message.deliveryId)
     })
     const actual = world.resolve<QueueOutbox>(QUEUE_OUTBOX)
-    // The connection of a delivery proof holds no OA secret key, and a call to such a connection is closed unread: the proof is about the
-    // road after the gate, so the gate is told the key is held.
-    jest.spyOn(world.resolve(ZaloWebhookGateService), "holdsProofKey").mockResolvedValue(true)
     return {
         message,
         queue: world.resolve(ZaloDeliveryQueue),
@@ -97,7 +94,7 @@ type ZaloDeliveryBuilderResultClaimsShape = {
 }
 
 type ZaloDeliveryBuilderResultInboxShape = {
-    processRecordedDelivery: jest.SpyInstance<Promise<void>, [message: ZaloDeliveryRecorded]>
+    processRecordedDelivery: jest.SpyInstance<Promise<void>, [message: ZaloDeliveryRecorded, job: ClaimedJob]>
 }
 
 type ZaloDeliveryBuilderResultShape = {
@@ -110,20 +107,36 @@ type ZaloDeliveryBuilderResultShape = {
     advance: (write: AdvanceWrite) => Promise<void>
 }
 
+/** The text message m-1 of user-1 every Zalo delivery proof receives, as the `raw` of its `zalo_oa.event` row keeps it. */
+export const ZALO_PROOF_EVENT = {
+    app_id: "app-1",
+    event_name: "user_send_text",
+    sender: { id: "user-1" },
+    message: { msg_id: "m-1", text: "Hello" },
+}
+
+/** The text message as the webhook posts it. */
+export const ZALO_PROOF_BODY: Buffer = Buffer.from(JSON.stringify(ZALO_PROOF_EVENT))
+
+/**
+ * Persists the owner, the workspace and the live Zalo OA connection a delivery resolves at receipt (a connection nobody holds keeps
+ * nothing); removing the workspace removes the connection and its account rows.
+ */
+export const persistZaloAccount = async (world: LiteWorld, connection: string): Promise<void> => {
+    const userId = world.id()
+    const workspaceId = world.id()
+    cleanupWorkspace(world, userId, workspaceId)
+    await persistReceiptAccount(world.db.primary, { userId, workspaceId, connectionId: connection, provider: "zalo_oa" })
+}
+
 /** Persists a committed receipt and a third live fence using the real claim service. */
 export const zaloDeliveryBuilder = async (world: LiteWorld): Promise<ZaloDeliveryBuilderResultShape> => {
     const publication = zaloPublicationBuilder(world)
     const connection = publication.message.deliveryId.split(":")[0]
     assert(connection !== undefined)
-    const body = Buffer.from(
-        JSON.stringify({
-            app_id: "app-1",
-            event_name: "user_send_text",
-            sender: { id: "user-1" },
-            message: { msg_id: "m-1", text: "Hello" },
-        }),
-    )
-    await publication.service.acceptZaloDelivery(body, connection)
+    await persistZaloAccount(world, connection)
+    // The proof is about the road after the door: the delivery arrives with the door's PROVEN verdict.
+    await publication.service.acceptZaloDelivery(ZALO_PROOF_BODY, connection, "proven")
     const actual = world.resolve<JobClaims>(JOB_CLAIMS)
     const jobKey = world.key(publication.message.deliveryId)
     const claim = () =>

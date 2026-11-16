@@ -4,6 +4,7 @@ import { CLOCK } from "@modules/platform/clock"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { WorkspaceInvitesErrorCode } from "./errors/workspace-invites.error"
 import { InviteSupportService } from "./invite-support.service"
+import { keptEffectsLedger } from "@tests/fixtures/builders/kept-effects.builder"
 import { fakeQueryBuilder } from "@tests/fixtures/builders/entity-query-builder-fake.builder"
 import { hashInviteToken } from "./invite-token.policy"
 import { WorkspaceInviteEntity } from "./persistence/entities"
@@ -14,7 +15,7 @@ const MINT_UUID = 'SELECT * FROM "pg_catalog"."gen_random_uuid"()'
 
 const NOW = new Date("2026-10-12T00:00:00.000Z")
 
-const build = async (rotated: ReadonlyArray<object>) => {
+const build = async (rotated: ReadonlyArray<object>, ledger = keptEffectsLedger()) => {
     const em = mockEntityManager({
         query: [
             [MINT_UUID, [{ gen_random_uuid: "to" }]],
@@ -35,9 +36,10 @@ const build = async (rotated: ReadonlyArray<object>) => {
                 useValue: { siteUrl: "https://nivo.vn", inviteDays: 7, delivery: "x" },
             },
             { provide: INVITE_DELIVERY, useValue: delivery },
+            ...ledger.providers,
         ],
     }).compile()
-    return { support: moduleRef.get(InviteSupportService), em, delivery, update }
+    return { support: moduleRef.get(InviteSupportService), em, delivery, update, ledger }
 }
 
 describe("InviteSupportService", () => {
@@ -57,7 +59,7 @@ describe("InviteSupportService", () => {
         ])
         expect(update.callsOf("where")).toEqual([
             [
-                "id = :inviteId AND workspace_id = :workspaceId AND accepted_at IS NULL AND revoked_at IS NULL",
+                "id = :inviteId AND workspace_id = :workspaceId AND accepted_at IS NULL AND revoked_at IS NULL AND declined_at IS NULL",
                 { inviteId: "i-1", workspaceId: "ws-1" },
             ],
         ])
@@ -82,6 +84,23 @@ describe("InviteSupportService", () => {
         await expect(support.reissue("ws-1", "i-1")).rejects.toMatchObject({
             code: WorkspaceInvitesErrorCode.TokenUnavailable,
         })
+        expect(delivery.deliverInvite).not.toHaveBeenCalled()
+    })
+})
+
+describe("InviteSupportService reissue for a job", () => {
+    it("keeps the new link on the ledger first, so a run again reissues the SAME link and mails through the once door", async () => {
+        const { support, em, delivery, ledger } = await build([{ id: "i-1", email: "ha@nivo.vn", role: "staff" }])
+        delivery.deliverInviteOnce.mockResolvedValue("invited")
+
+        const first = await support.reissue("ws-1", "i-1", { key: "job-1" })
+        const again = await support.reissue("ws-1", "i-1", { key: "job-1" })
+
+        expect(again).toEqual(first)
+        expect(first.link).toBe("https://nivo.vn/invite/tok")
+        expect(em.query).toHaveBeenCalledTimes(2)
+        expect(ledger.rows.get("job-1:token")?.acts).toBe(1)
+        expect(delivery.deliverInviteOnce).toHaveBeenCalledWith("job-1", "ha@nivo.vn", expect.stringContaining("tok"))
         expect(delivery.deliverInvite).not.toHaveBeenCalled()
     })
 })

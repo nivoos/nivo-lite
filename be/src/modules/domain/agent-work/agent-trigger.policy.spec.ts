@@ -21,7 +21,6 @@ const write = (over: Partial<AgentTriggerWrite> = {}): AgentTriggerWrite => ({
     atTime: "08:30",
     timeZone: null,
     eventName: null,
-    probeKey: "invoices_due",
     enabled: true,
     ...over,
 })
@@ -29,7 +28,7 @@ const write = (over: Partial<AgentTriggerWrite> = {}): AgentTriggerWrite => ({
 const refusal = async (input: AgentTriggerWrite): Promise<unknown> => {
     const { triggerFields } = await buildSubject()
     try {
-        triggerFields(input)
+        triggerFields(input, "Asia/Ho_Chi_Minh")
         return null
     } catch (cause) {
         return cause
@@ -39,21 +38,29 @@ const refusal = async (input: AgentTriggerWrite): Promise<unknown> => {
 describe("triggerFields", () => {
     it("keeps the time of day of a daily preset and defaults its zone", async () => {
         const { triggerFields } = await buildSubject()
-        expect(triggerFields(write())).toEqual({
+        expect(triggerFields(write(), "Asia/Ho_Chi_Minh")).toEqual({
             kind: "schedule",
             preset: "daily_at",
             atTime: "08:30",
             timeZone: "Asia/Ho_Chi_Minh",
             eventName: null,
-            probeKey: "invoices_due",
             enabled: true,
             sources: [],
         })
     })
 
+    it("defaults the zone of a clock and of an event to the workspace's own zone", async () => {
+        const { triggerFields } = await buildSubject()
+        expect(triggerFields(write(), "Europe/London")).toMatchObject({ timeZone: "Europe/London" })
+        expect(
+            triggerFields(write({ kind: "event", preset: null, atTime: null, eventName: "bank_credit_booked" }), "Europe/London"),
+        ).toMatchObject({ timeZone: "Europe/London" })
+        expect(triggerFields(write({ timeZone: "Asia/Bangkok" }), "Europe/London")).toMatchObject({ timeZone: "Asia/Bangkok" })
+    })
+
     it("takes the weekday preset with its time and the zone the owner chose", async () => {
         const { triggerFields } = await buildSubject()
-        expect(triggerFields(write({ preset: "weekdays_at", timeZone: "Asia/Bangkok" }))).toMatchObject({
+        expect(triggerFields(write({ preset: "weekdays_at", timeZone: "Asia/Bangkok" }), "Asia/Ho_Chi_Minh")).toMatchObject({
             preset: "weekdays_at",
             atTime: "08:30",
             timeZone: "Asia/Bangkok",
@@ -62,20 +69,19 @@ describe("triggerFields", () => {
 
     it.each(["every_15m", "hourly"] as const)("drops the time of day of the %s preset", async (preset) => {
         const { triggerFields } = await buildSubject()
-        expect(triggerFields(write({ preset, atTime: "08:30" }))).toMatchObject({ preset, atTime: null })
+        expect(triggerFields(write({ preset, atTime: "08:30" }), "Asia/Ho_Chi_Minh")).toMatchObject({ preset, atTime: null })
     })
 
     it("builds an event trigger from its name", async () => {
         const { triggerFields } = await buildSubject()
         expect(
-            triggerFields(write({ kind: "event", preset: null, atTime: "08:30", eventName: "bank_credit_booked" })),
+            triggerFields(write({ kind: "event", preset: null, atTime: "08:30", eventName: "bank_credit_booked" }), "Asia/Ho_Chi_Minh"),
         ).toEqual({
             kind: "event",
             preset: null,
             atTime: null,
             timeZone: "Asia/Ho_Chi_Minh",
             eventName: "bank_credit_booked",
-            probeKey: "invoices_due",
             enabled: true,
             sources: [],
         })
@@ -92,6 +98,7 @@ describe("triggerFields for the sources of an event trigger", () => {
                 eventName: "invoice.paid",
                 sources: ["generic_webhook", "generic_webhook", "tag"],
             }),
+            "Asia/Ho_Chi_Minh",
         )
         expect(fields.sources).toEqual(["generic_webhook", "tag"])
     })

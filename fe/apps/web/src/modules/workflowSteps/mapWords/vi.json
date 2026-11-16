@@ -1,0 +1,10 @@
+{
+  "customerMessages": "Khách nhắn tin",
+  "waitLine": "{events} · {limit}",
+  "limitMinute": "tối đa {amount} phút",
+  "limitHour": "tối đa {amount} giờ",
+  "limitDay": "tối đa {amount} ngày",
+  "rounds": "lặp tối đa {max} vòng",
+  "repeat": "Lặp lại từ bước đầu khi chưa thoát",
+  "legendLoop": "Vòng lặp"
+}

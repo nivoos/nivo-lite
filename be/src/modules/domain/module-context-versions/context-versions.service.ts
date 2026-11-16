@@ -37,7 +37,7 @@ export class ContextVersionsService {
             order: { version: "DESC" },
             take: VERSIONS_LIMIT,
         })
-        return rows.map((row) => toRecord(row))
+        return rows.map((item) => toRecord(item))
     }
 
     /** One version by id; null when there is none. */

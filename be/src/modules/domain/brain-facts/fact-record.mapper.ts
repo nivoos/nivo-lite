@@ -1,6 +1,8 @@
+import { unitFormOf } from "./fact-input.policy"
 import type {
     BrainSubjectType,
     Evidence,
+    FactFlag,
     FactRecord,
     FactSource,
     FactStatus,
@@ -63,6 +65,10 @@ export interface StoredFact {
     readonly decidedAt: Instant | null
     /** The decision note. */
     readonly decisionNote: string | null
+    /** Which value of its key it is; null or absent until it was in force. */
+    readonly version?: number | null | undefined
+    /** What the brain noticed for the founder; null, absent or empty when nothing. */
+    readonly reviewFlags?: ReadonlyArray<FactFlag> | null | undefined
 }
 
 /** An instant as ISO text, whether the driver gave a Date or text. */
@@ -71,8 +77,8 @@ export const isoOf = (value: Instant): string => (value instanceof Date ? value.
 /** An optional instant as ISO text. */
 const maybeIso = (value: Instant | null): string | null => (value === null ? null : isoOf(value))
 
-/** A fact as the callers read it, from the row the database answers. */
-export const toFactRecord = (row: StoredFact): FactRecord => ({
+/** The columns of a row as the record names them. */
+const factOf = (row: StoredFact): FactRecord => ({
     id: row.id,
     subjectType: row.subjectType,
     subjectKey: row.subjectKey,
@@ -99,4 +105,15 @@ export const toFactRecord = (row: StoredFact): FactRecord => ({
     decidedBy: row.decidedBy,
     decidedAt: maybeIso(row.decidedAt),
     decisionNote: row.decisionNote,
+    ...(row.version === null || row.version === undefined ? {} : { version: Number(row.version) }),
+    ...((row.reviewFlags ?? []).length === 0 ? {} : { flags: [...(row.reviewFlags ?? [])] }),
+})
+
+/**
+ * A fact as the callers read it, from the row the database answers. Its value and unit are read in the one normal form
+ * (`unitFormOf`), so a row stored before that form (a value that also said its unit) never shows the unit twice.
+ */
+export const toFactRecord = (row: StoredFact): FactRecord => ({
+    ...factOf(row),
+    ...unitFormOf(row),
 })

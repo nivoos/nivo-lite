@@ -1,9 +1,11 @@
 "use client"
 
+import { AgentSetupPendingNotice } from "@/components/blocks/AgentSetupPendingNotice"
 import { useSearchParams } from "next/navigation"
 import { usePaneCopy } from "@/hooks/paneFrame"
 import { useTranslations } from "next-intl"
-import type { ReactNode } from "react"
+import { useState, type ReactNode } from "react"
+import type { PageFrameTabs } from "@nivo-lite/agent-sdk/client"
 import { mapSlot, useSlotLabels } from "@/hooks/slot"
 import {
     OWNER_SETUP_NOTICE,
@@ -11,38 +13,38 @@ import {
     useInstanceHeader,
     useInstanceRail,
     useInstanceTabs,
-    isSetupPending,
-    setupLabelKey,
-    type ModuleKey,
 } from "@/hooks/installations"
 import { isManager, useMember } from "@/hooks/member"
 import { useWorkspaceId } from "@/hooks/workspaces"
-import { AGENT_ROLES_HREF, AGENTS_ROUTE, APP_ROUTES, workspaceHref } from "@/modules/routes"
+import { AGENT_ROLES_HREF, workspaceHref } from "@/modules/routes"
+import { useAgentWorkView } from "@/hooks/agentWork"
+import { navigation } from "@/modules/i18n"
 import { AgentInstanceFrameBase, type InstanceHeaderView, type InstanceSwitch } from "./component"
+import { RUN_PATH, agentCrumbsOf, instanceViewOf, frameSubTabsOf, rootCrumbsOf, instanceTabOf, versionCrumbOf } from "./parts"
 
 const PLACEHOLDER: InstanceHeaderView = {
     name: "-",
-    seed: "-",
-    avatarUrl: null,
+    module: "",
+    glyph: "",
     isEarly: false,
     statusLabel: "-",
     statusTone: "neutral",
     subtitle: "-",
     needs: { lines: [], linkLabel: "-", href: "#" },
-    setup: null,
+    primary: null,
     profileHref: null,
-    packageHref: null,
 }
 
 /** What the layout hands the frame: the type and the instance of the url, and the routed tab. */
 interface AgentInstanceFrameProps {
-    readonly module: ModuleKey
+    readonly module: string
     readonly installationId: string
-    readonly children: ReactNode
+    /** The routed tab drawn inside the frame. */
+    readonly content: ReactNode
 }
 
 /** The tabs whose body is panes, attached flush under the tab line; the other tabs are card bodies. */
-const PANES_TABS: ReadonlySet<string> = new Set(["setup", "work", "workbench", "chat"])
+const PANES_TABS: ReadonlySet<string> = new Set(["setup", "work", "workbench", "graph", "workflows", "chat"])
 
 /** The agents the header's menu can open: every installed agent, the open one checked, and the way to add one for a person who may. */
 const switcherOf = (
@@ -69,7 +71,13 @@ const switcherOf = (
 export const AgentInstanceFrame = (props: AgentInstanceFrameProps) => {
     const t = useTranslations("modulesCore")
     const ts = useTranslations("shell")
-    const tt = useTranslations("agentTemplates")
+    const tw = useTranslations("agentWork")
+    const tr = useTranslations("agentRuns")
+    const twf = useTranslations("agentWorkflows")
+    const twp = useTranslations("agentWorkflowPages")
+    const router = navigation.useRouter()
+    const pathname = navigation.usePathname()
+    const work = useAgentWorkView()
     const pane = usePaneCopy()
     const query = useSearchParams()
     const { tabs, selected, hrefOf } = useInstanceTabs(props.module, props.installationId)
@@ -81,67 +89,71 @@ export const AgentInstanceFrame = (props: AgentInstanceFrameProps) => {
     const rail = useInstanceRail(props.installationId)
     const member = useMember()
     const workspaceId = useWorkspaceId()
+    const [viewTabs, setViewTabs] = useState<PageFrameTabs | null>(null)
+    const runId = RUN_PATH.exec(pathname)?.[1] ?? null
+    const subTabs = frameSubTabsOf({
+        selected,
+        pathname,
+        runId,
+        work,
+        viewTabs,
+        words: { work: tw, setup: twf, workflow: twp },
+        setupHref: hrefOf("setup"),
+        push: router.push,
+    })
     return (
         <AgentInstanceFrameBase
+            content={props.content}
             props={{
                 hasPanes: PANES_TABS.has(selected),
                 ariaLabel: header.name === "" ? header.typeName : header.name,
                 crumbLabel: ts("crumbLabel"),
                 crumbs: [
-                    { id: "home", label: ts("crumbHome"), href: workspaceHref(workspaceId, APP_ROUTES.workspaceHome) },
-                    { id: "modules", label: t("catalogTitle"), href: workspaceHref(workspaceId, AGENTS_ROUTE) },
-                    isLoading
-                        ? { id: "agent", label: "", isLoading: true }
-                        : { id: "agent", label: header.name === "" ? header.typeName : header.name },
+                    ...rootCrumbsOf({ shell: ts, modules: t, workspaceId }),
+                    ...agentCrumbsOf({
+                        header,
+                        isLoading,
+                        runId,
+                        workspaceId,
+                        module: props.module,
+                        installationId: props.installationId,
+                        workLabel: t("tab_work"),
+                        workHref: hrefOf("work"),
+                        runLabel: runId === null ? "" : tr("crumbRun", { id: runId.slice(0, 6) }),
+                        version: versionCrumbOf(pathname, twp),
+                    }),
                 ],
                 tabsLabel: t("tabsLabel"),
                 selectedTab: selected,
-                tabs: tabs.map((tab) => ({
-                    id: tab,
-                    label: t(`tab_${tab}`),
-                    href: hrefOf(tab),
-                })),
+                subTabs,
+                tabs: tabs.map((tab) => instanceTabOf(tab, t(`tab_${tab}`), hrefOf(tab), header.counts)),
                 earlyLabel: t("earlyBadge"),
                 profileLabel: t("profileShort"),
-                packageLabel: tt("packageTitle"),
                 notice: query.get("notice") === OWNER_SETUP_NOTICE ? t("ownerSetupNotice") : "",
+                // The Setup tab is where the notice leads: there it would point at itself.
+                setupNotice:
+                    selected === "setup" ? null : (
+                        <AgentSetupPendingNotice
+                            module={props.module}
+                            installationId={props.installationId}
+                            setupHref={hrefOf("setup")}
+                        />
+                    ),
                 moreLabel: pane.moreActions,
                 isLoading,
                 read: mapSlot(header.slot, () => true),
                 labels: labels(t("catalogTitle")),
                 switcher: switcherOf(t, rail.items, isManager(member), props.installationId, workspaceId),
-                view:
-                    resolved === undefined
-                        ? { ...PLACEHOLDER, name: header.typeName }
-                        : {
-                              name: resolved.name,
-                              seed: resolved.seed,
-                              avatarUrl: resolved.avatarUrl,
-                              isEarly: resolved.isEarly,
-                              statusLabel: t(`lifecycle_${resolved.lifecycle}`),
-                              statusTone: resolved.statusTone,
-                              subtitle: resolved.subtitle,
-                              needs: {
-                                  lines: needs.linesOf(resolved.connectionNeeds),
-                                  linkLabel: needs.linkLabel,
-                                  href: needs.href,
-                              },
-                              setup:
-                                  isSetupPending(resolved.lifecycle) && selected !== "setup" && tabs.includes("setup")
-                                      ? { label: t(setupLabelKey(resolved.lifecycle)), href: hrefOf("setup") }
-                                      : null,
-                              profileHref: resolved.profileHref,
-                              packageHref: isManager(member)
-                                  ? workspaceHref(
-                                        workspaceId,
-                                        `${AGENTS_ROUTE}/templates/package/${props.installationId}`,
-                                    )
-                                  : null,
-                          },
+                view: instanceViewOf({
+                    resolved,
+                    placeholder: { ...PLACEHOLDER, name: header.typeName },
+                    t,
+                    needs,
+                    module: props.module,
+                    glyph: header.glyph,
+                }),
             }}
-            on={{ retry: header.retry }}
-        >
-            {props.children}
-        </AgentInstanceFrameBase>
+            on={{ retry: header.retry, viewTabs: setViewTabs }}
+        />
     )
 }

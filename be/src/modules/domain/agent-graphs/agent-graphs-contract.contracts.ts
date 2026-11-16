@@ -17,7 +17,7 @@ export interface FactSpec {
     readonly key: string
     /** The type. */
     readonly type: "number" | "string" | "boolean"
-    /** `vnd` makes the fact an amount the authority rules cap. */
+    /** What the value is counted in; `vnd` for an amount in dong. */
     readonly unit: "vnd" | "percent" | "count" | null
     /** True when it says something about the turn or its text, so it is never taken for the amount of the work. */
     readonly notWorkAmount?: boolean | undefined
@@ -40,3 +40,10 @@ export interface FactView {
     /** The values it may hold, for a fact that is one of a few; empty for any. */
     readonly allowed: ReadonlyArray<string>
 }
+
+/**
+ * How a version came to be; `spec` is a node graph a graph spec published, which no rules-derived refresh replaces, and `copy` the
+ * version of a sibling agent of the same role a new agent started from.
+ */
+export type GraphChangeKind =
+    "seed" | "chat" | "edit" | "conflict" | "learned" | "template" | "rollback" | "spec" | "copy"

@@ -81,12 +81,17 @@ describe("ConnectionSecretReadsService", () => {
     describe("dueZalo", () => {
         const horizon = new Date("2026-10-12T17:00:00.000Z")
 
-        it("keeps the expiring ids that are live Zalo connections, soonest first", async () => {
+        it("keeps the expiring connections that are live Zalo connections, with their workspace and token end, soonest first", async () => {
             const em = mockEntityManager({ find: [ConnectionEntity, [secondSecretConnectionOf()]] })
             const { service, secrets } = await build(em)
-            secrets.expiringBefore.mockResolvedValue(["c-1", "c-2"])
+            secrets.expiringBefore.mockResolvedValue([
+                { connectionId: "c-1", expiresAt: 100 },
+                { connectionId: "c-2", expiresAt: 200 },
+            ])
 
-            await expect(service.dueZalo(horizon)).resolves.toEqual(["c-2"])
+            await expect(service.dueZalo(horizon)).resolves.toEqual([
+                { id: "c-2", workspaceId: secondSecretConnectionOf().workspaceId, expiresAt: 200 },
+            ])
             expect(secrets.expiringBefore).toHaveBeenCalledWith(horizon, 500)
         })
 

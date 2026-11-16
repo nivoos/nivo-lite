@@ -1,5 +1,6 @@
 import type { useTranslations } from "next-intl"
-import { isAgentModule, type RetrievedPassage } from "@/modules/documents"
+import type { ModuleLabelOf } from "@/modules/catalog"
+import type { RetrievedPassage } from "@/modules/documents"
 import { knowledgeSourceHref, workspaceHref } from "@/modules/routes"
 import type { AskAgentOption, AskPassageView, AskSeesView, PaneGridLayout } from "@/modules/types"
 import { LENS_LANES, type AgentLens } from "./lenses"
@@ -19,12 +20,13 @@ export const askGridOf = (): PaneGridLayout => ({
 })
 
 /** What the agent reads and for whom, as one option of the picker: its name and the kind of agent it is. */
-export const askAgentOptionOf = (t: KnowledgeTranslate, lens: AgentLens): AskAgentOption => ({
-    id: lens.id,
-    label: [lens.name ?? "", lens.module !== null && isAgentModule(lens.module) ? t(`module_${lens.module}`) : ""]
-        .filter(Boolean)
-        .join(" · "),
-})
+export const askAgentOptionOf = (labelOf: ModuleLabelOf, lens: AgentLens): AskAgentOption => {
+    const name = lens.name ?? ""
+    const kind = labelOf(lens.module) ?? ""
+    // An agent named after its kind reads once, not "Accounting · Accounting".
+    const parts = kind.toLocaleLowerCase() === name.toLocaleLowerCase() ? [name] : [name, kind]
+    return { id: lens.id, label: parts.filter(Boolean).join(" · ") }
+}
 
 /** Where a passage was read from: the document and the place in it, a confirmed fact, or the base knowledge of NIVO. */
 const citationOf = (t: KnowledgeTranslate, passage: RetrievedPassage): string => {
@@ -36,7 +38,7 @@ const citationOf = (t: KnowledgeTranslate, passage: RetrievedPassage): string =>
 
 const VISIBILITY_KEY = { public: "vis_public", internal: "vis_internal", restricted: "vis_restricted" } as const
 
-/** One passage the agent would read: its words, its citation, who may read it and (but for a fact) how well it matches. */
+/** One passage the agent would read: its words, its citation (the document and the place in it) and who may read it. */
 export const askPassageOf = (
     t: KnowledgeTranslate,
     passage: RetrievedPassage,
@@ -48,9 +50,6 @@ export const askPassageOf = (
     href: passage.sourceId === null ? null : workspaceHref(workspaceId, knowledgeSourceHref(passage.sourceId)),
     chips: [
         { label: t(VISIBILITY_KEY[passage.visibility]), tone: "neutral" },
-        ...(passage.layer === "fact"
-            ? []
-            : [{ label: t("score", { score: Math.round(passage.score * 100) }), tone: "neutral" as const }]),
     ],
 })
 

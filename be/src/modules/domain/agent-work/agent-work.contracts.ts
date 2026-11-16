@@ -1,10 +1,11 @@
 import type { ModuleTriggerPreset } from "@nivo-lite/agent-sdk/module"
+import type { AgentWakeSettle } from "./agent-wake-settle.contracts"
 
 /**
  * What starts a wake: the key of the adapter that normalized the fact. The four built-in keys are listed so they read well; an adapter
  * registered at the inbound door adds its own, and what a source means to the work core is its traits, never its name.
  */
-export type AgentWakeSource = "customer" | "tag" | "internal" | "schedule" | (string & Record<never, never>)
+export type AgentWakeSource = "trigger" | "tag" | "internal" | "schedule" | (string & Record<never, never>)
 
 /** Where a wake stands. */
 export type AgentWakeStatus = "pending" | "running" | "done" | "skipped" | "held" | "failed" | "dead"
@@ -17,12 +18,6 @@ export type AgentTurnStatus = "running" | "proposed" | "settled" | "failed" | "a
 
 /** Which road a workspace's customer intake takes. */
 export type AgentRoad = "legacy" | "core"
-
-/** Who put a goal on an agent's list. */
-export type AgentGoalSource = "owner" | "module" | "agent"
-
-/** Where a goal stands. */
-export type AgentGoalStatus = "active" | "paused" | "done" | "dropped"
 
 /** Where a task stands. */
 export type AgentTaskStatus = "open" | "waiting" | "done" | "dropped"
@@ -53,6 +48,27 @@ export type AgentLocale = "vi" | "en"
  * their own tables when the turn runs, never copied here.
  */
 export interface AgentWakeContext {
+    /**
+     * The runs that took this event at a `wait` and HANDED IT BACK (`core.hand-back`), as a JSON list of run ids: the event is offered to
+     * each run at most once, so the waits never offer it to one of these again (`AgentWakeService.reoffer` appends to it).
+     */
+    readonly handedBackJson?: string
+    /**
+     * `"true"` on a wake of the one pipeline that no registration of its agent took: it was delivered only because a `wait` of one of the
+     * agent's active workflows lists the verb, so only a parked run may take it; with none it ends `no_waiter`, never a run.
+     */
+    readonly waitOnly?: "true"
+    /**
+     * `"true"` on a wait-only wake of an event NO registration of any agent took (the delivery matched every attached agent first): when
+     * no parked run takes it either, the event started nothing anywhere, so the engine reports it like any untaken event about a person,
+     * never a silent `no_waiter`.
+     */
+    readonly unclaimed?: "true"
+    /**
+     * The run whose step WROTE the data this event reports (a record write event, concept agent-data rule 4): the waits never offer the
+     * event back to that run.
+     */
+    readonly writerRunId?: string
     /** The customer conversation. */
     readonly conversationId?: string
     /** The message that woke the agent. */
@@ -61,12 +77,28 @@ export interface AgentWakeContext {
     readonly channelEventId?: string
     /** True when the customer was just met, so the turn should ask the channel for their name. */
     readonly lookupName?: boolean
+    /** The core contact a customer wake is about (the engine met the person before any module). */
+    readonly contactId?: string
+    /** The connection (the account) a customer wake came in on. */
+    readonly connectionId?: string
+    /** The person's own id on that channel (Zalo user id, Telegram chat id, Meta sender id). */
+    readonly externalId?: string
+    /** The front-door agent the wake is for, as the entrance resolves it. */
+    readonly agentId?: string
+    /** The name the channel shows for the person, for a conversation the front door opens. */
+    readonly visitor?: string
+    /** The key the customer's line is stored once under by the agent that keeps it (the channel's own id of the message); absent on a wake with no new line. */
+    readonly messageKey?: string
+    /** The pictures and files the shop kept of the customer's line, as the JSON text of a `LineFile` list (a context holds text and flags only); `files` of the trigger reads it. */
+    readonly filesJson?: string
+    /** `held` on the wake that follows a person's hand-back of the conversation: it carries no new words. */
+    readonly resume?: string
+    /** True for the channel's opening of a fresh visit (Telegram `/start`). */
+    readonly isStart?: boolean
     /** The Office room of a tag. */
     readonly room?: string
     /** The work thread of a tag. */
     readonly threadId?: string
-    /** The messages of the same conversation that arrived within the burst window and were taken into this wake's turn, oldest first, as ids joined with commas. */
-    readonly mergedMessageIds?: string
     /** The plain data the tagger handed over, as JSON text; `tagPayloadOf` reads it. */
     readonly tagContext?: string
     /** What the tagger said, for a tag. */
@@ -95,12 +127,40 @@ export interface AgentWakeContext {
     readonly subjectId?: string
     /** The task that is due. */
     readonly taskId?: string
-    /** The probe that decides whether a schedule has work. */
-    readonly probeKey?: string
     /** The intent a follow-up turn is pinned to: set only by the turn that split off an intent with a risk, never by a fact. */
     readonly intent?: string
     /** The normalized event of an inbound adapter, as the JSON text of an `AgentWakeInbound` (a context holds text and flags only); `decodeInbound` reads it. */
     readonly inbound?: string
+    /*
+     * The members of a wake of the one event pipeline (source `trigger`, lane concept triggers rule 13): ids only. The verb is named by
+     * the producer itself; the event's data is rebuilt when the run starts by the source's pure `translate` over the stored raw row
+     * (`rawType` + `rawRowId`), or read from `dataJson` for a source with no raw row (the clock, a timer, a call, the team chat).
+     */
+    /** The verb of the event (`TRIGGER.*`). */
+    readonly verb?: string
+    /** The event's own id. */
+    readonly eventId?: string
+    /** The source and the trigger name of the declaration that translated it (`<provider>:<name>`). */
+    readonly declaration?: string
+    /** The workflow whose registration took the event when it was delivered. */
+    readonly workflowId?: string
+    /** The scope path of the correlation key the wake is locked by, when it has one. */
+    readonly keyPath?: string
+    /** The declared account data type of the raw row the event was translated from. */
+    readonly rawType?: string
+    /** The raw row's id. */
+    readonly rawRowId?: string
+    /** The event's data as JSON text, for a source that keeps no raw row (ids, counts and flags; a team chat line's words as a tag's). */
+    readonly dataJson?: string
+    /**
+     * How the declaration's pending events combine (rule Q-4), written by `deliver` for a mode other than the default `each`
+     * (`latest` | `stream`); absent = `each`.
+     */
+    readonly combine?: string
+    /** On a `stream` marker: how many events it stands for, as decimal text (absent = 1, itself only). */
+    readonly count?: string
+    /** On a `stream` marker: the newest event folded into it (absent = its own `eventId`). */
+    readonly latestEventId?: string
 }
 
 /** One fact that wakes an agent. */
@@ -119,6 +179,13 @@ export interface AgentWake {
     readonly actorMemberId: string | null
     /** The lock scope the adapter wants; absent derives it from the source and the context. */
     readonly scopeKey?: string
+    /** How long the drain of the wake waits, milliseconds (a wake held for the agent's next working hour); absent takes the burst window. */
+    readonly delayMs?: number
+    /**
+     * The settle time of the event's source (its trigger declaration's `settle`, ROAD-API section 5): the run of the wake's key starts
+     * only once the key has been quiet that long, at most `maxWaitMs` after the oldest pending wake of the key. Absent: no wait.
+     */
+    readonly settle?: AgentWakeSettle
 }
 
 /** A wake as a handler sees it: what woke the agent and for whom, with or without a turn behind it. */
@@ -237,7 +304,7 @@ export interface AgentWorkState {
     readonly backgroundTurns: number
 }
 
-/** The workspace's switch, road and cap. */
+/** The workspace's switch and road. AI work has no per-day limit: the plan's credit pool, checked before every call, is the only bound. */
 export interface AgentWorkSettingsRecord {
     /** The workspace. */
     readonly workspaceId: string
@@ -245,50 +312,6 @@ export interface AgentWorkSettingsRecord {
     readonly workEnabled: boolean
     /** The customer intake road. */
     readonly road: AgentRoad
-    /** The most background turns an agent may run per day. */
-    readonly backgroundDailyCap: number
-}
-
-/** One goal of an agent. */
-export interface AgentGoalRecord {
-    /** The goal. */
-    readonly id: string
-    /** The agent. */
-    readonly agentId: string
-    /** Short title. */
-    readonly title: string
-    /** Longer text. */
-    readonly detail: string
-    /** Where it stands. */
-    readonly status: AgentGoalStatus
-    /** Who put it there. */
-    readonly source: AgentGoalSource
-    /** When it is due, or null. */
-    readonly dueAt: Date | null
-    /** When the agent last reviewed it, or null. */
-    readonly reviewedAt: Date | null
-}
-
-/** What a person or a module writes for a goal. */
-export interface AgentGoalWrite {
-    /** The workspace. */
-    readonly workspaceId: string
-    /** The agent. */
-    readonly agentId: string
-    /** The goal to change, or null for a new one. */
-    readonly goalId: string | null
-    /** Short title. */
-    readonly title: string
-    /** Longer text. */
-    readonly detail: string
-    /** Where it stands. */
-    readonly status: AgentGoalStatus
-    /** Who puts it there. */
-    readonly source: AgentGoalSource
-    /** The member who writes it, or null for a module. */
-    readonly memberId: string | null
-    /** When it is due, or null. */
-    readonly dueAt: Date | null
 }
 
 /** One task of an agent. */
@@ -297,8 +320,6 @@ export interface AgentTaskRecord {
     readonly id: string
     /** The agent. */
     readonly agentId: string
-    /** The goal it serves, or null. */
-    readonly goalId: string | null
     /** The key the agent named it by. */
     readonly dedupeKey: string
     /** Short title. */
@@ -313,7 +334,12 @@ export interface AgentTaskRecord {
     readonly nextActionAt: Date | null
     /** The work item it opened, or null. */
     readonly workItemId: string | null
+    /** The small flat record its writer keeps on it (a care timer's data), or null. */
+    readonly data: AgentTaskData | null
 }
+
+/** A small flat record a task keeps for its writer: named text, number and yes/no members (a care timer's data). */
+export type AgentTaskData = Readonly<Record<string, string | number | boolean>>
 
 /** What an agent's proposal asks for one task. */
 export interface AgentTaskOp {
@@ -327,12 +353,12 @@ export interface AgentTaskOp {
     readonly nextActionAt?: Date
     /** What a `wait` waits for. */
     readonly waitingOn?: AgentTaskWaitingOn
-    /** The goal it serves. */
-    readonly goalId?: string
     /** The wake that opened it. */
     readonly originWakeId?: string
     /** The work item it opened. */
     readonly workItemId?: string
+    /** For `add`: the record the task keeps (null clears it); absent leaves what the task keeps. */
+    readonly data?: AgentTaskData | null
 }
 
 /** One trigger of an agent. */
@@ -351,8 +377,6 @@ export interface AgentTriggerRecord {
     readonly timeZone: string
     /** The internal event, for an event trigger. */
     readonly eventName: string | null
-    /** The probe that decides whether there is work. */
-    readonly probeKey: string | null
     /** Off means the trigger stays and fires nothing. */
     readonly enabled: boolean
     /** The stable key a module seeded it under, so a graph can name it; null for a trigger an owner wrote. */
@@ -384,8 +408,6 @@ export interface AgentTriggerWrite {
     readonly timeZone: string | null
     /** The internal event, for an event trigger. */
     readonly eventName: string | null
-    /** The probe that decides whether there is work. */
-    readonly probeKey: string | null
     /** Off means the trigger stays and fires nothing. */
     readonly enabled: boolean
     /** The sources (adapter keys) an event trigger answers to; absent or empty answers to every source. */
@@ -424,8 +446,6 @@ export interface AgentTurnRecord {
 export interface AgentWorkView {
     /** The kill switch and the breaker. */
     readonly state: AgentWorkState
-    /** Active and paused goals. */
-    readonly goals: ReadonlyArray<AgentGoalRecord>
     /** Open and waiting tasks. */
     readonly tasks: ReadonlyArray<AgentTaskRecord>
     /** The triggers. */
@@ -446,17 +466,6 @@ export interface WorkspaceAgentWorkView {
     readonly pendingWakes: number
     /** Wakes held by a switch. */
     readonly heldWakes: number
-}
-
-/** Where the customer wake of one stored message stands, or none. */
-export type OptionalCustomerWakeProgress = CustomerWakeProgress | null
-
-/** Where the customer wake of one stored message stands, in the words of a job's state. */
-export interface CustomerWakeProgress {
-    /** The wake. */
-    readonly id: string
-    /** Waiting, running, done or failed. */
-    readonly state: "queued" | "running" | "done" | "failed"
 }
 
 /** The source that woke an agent, or null when the wake is gone (wakes are kept for a while, not for ever). */

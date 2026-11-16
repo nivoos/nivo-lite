@@ -3,32 +3,6 @@ import type { AgentTriggerPreset } from "@modules/domain/agent-work"
 /** The next slot a scheduler holds, or none. */
 export type NextSlot = Date | null
 
-/** The agent a probe looks at: ids only. */
-export interface ProbeAgent {
-    /** The workspace of the agent. */
-    readonly workspaceId: string
-    /** The agent. */
-    readonly agentId: string
-}
-
-/** What a probe found: nothing to do, or work with the brief the turn starts from. */
-export type ProbeAnswer =
-    | { readonly work: false }
-    | { readonly work: true; readonly brief: string; readonly subjectIds: ReadonlyArray<string> }
-
-/** A read-only check of whether a schedule or an event has work for the agent; it is the reason a quiet clock costs no model call. */
-export interface AgentProbe {
-    /** The key a trigger names it by. */
-    readonly key: string
-    /** Looks and answers; it writes nothing. */
-    check(agent: ProbeAgent): Promise<ProbeAnswer>
-}
-
-/** What the probes decided for one wake. */
-export type ProbeDecision =
-    | { readonly kind: "run"; readonly brief: string | null; readonly subjectIds: ReadonlyArray<string> }
-    | { readonly kind: "skip"; readonly reason: "no_work" | "no_probe" | "probe_failed" }
-
 /** A trigger a module wants on its agent: seeded once per key. */
 export interface TriggerSeed {
     /** The stable key. */
@@ -37,8 +11,6 @@ export interface TriggerSeed {
     readonly preset: AgentTriggerPreset
     /** The time of day (`HH:MM`) of a daily preset. */
     readonly atTime?: string | undefined
-    /** The probe that decides whether a fire has work. */
-    readonly probeKey?: string | undefined
 }
 
 /** What one pass of the minute sweep did. */
@@ -53,26 +25,6 @@ export interface SweepReport {
     readonly missed: number
     /** Wakes removed past retention. */
     readonly removed: number
-}
-
-/** One thing an agent says to its owner after a background turn. */
-export interface BackgroundLine {
-    /** The workspace. */
-    readonly workspaceId: string
-    /** The agent that speaks. */
-    readonly agentId: string
-    /** The wake the line answers: the key the line is posted under, so a retried settle says it once. */
-    readonly wakeId: string
-    /** When the wake was written: a line the same words already said since then is not said again. */
-    readonly wakeCreatedAt: Date
-    /** What it says. */
-    readonly text: string
-}
-
-/** How an agent speaks to its owner after a turn nobody was waiting on (the Office); bound by the capability that owns the thread. */
-export interface BackgroundVoice {
-    /** Says the line once per wake. */
-    say(line: BackgroundLine): Promise<void>
 }
 
 /** The delivery of an event a reactor claims in the inbox: its queue and the business key of the fact. */
@@ -95,6 +47,14 @@ export interface InternalEventFact {
     readonly subjectId: string
 }
 
+/** The agent that owns a task, with the workspace it lives in. */
+export interface TimerOwner {
+    /** The workspace the agent lives in. */
+    readonly workspaceId: string
+    /** The agent that owns the task. */
+    readonly agentId: string
+}
+
 /** An installation that changed. */
 export interface InstallationChange {
     /** The workspace. */
@@ -103,10 +63,16 @@ export interface InstallationChange {
     readonly installationId?: string
 }
 
-/** An agent an event wakes, and the probe of the trigger that matched. */
+/** An agent an event wakes. */
 export interface EventTarget {
     /** The agent. */
     readonly agentId: string
-    /** The probe of the trigger, or null. */
-    readonly probeKey: string | null
+}
+
+/** A person who pressed "run now" on a timer, and when. */
+export interface TimerPress {
+    /** The workspace member who pressed. */
+    readonly memberId: string
+    /** When, as the engine's clock read it. */
+    readonly at: Date
 }

@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common"
 import { EMBEDDING_DIMENSIONS, hasStoredSize } from "@modules/domain/knowledge-chunks"
-import { InjectLogger, type Logger } from "@modules/platform/logging"
+import { InjectLogger, withWorkStep, type Logger } from "@modules/platform/logging"
 import { InjectAi, type AiService } from "@modules/integrations/ai"
 import { EMBED_BATCH } from "./knowledge.contracts"
 import { KnowledgeLogEvent } from "./knowledge.log-events"
@@ -20,7 +20,15 @@ export interface EmbedRequest {
     readonly texts: ReadonlyArray<string>
     /** How long one batch may take, in milliseconds. */
     readonly timeoutMs: number
+    /**
+     * The step the calls are booked as (`step_key`, inside the work in scope): `index` (passages of a document, the default) or
+     * `search` (the query of a meaning search).
+     */
+    readonly step?: EmbedStep | undefined
 }
+
+/** The step an embeddings call is booked as. */
+export type EmbedStep = "index" | "search"
 
 /** Told after each batch how many texts have their vector. */
 export type EmbedProgress = (done: number, total: number) => Promise<void>
@@ -34,9 +42,12 @@ export class EmbeddingService {
         private readonly usage: UsageMeterService,
     ) {}
 
-    /** True when the deployment can embed at all. */
+    /**
+     * True when the deployment can embed at all: a key to the gateway, and the gateway has not answered that it does not serve the
+     * embeddings profile (no `OPENAI_API_KEY` in its pool). Not configured, the index job stores passages keyword-only.
+     */
     configured(): boolean {
-        return this.ai.available()
+        return this.ai.available() && this.ai.embeddingsServed()
     }
 
     /** The model new vectors are made with. */
@@ -64,8 +75,21 @@ export class EmbeddingService {
         return this.embedFrom(request, from + EMBED_BATCH, all, progress)
     }
 
-    /** One batch: the vectors, and the call metered. */
-    private async embedBatch(request: EmbedRequest, batch: ReadonlyArray<string>): Promise<VectorsResult> {
+    /**
+     * One batch: the vectors, and the call metered as its step. A workspace's batch is checked against its credit pool BEFORE the call
+     * (owner: the pool is the only limit); empty, it answers null like an unavailable model, and the caller keeps passages keyword-only
+     * or searches by words until credits return.
+     */
+    private embedBatch(request: EmbedRequest, batch: ReadonlyArray<string>): Promise<VectorsResult> {
+        const step = request.step ?? "index"
+        return withWorkStep(step, step === "search" ? "knowledge_search" : "document_read", () =>
+            this.embedBatchNow(request, batch),
+        )
+    }
+
+    private async embedBatchNow(request: EmbedRequest, batch: ReadonlyArray<string>): Promise<VectorsResult> {
+        if (request.workspaceId !== null && (await this.usage.blockedBy(request.workspaceId, "embedding", true)))
+            return null
         const result = await this.ai.embed({
             input: batch,
             dimensions: EMBEDDING_DIMENSIONS,

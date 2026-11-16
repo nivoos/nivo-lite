@@ -8,8 +8,15 @@ import { useMutateAuthorizeZaloSwr, useMutateDisconnectConnectionSwr } from "@/h
 import { navigation } from "@/modules/i18n"
 import { CONSOLE_ROUTES, workspaceHref } from "@/modules/routes"
 import { LocalStorage, StorageId } from "@/modules/storage"
-import type { DataSlot, ZaloHeadView } from "@/modules/types"
-import { chipToneOf, zaloStatusKindOf, type ZaloStatusKind } from "./zaloConnection.shared"
+import type {
+    ConnectionLifecycle,
+    ConnectionLifecycleChip,
+    ConnectionSetupView,
+    DataSlot,
+    ZaloHeadView,
+} from "@/modules/types"
+import { useConnectionLife } from "@/hooks/connectionPage"
+import { chipToneOf, zaloLifecycleOf, zaloStatusKindOf, type ZaloStatusKind } from "./zaloConnection.shared"
 import { useConnectionsRole } from "@/hooks/connections"
 import { useZaloPage, type ZaloPageData } from "./useZaloPage"
 import { useWorkspaceId } from "@/hooks/workspaces"
@@ -25,6 +32,13 @@ type UseZaloHeadResult = {
     isMissing: boolean
     isOwner: boolean
     statusKind: ZaloStatusKind | null
+    /** Where the connection stands in the shared life; null while the page is read. */
+    life: ConnectionLifecycle | null
+    /** The status badge in the shared vocabulary, and the setup card while the OA is unfinished. */
+    chip: ConnectionLifecycleChip | null
+    setup: ConnectionSetupView | null
+    /** How many agents work through the OA; undefined while the page is read. */
+    agentCount: number | undefined
 }
 
 /** The header of the page of a Zalo OA connection, its status kind, and its two commands: reconnect through the existing authorization, and disconnect. */
@@ -55,6 +69,7 @@ export const useZaloHead = (connectionId: string): UseZaloHeadResult => {
         chipTone: chipToneOf(page.healthy, page.access.state, page.status),
         facts: t("facts", { oaId: page.oaId === "" ? "-" : page.oaId, appId: page.appId === "" ? "-" : page.appId }),
         banner: bannerOf(page),
+        attention: page.attention === "needs_reauth" || page.attention === "degraded" ? page.attention : null,
     }))
 
     const reconnect = useCallback(async (): Promise<void> => {
@@ -74,7 +89,22 @@ export const useZaloHead = (connectionId: string): UseZaloHeadResult => {
     }, [settle, labelOf, triggerDisconnect, connectionId, t, router, workspaceId])
 
     const page = "items" in slot ? slot.items : undefined
+    const life = page === undefined ? null : zaloLifecycleOf(page)
+    const view = useConnectionLife(life)
     const statusKind = page === undefined ? null : zaloStatusKindOf(page.healthy, page.status, page.access.state)
 
-    return { head, notice, reconnect, disconnect, isDisconnecting: isMutating, isMissing, isOwner, statusKind }
+    return {
+        head,
+        notice,
+        reconnect,
+        disconnect,
+        isDisconnecting: isMutating,
+        isMissing,
+        isOwner,
+        statusKind,
+        life,
+        chip: view.chip,
+        setup: view.setup,
+        agentCount: page?.agentIds.length,
+    }
 }

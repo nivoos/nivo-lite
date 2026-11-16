@@ -82,11 +82,9 @@ export interface BrainAskView {
         readonly sees: DataSlot<AskSeesView>
         readonly seesLabels: SlotLabels
         /** The side pane's line under its title: which agent is compared with the customer. */
-        readonly seesLine: string
         readonly isWaiting: boolean
     }
     readonly on: {
-        readonly reviewAll: () => void
         readonly selectTab: (id: string) => void
         readonly setQuestion: (value: string) => void
         readonly setAgent: (value: string | null) => void

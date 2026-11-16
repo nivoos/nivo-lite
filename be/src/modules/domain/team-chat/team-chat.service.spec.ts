@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { Test } from "@nestjs/testing"
+import type { EntityManager } from "typeorm"
 import { mock } from "@starci/jest-preset"
 import { messageOf, roomOf, seatOf } from "@tests/fixtures/builders/team-chat.builder"
 import { TeamChatErrorCode } from "./errors/team-chat.error"
@@ -9,7 +10,6 @@ import { TeamChatRoomsService } from "./team-chat.service"
 import { cursorOf } from "./team-chat.policy"
 import type { ChatMemberRef, ChatRoomView, MessageView, SendInput, TeamChatResult } from "./team-chat.contracts"
 import { TeamChatAccessService } from "./team-chat-access.service"
-import { TeamChatApprovalsService } from "./team-chat-approvals.service"
 import { TeamChatCardsService } from "./team-chat-cards.service"
 import { TeamChatFilesService } from "./team-chat-files.service"
 import { TeamChatStoreService } from "./team-chat-store.service"
@@ -45,13 +45,22 @@ const valueOf = <V>(result: TeamChatResult<V>): V => {
 
 const refusalOf = <V>(result: TeamChatResult<V>): string => (result.ok ? "done" : result.refusal)
 
+/** A store that stores the text: with a tag port the chat stores it together with the route job, so `within` runs on the store's transaction. */
+const TX = mock<EntityManager>()
+const storesText = (store: ReturnType<typeof mock<TeamChatStoreService>>, stored: ReturnType<typeof messageOf>): void => {
+    store.insertText.mockResolvedValue(stored)
+    store.insertTextWith.mockImplementation(async (_text, within) => {
+        await within(TX, stored)
+        return stored
+    })
+}
+
 const build = async (withTags = true) => {
     const store = mock<TeamChatStoreService>()
     const access = mock<TeamChatAccessService>()
     const views = mock<TeamChatViewsService>()
     const files = mock<TeamChatFilesService>()
     const cards = mock<TeamChatCardsService>()
-    const approvals = mock<TeamChatApprovalsService>()
     const tags = mock<TeamChatTags>()
     access.visibleRoom.mockResolvedValue(roomOf())
     access.allKnown.mockResolvedValue(true)
@@ -66,7 +75,6 @@ const build = async (withTags = true) => {
                   { provide: TeamChatViewsService, useValue: views },
                   { provide: TeamChatFilesService, useValue: files },
                   { provide: TeamChatCardsService, useValue: cards },
-                  { provide: TeamChatApprovalsService, useValue: approvals },
                   { provide: TEAM_CHAT_TAGS, useValue: tags },
               ],
           }).compile()
@@ -78,10 +86,9 @@ const build = async (withTags = true) => {
                   { provide: TeamChatViewsService, useValue: views },
                   { provide: TeamChatFilesService, useValue: files },
                   { provide: TeamChatCardsService, useValue: cards },
-                  { provide: TeamChatApprovalsService, useValue: approvals },
               ],
           }).compile()
-    return { subject: moduleRef.get(TeamChatRoomsService), store, access, views, files, cards, approvals, tags }
+    return { subject: moduleRef.get(TeamChatRoomsService), store, access, views, files, cards, tags }
 }
 
 describe("TeamChatRoomsService rooms and room", () => {
@@ -161,6 +168,7 @@ describe("TeamChatRoomsService createRoom", () => {
             name: "Team",
             directKey: null,
             others: [ben],
+            purpose: { purpose: "group" },
         })
         expect(refusalOf(await subject.createRoom(WS, ANA, { ...group, name: " " }))).toBe(
             TeamChatErrorCode.GroupNeedsName,
@@ -192,6 +200,27 @@ describe("TeamChatRoomsService createRoom", () => {
         )
         access.allKnown.mockResolvedValue(false)
         expect(refusalOf(await subject.createRoom(WS, ANA, direct))).toBe(TeamChatErrorCode.MemberUnknown)
+    })
+})
+
+describe("TeamChatRoomsService room purpose", () => {
+    const sales = { purpose: "module" as const, module: "sales" }
+
+    it("opens a module room, and refuses a purpose with no module, one given to a direct room, or one another room holds", async () => {
+        const { subject, store, views } = await build()
+        views.roomView.mockResolvedValue(mock<ChatRoomView>())
+        store.insertRoom.mockResolvedValue(roomOf())
+        const group = { kind: "group" as const, name: "Sales", members: [ben], purpose: sales }
+        expect(valueOf(await subject.createRoom(WS, ANA, group))).toBeDefined()
+        expect(store.insertRoom).toHaveBeenCalledWith(expect.objectContaining({ purpose: sales }))
+        const blank = { ...group, purpose: { purpose: "module" as const, module: " " } }
+        expect(refusalOf(await subject.createRoom(WS, ANA, blank))).toBe(TeamChatErrorCode.PurposeInvalid)
+        const direct = { kind: "direct" as const, name: null, members: [ben], purpose: sales }
+        expect(refusalOf(await subject.createRoom(WS, ANA, direct))).toBe(TeamChatErrorCode.PurposeInvalid)
+        store.insertRoom.mockRejectedValueOnce({ code: "23505" })
+        expect(refusalOf(await subject.createRoom(WS, ANA, group))).toBe(TeamChatErrorCode.PurposeTaken)
+        store.insertRoom.mockRejectedValueOnce({ code: "40001" })
+        await expect(subject.createRoom(WS, ANA, group)).rejects.toEqual({ code: "40001" })
     })
 })
 
@@ -252,52 +281,91 @@ describe("TeamChatRoomsService removeMember", () => {
 
 describe("TeamChatRoomsService send", () => {
     it("stores a text, moves the viewer's read position to it and answers its view", async () => {
-        const { subject, store, views, files } = await build()
+        const { subject, store, views, files, tags } = await build()
         const view = mock<MessageView>()
         const stored = messageOf({ id: MSG })
         files.verify.mockResolvedValue({ ok: true, value: [] })
         store.sentBefore.mockResolvedValue(null)
-        store.insertText.mockResolvedValue(stored)
+        storesText(store, stored)
         views.viewOf.mockResolvedValue(view)
         expect(valueOf(await subject.send(WS, ANA, sendOf({ clientId: "c1" })))).toBe(view)
-        expect(store.insertText).toHaveBeenCalledWith({
-            workspaceId: WS,
-            roomId: ROOM,
-            authorId: ANA,
-            body: "hello",
-            clientId: "c1",
-            mentions: [],
-            attachments: [],
-        })
+        expect(store.insertTextWith).toHaveBeenCalledWith(
+            {
+                workspaceId: WS,
+                roomId: ROOM,
+                authorId: ANA,
+                body: "hello",
+                clientId: "c1",
+                mentions: [],
+                attachments: [],
+                replyTo: null,
+            },
+            expect.any(Function),
+        )
+        // The message and the job that routes it are one transaction: the route is written on the store's transaction.
+        expect(tags.queueRoute).toHaveBeenCalledWith(TX, { workspaceId: WS, userId: ANA, roomId: ROOM, messageId: MSG })
         expect(store.moveReadPosition).toHaveBeenCalledWith(WS, ROOM, ANA, MSG)
     })
 
-    it("hands a mentioned agent the text once, and a retry stores and hands nothing again", async () => {
+    it("stores a reply with the message it answers when that message is in the room", async () => {
+        const { subject, store, views, files } = await build()
+        files.verify.mockResolvedValue({ ok: true, value: [] })
+        store.sentBefore.mockResolvedValue(null)
+        store.messageIn.mockResolvedValue(messageOf({ id: MSG2 }))
+        storesText(store, messageOf({ id: MSG }))
+        views.viewOf.mockResolvedValue(mock<MessageView>())
+        valueOf(await subject.send(WS, ANA, sendOf({ replyTo: MSG2 })))
+        expect(store.messageIn).toHaveBeenCalledWith(WS, ROOM, MSG2)
+        expect(store.insertTextWith).toHaveBeenCalledWith(expect.objectContaining({ replyTo: MSG2 }), expect.any(Function))
+    })
+
+    it("refuses a reply to a message that is not in the room, and stores nothing", async () => {
+        const { subject, store } = await build()
+        store.sentBefore.mockResolvedValue(null)
+        store.messageIn.mockResolvedValue(null)
+        expect(refusalOf(await subject.send(WS, ANA, sendOf({ replyTo: MSG2 })))).toBe(TeamChatErrorCode.NotFound)
+        expect(store.insertTextWith).not.toHaveBeenCalled()
+    })
+
+    it("writes ONE route job in the message's own transaction (never a tag after the commit), and a retry of the same send writes nothing again", async () => {
         const { subject, store, views, files, tags } = await build()
         files.verify.mockResolvedValue({ ok: true, value: [] })
         store.sentBefore.mockResolvedValue(null)
-        store.insertText.mockResolvedValue(messageOf({ id: MSG, body: "hi bot" }))
+        storesText(store, messageOf({ id: MSG, body: "hi bot" }))
         views.viewOf.mockResolvedValue(mock<MessageView>())
-        valueOf(await subject.send(WS, ANA, sendOf({ body: "hi bot", mentions: [bot, ben] })))
-        expect(tags.handOff).toHaveBeenCalledTimes(1)
-        expect(tags.handOff).toHaveBeenCalledWith(WS, {
-            userId: ANA,
-            agentId: BOT,
-            roomId: ROOM,
-            messageId: MSG,
-            text: "hi bot",
-        })
-        store.sentBefore.mockResolvedValue(messageOf({ id: MSG }))
+        valueOf(await subject.send(WS, ANA, sendOf({ body: "hi bot", mentions: [bot, ben], clientId: "c1" })))
+        expect(tags.queueRoute).toHaveBeenCalledTimes(1)
+        expect(tags.queueRoute).toHaveBeenCalledWith(TX, { workspaceId: WS, userId: ANA, roomId: ROOM, messageId: MSG })
+        expect(tags.handOff).not.toHaveBeenCalled()
+        store.sentBefore.mockResolvedValue(messageOf({ id: MSG, body: "hi bot" }))
         valueOf(await subject.send(WS, ANA, sendOf({ mentions: [bot], clientId: "c1" })))
-        expect(store.insertText).toHaveBeenCalledTimes(1)
-        expect(tags.handOff).toHaveBeenCalledTimes(1)
+        // The first send's transaction wrote the job together with the message: the retry stores nothing and writes nothing.
+        expect(store.insertTextWith).toHaveBeenCalledTimes(1)
+        expect(tags.queueRoute).toHaveBeenCalledTimes(1)
+    })
+
+    it("a process killed before the message's transaction commits stores nothing and routes nothing: the client's retry stores both", async () => {
+        const { subject, store, views, files, tags } = await build()
+        files.verify.mockResolvedValue({ ok: true, value: [] })
+        store.sentBefore.mockResolvedValue(null)
+        views.viewOf.mockResolvedValue(mock<MessageView>())
+        store.insertTextWith.mockRejectedValueOnce(Object.assign(new Error("worker killed"), { code: "ECONNRESET" }))
+
+        await expect(subject.send(WS, ANA, sendOf({ body: "hi bot", mentions: [bot], clientId: "c1" }))).rejects.toMatchObject({ code: "ECONNRESET" })
+        expect(tags.queueRoute).not.toHaveBeenCalled()
+
+        storesText(store, messageOf({ id: MSG, body: "hi bot" }))
+        valueOf(await subject.send(WS, ANA, sendOf({ body: "hi bot", mentions: [bot], clientId: "c1" })))
+
+        expect(tags.queueRoute).toHaveBeenCalledTimes(1)
+        expect(tags.queueRoute).toHaveBeenCalledWith(TX, { workspaceId: WS, userId: ANA, roomId: ROOM, messageId: MSG })
     })
 
     it("sends without a tag port when the app has none", async () => {
         const { subject, store, views, files } = await build(false)
         files.verify.mockResolvedValue({ ok: true, value: [] })
         store.sentBefore.mockResolvedValue(null)
-        store.insertText.mockResolvedValue(messageOf())
+        storesText(store, messageOf())
         views.viewOf.mockResolvedValue(mock<MessageView>())
         expect(refusalOf(await subject.send(WS, ANA, sendOf({ mentions: [bot] })))).toBe("done")
     })
@@ -326,13 +394,53 @@ describe("TeamChatRoomsService send refusals", () => {
         store.roomByDirectKey.mockResolvedValue(roomOf({ kind: "direct" }))
         views.roomView.mockResolvedValue(mock<ChatRoomView>())
         store.sentBefore.mockResolvedValue(null)
-        store.insertText.mockResolvedValue(messageOf())
+        storesText(store, messageOf())
         views.viewOf.mockResolvedValue(mock<MessageView>())
         expect(refusalOf(await subject.send(WS, ANA, sendOf({ roomId: null, to: ben })))).toBe("done")
         expect(refusalOf(await subject.send(WS, ANA, sendOf({ roomId: null })))).toBe(TeamChatErrorCode.NotFound)
         expect(refusalOf(await subject.send(WS, ANA, sendOf({ roomId: null, to: ana })))).toBe(
             TeamChatErrorCode.NotFound,
         )
+    })
+})
+
+describe("TeamChatRoomsService: the founder's NIVO room is read-only", () => {
+    const nivoRoom = roomOf({ kind: "direct", name: null, directKey: `system:nivo|user:${ANA}`, purpose: "direct" })
+
+    it("refuses a person's line there before anything is stored, so an @agent tag in it never reaches an agent", async () => {
+        const { subject, access, store, files, tags } = await build()
+        access.visibleRoom.mockResolvedValue(nivoRoom)
+        files.verify.mockResolvedValue({ ok: true, value: [] })
+        store.sentBefore.mockResolvedValue(null)
+
+        expect(refusalOf(await subject.send(WS, ANA, sendOf({ body: "@bot hi", mentions: [bot] })))).toBe(
+            TeamChatErrorCode.Forbidden,
+        )
+        expect(store.insertTextWith).not.toHaveBeenCalled()
+        expect(tags.queueRoute).not.toHaveBeenCalled()
+        expect(store.moveReadPosition).not.toHaveBeenCalled()
+    })
+
+    it("issues no upload address there (a file only travels with a line)", async () => {
+        const { subject, access, files } = await build()
+        access.visibleRoom.mockResolvedValue(nivoRoom)
+        const ask = { fileName: "a.pdf", mimeType: "application/pdf", sizeBytes: 1 }
+
+        expect(refusalOf(await subject.requestUpload(WS, ANA, ROOM, ask))).toBe(TeamChatErrorCode.Forbidden)
+        expect(files.requestUpload).not.toHaveBeenCalled()
+    })
+
+    it("still takes a line in a person-to-person or person-to-agent direct room", async () => {
+        const { subject, access, store, views, files } = await build()
+        access.visibleRoom.mockResolvedValue(
+            roomOf({ kind: "direct", name: null, directKey: `agent:${BOT}|user:${ANA}` }),
+        )
+        files.verify.mockResolvedValue({ ok: true, value: [] })
+        store.sentBefore.mockResolvedValue(null)
+        storesText(store, messageOf())
+        views.viewOf.mockResolvedValue(mock<MessageView>())
+
+        expect(refusalOf(await subject.send(WS, ANA, sendOf()))).toBe("done")
     })
 })
 
@@ -398,36 +506,5 @@ describe("TeamChatRoomsService upload, mute, read and pins", () => {
         access.pinnable.mockResolvedValue(null)
         expect(refusalOf(await subject.pin(WS, ANA, ROOM, MSG))).toBe(TeamChatErrorCode.NotFound)
         expect(refusalOf(await subject.unpin(WS, ANA, ROOM, MSG))).toBe(TeamChatErrorCode.NotFound)
-    })
-})
-
-describe("TeamChatRoomsService engine side", () => {
-    it("hands the approval reads and the card writes to their classes", async () => {
-        const { subject, cards, approvals } = await build()
-        approvals.stateOf.mockResolvedValue(null)
-        approvals.requestOf.mockResolvedValue(null)
-        cards.postReport.mockResolvedValue(null)
-        cards.postApproval.mockResolvedValue(4)
-        cards.postMessage.mockResolvedValue(null)
-        cards.postAsAgent.mockResolvedValue(null)
-        cards.cardRooms.mockResolvedValue(2)
-        expect(await subject.approvalOf(WS, ANA, MSG)).toBeNull()
-        expect(await subject.approvalRequest(WS, MSG)).toBeNull()
-        expect(await subject.postReport(WS, { runId: MSG, agentId: BOT, body: "done", roomId: null })).toBeNull()
-        expect(
-            await subject.postApproval(WS, {
-                decisionId: MSG,
-                agentId: BOT,
-                body: "ok?",
-                roomIds: [],
-                approverSeatIds: [],
-            }),
-        ).toBe(4)
-        expect(
-            await subject.postMessage(WS, { key: "k", authorAgentId: BOT, body: "hi", roomId: ROOM, toUserId: null }),
-        ).toBeNull()
-        expect(await subject.postAsAgent(WS, { agent: "sales", body: "hi", toUserId: null, key: null })).toBeNull()
-        expect(await subject.cardRooms(WS, MSG)).toBe(2)
-        expect(cards.cardRooms).toHaveBeenCalledWith(WS, MSG)
     })
 })

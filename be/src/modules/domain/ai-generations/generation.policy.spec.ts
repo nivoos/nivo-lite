@@ -1,6 +1,5 @@
 import { Test } from "@nestjs/testing"
 import { builder } from "@starci/jest-preset"
-import { AiGenerationsError, AiGenerationsErrorCode } from "./errors/ai-generations.error"
 import type { GenerateParams, GenerationInput } from "./ai-generations.contracts"
 import {
     DEFAULT_TIMEOUT_MS,
@@ -8,7 +7,6 @@ import {
     clampTimeout,
     turnTimeoutOf,
     purposeOf,
-    failureTextOf,
     inputJsonOf,
     inputOf,
     usageOf,
@@ -17,9 +15,8 @@ import {
     queuedOf,
     verdictOf,
     isWaiting,
-    composeTurn,
-    isTimeoutCause,
-    untilAborted,
+    promptOf,
+    runUsageOf,
 } from "./generation.policy"
 
 const SUBJECT = Symbol("generation.policy")
@@ -28,7 +25,6 @@ type Subject = {
     clampTimeout: typeof clampTimeout
     turnTimeoutOf: typeof turnTimeoutOf
     purposeOf: typeof purposeOf
-    failureTextOf: typeof failureTextOf
     inputJsonOf: typeof inputJsonOf
     inputOf: typeof inputOf
     usageOf: typeof usageOf
@@ -37,9 +33,8 @@ type Subject = {
     queuedOf: typeof queuedOf
     verdictOf: typeof verdictOf
     isWaiting: typeof isWaiting
-    composeTurn: typeof composeTurn
-    isTimeoutCause: typeof isTimeoutCause
-    untilAborted: typeof untilAborted
+    promptOf: typeof promptOf
+    runUsageOf: typeof runUsageOf
 }
 
 const buildSubject = async () => {
@@ -52,7 +47,6 @@ const buildSubject = async () => {
                     clampTimeout,
                     turnTimeoutOf,
                     purposeOf,
-                    failureTextOf,
                     inputJsonOf,
                     inputOf,
                     usageOf,
@@ -61,9 +55,8 @@ const buildSubject = async () => {
                     queuedOf,
                     verdictOf,
                     isWaiting,
-                    composeTurn,
-                    isTimeoutCause,
-                    untilAborted,
+                    promptOf,
+                    runUsageOf,
                 },
             },
         ],
@@ -98,84 +91,12 @@ describe("generation policy deadlines", () => {
         expect(subject.turnTimeoutOf(45_000)).toBe(42_000)
         expect(subject.turnTimeoutOf(5000)).toBe(5000)
     })
-
-    it("recognizes timeout and abort errors only", async () => {
-        const subject = await buildSubject()
-        const timeout = new Error("deadline passed")
-        timeout.name = "TimeoutError"
-        const abort = new Error("request aborted")
-        abort.name = "AbortError"
-
-        expect(subject.isTimeoutCause(timeout)).toBe(true)
-        expect(subject.isTimeoutCause(abort)).toBe(true)
-        expect(subject.isTimeoutCause(new Error("ordinary failure"))).toBe(false)
-        expect(subject.isTimeoutCause({ name: "TimeoutError" })).toBe(false)
-        expect(subject.isTimeoutCause(null)).toBe(false)
-    })
-})
-
-describe("generation policy untilAborted", () => {
-    it("resolves with the work and removes its abort listener", async () => {
-        const subject = await buildSubject()
-        const controller = new AbortController()
-        const addListener = jest.spyOn(controller.signal, "addEventListener")
-        const removeListener = jest.spyOn(controller.signal, "removeEventListener")
-
-        await expect(subject.untilAborted(Promise.resolve("delivered"), controller.signal)).resolves.toBe("delivered")
-
-        expect(addListener.mock.calls).toEqual([["abort", expect.any(Function), { once: true }]])
-        expect(removeListener.mock.calls).toEqual([["abort", addListener.mock.calls[0]?.[1]]])
-    })
-
-    it("rejects with the work's error and removes its abort listener", async () => {
-        const subject = await buildSubject()
-        const controller = new AbortController()
-        const addListener = jest.spyOn(controller.signal, "addEventListener")
-        const removeListener = jest.spyOn(controller.signal, "removeEventListener")
-        const failure = new AiGenerationsError({ code: AiGenerationsErrorCode.GenerationFailed })
-
-        await expect(subject.untilAborted(Promise.reject(failure), controller.signal)).rejects.toBe(failure)
-
-        expect(addListener.mock.calls).toEqual([["abort", expect.any(Function), { once: true }]])
-        expect(removeListener.mock.calls).toEqual([["abort", addListener.mock.calls[0]?.[1]]])
-    })
-
-    it("rejects with the reason of an already aborted signal without attaching a listener", async () => {
-        const subject = await buildSubject()
-        const controller = new AbortController()
-        const addListener = jest.spyOn(controller.signal, "addEventListener")
-        const removeListener = jest.spyOn(controller.signal, "removeEventListener")
-        const reason = new Error("deadline already passed")
-        controller.abort(reason)
-
-        await expect(subject.untilAborted(Promise.resolve("too late"), controller.signal)).rejects.toMatchObject({
-            code: AiGenerationsErrorCode.DeadlinePassed,
-            cause: reason,
-        })
-
-        expect(addListener).not.toHaveBeenCalled()
-        expect(removeListener).not.toHaveBeenCalled()
-    })
-
-    it("rejects with the signal's reason when it aborts while the work remains pending", async () => {
-        const subject = await buildSubject()
-        const controller = new AbortController()
-        const work = new Promise<string>(() => undefined)
-        const pending = subject.untilAborted(work, controller.signal)
-        const reason = { message: "deadline passed" }
-
-        controller.abort(reason)
-
-        await expect(pending).rejects.toMatchObject({ code: AiGenerationsErrorCode.DeadlinePassed, cause: reason })
-    })
 })
 
 describe("generation policy row text", () => {
-    it("clips the purpose and the failure text", async () => {
+    it("clips the purpose", async () => {
         const subject = await buildSubject()
         expect(subject.purposeOf("x".repeat(80))).toHaveLength(60)
-        expect(subject.failureTextOf(new Error("e".repeat(300)))).toHaveLength(200)
-        expect(subject.failureTextOf("plain")).toBe("plain")
     })
 
     it("stores the prompt, the format and the deadline", async () => {
@@ -200,6 +121,23 @@ describe("generation policy inputOf", () => {
                 timeout_ms: 7000,
             }),
         ).toEqual({ messages: [{ role: "system", content: "s" }], responseFormat: "json", timeoutMs: 7000 })
+    })
+
+    it("reads back the caller's run and work the stored input carries (U1), and drops a work of another shape", async () => {
+        const subject = await buildSubject()
+        const stored = {
+            messages: [],
+            response_format: "json",
+            timeout_ms: 7000,
+            run_id: "run-1",
+            work: { kind: "learning", ref: "lesson:c-2", step_key: null, agent_id: "agent-1" },
+        }
+
+        expect(subject.inputOf(stored)).toMatchObject({
+            runId: "run-1",
+            work: { kind: "learning", ref: "lesson:c-2", stepKey: null, agentId: "agent-1" },
+        })
+        expect(subject.inputOf({ ...stored, run_id: "", work: { ref: "x" } })).not.toHaveProperty("work")
     })
 
     it("falls back to defaults for a missing or malformed input", async () => {
@@ -293,15 +231,14 @@ describe("generation policy queuedOf", () => {
     })
 })
 
-describe("generation policy composeTurn", () => {
-    it("puts the system prompt, the dialogue so far and the last line in order", async () => {
+describe("generation policy promptOf", () => {
+    it("keeps the messages the app wrote in their order and ends with the form of the answer", async () => {
         const subject = await buildSubject()
-        const text = subject.composeTurn(
+        const prompt = subject.promptOf(
             inputFor({
                 responseFormat: "json",
                 messages: [
                     { role: "system", content: "be brief" },
-                    { role: "system", content: "be kind" },
                     { role: "user", content: "first" },
                     { role: "assistant", content: "answer" },
                     { role: "user", content: "last" },
@@ -309,34 +246,31 @@ describe("generation policy composeTurn", () => {
             }),
         )
 
-        expect(text).toBe(
-            [
-                "[REQUEST: follow these instructions exactly]",
-                "be brief\n\nbe kind",
-                "",
-                "[CONVERSATION SO FAR]",
-                "User: first\nNIVO: answer",
-                "",
-                "[INPUT]",
-                "last",
-                "",
-                "[OUTPUT] Answer with ONLY the JSON object described above. No prose, no code fences.",
-            ].join("\n"),
-        )
+        expect(prompt).toEqual([
+            { role: "system", content: "be brief" },
+            { role: "user", content: "first" },
+            { role: "assistant", content: "answer" },
+            { role: "user", content: "last" },
+            { role: "system", content: "Answer with ONLY the JSON object described above. No prose, no code fences." },
+        ])
     })
 
     it("handles an empty prompt", async () => {
         const subject = await buildSubject()
-        expect(subject.composeTurn(inputFor())).toBe(
-            [
-                "[REQUEST: follow these instructions exactly]",
-                "(no extra instructions)",
-                "",
-                "[INPUT]",
-                "",
-                "",
-                "[OUTPUT] Answer with ONLY the requested text. No preface, no explanation.",
-            ].join("\n"),
-        )
+        expect(subject.promptOf(inputFor())).toEqual([
+            { role: "system", content: "Answer with ONLY the requested text. No preface, no explanation." },
+        ])
+    })
+})
+
+describe("generation policy runUsageOf", () => {
+    it("maps what the endpoint reported, counting what it did not say as zero", async () => {
+        const subject = await buildSubject()
+        expect(
+            subject.runUsageOf({ promptTokens: 10, completionTokens: 5, totalTokens: 15, costUsd: 0.5 }, "m"),
+        ).toEqual({ prompt_tokens: 10, completion_tokens: 5, cached_tokens: 0, cost: 0.5, model: "m" })
+        expect(
+            subject.runUsageOf({ promptTokens: null, completionTokens: null, totalTokens: null, costUsd: null }, "m"),
+        ).toEqual({ prompt_tokens: 0, completion_tokens: 0, cached_tokens: 0, cost: 0, model: "m" })
     })
 })

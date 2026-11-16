@@ -1,10 +1,8 @@
-import type {
-    KnowledgeProgressPush,
-    KnowledgeProgressStage,
-} from "@/modules/api/sse/knowledge/stream-knowledge-progress"
 import type { KnowledgeDocument } from "@/modules/types"
-import { toSourceStatus } from "./knowledge.mapper"
 import { isDocumentActive } from "./status"
+
+/** The stages a worker moves a source through while it indexes it, in order. */
+export type KnowledgeProgressStage = "read" | "chunk" | "embed" | "store" | "facts" | "critic"
 
 /** Where a worker is on a document while it indexes it: the stage and how many passages of it are done. */
 export interface LiveProgress {
@@ -41,20 +39,6 @@ export const KNOWLEDGE_STAGE_KEYS: Readonly<Record<KnowledgeProgressStage, strin
     critic: "stage_critic",
 }
 
-/** The document with the pushed state laid over it when that state is the newer one; the stored list wins when it is. */
-export const overlayPush = (document: KnowledgeDocument, push: KnowledgeProgressPush | undefined): KnowledgeDocument =>
-    push === undefined || push.at < document.updatedAt
-        ? document
-        : {
-              ...document,
-              status: toSourceStatus(push.status),
-              progress: push.progress,
-              error: push.error,
-              chunkCount: push.chunkCount,
-              stage: push.stage,
-              updatedAt: push.at,
-          }
-
 /** The stage a stored text names, or null for none or one this page does not know. */
 const stageOf = (value: string | null): KnowledgeProgressStage | null =>
     value === "read" ||
@@ -66,14 +50,13 @@ const stageOf = (value: string | null): KnowledgeProgressStage | null =>
         ? value
         : null
 
-/** What a worker is doing on a document, or null when no worker is on it. */
-export const liveOf = (document: KnowledgeDocument, push: KnowledgeProgressPush | undefined): LiveProgress | null => {
-    if (!isDocumentActive(document.status)) return null
-    const fresh = push !== undefined && push.at >= document.updatedAt
-    return {
-        stage: stageOf(fresh ? push.stage : document.stage),
-        done: fresh ? push.done : document.stageDone,
-        total: fresh ? push.total : document.stageTotal,
-        percent: document.progress,
-    }
-}
+/** What a worker is doing on a document as the stored list says, or null when no worker is on it. */
+export const liveOf = (document: KnowledgeDocument): LiveProgress | null =>
+    isDocumentActive(document.status)
+        ? {
+              stage: stageOf(document.stage),
+              done: document.stageDone,
+              total: document.stageTotal,
+              percent: document.progress,
+          }
+        : null

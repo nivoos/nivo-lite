@@ -1,34 +1,17 @@
-import { Test } from "@nestjs/testing"
-import { mock } from "@starci/jest-preset"
-import { GAPS_SHOWN, regionKey, toneOfStatus } from "./platform-regions.policy"
+import { ABILITY_SEPARATOR, ATTACHED_ACCESS, GAPS_SHOWN, pick, regionKey } from "./platform-regions.policy"
 
-interface Subject {
-    readonly toneOfStatus: typeof toneOfStatus
-    readonly regionKey: typeof regionKey
-    readonly gapsShown: number
-}
-
-const SUBJECT = Symbol("platform-regions.policy")
-
-const build = async () => {
-    const moduleRef = await Test.createTestingModule({
-        providers: [{ provide: SUBJECT, useValue: mock<Subject>({ toneOfStatus, regionKey, gapsShown: GAPS_SHOWN }) }],
-    }).compile()
-    return moduleRef.get<Subject>(SUBJECT)
-}
+const READ = { id: "bank.read", label: { vi: "\u0110\u1ecdc giao d\u1ecbch", en: "Read transactions" }, scope: "read" as const }
 
 describe("platform regions policy", () => {
-    it("tones the badge of a connection by its status, neutral for one it does not know", async () => {
-        const policy = await build()
-        expect(policy.toneOfStatus("connected")).toBe("success")
-        expect(policy.toneOfStatus("error")).toBe("danger")
-        expect(policy.toneOfStatus("pending")).toBe("warning")
-        expect(policy.toneOfStatus("disconnected")).toBe("neutral")
+    it("names the words of a region by group and value, lists five gaps and parts abilities with a middle dot", () => {
+        expect(regionKey("connections", "title")).toBe("workbench.platform.connections.title")
+        expect(GAPS_SHOWN).toBe(5)
+        expect(ABILITY_SEPARATOR).toBe(" · ")
+        expect(pick(READ.label, "vi")).toBe("\u0110\u1ecdc giao d\u1ecbch")
+        expect(pick(READ.label, "en")).toBe("Read transactions")
     })
 
-    it("names the words of a region by group and value, and lists five gaps", async () => {
-        const policy = await build()
-        expect(policy.regionKey("status", "connected")).toBe("workbench.platform.status.connected")
-        expect(policy.gapsShown).toBe(5)
+    it("gives an attached account one level, whatever its provider serves: the mode of a call is its node's", () => {
+        expect(ATTACHED_ACCESS).toBe("attached")
     })
 })

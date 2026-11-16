@@ -1,4 +1,9 @@
+import type { BackgroundStoppedCardView } from "./background-stop-card.contracts"
+import type { JobParkedCardView } from "./job-parked-card.contracts"
+import type { BrainChangeCardView } from "./brain-change-card.contracts"
 import type { TeamChatErrorCode } from "./errors/team-chat.error"
+import type { ReactionView, ReplyView } from "./team-chat-reaction.contracts"
+import type { StopCardView } from "./stop-card.contracts"
 
 /** The most characters a person's message holds; a longer body is refused so one message cannot swell a thread page. */
 export const BODY_MAX = 8000
@@ -26,6 +31,29 @@ export type MemberKind = "user" | "agent"
 
 /** What a room is: a pair of members or a named group. */
 export type RoomKind = "direct" | "group"
+
+/** What says whether people may write in a room: its kind and, for a direct room, the key of its pair. */
+export interface RoomKeyed {
+    /** A direct room or a group. */
+    readonly kind: RoomKind
+    /** The key of a direct room's pair (`directKeyOf`, `nivoRoomKeyOf`); null for a group. */
+    readonly directKey: string | null
+}
+
+/**
+ * What a room is for: `direct` (a pair), `group` (a plain named group), `common` (the one room of the whole workspace) or `module` (the one
+ * room of a module's team). An agent addresses a room by its purpose, never by its id.
+ */
+export type RoomPurpose = "direct" | "group" | "common" | "module"
+
+/** The purpose a group may be given: plain, the common room, or the room of one module's team. */
+export type GroupPurpose =
+    | { readonly purpose: "group" | "common" }
+    | {
+          readonly purpose: "module"
+          /** The module (department) whose team room it is. */
+          readonly module: string
+      }
 
 /** What a member may do in a room: an owner manages the members of a group, a member only takes part. */
 export type RoomRole = "owner" | "member"
@@ -57,6 +85,11 @@ export interface RoomMemberView extends ChatMemberRef {
     readonly lastReadAt: Date
     /** Whether the member silenced the room, so a screen shows no alert for it. */
     readonly muted: boolean
+    /**
+     * Whether the seat may write in this room: an agent seat when it holds the right to post in this group; a person seat in every room
+     * except a read-only one (the founder's NIVO room answers false).
+     */
+    readonly mayPost: boolean
 }
 
 /** Where the decision an approval card is about stands, for one viewer. */
@@ -117,6 +150,22 @@ export interface MessageView {
     readonly decisionId: string | null
     /** The state of that decision; null for any other kind. */
     readonly approval: ApprovalState | null
+    /** The structured message of an agent, as JSON text, when the line carries one; null otherwise. */
+    readonly agentMessage: string | null
+    /** The emoji on the message, summed over the members, the most tapped first; empty when none. */
+    readonly reactions: ReadonlyArray<ReactionView>
+    /** The message this one answers, as a quote; null when it answers none. */
+    readonly replyTo: ReplyView | null
+    /** Whose words a forwarded message carries (empty when the author is unknown); null when the message was not forwarded. */
+    readonly forwardedFrom: string | null
+    /** The typed stop a `workflow.stopped` card is about (its state, needs and the founder's replies); null for any other line. */
+    readonly stop: StopCardView | null
+    /** The truth-graph change card (`brain.change`) as this viewer sees it; null for every other line. */
+    readonly brainChange: BrainChangeCardView | null
+    /** NIVO's "background work stopped" card (`background.stopped`): what stopped, why, since when, where to retry; null for every other line. */
+    readonly backgroundStopped: BackgroundStoppedCardView | null
+    /** NIVO's "a job stopped for a fix" card (`job.parked`): which job, why, which park episode; the person's door resumes or closes it; null for every other line. */
+    readonly jobParked: JobParkedCardView | null
 }
 
 /** One room as a screen shows it, for one viewer. */
@@ -125,8 +174,14 @@ export interface ChatRoomView {
     readonly id: string
     /** Whether the room is a pair or a group. */
     readonly kind: RoomKind
-    /** The name printed for the room: the group name, or the other member of a direct room. */
+    /** What the room is for. */
+    readonly purpose: RoomPurpose
+    /** The module whose team room it is; null unless the purpose is `module`. */
+    readonly purposeModule: string | null
+    /** The name printed for the room: the group name, the other member of a direct room, or "NIVO" for a NIVO room. */
     readonly name: string
+    /** Whether the room is the viewer's NIVO room: the direct room where NIVO itself (no agent) reports to the founder. */
+    readonly withNivo: boolean
     /** Where the room sorts among rooms that have no message. */
     readonly position: number
     /** The account that opened the room. */
@@ -252,6 +307,8 @@ export interface SendInput {
     readonly fileKeys: ReadonlyArray<string>
     /** The author's retry key: the same key from the same author in the same room is the same message. */
     readonly clientId: string | null
+    /** The message of the same room this one answers; null or omitted for none. */
+    readonly replyTo?: string | null
 }
 
 /** The input of opening a room. */
@@ -262,6 +319,8 @@ export interface CreateRoomInput {
     readonly name: string | null
     /** The members to add besides the person who opens it. */
     readonly members: ReadonlyArray<ChatMemberRef>
+    /** What a group is for; a plain group when omitted. A direct room is always `direct`. */
+    readonly purpose?: GroupPurpose | undefined
 }
 
 /** The report of a finished run to write as a card. */
@@ -286,20 +345,6 @@ export interface ReportPosted {
     readonly created: boolean
 }
 
-/** The approval card of one decision to post. */
-export interface ApprovalPostInput {
-    /** The decision the cards stand for. */
-    readonly decisionId: string
-    /** The words of the card. */
-    readonly body: string
-    /** The agent that asked; null when the system asks, and then no direct room is opened. */
-    readonly agentId: string | null
-    /** The rooms the rule names, each of which receives a card. */
-    readonly roomIds: ReadonlyArray<string>
-    /** The approver seats the rule names one by one, each of whom receives a card in a direct room with the agent. */
-    readonly approverSeatIds: ReadonlyArray<string>
-}
-
 /** One line of an agent, or of the system, to write into a room. */
 export interface LineInput {
     /** The agent that speaks; null for a system line. */
@@ -312,6 +357,10 @@ export interface LineInput {
     readonly body: string
     /** The retry key: the same key from the same agent in the same room is the same line. */
     readonly key: string | null
+    /** The structured message the line carries as JSON text, or null for a plain line. */
+    readonly agentMessage?: string | null
+    /** The message of the same room this line answers; null or omitted for none. */
+    readonly replyTo?: string | null
 }
 
 /** Where a line went. */
@@ -332,28 +381,14 @@ export interface AgentPostInput {
     readonly body: string
     /** The retry key of the line. */
     readonly key: string | null
+    /** The structured message the line carries as JSON text, or null for a plain line. */
+    readonly agentMessage?: string | null
 }
 
 /** Where a line of an agent went, and which agent spoke. */
 export interface AgentPosted extends LinePosted {
     /** The agent that spoke, once the name was resolved. */
     readonly agentId: string
-}
-
-/** The request a decision card is about, with the approver group it stored. */
-export interface ApprovalRequestView {
-    /** The request id, which is the decision id of its cards. */
-    readonly id: string
-    /** The action the request asks about. */
-    readonly action: string
-    /** The amount of the action; null when it carries none. */
-    readonly amount: number | null
-    /** What the amount is counted in. */
-    readonly unit: string
-    /** The agent that asked; null when none did. */
-    readonly requestedByAgentId: string | null
-    /** The approver group the request kept in place of the live rule; null for a request of a rule. */
-    readonly storedGroup: unknown
 }
 
 /** A member as a message row keeps a mention of it. */
@@ -370,4 +405,16 @@ export interface MessageRef {
     readonly run_id?: string
     /** The decision an approval card is about. */
     readonly decision_id?: string
+    /** The structured message an agent said (its kind, intent and payload) as JSON text, which a screen draws as a card; the line itself stays readable text. */
+    readonly agent_message?: string
+    /** Whose words a forwarded message carries: the name of the author of the message that was forwarded. */
+    readonly forwarded_from?: string
 }
+
+/**
+ * How a verdict on an approval card ends. No road opens an approval card any more (a node on `ask` is answered on its run's stop
+ * card), so the one answer is `decision_not_found`; the shape stays for the web app that still sends it.
+ */
+export type DecideOutcome =
+    | { readonly ok: true; readonly approval: ApprovalState }
+    | { readonly ok: false; readonly refusal: "decision_not_found" | "not_an_approver" | "decision_closed" }

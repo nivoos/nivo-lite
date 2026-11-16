@@ -14,7 +14,7 @@ import { toDecideSetupCardRequest, toSetupCardType } from "./modules.mapper"
 export class DecideSetupCardResolver {
     constructor(@InjectCommandBus() private readonly commandBus: CommandBus) {}
 
-    /** Confirms (optionally edited) or rejects one confirm card; confirming writes the fact to the Second Brain or the rule to the Authority. */
+    /** Confirms (optionally edited) or rejects one confirm card; confirming writes the fact to the Second Brain. */
     @Mutation(() => SetupCardType, { name: "decideSetupCard" })
     async decideSetupCard(
         @CurrentPrincipal() principal: Principal,

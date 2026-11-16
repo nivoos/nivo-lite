@@ -1,4 +1,4 @@
-import { SpecWorkbench } from "@nivo-lite/agent-sdk/client"
+import { SpecWorkbench, type PageFrameTabs } from "@nivo-lite/agent-sdk/client"
 import type { ActionDefinition, ReadDefinition } from "@nivo-lite/agent-sdk/block"
 import type { StoredSpec } from "@nivo-lite/agent-sdk/spec"
 
@@ -14,6 +14,8 @@ export interface SpecWorkbenchFrameBaseProps {
         readonly installationId: string
         /** The view the route names; null opens the first visible view. */
         readonly tab: string | null
+        /** The frame around the workbench takes its view tabs for its header; null outside one. */
+        readonly tabsSink: ((tabs: PageFrameTabs | null) => void) | null
     }
 }
 
@@ -28,5 +30,6 @@ export const SpecWorkbenchFrameBase = (props: SpecWorkbenchFrameBaseProps) => (
         namespace={props.props.namespace}
         route={{ installationId: props.props.installationId, tab: props.props.tab }}
         canManage={false}
+        {...(props.props.tabsSink === null ? {} : { tabsSink: props.props.tabsSink })}
     />
 )

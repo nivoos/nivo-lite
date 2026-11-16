@@ -12,7 +12,7 @@ import { InstanceOfRecordInput } from "./dto/instance-of-record.input"
 export class InstanceOfRecordResolver {
     constructor(@InjectQueryBus() private readonly queryBus: QueryBus) {}
 
-    /** The installation of a work item, conversation, booking, lead flow or lead; null when none says. */
+    /** The installation of a work item or conversation; null when none says. */
     @Query(() => ID, { name: "instanceOfRecord", nullable: true })
     async instanceOfRecord(
         @CurrentPrincipal() principal: Principal,

@@ -1,13 +1,14 @@
 import { Injectable } from "@nestjs/common"
-import { FencedProcessor, type ClaimedJob } from "@modules/platform/jobs"
+import { FencedProcessor, type ClaimedJob, type JobDefinition } from "@modules/platform/jobs"
 import type { QueueDelivery } from "@modules/platform/queue"
-import { INVITE_COMMAND_QUEUE } from "@modules/queues/invite-command"
+import { INVITE_COMMAND_QUEUE, ISSUE_INVITE_JOB, type InviteCommandPayload } from "@modules/queues/invite-command"
 import { IssueInviteStep } from "../../steps/issue-invite.step"
 
 @Injectable()
-/** The processor of the issue-invite job: the runner claims and settles it; `process` delegates the fenced claim to the one step. */
+/** The processor of the issue-invite job: the runner claims and settles it; `process` delegates to the one step. */
 export class IssueInviteProcessor extends FencedProcessor {
-    readonly queue: "invite_command" = INVITE_COMMAND_QUEUE
+    override readonly queue: "invite_command" = INVITE_COMMAND_QUEUE
+    override readonly definition: JobDefinition<InviteCommandPayload> = ISSUE_INVITE_JOB
 
     constructor(private readonly issue: IssueInviteStep) {
         super()
@@ -18,8 +19,8 @@ export class IssueInviteProcessor extends FencedProcessor {
         await this.issue.run(job)
     }
 
-    /** The job ended as failed: the command is settled as failed so the asker is told. */
+    /** The job was dead-lettered (one item for a person): the command says the work stopped; a resume re-opens it. */
     override async onFailed(delivery: QueueDelivery): Promise<void> {
-        await this.issue.abandon(delivery.payload)
+        await this.issue.stopped(delivery.payload)
     }
 }

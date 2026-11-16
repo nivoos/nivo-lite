@@ -12,7 +12,7 @@ import { toApproverMembersType, toListApproversRequest } from "./decisions.mappe
 export class ApproverDirectoryResolver {
     constructor(@InjectQueryBus() private readonly queryBus: QueryBus) {}
 
-    /** Lists everyone of the workspace with the rooms they sit in; owner and manager only. */
+    /** Answers an empty list (approver groups are gone with the authority rules, 2026-11-13); owner and manager only. */
     @Query(() => [ApproverMemberType], { name: "approverDirectory" })
     async approverDirectory(
         @CurrentPrincipal() principal: Principal,

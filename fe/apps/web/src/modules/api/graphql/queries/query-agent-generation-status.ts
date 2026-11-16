@@ -1,6 +1,6 @@
 import { gql, type ApolloClient, type TypedDocumentNode } from "@apollo/client"
-import { createAuthApolloClient } from "../clients"
-import type { InputVariables, QueryParams, WireInput } from "../types"
+import { createAuthApolloClient, type InputVariables, type QueryParams, type WireInput } from "@nivo-lite/api"
+import { webApiTransport } from "@/modules/api-transport"
 import type { AgentGenerationStatusQuery, AgentGenerationStatusQueryVariables } from "../__generated__/graphql"
 
 /** Generated variables of the queued text status query. */
@@ -38,7 +38,7 @@ export const queryAgentGenerationStatus = async ({
     request,
     signal,
 }: QueryAgentGenerationStatusParams): Promise<ApolloClient.QueryResult<QueryAgentGenerationStatusResponse>> => {
-    const apollo = createAuthApolloClient({ signal })
+    const apollo = createAuthApolloClient(webApiTransport, { signal })
     return apollo.query({
         query: queryMap[query],
         variables: { input: request },

@@ -1,4 +1,3 @@
-import type { ModuleKey } from "@/modules/catalog"
 import type { Installation } from "./installations.types"
 
 const NAME_MAX = 80
@@ -12,7 +11,7 @@ export const instanceNameKey = (name: string): string => name.trim().toLowerCase
  * after the instances that exist, skipping any name already taken, case-insensitive).
  */
 export const nextInstanceName = (typeName: string, taken: ReadonlyArray<string>): string => {
-    const used = new Set(taken.map((name) => instanceNameKey(name)))
+    const used = new Set(taken.map((entry) => instanceNameKey(entry)))
     if (taken.length === 0 && !used.has(instanceNameKey(typeName))) return typeName
     for (let n = Math.max(2, taken.length + 1); n < NAME_SEARCH_LIMIT; n += 1) {
         const candidate = `${typeName} ${n}`
@@ -30,7 +29,7 @@ export const cleanInstanceName = (name: string): string | null => {
 /** The instances of one type, oldest first (the first is what type-level callers mean by "the" installation). */
 export const instancesOf = <T extends Pick<Installation, "moduleKey" | "createdAt">>(
     installations: ReadonlyArray<T>,
-    moduleKey: ModuleKey,
+    moduleKey: string,
 ): Array<T> =>
     installations.filter((i) => i.moduleKey === moduleKey).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 

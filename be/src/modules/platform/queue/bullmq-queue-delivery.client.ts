@@ -18,7 +18,9 @@ import {
     isExhausted,
     isUnrecoverable,
     reasonOf,
+    fairGroupKeyOf,
     secondsOf,
+    workspaceLimitOf,
     workspaceOf,
 } from "./queue.policy"
 import type { BullmqJob, QueueRedisGuard } from "./queue-transport.port"
@@ -90,11 +92,14 @@ export class BullmqQueueDeliveryClient {
             throw new UnrecoverableError(QueueErrorCode.Unrecoverable)
         }
         await redis.command(redis.ready(handler.queue))
+        const group = typeof handler.fairGroupOf === "function" ? fairGroupKeyOf(await handler.fairGroupOf(job.name, job.data)) : null
+        // A job with a fair group is admitted by the five-argument job_start (migration 020900); every other job as before.
         const [started] = await callDbFunction<QueueStartRow>(this.entityManager, "public.job_start", [
             handler.queue,
             id,
-            this.options.workspaceConcurrency,
+            workspaceLimitOf(this.options.workspaceConcurrency, handler, job.name),
             secondsOf(this.options.visibilityTimeoutMs),
+            ...(group === null ? [] : [group]),
         ])
         if (started === undefined || started.outcome === "missing") {
             throw new UnrecoverableError(QueueErrorCode.Unrecoverable)
@@ -105,41 +110,50 @@ export class BullmqQueueDeliveryClient {
         }
         if (started.outcome !== "started") return this.defer(job, token, deferMsOf(id), redis)
         const delivery = deliveryOf(handler.queue, job, started.attempt, signal)
-        try {
-            await this.handled(handler, delivery, started.run_token)
-        } catch (cause: unknown) {
-            try {
-                await this.settleFailure(handler, delivery, job, token, started.run_token, cause, redis)
-            } catch (error: unknown) {
-                if (!(error instanceof DelayedError) && !(error instanceof UnrecoverableError)) {
-                    this.logger.error(QueueLogEvent.SettleFailed, error, { queue: handler.queue, jobId: id })
+        const failure = await this.handled(handler, delivery, started.run_token)
+        if (failure === null) return this.complete(handler.queue, id, started.run_token)
+        return this.settleFailure(handler, delivery, job, token, started.run_token, failure.cause, redis).catch(
+            (cause: unknown) => {
+                if (
+                    cause !== failure.cause &&
+                    !(cause instanceof DelayedError) &&
+                    !(cause instanceof UnrecoverableError)
+                ) {
+                    this.logger.error(QueueLogEvent.SettleFailed, cause, { queue: handler.queue, jobId: id })
                 }
-                throw error
-            }
-            throw cause
-        }
-        return this.complete(handler.queue, id, started.run_token)
+                throw cause
+            },
+        )
     }
 
     /** Runs the handler while the slot is renewed; the heartbeat ends whether the handler throws or rejects. */
-    private handled(handler: QueueHandler, delivery: QueueDelivery, runToken: string): Promise<void> {
+    private handled(
+        handler: QueueHandler,
+        delivery: QueueDelivery,
+        runToken: string,
+    ): Promise<{ cause: unknown } | null> {
         const heartbeat = setInterval(
             () => void this.touch(delivery.id, handler.queue, runToken),
             Math.ceil(this.options.visibilityTimeoutMs / TOUCHES_PER_TIMEOUT),
         )
         return Promise.resolve()
             .then(() => handler.handle(delivery))
+            .then(
+                () => null,
+                (cause: unknown) => ({ cause }),
+            )
             .finally(() => clearInterval(heartbeat))
     }
 
     /** Closes the row done under the admission token; a persistence failure is logged and fails the delivery. */
     private complete(queue: string, id: string, runToken: string): Promise<void> {
-        return callDbFunction(this.entityManager, "public.job_done", [id, runToken])
-            .then(() => undefined)
-            .catch((cause: unknown) => {
+        return callDbFunction(this.entityManager, "public.job_done", [id, runToken]).then(
+            () => undefined,
+            (cause: unknown) => {
                 this.logger.error(QueueLogEvent.SettleFailed, cause, { queue, jobId: id })
                 throw cause
-            })
+            },
+        )
     }
 
     /** Renews the workspace slot of a running delivery; a failure is logged and the next renewal tries again. */
@@ -195,6 +209,7 @@ export class BullmqQueueDeliveryClient {
         }
         this.logger.error(QueueLogEvent.DeliveryFailed, cause, fields)
         await callDbFunction(this.entityManager, "public.job_retry", [delivery.id, reasonOf(cause), runToken])
+        throw cause
     }
 
     /** Moves a delivery back without spending a broker attempt. */

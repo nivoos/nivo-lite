@@ -4,16 +4,12 @@ import { GOOGLE_MARK } from "./classNames"
 
 /** What an icon MEANS on these screens. The glyph that draws it is this file business. */
 export type IconName =
-    | "moduleAccounting"
     | "moduleBooking"
     | "moduleChatbot"
     | "moduleContent"
     | "moduleHiring"
-    | "moduleInventory"
     | "moduleLeadGen"
-    | "moduleLoyalty"
     | "moduleSales"
-    | "moduleShifts"
     | "moduleVideo"
     | "brand"
     | "streak"
@@ -65,6 +61,8 @@ export type IconName =
     | "notification"
     | "account"
     | "profile"
+    | "settings"
+    | "developers"
     | "saved"
     | "blog"
     | "talents"
@@ -101,6 +99,9 @@ export type IconName =
     | "view"
     | "sparkle"
     | "handRaised"
+    | "calendar"
+    | "goal"
+    | "play"
 
 /** What Google's mark takes: the SVG props a glyph source receives. */
 type GoogleMarkProps = SVGProps<SVGSVGElement>

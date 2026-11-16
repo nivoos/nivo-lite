@@ -6,7 +6,6 @@ import type {
     AgentGraphLine,
     AgentGraphMemberData,
     AgentGraphNodeData,
-    AgentGraphProposalData,
     AgentGraphRunData,
     AgentGraphSourceData,
     AgentGraphWords,
@@ -53,16 +52,11 @@ export interface AgentGraphRunRead {
 /** Everything the graph is made of once it was read. */
 export interface AgentGraphWireInput {
     readonly wire: AgentGraphWire
-    readonly mode: string
     readonly activeVersionId: string | null
     readonly versions: ReadonlyArray<AgentGraphWireVersion>
     readonly members: ReadonlyArray<AgentGraphMemberData>
     readonly coverage: ReadonlyArray<AgentGraphCoverageRow>
     readonly run: AgentGraphRunRead | null
-    /** The changes saved to the draft on this screen since it was read. */
-    readonly changes: number
-    /** True when the draft differs from the version that decides, as the back end read it. */
-    readonly isDraftChanged: boolean
 }
 
 /** The words the mapping needs beyond the catalogue. */
@@ -172,7 +166,7 @@ const branchOf = (
         key: branch.key,
         when: sentence(ctx.isOneFact !== true),
         whenFull: sentence(true),
-        outcome: branch.outcome,
+        mode: branch.mode,
         next: branch.next,
         approver: approverOf(branch.approver, members, words.t, coverageWordsOf(row, words.t)),
         sources: branch.sources.map((source) => sourceOf(source, words, ctx.input)),
@@ -190,6 +184,11 @@ const cardOf = (card: AgentGraphWire["cards"][number] | undefined): AgentGraphNo
     shape: card?.shape ?? "rect",
     count: card?.count ?? "",
     isPlaceholder: card?.isPlaceholder ?? false,
+    group: card?.group ?? "",
+    wait:
+        card?.wait === undefined
+            ? null
+            : { kind: card.wait.kind, timeout: card.wait.timeout ?? "", reminder: card.wait.reminder ?? "" },
 })
 
 const nodeOf = (
@@ -228,49 +227,6 @@ const nodeOf = (
         branchOf(branch, { nodeKey: node.key, input, isOneFact: (node.decide?.facts.length ?? 0) <= 1 }, words),
     ),
 })
-
-/** A conflict reads the two passages and what switching does; the other kinds read their evidence. */
-const proposalOf = (
-    proposal: AgentGraphWire["proposals"][number],
-    words: AgentGraphWireWords,
-): AgentGraphProposalData => {
-    const { t } = words
-    const isConflict = proposal.kind === "conflict"
-    const passage = (text: string | null | undefined): AgentGraphSourceData | null =>
-        isConflict && text !== undefined && text !== null ? { kind: "brain", quote: text, place: "" } : null
-    return {
-        id: proposal.id,
-        kind: proposal.kind,
-        title: t("proposalTitleWire", { kind: proposal.kind }),
-        why: isConflict ? t("conflictWhy") : t("proposalWhyWire", { count: proposal.evidence.length }),
-        widens: proposal.widens,
-        nodeKey: proposal.nodeKey ?? "",
-        branchKey: proposal.branchKey ?? "",
-        evidence: isConflict
-            ? []
-            : proposal.evidence.map((line, index) => ({ id: `${proposal.id}-${index}`, line, outcome: "" })),
-        before: passage(proposal.before),
-        after: passage(proposal.after),
-        effects: isConflict ? [t("conflictEffectRule"), t("conflictEffectKept"), t("conflictEffectNow")] : [],
-        confirmLabel: isConflict ? t("conflictConfirm") : t("proposalConfirmWire"),
-        keepLabel: isConflict ? t("conflictKeep") : t("proposalDecline"),
-        boundaryVnd: null,
-    }
-}
-
-/** The actions the agent performs, each with whether a decision point already stands in front of it. */
-const actionsOf = (wire: AgentGraphWire): AgentGraphData["actions"] =>
-    wire.document.nodes.flatMap((node) =>
-        node.step === "write" && typeof node.action === "string"
-            ? [
-                  {
-                      action: node.action,
-                      title: node.title,
-                      isGuarded: wire.document.nodes.some((other) => other.decide?.intent === node.action),
-                  },
-              ]
-            : [],
-    )
 
 const factsOf = (wire: AgentGraphWire): ReadonlyArray<AgentGraphFactData> => wire.facts
 
@@ -312,9 +268,7 @@ const runOf = (run: AgentGraphRunRead, input: AgentGraphWireInput, words: AgentG
 
 /** The graph the panes draw, made of what the contract carries and the people of the workspace. */
 export const agentGraphOfWire = (input: AgentGraphWireInput, words: AgentGraphWireWords): AgentGraphData => ({
-    mode: input.mode === "enforced" ? "enforced" : "shadow",
     activeVersion: input.versions.find((version) => version.id === input.activeVersionId)?.version ?? 0,
-    changes: input.isDraftChanged ? Math.max(1, input.changes) : 0,
     gaps: input.wire.gaps.map((gap) => ({ code: gap.code, nodeKey: gap.nodeKey, branchKey: gap.branchKey ?? "" })),
     problems: input.wire.problems.map((problem) => ({
         code: problem.code,
@@ -324,11 +278,7 @@ export const agentGraphOfWire = (input: AgentGraphWireInput, words: AgentGraphWi
     })),
     nodes: input.wire.document.nodes.map((node) => nodeOf(node, input, words)),
     versions: input.versions.map((version) => versionOf(version, input, words)),
-    proposals: input.wire.proposals
-        .filter((proposal) => proposal.status === "open")
-        .map((proposal) => proposalOf(proposal, words)),
     runs: input.run === null ? [] : [runOf(input.run, input, words)],
     members: input.members,
     facts: factsOf(input.wire),
-    actions: actionsOf(input.wire),
 })

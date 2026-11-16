@@ -2,6 +2,20 @@ import { EnvSource, Secret } from "@modules/platform/config"
 import { parseConnectionPollConfig } from "@modules/domain/connection-poll"
 import { parseRedisConfig } from "@modules/integrations/redis"
 import { parseRemoteFilesConfig } from "@modules/integrations/remote-files"
+import { parseInetConfig } from "@modules/integrations/inet"
+import { parsePayosConfig } from "@modules/integrations/payos"
+import { parseTinoConfig } from "@modules/integrations/tino"
+import { parseElevenLabsConfig } from "@modules/integrations/elevenlabs"
+import { parseVeoConfig } from "@modules/integrations/veo"
+import { parseShotstackConfig } from "@modules/integrations/shotstack"
+import { parseCreatomateConfig } from "@modules/integrations/creatomate"
+import { parseJson2VideoConfig } from "@modules/integrations/json2video"
+import { parseGoogleCalendarConfig } from "@modules/integrations/google-calendar"
+import { parseMetaPublishingConfig } from "@modules/integrations/meta-publishing"
+import { parseYoutubeConfig } from "@modules/integrations/youtube"
+import { parseTiktokConfig } from "@modules/integrations/tiktok"
+import { parseMisaAmisConfig } from "@modules/integrations/misa-amis"
+import { parseMisaMeinvoiceConfig } from "@modules/integrations/misa-meinvoice"
 import { parseZaloProviderConfig } from "@modules/domain/zalo-provider"
 import type { DynamicModule } from "@nestjs/common"
 import { parsePrimaryDatabaseConfig } from "@modules/platform/database"
@@ -22,15 +36,6 @@ const SITE = "https://site.invalid"
 
 /** The providers of the api, every one at an address nothing answers. */
 const providerOptions = () => ({
-    openclaw: {
-        gateway: null,
-        turnTimeoutMs: 1000,
-        settleMs: 100,
-        configDir: undefined,
-        gatewayStateDir: "world-proof",
-        manageAgents: false,
-        toolSecret: null,
-    },
     agentTurns: { bridgeSecret: null },
     aiTasks: {
         jsonRetries: 1,
@@ -49,6 +54,20 @@ const providerOptions = () => ({
     dataSources: { allowPrivateHosts: false },
     telegramUser: { app: null },
     platformAdmin: { admins: [] },
+    inet: parseInetConfig(new EnvSource({})),
+    tino: parseTinoConfig(new EnvSource({})),
+    payos: parsePayosConfig(new EnvSource({})),
+    elevenlabs: parseElevenLabsConfig(new EnvSource({})),
+    veo: parseVeoConfig(new EnvSource({})),
+    shotstack: parseShotstackConfig(new EnvSource({})),
+    creatomate: parseCreatomateConfig(new EnvSource({})),
+    json2video: parseJson2VideoConfig(new EnvSource({})),
+    googleCalendar: parseGoogleCalendarConfig(new EnvSource({})),
+    metaPublishing: parseMetaPublishingConfig(new EnvSource({})),
+    youtube: parseYoutubeConfig(new EnvSource({})),
+    tiktok: parseTiktokConfig(new EnvSource({})),
+    misaAmis: parseMisaAmisConfig(new EnvSource({})),
+    misaMeinvoice: parseMisaMeinvoiceConfig(new EnvSource({})),
 })
 
 /** Sign-in settings for a proof: keys that are never loaded and no Google client. */
@@ -87,7 +106,7 @@ const localMail: ApiOptions["mail"] = {
 /** An AI pool with no keys: no router and no gateway are registered, so the api boots and its AI callers fall back without a provider call. */
 const keylessAiGateway: ApiOptions["aiGateway"] = {
     providers: [],
-    models: { work: "world-chat", embed: "world-embedding" },
+    models: { work: "world-chat", strong: "world-strong" },
     gateway: null,
 }
 
@@ -102,17 +121,24 @@ const storageProof = {
     timeoutMs: 1000,
 }
 
-/** The poll and burst settings of the api, at their defaults with no provider behind them. */
+/** The poll settings of the api, at their defaults with no provider behind them. */
 const pollOptions = (): Pick<
     ApiOptions,
-    "connectionPoll" | "redis" | "remoteFiles" | "sepay" | "zaloProvider" | "agentWork"
+    "connectionPoll" | "redis" | "remoteFiles" | "sepay" | "zaloProvider"
 > => ({
     connectionPoll: parseConnectionPollConfig(new EnvSource({})),
     redis: parseRedisConfig(new EnvSource({})),
     remoteFiles: parseRemoteFilesConfig(new EnvSource({})),
     sepay: { apiBase: "https://sepay.invalid", timeoutMs: 1000 },
     zaloProvider: parseZaloProviderConfig(new EnvSource({})),
-    agentWork: { debounceMs: 0 },
+})
+
+/** The http hardening of the proof api: one trusted origin, the default rate limits and no webhook secrets. */
+const localHttpSecurity = (): ApiOptions["httpSecurity"] => ({
+    trustedProxyHops: 0,
+    allowedOrigins: [SITE],
+    rateLimit: { windowMs: 60000, defaultLimit: 100, strictLimit: 10 },
+    webhooks: {},
 })
 
 /**
@@ -121,12 +147,7 @@ const pollOptions = (): Pick<
  */
 const localApiOptions = (): ApiOptions => ({
     server: { port: 0 },
-    httpSecurity: {
-        trustedProxyHops: 0,
-        allowedOrigins: [SITE],
-        rateLimit: { windowMs: 60000, defaultLimit: 100, strictLimit: 10 },
-        webhooks: {},
-    },
+    httpSecurity: localHttpSecurity(),
     database: parsePrimaryDatabaseConfig(EnvSource.fromProcess()),
     storage: storageProof,
     aiGateway: keylessAiGateway,
@@ -140,6 +161,7 @@ const localApiOptions = (): ApiOptions => ({
         readers: { docx: refuseNetwork, pdf: refuseNetwork, pdfPages: refuseNetwork },
     },
     workspaces: { allowFreeWorkspace: true },
+    apiKeys: {},
     workspaceInvites: { siteUrl: SITE, inviteDays: 7 },
     billing: {
         sepayApiKey: undefined,
@@ -171,6 +193,7 @@ const localApiOptions = (): ApiOptions => ({
         publicSiteUrl: undefined,
         publicApiUrl: "https://api.invalid",
     },
+    providerSandbox: { enabled: true },
     webhookConnections: { signingSecret: undefined },
     google: {
         client: null,
@@ -192,11 +215,10 @@ const localApiOptions = (): ApiOptions => ({
     },
     channelSetup: { zaloOauthBase: undefined, siteUrl: SITE, timeoutMs: 1000 },
     webhookDelivery: { timeoutMs: 1000 },
-    ffmpeg: { nice: false },
-    tts: { provider: "none", cacheDir: "world-proof/cache", workDir: "world-proof/work", minGapMs: 0 },
-    video: { fontsDir: "world-proof/fonts", workDir: "world-proof/work", maxSeconds: 60, ffmpegThreads: 1 },
-    mcpGateway: { remote: { clientName: "nivo-mcp-gateway" }, defaultTimeoutMs: 4000 },
-    knowledge: { indexChunkDelayMs: 0 },
+    toolsConfig: { defaultTimeoutMs: 4000 },
+    // The vector index is a required engine piece. A proof runs no Qdrant: this address refuses at once (the discard port), so the
+    // collections are not prepared, a meaning search answers by words, and the readiness probe says `vectors` is down.
+    qdrant: { url: "http://127.0.0.1:9", apiKey: null, timeoutMs: 1000 },
 })
 
 /** The optional external model configuration of a proof; every domain binding remains the production binding. */

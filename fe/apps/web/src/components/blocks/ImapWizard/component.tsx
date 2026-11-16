@@ -1,4 +1,4 @@
-import type { AgentStepView, DataSlot, SlotLabels, WizardResume } from "@/modules/types"
+import type { AgentStepView, DataSlot, SlotLabels, WizardResume, WizardPhases } from "@/modules/types"
 import { SlotView } from "@nivo-lite/agent-sdk/client"
 import { Alert, Button, CheckboxGroup, RadioGroup, Text } from "@starci/grammar/common"
 import { ImapAccountFields, type ImapAccountFieldsProps } from "@/components/composites/ImapAccountFields"
@@ -8,6 +8,7 @@ import {
     WizardFooter,
     backAction,
     closeAction,
+    forwardAction,
     nextAction,
     type WizardAction,
 } from "@/components/branches/WizardFooter"
@@ -50,8 +51,9 @@ export interface ImapWizardBaseProps {
         readonly title: string
         readonly stepLabel: string
         readonly steps: ReadonlyArray<string>
+        readonly phases: WizardPhases
         readonly index: number
-        readonly step: "account" | "folders" | "schedule" | "agent"
+        readonly step: "account" | "folders" | "agent"
         readonly account: ImapAccountView
         readonly folders: {
             readonly options: ReadonlyArray<ImapChoice>
@@ -61,7 +63,6 @@ export interface ImapWizardBaseProps {
             readonly since: string
             readonly sinceOptions: ReadonlyArray<ImapChoice>
         }
-        readonly schedule: { readonly value: string; readonly options: ReadonlyArray<ImapChoice> }
         readonly agentStep: AgentStepView
         readonly error: string | null
         readonly isPending: boolean
@@ -80,8 +81,6 @@ export interface ImapWizardBaseProps {
                 | "foldersHint"
                 | "sinceTitle"
                 | "sinceHint"
-                | "scheduleHint"
-                | "scheduleLabel"
                 | "saved",
                 string
             >
@@ -97,7 +96,6 @@ export interface ImapWizardBaseProps {
         readonly retry: () => void
         readonly folders: (paths: ReadonlyArray<string>) => void
         readonly since: (value: string) => void
-        readonly schedule: (value: string) => void
         readonly agents: (ids: ReadonlyArray<string>) => void
     }
 }
@@ -107,12 +105,14 @@ const actionsOf = ({ props, on }: ImapWizardBaseProps): ReadonlyArray<WizardActi
     const back = backAction(text.back, props.isPending, () => on.go(props.index - 1))
     if (props.step === "account")
         return [
-            nextAction(text.next, () => on.go(1), { isDisabled: !props.isTested }),
+            forwardAction(text.next, () => on.go(1), { isDisabled: !props.isTested }),
             closeAction(text.close, on.close),
         ]
     if (props.step === "folders")
-        return [nextAction(text.next, () => on.go(2), { isDisabled: props.folders.value.length === 0 }), back]
-    if (props.step === "schedule") return [nextAction(text.save, on.save, { isPending: props.isPending }), back]
+        return [
+            nextAction(text.save, on.save, { isPending: props.isPending, isDisabled: props.folders.value.length === 0 }),
+            back,
+        ]
     return [nextAction(text.done, on.finish, { isPending: props.isPending })]
 }
 
@@ -172,7 +172,7 @@ const ImapAccountStep = (props: ImapAccountStepLoadingProps) => (
 /** The wizard a new mailbox starts with: the placeholder drawn while a saved one is read. */
 const RESUME_PLACEHOLDER: WizardResume = { isResumed: false }
 
-/** The mailbox (IMAP, read only) in the shared wizard frame: sign in and test, folders and period, schedule, attach the agents. */
+/** The mailbox (IMAP, read only) in the shared wizard frame: sign in and test, folders and period (saved there), attach the agents. */
 export const ImapWizardBase = (props: ImapWizardBaseProps) => {
     const { props: view, on } = props
     const { text } = view
@@ -185,6 +185,7 @@ export const ImapWizardBase = (props: ImapWizardBaseProps) => {
             render={(_resume, isLoading) => (
                 <WizardFrame
                     {...frameOf(view)}
+                    phases={view.phases}
                     footer={<WizardFooter actions={actionsOf(props)} isLoading={isLoading} />}
                 >
                     {view.step === "account" ? (
@@ -199,21 +200,6 @@ export const ImapWizardBase = (props: ImapWizardBaseProps) => {
                         />
                     ) : null}
                     {view.step === "folders" ? <ImapFoldersStep {...props} isLoading={isLoading} /> : null}
-                    {view.step === "schedule" ? (
-                        <>
-                            <Text size="sm" tone="muted">
-                                {text.scheduleHint}
-                            </Text>
-                            <RadioGroup
-                                label={text.scheduleLabel}
-                                isLabelHidden
-                                value={view.schedule.value}
-                                onValueChange={on.schedule}
-                                options={view.schedule.options}
-                                isLoading={isLoading}
-                            />
-                        </>
-                    ) : null}
                     {view.step === "agent" ? (
                         <>
                             <Alert tone="affirmative" title={text.saved} isLoading={isLoading} />

@@ -2,12 +2,14 @@ import { Test } from "@nestjs/testing"
 import { messageOf, roomOf, seatOf } from "@tests/fixtures/builders/team-chat.builder"
 import {
     compareRooms,
-    decisionIdsOf,
     memberViewsOf,
     messageViewOf,
     nameKeyOf,
     refsOfMessages,
     roomViewOf,
+    stopReplierIdsOf,
+    brainChangeViewerRoleOf,
+    holdsBrainChange,
 } from "./team-chat-view.policy"
 import type { MessageViewContext } from "./team-chat-view.policy"
 import type { ChatRoomView } from "./team-chat.contracts"
@@ -31,7 +33,6 @@ const buildSubject = async () => {
                 provide: SUBJECT,
                 useValue: {
                     compareRooms,
-                    decisionIdsOf,
                     memberViewsOf,
                     messageViewOf,
                     nameKeyOf,
@@ -43,7 +44,6 @@ const buildSubject = async () => {
     }).compile()
     return moduleRef.get<{
         compareRooms: typeof compareRooms
-        decisionIdsOf: typeof decisionIdsOf
         memberViewsOf: typeof memberViewsOf
         messageViewOf: typeof messageViewOf
         nameKeyOf: typeof nameKeyOf
@@ -63,6 +63,8 @@ const CONTEXT: MessageViewContext = {
     approvals: new Map([
         [DECISION, { decisionId: DECISION, status: "pending", decidedByName: null, decidedAt: null, canDecide: true }],
     ]),
+    reactions: new Map(),
+    quoted: new Map(),
 }
 
 describe("message views", () => {
@@ -78,18 +80,6 @@ describe("message views", () => {
             { memberKind: "agent", memberId: BOT },
         ])
         expect(subject.nameKeyOf("agent", BOT)).toBe(`agent:${BOT}`)
-    })
-
-    it("reads the decisions of the approval cards only", async () => {
-        const subject = await buildSubject()
-        expect(
-            subject.decisionIdsOf([
-                messageOf({ kind: "approval", ref: { decision_id: DECISION } }),
-                messageOf({ kind: "approval", ref: null }),
-                messageOf({ kind: "report", ref: { run_id: RUN } }),
-                messageOf(),
-            ]),
-        ).toEqual([DECISION])
     })
 
     it("shows a text with its author, pin, mentions and files", async () => {
@@ -119,6 +109,14 @@ describe("message views", () => {
             runId: null,
             decisionId: null,
             approval: null,
+            agentMessage: null,
+            reactions: [],
+            replyTo: null,
+            forwardedFrom: null,
+            stop: null,
+            brainChange: null,
+            backgroundStopped: null,
+            jobParked: null,
         })
     })
 })
@@ -134,6 +132,13 @@ describe("message views of cards and of unknown context", () => {
             subject.messageViewOf(messageOf({ kind: "approval", ref: { decision_id: DECISION } }), CONTEXT),
         ).toMatchObject({ runId: null, decisionId: DECISION, approval: { canDecide: true } })
         expect(subject.messageViewOf(messageOf({ kind: "report", ref: {} }), CONTEXT).runId).toBeNull()
+    })
+
+    it("carries the structured message of an agent line beside its words, and none for a plain line", async () => {
+        const subject = await buildSubject()
+        const json = JSON.stringify({ kind: "order.summary", intent: "notify" })
+        expect(subject.messageViewOf(messageOf({ ref: { agent_message: json } }), CONTEXT).agentMessage).toBe(json)
+        expect(subject.messageViewOf(messageOf({ ref: null }), CONTEXT).agentMessage).toBeNull()
     })
 
     it("shows empty names and addresses for what the context does not know, and no author for a system line", async () => {
@@ -182,6 +187,8 @@ describe("room views", () => {
         expect(view).toMatchObject({
             id: ROOM,
             kind: "group",
+            purpose: "group",
+            purposeModule: null,
             name: "Team",
             position: 4,
             createdBy: ANA,
@@ -213,5 +220,250 @@ describe("room views", () => {
         })
         const sorted = [view(2, null), view(9, AT), view(1, null), view(5, LATER)].toSorted(subject.compareRooms)
         expect(sorted.map((room) => room.position)).toEqual([5, 9, 1, 2])
+    })
+})
+
+describe("message views of a stop card", () => {
+    const CARD = {
+        workflow: { moduleKey: "accounting", key: "reconcile", title: "Doi soat tien ve" },
+        step: { key: "match", nodeId: "accounting.match-payment", title: "Khop giao dich" },
+        runId: RUN,
+        leadId: null,
+        conversationId: null,
+        by: "ai",
+        reason: "Con thieu 500 VND.",
+        question: "Giu don mo?",
+        facts: [],
+        suggestions: [],
+        decisions: [],
+        repeats: 1,
+        firstAt: "2026-11-10T10:00:00.000Z",
+        lastAt: "2026-11-10T10:00:00.000Z",
+        stop: {
+            version: 1,
+            stopId: "stop-1",
+            runId: RUN,
+            stepKey: "match",
+            kind: "ai_report",
+            state: "answered",
+            headline: "Da nhan tra loi",
+            needs: { answer: false, decisions: [], verdicts: [] },
+            replies: [
+                { kind: "answer", text: "Giu don mo nhe", by: "seat-ana", at: "2026-11-10T10:05:00.000Z" },
+                { kind: "timeout", text: null, by: "deadline", at: "2026-11-11T10:05:00.000Z" },
+            ],
+            repeats: 1,
+            stoppedAt: "2026-11-10T10:00:00.000Z",
+            resolvedAt: null,
+            revision: 2,
+        },
+    }
+    const line = messageOf({
+        authorKind: "agent",
+        authorId: BOT,
+        ref: { agent_message: JSON.stringify({ kind: "workflow.stopped", title: "Da nhan tra loi", payload: CARD }) },
+    })
+
+    it("reads the repliers of the stop cards, a deadline being no person", () => {
+        expect(stopReplierIdsOf([line, messageOf()])).toEqual(["seat-ana"])
+    })
+
+    it("shows the typed stop with the name of each replier, and none for a plain line", async () => {
+        const subject = await buildSubject()
+        const view = subject.messageViewOf(line, { ...CONTEXT, stopNames: new Map([["seat-ana", "Ana"]]) })
+        expect(view.stop).toMatchObject({
+            stopId: "stop-1",
+            state: "answered",
+            workflowTitle: "Doi soat tien ve",
+            stepTitle: "Khop giao dich",
+            message: "Con thieu 500 VND.",
+            replies: [
+                { kind: "answer", text: "Giu don mo nhe", byName: "Ana" },
+                { kind: "timeout", byName: "" },
+            ],
+            revision: 2,
+        })
+        expect(subject.messageViewOf(line, CONTEXT).stop?.replies[0]?.byName).toBe("")
+        expect(subject.messageViewOf(messageOf(), CONTEXT).stop).toBeNull()
+    })
+})
+
+describe("message views of a brain.change card", () => {
+    const PAYLOAD = {
+        version: 1,
+        changeId: "p-ship",
+        origin: "chat",
+        kind: "change",
+        factKey: { subjectLabel: "Giao hang", attributeLabel: "Phi ship noi thanh" },
+        oldValue: "20.000 d",
+        current: { value: "20.000 d", version: 2, source: "Quy dinh giao hang.docx" },
+        newValue: "30.000 d",
+        unit: null,
+        validFrom: null,
+        validTo: null,
+        reason: "Anh vua nhan tu mai phi ship noi thanh la 30k.",
+        evidence: [
+            {
+                kind: "message",
+                quote: "tu mai 30k",
+                ref: "team-chat:m-1",
+                by: { name: "Ana", memberId: ANA },
+                at: null,
+            },
+        ],
+        state: "open",
+        decidedBy: null,
+        supersededBy: null,
+        revision: 1,
+    }
+    const card = (payload: Readonly<Record<string, unknown>>) =>
+        messageOf({ ref: { agent_message: JSON.stringify({ kind: "brain.change", title: "t", payload }) } })
+
+    it("offers approve to the owner alone and reject to the owner and a manager while open; a plain line has none", async () => {
+        const subject = await buildSubject()
+        const line = card(PAYLOAD)
+        expect(subject.messageViewOf(line, { ...CONTEXT, viewerRole: "owner" }).brainChange).toMatchObject({
+            changeId: "p-ship",
+            canApprove: true,
+            canReject: true,
+        })
+        expect(subject.messageViewOf(line, { ...CONTEXT, viewerRole: "manager" }).brainChange).toMatchObject({
+            canApprove: false,
+            canReject: true,
+        })
+        expect(subject.messageViewOf(line, CONTEXT).brainChange).toMatchObject({ canApprove: false, canReject: false })
+        expect(subject.messageViewOf(line, CONTEXT).brainChange).not.toHaveProperty("version")
+        expect(subject.messageViewOf(messageOf(), CONTEXT).brainChange).toBeNull()
+    })
+
+    it("offers nothing once the card is decided", async () => {
+        const subject = await buildSubject()
+        const decided = card({
+            ...PAYLOAD,
+            state: "applied",
+            decidedBy: { memberId: ANA, name: "Ana", at: "2026-11-11T00:00:00.000Z" },
+        })
+        expect(subject.messageViewOf(decided, { ...CONTEXT, viewerRole: "owner" }).brainChange).toMatchObject({
+            state: "applied",
+            canApprove: false,
+            canReject: false,
+        })
+    })
+
+    it("reads the viewer's role only for a page that holds such a card, and maps any other role to member", () => {
+        expect(holdsBrainChange([messageOf(), card(PAYLOAD)])).toBe(true)
+        expect(holdsBrainChange([messageOf()])).toBe(false)
+        expect(brainChangeViewerRoleOf("owner")).toBe("owner")
+        expect(brainChangeViewerRoleOf("manager")).toBe("manager")
+        expect(brainChangeViewerRoleOf("staff")).toBe("member")
+        expect(brainChangeViewerRoleOf(null)).toBe("member")
+    })
+})
+
+describe("the NIVO room and NIVO's background.stopped card", () => {
+    const nivoRoom = roomOf({ kind: "direct", name: null, directKey: `system:nivo|user:${ANA}` })
+    const context = { viewerId: ANA, names: CONTEXT.names, unread: new Map(), lasts: new Map() }
+
+    it("a NIVO room (only the founder seated) is named NIVO and flagged withNivo; any other room is not", async () => {
+        const subject = await buildSubject()
+        expect(subject.roomViewOf(nivoRoom, [seatOf("user", ANA, "owner")], context)).toMatchObject({
+            kind: "direct",
+            name: "NIVO",
+            withNivo: true,
+        })
+        const pair = roomOf({ kind: "direct", name: null, directKey: `agent:${BOT}|user:${ANA}` })
+        expect(subject.roomViewOf(pair, [seatOf("user", ANA, "owner"), seatOf("agent", BOT)], context)).toMatchObject({
+            name: "Bot",
+            withNivo: false,
+        })
+        expect(subject.roomViewOf(roomOf(), [], context).withNivo).toBe(false)
+    })
+
+    it("reads the typed card of a system line, and none for a line of another kind", async () => {
+        const subject = await buildSubject()
+        const payload = {
+            version: 1,
+            work: "brain.policies.derive",
+            reason: "gave_up",
+            since: "2026-11-11T10:00:00.000Z",
+            episode: "2026-11-11T09:58:00.000Z",
+            target: { kind: "brain.policies" },
+        }
+        const line = messageOf({
+            authorKind: "system",
+            authorId: null,
+            kind: "system",
+            ref: { agent_message: JSON.stringify({ kind: "background.stopped", payload }) },
+        })
+        const view = subject.messageViewOf(line, CONTEXT)
+        expect(view.backgroundStopped).toEqual({
+            work: "brain.policies.derive",
+            reason: "gave_up",
+            since: "2026-11-11T10:00:00.000Z",
+            episode: "2026-11-11T09:58:00.000Z",
+            target: { kind: "brain.policies" },
+        })
+        expect(view).toMatchObject({ authorKind: "system", authorName: "", stop: null, brainChange: null })
+        expect(subject.messageViewOf(messageOf(), CONTEXT).backgroundStopped).toBeNull()
+        expect(view.jobParked).toBeNull()
+    })
+
+    it("carries the job.parked card of a system line to the wire and none on any other line", async () => {
+        const subject = await buildSubject()
+        const payload = { version: 1, jobId: "44444444-4444-4444-8444-444444444444", job: "n8n.webhook", failureClass: "input", reason: "WEBHOOK_CONNECTIONS_RECEIVER_REFUSED", episode: 0, since: "2026-11-14T10:00:00.000Z" }
+        const line = messageOf({
+            authorKind: "system",
+            authorId: null,
+            kind: "system",
+            ref: { agent_message: JSON.stringify({ kind: "job.parked", payload }) },
+        })
+
+        const view = subject.messageViewOf(line, CONTEXT)
+
+        expect(view.jobParked).toEqual({ jobId: payload.jobId, job: "n8n.webhook", failureClass: "input", reason: "WEBHOOK_CONNECTIONS_RECEIVER_REFUSED", episode: 0, since: payload.since })
+        expect(view.backgroundStopped).toBeNull()
+        expect(subject.messageViewOf(messageOf(), CONTEXT).jobParked).toBeNull()
+    })
+})
+
+describe("who may write in a room (mayPost)", () => {
+    const context = {
+        viewerId: ANA,
+        names: CONTEXT.names,
+        unread: new Map([[ROOM, { roomId: ROOM, unreadCount: 2, mentionCount: 1 }]]),
+        lasts: new Map([[ROOM, messageViewOf(messageOf(), CONTEXT)]]),
+    }
+
+    it("shows whether each seat may write: an agent by the right it holds, a person in every room but a read-only one", async () => {
+        const subject = await buildSubject()
+        const seats = [
+            { ...seatOf("agent", BOT), mayPost: true },
+            { ...seatOf("user", BEN), mayPost: false },
+            seatOf("user", ANA),
+        ]
+        const byName = new Map(subject.memberViewsOf(seats, CONTEXT.names).map((view) => [view.name, view.mayPost]))
+        expect(byName.get("Bot")).toBe(true)
+        // A person's seat never carries the agents' post right: it may write wherever it sits.
+        expect(byName.get("Ben")).toBe(true)
+        expect(byName.get("Ana")).toBe(true)
+        expect(subject.memberViewsOf([seatOf("agent", BOT)], CONTEXT.names)[0]?.mayPost).toBe(false)
+        const readOnly = new Map(
+            subject.memberViewsOf(seats, CONTEXT.names, true).map((view) => [view.name, view.mayPost]),
+        )
+        expect(readOnly.get("Ana")).toBe(false)
+        expect(readOnly.get("Bot")).toBe(true)
+    })
+
+    it("the founder's NIVO room answers mayPost false for the founder's seat; any other direct room answers true", async () => {
+        const subject = await buildSubject()
+        const nivo = roomOf({ kind: "direct", name: null, directKey: `system:nivo|user:${ANA}`, purpose: "direct" })
+        const view = subject.roomViewOf(nivo, [seatOf("user", ANA)], { ...context, viewerId: ANA })
+        expect(view.withNivo).toBe(true)
+        expect(view.members.map((member) => [member.memberId, member.mayPost])).toEqual([[ANA, false]])
+
+        const pair = roomOf({ kind: "direct", name: null, directKey: `user:${ANA}|user:${BEN}`, purpose: "direct" })
+        const open = subject.roomViewOf(pair, [seatOf("user", ANA), seatOf("user", BEN)], { ...context, viewerId: ANA })
+        expect(open.withNivo).toBe(false)
+        expect(open.members.every((member) => member.mayPost)).toBe(true)
     })
 })

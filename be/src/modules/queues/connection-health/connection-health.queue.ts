@@ -1,6 +1,9 @@
 /** The queue name: the contract between the migration tick and the processor of the check-connection-health job (the durable queue name). */
 export const CONNECTION_HEALTH_QUEUE = "connection_health"
 
+/** The job name of the tick (the name the tick table gives it). */
+export const CONNECTION_HEALTH_JOB = "connection_health"
+
 /** The payload of one tick: how long a receiving connection may stay silent before it is marked. */
 export interface ConnectionHealthPayload {
     /** Hours without an event after which a receiving connection is silent. */

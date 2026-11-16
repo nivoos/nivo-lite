@@ -2,6 +2,7 @@ import type { DynamicModule } from "@nestjs/common"
 import { EnvSource, type Secret } from "@modules/platform/config"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { JobsModule } from "@modules/platform/jobs"
+import { EffectsModule } from "@modules/platform/effects"
 import { QueueModule, type QueueOptions } from "@modules/platform/queue"
 import { queueOptions } from "./test-capabilities.options"
 
@@ -37,4 +38,5 @@ export const redisJobsModules = (prefix: string, leaseMs: number): ReadonlyArray
         leaseMs,
         scheduler: { enabled: false },
     }),
+    EffectsModule.register({ isGlobal: true, connection: PRIMARY_ENTITY_MANAGER }),
 ]

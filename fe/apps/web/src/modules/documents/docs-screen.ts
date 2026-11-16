@@ -1,7 +1,7 @@
 import type { useTranslations } from "next-intl"
 import { KNOWLEDGE_ROUTES, workspaceHref } from "@/modules/routes"
 import { docTabsOf } from "./docs-rows"
-import { AGENT_MODULES } from "./status"
+import type { ModuleChoices } from "@/modules/catalog"
 import type { KnowledgeTranslate } from "./docs-translate"
 import type {
     BrainPageHeading,
@@ -128,6 +128,8 @@ interface ListViewInput {
     readonly selectedId: string | null
     readonly query: string
     readonly module: string
+    /** The agent types the workspace can filter by (the catalogue it was served). */
+    readonly modules: ModuleChoices
     readonly labels: (empty: string) => SlotLabels
 }
 
@@ -149,7 +151,7 @@ export const docsListViewOf = (input: ListViewInput): DocListView => ({
     module: input.module,
     moduleOptions: [
         { id: "all", label: input.t("moduleAll") },
-        ...AGENT_MODULES.map((key) => ({ id: key, label: input.t(`module_${key}`) })),
+        ...input.modules,
     ],
     selectedId: input.selectedId,
     isFiltered: input.rows.isFiltered,

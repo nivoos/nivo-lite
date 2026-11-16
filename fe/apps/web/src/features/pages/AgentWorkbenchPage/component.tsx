@@ -15,9 +15,9 @@ export const AgentWorkbenchPageBase = (props: AgentWorkbenchPageBaseProps) => (
     <PaneGrid label={props.props.title} areas={["main"]}>
         <Pane area="main">
             <PaneSection align="center" grow>
-                <Stack gap="row">
+                <Stack gap="identity">
                     <EmptyNotice message={props.props.title} description={props.props.body} />
-                    <Button intent="neutral" href={props.props.setupHref}>
+                    <Button endArrow intent="neutral" href={props.props.setupHref}>
                         {props.props.setupLabel}
                     </Button>
                 </Stack>

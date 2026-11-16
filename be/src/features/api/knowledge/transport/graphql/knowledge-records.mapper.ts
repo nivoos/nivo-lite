@@ -10,7 +10,7 @@ export const toKnowledgeSourceType = (source: SourceSummary): KnowledgeSourceTyp
     tags: [...source.tags],
 })
 
-/** Maps a document with its text to the GraphQL type. */
+/** Maps a document with its text to the GraphQL type; the reading travels as the domain names it. */
 export const toKnowledgeSourceTextType = (source: SourceDetail): KnowledgeSourceTextType => ({
     ...source,
     tags: [...source.tags],

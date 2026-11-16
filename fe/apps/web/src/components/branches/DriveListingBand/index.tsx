@@ -1,4 +1,11 @@
 import { Alert, Button, CheckboxGroup, EmptyNotice, Section, type PresentationState } from "@starci/grammar/common"
+import { nivoIconSource } from "@/components/leaves/Icon"
+
+/** Why the add command is disabled, only when the listing says so. */
+const disabledReasonOf = (disabledReason: string | undefined) => (disabledReason === undefined ? {} : { disabledReason })
+
+/** The `isLoading` prop, spread only when the caller states it (an absent flag stays absent). */
+const loadingOf = (isLoading: boolean | undefined) => (isLoading === undefined ? {} : { isLoading })
 /** One file the owner can tick: its name, the line under it, and whether NIVO can read it at all. */
 interface DriveFileChoice {
     readonly value: string
@@ -41,14 +48,16 @@ export interface DriveListingBandProps {
 /** Presents selectable folder files and the action to add the selected files. */
 export const DriveListingBand = (props: DriveListingBandProps) => {
     const { listing } = props
-    const loading = props.isLoading === undefined ? {} : { isLoading: props.isLoading }
-    const disabledReason =
-        listing.add.disabledReason === undefined ? {} : { disabledReason: listing.add.disabledReason }
     return (
-        <Section {...loading} title={listing.title} meta={listing.count} headingLevel={3}>
+        <Section
+            {...loadingOf(props.isLoading)}
+            title={listing.title}
+            meta={listing.count}
+            headingLevel={3}
+        >
             {listing.empty === undefined ? (
                 <CheckboxGroup
-                    {...loading}
+                    {...loadingOf(props.isLoading)}
                     label={listing.filesLabel}
                     isLabelHidden
                     name="drive-files"
@@ -62,11 +71,11 @@ export const DriveListingBand = (props: DriveListingBandProps) => {
                     onValueChange={props.on.select}
                 />
             ) : (
-                <EmptyNotice message={listing.empty.message} description={listing.empty.description} />
+                <EmptyNotice message={listing.empty.message} iconSource={nivoIconSource("document", "leading")} description={listing.empty.description} />
             )}
             {listing.notices.map((notice) => (
                 <Alert
-                    {...loading}
+                    {...loadingOf(props.isLoading)}
                     key={notice.id}
                     tone={notice.tone}
 
@@ -75,15 +84,15 @@ export const DriveListingBand = (props: DriveListingBandProps) => {
             ))}
             {listing.empty === undefined ? (
                 <Button
-                    {...loading}
-                    intent="commit"
-                    isPending={listing.add.isPending}
-                    isDisabled={listing.add.isDisabled}
-                    {...disabledReason}
-                    onPress={props.on.add}
-                >
-                    {listing.add.label}
-                </Button>
+                        {...loadingOf(props.isLoading)}
+                        intent="commit"
+                        isPending={listing.add.isPending}
+                        isDisabled={listing.add.isDisabled}
+                        {...disabledReasonOf(listing.add.disabledReason)}
+                        onPress={props.on.add}
+                    >
+                        {listing.add.label}
+                    </Button>
             ) : null}
         </Section>
     )

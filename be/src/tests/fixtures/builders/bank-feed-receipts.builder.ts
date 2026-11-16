@@ -1,36 +1,30 @@
-import { createHash } from "node:crypto"
+import type { PendingBankMovement } from "@modules/domain/bank-feed-inbox"
 
 const raw = (body: object): Buffer => Buffer.from(JSON.stringify(body))
 
 /** The clock instant used while consuming committed receipt fixtures. */
 export const DEFERRED_AT = "2026-10-12T10:00:00.000Z"
-const deferredCredit = { amount: 125000, content: "NIVO123", eventId: "bank:7", fallbackBankName: "Bank" }
 type ReceiptPayloadCreditsShape = {
     amount: number
     content: string
     eventId: string
     fallbackBankName: string
 }
+const receiptOwner = { provider: "casso", connectionId: "c-1", workspaceId: "ws-1" }
+const movement = { transactionId: "bank:7", amount: 125000, direction: "credit", content: "NIVO123", source: "webhook" }
 
-type ReceiptPayloadShape = {
-    connection: string
-    credits: Array<ReceiptPayloadCreditsShape>
+/** A kept bank movement ready for its delivery job: the locked transaction row of the connection's account. */
+export const receipt: PendingBankMovement = {
+    value: movement,
+    owner: receiptOwner,
+    row: { id: "receipt-1", type: "casso.transaction", key: "bank:7", owner: receiptOwner, value: movement },
 }
-
-type ReceiptShape = {
-    id: string
-    payload: ReceiptPayloadShape
-}
-
-/** A committed provider receipt with one credit ready for booking. */
-export const receipt: ReceiptShape = { id: "receipt-1", payload: { connection: "c-1", credits: [deferredCredit] } }
 /** The provider kinds whose receipts share the deferred booking workflow. */
 export const providers = ["casso", "payos", "sepay-feed"] as const
 
 type ReceiptCasesOfResultShape3 = {
     provider: "sepay-feed"
     body: object
-    deliveryId: string
     credits: Array<ReceiptPayloadCreditsShape>
 }
 
@@ -48,7 +42,6 @@ type ReceiptCasesOfResultBodyShape = {
 type ReceiptCasesOfResultShape2 = {
     provider: "payos"
     body: ReceiptCasesOfResultBodyShape
-    deliveryId: string
     credits: Array<ReceiptPayloadCreditsShape>
 }
 
@@ -61,7 +54,6 @@ type ReceiptCasesOfResultBodyShapeOf = {
 type ReceiptCasesOfResultShape = {
     provider: "casso"
     body: ReceiptCasesOfResultBodyShapeOf
-    deliveryId: string
     credits: Array<ReceiptPayloadCreditsShape>
 }
 
@@ -73,21 +65,16 @@ export const receiptCasesOf = (
     {
         provider: "casso" as const,
         body: { error: 0, data: tx1 },
-        deliveryId: `conn-1:${createHash("sha256")
-            .update(Buffer.from(JSON.stringify({ error: 0, data: tx1 })))
-            .digest("hex")}`,
         credits: [{ amount: 150000, content: "NIVO8F3K2", eventId: "casso:7", fallbackBankName: "ACB" }],
     },
     {
         provider: "payos" as const,
         body: { code: "00", data: { amount: 10, reference: "REF1" } },
-        deliveryId: "conn-1:payos:REF1",
         credits: [{ amount: 10, content: "", eventId: "payos:REF1", fallbackBankName: "payOS" }],
     },
     {
         provider: "sepay-feed" as const,
         body: incoming,
-        deliveryId: "conn-1:sepay:321",
         credits: [{ amount: 99000, content: "NIVO8F3K2 thanh toan", eventId: "sepay:321", fallbackBankName: "MBBank" }],
     },
 ]

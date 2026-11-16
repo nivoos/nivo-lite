@@ -49,19 +49,20 @@ export const useSepayEventsView = (connectionId: string): UseSepayEventsViewResu
     const format = useFormatter()
     const slotLabels = useSlotLabels()
     const { slot, retry } = useSepayEvents(connectionId)
-    const titleOf = (event: SepayEventView): string => {
-        if (event.kind === "ping") return t(event.outcome === "unauthorized" ? "eventRefused" : "eventPing")
-        return t(event.kind === "credit" ? "eventCredit" : "eventDebit", {
-            amount: format.number(event.amountVnd ?? 0, {
-                style: "currency",
-                currency: "VND",
-                maximumFractionDigits: 0,
-            }),
-        })
-    }
     const rowOf = (event: SepayEventView) => {
         const time = format.dateTime(new Date(event.at), { timeStyle: "short" })
-        const title = titleOf(event)
+        const moneyKey = event.kind === "credit" ? "eventCredit" : "eventDebit"
+        const pingKey = event.outcome === "unauthorized" ? "eventRefused" : "eventPing"
+        const title =
+            event.kind === "ping"
+                ? t(pingKey)
+                : t(moneyKey, {
+                      amount: format.number(event.amountVnd ?? 0, {
+                          style: "currency",
+                          currency: "VND",
+                          maximumFractionDigits: 0,
+                      }),
+                  })
         return {
             id: event.id,
             title,
@@ -75,8 +76,8 @@ export const useSepayEventsView = (connectionId: string): UseSepayEventsViewResu
             title: t("eventsTitle"),
             liveLabel: t("live"),
             footnote: t("eventsFootnote"),
-            slot: mapSlot(slot, (events) => events.map((item) => rowOf(item))),
-            placeholder: SEPAY_EVENTS_PLACEHOLDER.map((item) => rowOf(item)),
+            slot: mapSlot(slot, (events) => events.map((entry) => rowOf(entry))),
+            placeholder: SEPAY_EVENTS_PLACEHOLDER.map((entry) => rowOf(entry)),
             labels: slotLabels(t("eventsEmpty")),
         },
         retry,

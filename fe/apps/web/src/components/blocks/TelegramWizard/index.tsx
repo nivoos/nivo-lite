@@ -2,10 +2,17 @@
 
 import { type SlotRead, slotOfReads, useSlotLabels } from "@/hooks/slot"
 
+
 import { useTranslations } from "next-intl"
 import { GUIDES } from "@/hooks/connection-guides"
 import { PROVIDERS, providerKey } from "@/hooks/connection-providers"
-import { agentChoicesOf, EMPTY_GUIDE_CONTEXT, guideScreensOf, useCopyLabels } from "@/hooks/connection-wizard"
+import {
+    agentChoicesOf,
+    EMPTY_GUIDE_CONTEXT,
+    guideScreensOf,
+    useCopyLabels,
+    useWizardPhases,
+} from "@/hooks/connection-wizard"
 import { TELEGRAM_STEPS, useTelegramWizard } from "@/hooks/telegram-wizard"
 import type { AgentOption } from "@/modules/types"
 import { TelegramWizardBase } from "./component"
@@ -24,6 +31,7 @@ interface TelegramWizardProps {
 export const TelegramWizard = (props: TelegramWizardProps) => {
     const slotLabels = useSlotLabels()
     const tw = useTranslations("connectionWizard")
+    const phases = useWizardPhases("telegram")
     const tc = useTranslations("connections")
     const copy = useCopyLabels()
     const wizard = useTelegramWizard({
@@ -50,6 +58,7 @@ export const TelegramWizard = (props: TelegramWizardProps) => {
                 slotLabels: slotLabels(""),
                 title: tw("title", { provider: tc(providerKey("telegram", "title")) }),
                 stepLabel: tw("stepOf", { n: wizard.index + 1, total: TELEGRAM_STEPS.length }),
+                phases,
                 steps: [tw("stepBot"), tw("stepToken"), tw("stepVerify"), tw("stepAgent")],
                 index: wizard.index,
                 step: wizard.step,
@@ -64,7 +73,7 @@ export const TelegramWizard = (props: TelegramWizardProps) => {
                 agentStep: {
                     title: tw("agentTitleChannel"),
                     notice: null,
-                    agents: agentChoicesOf(props.agents, "telegram", tw),
+                    agents: agentChoicesOf(props.agents, tw),
                     value: wizard.agentIds,
                     hint: tw("agentHint"),
                     none: tw("agentNone"),

@@ -44,7 +44,9 @@ export const usePublicProposals = (): PublicProposalsView => {
             id: doc.id,
             title: t("proposalTitle", { question: doc.question ?? doc.title }),
             lines: [
-                t("proposalSources", { sources: sourceTitlesOf(doc).join(", ") }),
+                ...(sourceTitlesOf(doc).length === 0
+                    ? []
+                    : [t("proposalSources", { sources: sourceTitlesOf(doc).join(", ") })]),
                 ...(left.length === 0 ? [] : [t("leftOutLine", { items: left.join(", ") })]),
             ],
             badges: [{ label: t("badge_proposal"), tone: "accent" }],
@@ -80,7 +82,7 @@ export const usePublicProposals = (): PublicProposalsView => {
         label: t("proposalsTitle"),
         footer: t("proposalsFooter"),
         isPending: command.isPending,
-        slot: mapSlot(read.slot, (documents) => proposalsOf(documents).map((item) => rowOf(item))),
+        slot: mapSlot(read.slot, (documents) => proposalsOf(documents).map((entry) => rowOf(entry))),
         slotLabels: labels(""),
     }
     return { list, dispatch, retry: read.reload, count: proposalsOf(read.documents).length }

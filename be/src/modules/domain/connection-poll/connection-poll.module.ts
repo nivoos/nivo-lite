@@ -4,8 +4,10 @@ import { POLL_EXPORTED, pollProvidersOf } from "./poll-providers.policy"
 
 @Module({})
 /**
- * The adaptive poll of connections for any provider that registers a source: the per-connection schedule, the limiter, the breaker and the tick that
- * polls what is due. Providers register through `PollSourceRegistryService`; other modules call `PollScheduleService.markHot` and `recordWebhook`.
+ * THE ONE POLL JOB (owner R95): the per-account schedule, the limiter, the breaker and the tick that reads what is due through each provider's
+ * POLL RECEIVER (`PollReceiverRegistryService`) and keeps it through the one account_data intake (`PollReceiptsService`: a new row is admitted,
+ * an existing one is nothing); the pass at process start (`PollBootPassService`). Other modules call `PollScheduleService.markHot`,
+ * `recordWebhook` and `PollSchedulerService.ready`.
  */
 export class ConnectionPollModule extends ConfigurableModuleClass {
     /** Registers the capability once in the API app. */

@@ -11,6 +11,7 @@ import { SepayTransactionsService } from "@modules/domain/sepay-transactions"
 import type { LiteWorld } from "./lite-world.service"
 import {
     cleanupJobs,
+    cleanupWebhook,
     cleanupWorkspace,
     deliveryEnvelopes,
     deliveryPublications,
@@ -79,6 +80,8 @@ export const deliveryIntakeFixture = async (
         await removeDeliveryOutbox(world.db.primary, fixture.queue, deliveryId)
         await removeReceipts(world.db.primary, kind, deliveryId)
     })
+    // A Meta event the consumer processed also queued its inbound job, keyed by the message id (the proof id).
+    if (kind === "meta") cleanupWebhook(world, world.key(id), deliveryId)
     const state = async () => ({
         receipts: await receiptsOf(world.db.primary, kind, deliveryId),
         jobs: await deliveryPublications(world.db.primary, fixture.queue, deliveryId),
@@ -99,7 +102,7 @@ type DeliveryJobBuilderResultDeliveryShape = {
 type DeliveryJobBuilderResultInboxShape = {
     processRecordedDelivery: jest.SpyInstance<
         Promise<void>,
-        [message: MetaDeliveryRecorded] | [message: TelegramDeliveryRecorded] | [message: SepayDeliveryRecorded]
+        [message: MetaDeliveryRecorded] | [message: TelegramDeliveryRecorded, job: ClaimedJob] | [message: SepayDeliveryRecorded]
     >
 }
 

@@ -1,6 +1,5 @@
 import type { ReactNode } from "react"
 import { Button, Cluster, FileDropzone, Input, Progress, Stack, Text, type ListRowData } from "@starci/grammar/common"
-import { Icon } from "@/components/leaves/Icon"
 import type { BatchBytesView, LinkRowView, QueueRowView, StoppedUploadsView } from "@/modules/types"
 
 /** The words, values and state of the files and links panel. */
@@ -35,7 +34,7 @@ type LinkRowsProps = Pick<
 const LinkRows = (props: LinkRowsProps) => (
     <Stack gap="inline">
         {props.links.map((link) => (
-            <Cluster key={link.id} gap="inline" align="end">
+            <Cluster key={link.id} gap="identity" align="end">
                 <Input
                     id={`knowledge-add-${link.id}`}
                     name={link.id}
@@ -147,7 +146,6 @@ export const AddFilesPanel = (props: AddFilesPanelProps) => (
             <Button
                 intent="neutral"
                 size="sm"
-                startContent={<Icon props={{ name: "add", usage: "leading" }} />}
                 isDisabled={props.isBusy}
                 onPress={props.onAddLink}
             >

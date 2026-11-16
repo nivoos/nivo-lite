@@ -4,11 +4,9 @@ import { InjectTimer, type Timer } from "@modules/platform/retry"
 import { InjectConnectionPollOptions, InjectPollLimiterStore } from "./connection-poll.decorators"
 import type { PollLimits } from "./connection-poll.contracts"
 import { ConnectionPollError, ConnectionPollErrorCode } from "./errors/connection-poll.error"
+import { MAX_TOKEN_WAIT_MS, TOKEN_WAIT_ATTEMPTS } from "./poll-bucket.policy"
 import type { OptionalPollSlot, PollLimiterStore } from "./poll-limiter.contracts"
 import type { ConnectionPollOptions } from "./connection-poll.options"
-
-/** How many times a call waits for its token before the poll gives up for now. */
-const MAX_WAITS = 3
 
 @Injectable()
 /**
@@ -19,9 +17,9 @@ const MAX_WAITS = 3
 export class PollLimiterService {
     constructor(
         @InjectClock() private readonly clock: Clock,
-        @InjectTimer() private readonly timer: Timer,
         @InjectPollLimiterStore() private readonly store: PollLimiterStore,
         @InjectConnectionPollOptions() private readonly options: ConnectionPollOptions,
+        @InjectTimer() private readonly timer: Timer,
     ) {}
 
     /** Takes one of the provider's concurrency slots for the connection; undefined when all are taken. */
@@ -38,22 +36,24 @@ export class PollLimiterService {
     }
 
     /**
-     * Passes when the connection's bucket holds a token, waiting for one when it comes within the inline wait. A wait that is longer, or a bucket that
-     * stays empty, ends the poll with a `Deferred` error that names the wait, so the scheduler plans the connection again after it.
+     * Passes when the connection's bucket holds a token. A bucket with none makes the call WAIT for the refill the provider's declared limit names
+     * (the standard token bucket: a read of several calls spends more than the burst and is paced, never thrown away half read). Only a wait past
+     * `MAX_TOKEN_WAIT_MS`, or a token taken by another replica `TOKEN_WAIT_ATTEMPTS` times in a row, ends the poll with a `Deferred` error that
+     * names the wait, so the scheduler plans the connection again after it.
      */
-    pass(provider: string, connectionId: string, limits: PollLimits): Promise<void> {
-        return this.passAfter(provider, connectionId, limits, 0)
-    }
-
-    private async passAfter(provider: string, connectionId: string, limits: PollLimits, waits: number): Promise<void> {
+    async pass(provider: string, connectionId: string, limits: PollLimits, attempt = 1): Promise<void> {
         const answer = await this.store.take(`${provider}:${connectionId}`, limits, this.clock.now().getTime())
         if (answer.allowed) return
-        if (answer.waitMs > this.options.schedule.maxInlineWaitMs || waits >= MAX_WAITS) {
+        if (answer.waitMs > MAX_TOKEN_WAIT_MS || attempt >= TOKEN_WAIT_ATTEMPTS) {
             throw new ConnectionPollError({ code: ConnectionPollErrorCode.Deferred, params: { waitMs: answer.waitMs } })
         }
-        await new Promise<void>((resolve) => {
-            this.timer.schedule(resolve, answer.waitMs)
+        await this.waited(answer.waitMs)
+        return this.pass(provider, connectionId, limits, attempt + 1)
+    }
+
+    private waited(ms: number): Promise<void> {
+        return new Promise((resolve) => {
+            this.timer.schedule(resolve, ms)
         })
-        await this.passAfter(provider, connectionId, limits, waits + 1)
     }
 }

@@ -69,15 +69,19 @@ export class AgentEntity extends UuidAbstractEntity {
     @Column({ name: "assignable_rooms", type: "text", array: true, default: () => "'{}'::text[]" })
     assignableRooms!: Array<string>
 
-    /** The agents it may pass work to. */
-    @Column({ name: "can_tag_agent_ids", type: "uuid", array: true, default: () => "'{}'::uuid[]" })
-    canTagAgentIds!: Array<string>
-
     /** The HTTPS address of the picture the owner gave the agent, or null for the generated avatar. */
     @Column({ name: "avatar_url", type: "text", nullable: true })
     avatarUrl!: string | null
 
+    /** The preset picture the owner chose ("nivo-ai", "role", "initials", "flower-1"...), or null; an uploaded picture wins over it. */
+    @Column({ name: "avatar_preset", type: "text", nullable: true })
+    avatarPreset!: string | null
+
     /** The generated id its default name carries ("Agent Chatbot #23233"), unique in the workspace; null for an agent named before it existed. */
     @Column({ name: "serial", type: "integer", nullable: true })
     serial!: number | null
+
+    /** Paused by the deletion of its workspace: restoring the workspace resumes it. */
+    @Column({ name: "paused_by_deletion", type: "boolean", default: () => "false" })
+    pausedByDeletion!: boolean
 }

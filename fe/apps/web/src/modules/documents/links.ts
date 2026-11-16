@@ -27,7 +27,7 @@ export const linesOfLinks = (text: string): ReadonlyArray<string> => [
     ...new Set(
         text
             .split(/\r?\n/)
-            .map((raw) => cleanLink(raw))
+            .map((entry) => cleanLink(entry))
             .filter((line) => line !== ""),
     ),
 ]

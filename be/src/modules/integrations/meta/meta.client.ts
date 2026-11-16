@@ -1,4 +1,4 @@
-import { MetaPublishingClient } from "./meta-publishing.client"
+import { MetaPagePostsClient } from "./meta-publishing.client"
 import { Injectable } from "@nestjs/common"
 import { MetaLogEvent } from "./meta.log-events"
 import { MetaError, MetaErrorCode } from "./errors/meta.error"
@@ -37,8 +37,9 @@ const rows = (value: unknown): ReadonlyArray<Json> => (Array.isArray(value) ? va
 
 const textOf = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined)
 
-/** The text itself, or undefined when it is empty. */
-const filled = (value: string | undefined): string | undefined => (value === "" ? undefined : value)
+/** The first candidate that is not empty (a missing name, a blank one), or null when every one is. */
+const firstFilled = (candidates: ReadonlyArray<string | undefined>): string | null =>
+    candidates.find((one): one is string => one !== undefined && one !== "") ?? null
 
 const isText = (value: unknown): value is string => typeof value === "string"
 
@@ -65,7 +66,7 @@ const missingOf = (want: ReadonlyArray<string>, have: ReadonlyArray<string>): Ar
 
 @Injectable()
 /** Talks to the Meta Graph API for the connections capability: login, Pages, webhook subscriptions, sends and lead reads. */
-export class MetaClient extends MetaPublishingClient {
+export class MetaClient extends MetaPagePostsClient {
     /** True when this deployment has a Meta app and a site url to return to. */
     isConfigured(): boolean {
         return this.options.app !== null && redirectUri(this.options) !== null
@@ -270,7 +271,7 @@ export class MetaClient extends MetaPublishingClient {
                 timeoutMs: 5000,
             })
             const full = [textOf(res.first_name), textOf(res.last_name)].filter(Boolean).join(" ").trim()
-            return filled(textOf(res.name)?.trim()) ?? filled(full) ?? filled(textOf(res.username)?.trim()) ?? null
+            return firstFilled([textOf(res.name)?.trim(), full, textOf(res.username)?.trim()])
         } catch (cause) {
             this.logger.error(MetaLogEvent.ProfileUnavailable, cause)
             return null

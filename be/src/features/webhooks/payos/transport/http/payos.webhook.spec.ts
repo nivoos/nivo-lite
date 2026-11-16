@@ -21,7 +21,7 @@ const DELIVERY = {
 
 const build = async () => {
     const signature = mock<ScopedWebhookVerifier>()
-    signature.verify.mockResolvedValue(undefined)
+    signature.verify.mockResolvedValue("proven")
     const feed = mock<BankFeedReceiptsService>()
     feed.acceptPayosDelivery.mockResolvedValue(undefined)
     const moduleRef = await Test.createTestingModule({
@@ -46,8 +46,8 @@ describe("PayosWebhook", () => {
         const { door, signature, feed } = await build()
         const effects: Array<string> = []
         let prove: () => void = () => undefined
-        const proof = new Promise<void>((resolve) => {
-            prove = resolve
+        const proof = new Promise<"proven">((resolve) => {
+            prove = () => resolve("proven")
         })
         signature.verify.mockImplementation(() => {
             effects.push("verify")

@@ -3,12 +3,18 @@ import { mock } from "@starci/jest-preset"
 import { echo, emptyPing as ping, record } from "@tests/fixtures/builders/graph-node-probe.builder"
 import { EntityNodePortsService } from "@modules/domain/entity-engine"
 import type { EntityNodePort } from "@modules/domain/entity-engine"
+import { INSTALLED } from "@modules/domain/installed-plugins"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
 import { GraphNodesErrorCode } from "./errors/graph-nodes.error"
 import { GraphNodeRegistryService } from "./graph-node-registry.service"
 import { GRAPH_NODES_OPTIONS } from "./graph-nodes.decorators"
 import type { NodeDataPort, NodeEffectExecutor, NodeInstall } from "./graph-nodes.contracts"
+import { readFileSync, readdirSync, statSync } from "node:fs"
+import { join } from "node:path"
+import { TOOL } from "@nivo-lite/agent-sdk/names"
+import { seededGraphOf } from "@tests/fixtures/builders/flow-f-world.builder"
+import type { SeededGraphName } from "@tests/fixtures/builders/flow-f-world.builder"
 
 const INSTALL: NodeInstall = { nodes: [echo], effects: [ping], tools: [], dataKinds: [record] }
 
@@ -63,6 +69,8 @@ describe("GraphNodeRegistryService", () => {
         expect(logger.info).not.toHaveBeenCalled()
         expect(registry.nodeOf("core.echo")).toBe(echo)
         expect(registry.portOf("record")).toBe(port)
+        expect(registry.optionalPortOf("record")).toBe(port)
+        expect(registry.optionalPortOf("ghost")).toBeUndefined()
         expect(registry.executorOf("core.ping")).toBe(executor)
         expect(registry.optionalExecutorOf("core.ping")).toBe(executor)
         expect(registry.optionalExecutorOf("core.ghost")).toBeUndefined()
@@ -102,5 +110,86 @@ describe("GraphNodeRegistryService", () => {
         expect(thrownBy(() => registry.executorOf("core.ghost"))).toMatchObject({
             code: GraphNodesErrorCode.ExecutorMissing,
         })
+    })
+})
+
+/*
+ * Every effect a seeded graph can run has a module that performs it. The mark-paid, claim-record and claim-withdraw effects were
+ * installed and used by the seeded graphs with no executor anywhere in the back end: the start-up log said `graph_nodes.unserved`
+ * for days and the live runs died on GRAPH_NODES_EXECUTOR_MISSING (the paid order, the customer's "da chuyen").
+ * This reads the back end's executors the way they register (a file that calls `addExecutor` and names the effect, as a literal, as
+ * the `<name>Effect.id` of the core vocabulary or as its `TOOL.<name>` constant), so an effect a seeded graph needs and no module
+ * serves fails here, not in front of a customer.
+ */
+
+const SOURCE_ROOT = join(__dirname, "..", "..")
+const SEEDED: ReadonlyArray<SeededGraphName> = ["chatbot", "sales"]
+
+const sourcesUnder = (folder: string): ReadonlyArray<string> =>
+    readdirSync(folder).flatMap((name) => {
+        const path = join(folder, name)
+        if (statSync(path).isDirectory()) return sourcesUnder(path)
+        return name.endsWith(".ts") && !name.endsWith(".spec.ts") ? [path] : []
+    })
+
+/**
+ * The core effects by the name the vocabulary exports them under (`agentTagEffect` serves `nivo.tool.agent.tag`: neither the `nivo.`
+ * prefix nor the `tool.` of the renamed ids is in it).
+ */
+const effectBySymbol = new Map(
+    INSTALLED.nodeInstall().effects.map((effect) => [
+        `${effect.id.replace(/^nivo\.(tool\.)?/u, "").replace(/[.-](\w)/g, (_all, letter: string) => letter.toUpperCase())}Effect`,
+        effect.id,
+    ]),
+)
+
+/** The effects the back end registers an executor for. */
+const servedEffects = (): ReadonlySet<string> => {
+    const served = new Set<string>()
+    for (const path of sourcesUnder(SOURCE_ROOT)) {
+        const text = readFileSync(path, "utf8")
+        if (!text.includes("addExecutor(") || path.includes("graph-node-registry.service")) continue
+        for (const effect of INSTALLED.nodeInstall().effects) if (text.includes(`"${effect.id}"`)) served.add(effect.id)
+        for (const [symbol, id] of effectBySymbol) if (text.includes(`${symbol}.id`)) served.add(id)
+        for (const [name, id] of Object.entries(TOOL)) if (new RegExp(`\\bTOOL\\.${name}\\b`).test(text)) served.add(id)
+    }
+    return served
+}
+
+/** Every effect a seeded graph's nodes may run. */
+const seededEffects = (): ReadonlySet<string> => {
+    // A step runs effects two ways since the flip: a control node (`defineNode`) declares them; a template node's tool call of an
+    // effect id is run by that effect's executor (the node host's `templateCall`).
+    const effectIds = new Set(INSTALLED.nodeInstall().effects.map((effect) => effect.id))
+    const nodes = new Map<string, ReadonlyArray<string>>([
+        ...INSTALLED.nodeInstall().nodes.map((node): readonly [string, ReadonlyArray<string>] => [node.id, node.effects]),
+        ...INSTALLED.templateNodes().map((node): readonly [string, ReadonlyArray<string>] => [
+            node.id,
+            node.tools.filter((tool) => effectIds.has(tool)),
+        ]),
+    ])
+    const effects = new Set<string>()
+    for (const name of SEEDED) {
+        for (const node of seededGraphOf(name).nodes) {
+            for (const effect of nodes.get(node.step) ?? []) {
+                effects.add(effect)
+            }
+        }
+    }
+    return effects
+}
+
+describe("the effects of the seeded graphs are served", () => {
+    it("reads the seeded graphs and the back end's executors", () => {
+        // Three effects (the agent tag, the customer message, the team message): the money left the engine (owner decision, wave 4: its order,
+        // payment and report effects are gone) and the accounting module's seeded graph with it (the module was dropped; ledger TOOLS-LEAD F2:
+        // `SEEDED` follows the seed files that exist, chatbot and sales, so the threshold fell from 3 to 2 more than none).
+        expect(seededEffects().size).toBeGreaterThan(2)
+        expect(servedEffects()).toContain(TOOL.customerMessageSend)
+    })
+
+    it("has an executor for every effect a seeded graph may run", () => {
+        const served = servedEffects()
+        expect([...seededEffects()].filter((effect) => !served.has(effect)).sort()).toEqual([])
     })
 })

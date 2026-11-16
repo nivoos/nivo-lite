@@ -1,17 +1,18 @@
 import { Module, type DynamicModule } from "@nestjs/common"
 import { KnowledgeQueueModule } from "@modules/queues/knowledge"
 import { ApiKnowledgeSourcesService } from "./api-knowledge-sources.service"
-import { KnowledgeProgressService } from "./knowledge-progress.service"
+import { BlockedSourcesService } from "./blocked-sources.service"
 import { KNOWLEDGE_STORAGE } from "./knowledge-sources.decorators"
-import { DossierSourcesService } from "./dossier-sources.service"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./knowledge-sources.module-definition"
 import { KnowledgeSourcesService } from "./knowledge-sources.service"
 import { SourceCategoriesService } from "./source-categories.service"
 import { SourceCriticStageService } from "./source-critic-stage.service"
 import { SourcePartsService } from "./source-parts.service"
 import { SourceQuotaService } from "./source-quota.service"
+import { SourceReadingsService } from "./source-readings.service"
 import { SourceTwinsService } from "./source-twins.service"
 import { KnowledgeSourcesReadableService } from "./knowledge-sources-readable.service"
+import { KnowledgeSourceCitesService } from "./knowledge-source-cites.service"
 import { KnowledgeSourcesAdminReadService } from "./knowledge-sources-admin-read.service"
 import { KnowledgeSourcesReadService } from "./knowledge-sources-read.service"
 import { ProfileSourcesService } from "./profile-sources.service"
@@ -38,9 +39,13 @@ export class KnowledgeSourcesModule extends ConfigurableModuleClass {
                     ...(base.providers ?? []),
                     KnowledgeSourcesReadService,
                     KnowledgeSourcesReadableService,
-                    DossierSourcesService,
+                    KnowledgeSourceCitesService,
                 ],
-                exports: [KnowledgeSourcesReadService, KnowledgeSourcesReadableService, DossierSourcesService],
+                exports: [
+                    KnowledgeSourcesReadService,
+                    KnowledgeSourcesReadableService,
+                    KnowledgeSourceCitesService,
+                ],
             }
         }
         return {
@@ -51,33 +56,37 @@ export class KnowledgeSourcesModule extends ConfigurableModuleClass {
                 KnowledgeSourcesAdminReadService,
                 KnowledgeSourcesReadService,
                 KnowledgeSourcesReadableService,
+                KnowledgeSourceCitesService,
                 { provide: KNOWLEDGE_STORAGE, useExisting: options.storage },
                 KnowledgeSourcesService,
-                KnowledgeProgressService,
+                BlockedSourcesService,
                 SourceCriticStageService,
                 SourceQuotaService,
+                SourceReadingsService,
                 SourcePartsService,
                 SourceTwinsService,
                 SourceCategoriesService,
-                DossierSourcesService,
                 ApiKnowledgeSourcesService,
                 PublishedSourcesService,
+                ProfileSourcesService,
             ],
             exports: [
                 KnowledgeQueueModule,
                 KnowledgeSourcesAdminReadService,
                 KnowledgeSourcesReadService,
                 KnowledgeSourcesReadableService,
+                KnowledgeSourceCitesService,
                 KnowledgeSourcesService,
-                KnowledgeProgressService,
+                BlockedSourcesService,
                 SourceCriticStageService,
                 SourceQuotaService,
+                SourceReadingsService,
                 SourcePartsService,
                 SourceTwinsService,
                 SourceCategoriesService,
-                DossierSourcesService,
                 ApiKnowledgeSourcesService,
                 PublishedSourcesService,
+                ProfileSourcesService,
             ],
         }
     }

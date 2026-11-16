@@ -3,7 +3,7 @@
 import { type SlotRead, useSlotLabels, slotOfReads } from "@/hooks/slot"
 
 import { useFormatter, useTranslations } from "next-intl"
-import { agentChoicesOf } from "@/hooks/connection-wizard"
+import { agentChoicesOf, useWizardPhases } from "@/hooks/connection-wizard"
 import {
     DB_ENGINES,
     DB_ENTITIES,
@@ -22,7 +22,7 @@ import { DatabaseWizardBase, type DatabaseWizardBaseProps } from "./component"
 interface DatabaseWizardProps {
     /** The actual workspace reads shared with this selected wizard. */
     readonly dependencyReads: ReadonlyArray<SlotRead<unknown>>
-    /** Workspace agents (any module): every agent may be given read access to the data. */
+    /** Workspace agents (any module): every agent may be bound to the data. */
     readonly agents: ReadonlyArray<AgentOption>
     /** Continue or edit this existing connection instead of creating a new one. */
     readonly resumeId?: string
@@ -37,6 +37,7 @@ interface DatabaseWizardProps {
 export const DatabaseWizard = (props: DatabaseWizardProps) => {
     const t = useTranslations("connectorDatabase")
     const tw = useTranslations("connectionWizard")
+    const phases = useWizardPhases("database")
     const format = useFormatter()
     const slotLabelsOf = useSlotLabels()
     const wizard = useDatabaseWizard({ resumeId: props.resumeId, onClose: props.onClose })
@@ -50,6 +51,7 @@ export const DatabaseWizard = (props: DatabaseWizardProps) => {
                 slotLabels: { ...slotLabelsOf(""), ...(wizard.loadError === null ? {} : { error: wizard.loadError }) },
                 title: t("title"),
                 stepLabel: tw("stepOf", { n: wizard.index + 1, total: DB_STEPS.length }),
+                phases,
                 steps: [t("stepConnect"), t("stepTables"), t("stepSchedule"), t("stepAgent")],
                 index: wizard.index,
                 step: wizard.step,
@@ -64,7 +66,7 @@ export const DatabaseWizard = (props: DatabaseWizardProps) => {
                 agentStep: {
                     title: t("agentTitle"),
                     notice: null,
-                    agents: agentChoicesOf(props.agents, "database", tw),
+                    agents: agentChoicesOf(props.agents, tw),
                     value: wizard.agentIds,
                     hint: tw("agentHint"),
                     none: tw("agentNone"),

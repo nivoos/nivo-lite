@@ -3,7 +3,7 @@ import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { HttpSecurityError, HttpSecurityErrorCode } from "./errors/http-security.error"
 import { HttpSecurityLogEvent } from "./http-security.log-events"
-import type { WebhookProof, WebhookProofRegistry, WebhookProofRequest } from "./webhook-proof.port"
+import type { WebhookProof, WebhookProofRegistry, WebhookProofRequest, WebhookProofVerdict } from "./webhook-proof.port"
 
 /** A refusal of one provider and scope is logged at most once per this long; the ones in between are counted into the next line. */
 export const REFUSAL_LOG_WINDOW_MS = 60_000
@@ -36,16 +36,21 @@ export class WebhookProofRegistryService implements WebhookProofRegistry {
         this.proofs.set(proof.provider, proof)
     }
 
-    /** Enforces the registered proof and retains the shared HTTP security refusal codes; a refused proof leaves one log line per provider and scope per minute. */
-    async verify(provider: string, request: WebhookProofRequest): Promise<void> {
+    /**
+     * Enforces the registered proof and retains the shared HTTP security refusal codes; a refused proof leaves one log line per provider
+     * and scope per minute. Answers the verdict an accepted delivery carries to its intake.
+     */
+    async verify(provider: string, request: WebhookProofRequest): Promise<WebhookProofVerdict> {
         const proof = this.proofs.get(provider)
         if (proof === undefined) {
             throw new HttpSecurityError({ code: HttpSecurityErrorCode.WebhookProviderUnknown, params: { provider } })
         }
-        if (!(await proof.prove(request))) {
+        const answer = await proof.prove(request)
+        if (answer === false) {
             this.logRefusal(proof, request)
             throw new HttpSecurityError({ code: HttpSecurityErrorCode.WebhookSignatureInvalid })
         }
+        return answer === true ? "proven" : "unproven"
     }
 
     private logRefusal(proof: WebhookProof, request: WebhookProofRequest): void {

@@ -1,17 +1,22 @@
 import type { ReactElement } from "react"
-import { SepayConnectionPage } from "@/features/pages/SepayConnectionPage"
+import { ConnectionMovedPage } from "@/features/pages/ConnectionMovedPage"
 
-/** The document title of the SePay connection page. */
-export { sepayConnectionMetadata as generateMetadata } from "@/features/pages/SepayConnectionPage"
+/** The document title of the old address. */
+export { connectionMovedMetadata as generateMetadata } from "@/features/pages/ConnectionMovedPage"
 
 type PageProps = {
-    readonly params: Promise<{ workspaceId: string; id: string }>
+    readonly params: Promise<{ readonly workspaceId: string; readonly id: string }>
+    readonly searchParams: Promise<Record<string, string | string[] | undefined>>
 }
 
-/** One SePay connection: its setup steps in back end order, its health and its live webhook events, on one page. */
+/** The old per-provider address of an account: it forwards to the account's page on the one provider template. */
 const Page = async (props: PageProps): Promise<ReactElement> => {
     const { workspaceId, id } = await props.params
-    return <SepayConnectionPage workspaceId={workspaceId} connectionId={id} />
+    const query = await props.searchParams
+    const raw = query.view ?? query.tab
+    return (
+        <ConnectionMovedPage workspaceId={workspaceId} connectionId={id} view={typeof raw === "string" ? raw : undefined} />
+    )
 }
 
 export default Page

@@ -1,0 +1,7 @@
+export type { VectorEmbedder, VectorsEmbedded } from "./vector-sync.contracts"
+export { VECTOR_SYNC_ERROR_KINDS } from "./errors/vector-sync.error"
+export { VECTOR_SYNC_MESSAGES } from "./messages/vector-sync.messages"
+export { VectorSyncModule } from "./vector-sync.module"
+export { VectorReconcileService } from "./vector-reconcile.service"
+export { VectorSyncService } from "./vector-sync.service"
+export { vectorSyncEntities } from "./persistence/entities"

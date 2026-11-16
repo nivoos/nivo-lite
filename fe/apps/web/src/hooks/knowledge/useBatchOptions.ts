@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { AGENT_MODULES, type InstanceOption } from "@/modules/documents"
+import { DEFAULT_UPLOAD_AREA, type InstanceOption } from "@/modules/documents"
 import type { AddPreset, BatchOptionFields, BatchOptions } from "@/hooks/knowledgeAddTypes"
 
 /** The module value of the "For" select: a type, or one instance of a type. */
@@ -14,10 +14,11 @@ export const useBatchOptions = (preset: AddPreset | null, instances: ReadonlyArr
         tags: preset?.tags ?? "",
         module: "all",
         instanceId: null,
+        visibility: DEFAULT_UPLOAD_AREA,
     })
     const pickModule = (value: string | null) => {
         const instance = instances.find((one) => `${INSTANCE_PREFIX}${one.id}` === value)
-        const module = AGENT_MODULES.find((key) => key === value) ?? "all"
+        const module = value === null || value === "" ? "all" : value
         setOptions((now) =>
             instance === undefined
                 ? { ...now, module, instanceId: null }
@@ -30,7 +31,9 @@ export const useBatchOptions = (preset: AddPreset | null, instances: ReadonlyArr
         setTopic: (topic) => setOptions((now) => ({ ...now, topic: topic.slice(0, 80) })),
         setTags: (tags) => setOptions((now) => ({ ...now, tags })),
         pickModule,
+        pickVisibility: (value) => setOptions((now) => ({ ...now, visibility: value === "public" ? "public" : "internal" })),
         meta: () => ({
+            visibility: options.visibility,
             topic: options.topic.trim() === "" ? null : options.topic.trim(),
             tags: options.tags
                 .split(",")

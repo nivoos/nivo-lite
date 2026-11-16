@@ -16,7 +16,8 @@ export const WorkspaceChannelsPage = async (): Promise<ReactElement> => {
         <WorkspaceChannelsPageBase
             props={{
                 stepsLabel: t("welcomeStepsLabel"),
-                steps: [t("trackStep1"), t("trackStep2"), t("trackStep3")],
+                steps: [t("trackStep1"), t("trackStep2"), t("trackStep3"), t("trackStep4")],
+                descriptions: [t("trackStep1Text"), t("trackStep2Text"), t("trackStep3Text"), t("trackStep4Text")],
             }}
         />
     )

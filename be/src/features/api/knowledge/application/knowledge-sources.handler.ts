@@ -1,25 +1,23 @@
 import { QueryHandler } from "@nestjs/cqrs"
-import { KnowledgeSourcesService, type SourceSummary } from "@modules/domain/knowledge-sources"
+import { KnowledgeSourcesListingService, type KnowledgeSourceListing } from "@modules/domain/brain"
 import { ICQRSHandler } from "@modules/platform/cqrs"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { KnowledgeSourcesQuery } from "./knowledge-sources.query"
 
 @QueryHandler(KnowledgeSourcesQuery)
-/** Lists the documents of the workspace, newest first and without their text. */
-export class KnowledgeSourcesHandler extends ICQRSHandler<KnowledgeSourcesQuery, ReadonlyArray<SourceSummary>> {
+/** Lists the documents of the workspace with what each cost in AI and where its truths stand, through the KnowledgeSourcesListingService. */
+export class KnowledgeSourcesHandler extends ICQRSHandler<
+    KnowledgeSourcesQuery,
+    ReadonlyArray<KnowledgeSourceListing>
+> {
     constructor(
         @InjectLogger() logger: Logger,
-        private readonly sources: KnowledgeSourcesService,
+        private readonly listing: KnowledgeSourcesListingService,
     ) {
         super(logger)
     }
 
-    protected override process(query: KnowledgeSourcesQuery): Promise<ReadonlyArray<SourceSummary>> {
-        return this.sources.list(
-            query.params.principal.id,
-            query.params.request.workspaceId,
-            query.params.request.module,
-            query.params.request.origin,
-        )
+    protected override process(query: KnowledgeSourcesQuery): Promise<ReadonlyArray<KnowledgeSourceListing>> {
+        return this.listing.list(query.params.principal.id, query.params.request)
     }
 }

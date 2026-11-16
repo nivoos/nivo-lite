@@ -98,10 +98,7 @@ export class GoogleConnectionsService {
     async state(actor: ConnectionActor): Promise<GoogleSetup> {
         await this.connections.authorize(actor, MANAGER)
         const rows = await this.connections.listByProvider(actor.workspaceId, "google", { includeDisconnected: false })
-        return {
-            configured: this.google.isConfigured(),
-            consentNeeded: rows.some((connection) => waitsForConsent(connection)),
-        }
+        return { configured: this.google.isConfigured(), consentNeeded: rows.some((item) => waitsForConsent(item)) }
     }
 
     /** The live Google accounts of the workspace, for an automation account picker (owner or manager). */
@@ -204,7 +201,7 @@ export class GoogleConnectionsService {
     /** The oldest live Google connection of the workspace. */
     private async oldestLive(workspaceId: string): Promise<ConnectionRecord | null> {
         const rows = await this.connections.listByProvider(workspaceId, "google", { includeDisconnected: false })
-        return rows.find((connection) => isLive(connection)) ?? null
+        return rows.find((item) => isLive(item)) ?? null
     }
 
     /** Records a refused consent; a failure to record is logged and never changes where the browser goes. */

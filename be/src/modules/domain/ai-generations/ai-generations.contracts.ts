@@ -1,4 +1,18 @@
-import type { RunUsage } from "@modules/integrations/openclaw"
+/** What one generation cost at the AI endpoint: prompt tokens include the cached ones. */
+export interface RunUsage {
+    /** Prompt tokens, cached ones included. */
+    readonly prompt_tokens: number
+    /** Completion tokens. */
+    readonly completion_tokens: number
+    /** Prompt tokens served from the provider's cache. */
+    readonly cached_tokens: number
+    /** Prompt tokens written to the provider's cache; absent when not told. */
+    readonly cache_write_tokens?: number | undefined
+    /** The provider cost of the call. */
+    readonly cost: number
+    /** The model that answered. */
+    readonly model: string | null
+}
 import type { Locale } from "@modules/platform/i18n"
 
 /** Trusted application metadata stored with a queued generation. */
@@ -45,6 +59,11 @@ export interface GenerateParams {
     readonly module: string
     /** The language of the sentence a failure carries; Vietnamese when absent. */
     readonly locale?: Locale
+    /**
+     * The key of the model call as an outside effect, when the caller is itself a job that may run again (`<jobId>:<part>`): a second
+     * run of the caller answers from the ledger and never calls or bills the model twice. Absent: the row's own id keys the call.
+     */
+    readonly effectKey?: string | undefined
 }
 
 /** The generation a fenced job may run, or null when usage or engine availability requires its fallback. */
@@ -65,7 +84,7 @@ export interface GenerationSuccess {
 }
 
 /** Why a generation did not produce text. */
-export type GenerationFailureReason = "quota" | "engine_offline" | "timeout" | "error" | "not_configured"
+export type GenerationFailureReason = "quota" | "timeout" | "error" | "not_configured"
 
 /** A refusal to write a text, or null when the text can be written. */
 export type OptionalGenerationFailure = GenerationFailure | null
@@ -91,6 +110,22 @@ export interface GenerationInput {
     readonly responseFormat: ResponseFormat
     /** The deadline of the caller, ms. */
     readonly timeoutMs: number
+    /** The agent run the caller worked in when it asked (its run scope), or null: the runner books the call to it. */
+    readonly runId?: string | null | undefined
+    /** The work the caller did when it asked (its work scope), or null: the runner books the call to it (U1). */
+    readonly work?: GenerationWork | null | undefined
+}
+
+/** The work a queued generation was asked for, copied from the caller's work scope into the stored input. */
+export interface GenerationWork {
+    /** The kind of work (`learning`, `chat_turn`, ...). */
+    readonly kind: string
+    /** The record, `<what>:<id>`, or null. */
+    readonly ref: string | null
+    /** The run step, or null. */
+    readonly stepKey: string | null
+    /** The agent, or null. */
+    readonly agentId: string | null
 }
 
 /** A queued request returned immediately, before the agent runs. */
@@ -174,7 +209,7 @@ export type PollVerdict =
     | { readonly kind: "failed" }
     | { readonly kind: "timeout" }
 
-/** What the run of a turn on the gateway produced: the text and its cost, or the reason there is none. */
+/** What the model call of a generation produced: the text and its cost, or the reason there is none. */
 export interface TurnAttempt {
     /** The text, or null when the run failed. */
     readonly text: string | null
@@ -186,6 +221,14 @@ export interface TurnAttempt {
     readonly reason: string
     /** True when the deadline of the request passed before the text did. */
     readonly timedOut: boolean
+    /** False when the try left no request (`AiFailedTry.sent`): nothing was spent, nothing is booked. Absent otherwise. */
+    readonly sent?: false | undefined
+}
+
+/** Where the model call of one generation leaves the attempt that made no text, so the runner can write its typed reason on the row (the call itself throws, releasing its ledger intent). */
+export interface FailedAttempt {
+    /** The attempt, absent until a call made no text. */
+    attempt?: TurnAttempt
 }
 
 /** A text that was queued: the id to poll. */

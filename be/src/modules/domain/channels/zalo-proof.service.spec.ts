@@ -72,10 +72,10 @@ describe("ZaloProofService", () => {
             await expect(wrong.proof.prove(request("x", Buffer.from(BODY), MAC))).resolves.toBe(false)
         })
 
-        it("lets a call to a connection that holds no OA secret key yet through, logged as unverified, for the intake to drop", async () => {
+        it("answers UNPROVEN for a connection that holds no OA secret key yet, logged as unverified (kept, never acted on)", async () => {
             const { proof, logger } = await build(false)
 
-            await expect(proof.prove(request(CONNECTION, Buffer.from(BODY), ""))).resolves.toBe(true)
+            await expect(proof.prove(request(CONNECTION, Buffer.from(BODY), ""))).resolves.toBe("unproven")
             expect(logger.warn).toHaveBeenCalledWith("zalo.webhook.unverified", {
                 connectionId: CONNECTION,
                 reason: ChannelsErrorCode.ConnectionNotFound,

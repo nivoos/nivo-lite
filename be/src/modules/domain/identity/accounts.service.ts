@@ -55,6 +55,12 @@ export type OptionalUserId = string | null
 const httpsOf = (value: unknown): string | null =>
     typeof value === "string" && value.startsWith("https://") ? value : null
 
+/** The part of an email before the "@" as the display name; "Owner" when it is empty. */
+const localPartOf = (email: string): string => {
+    const local = email.split("@")[0]
+    return local === undefined || local === "" ? "Owner" : local
+}
+
 const isoOf = (value: Date | string | null): string | null => (value === null ? null : new Date(value).toISOString())
 
 @Injectable()
@@ -79,12 +85,10 @@ export class IdentityAccountsService {
         const named = [user.meta.full_name, user.meta.name].find((value) => typeof value === "string" && value !== "")
         const email = user.email ?? ""
         const uploaded = httpsOf(user.meta[UPLOADED_AVATAR_KEY])
-        const localPart = email.split("@", 1).join("")
-        const fallbackName = localPart === "" ? "Owner" : localPart
         return ok({
             email,
             lastSignInAt: isoOf(user.last_sign_in_at),
-            displayName: typeof named === "string" ? named : fallbackName,
+            displayName: typeof named === "string" ? named : localPartOf(email),
             avatarUrl: uploaded ?? (typeof user.meta.avatar_url === "string" ? user.meta.avatar_url : null),
             uploadedAvatarUrl: uploaded,
         })
@@ -180,6 +184,14 @@ export class IdentityAccountsService {
      */
     deliverInvite(email: string, redirectTo: string): Promise<InviteSent> {
         return this.invites.deliver(email, redirectTo)
+    }
+
+    /**
+     * Emails the invitation of a job exactly once under `key` (see `IdentityInviteService.deliverOnce`); a mail that cannot be sent is
+     * thrown for the job's runner to retry or park.
+     */
+    deliverInviteOnce(key: string, email: string, redirectTo: string): Promise<InviteSent> {
+        return this.invites.deliverOnce(key, email, redirectTo)
     }
 
     private failureOf(cause: unknown): AccountAdminFailure {

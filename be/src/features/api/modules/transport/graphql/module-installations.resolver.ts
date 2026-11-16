@@ -5,7 +5,8 @@ import { WorkspaceId } from "@modules/domain/workspace-members"
 import { InjectQueryBus, type Principal } from "@modules/platform/cqrs"
 import { ListInstallationsQuery } from "../../application/list-installations.query"
 import { ModuleInstallationType } from "./dto/module-installation.type"
-import { toListInstallationsRequest, toModuleInstallationsType } from "./modules.mapper"
+import { toModuleInstallationsType } from "./module-lists.mapper"
+import { toListInstallationsRequest } from "./modules.mapper"
 
 @Resolver()
 /** GraphQL door of the installed agents. */

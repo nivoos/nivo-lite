@@ -48,7 +48,7 @@ export class BrainLessonsService {
             order: { proposedAt: "DESC" },
             take: 500,
         })
-        return rows.map((row) => toLessonRecord(row))
+        return rows.map((item) => toLessonRecord(item))
     }
 
     /** The active lessons one agent follows: its own and the shared ones. */

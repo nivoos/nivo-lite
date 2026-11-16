@@ -17,6 +17,7 @@ import {
 } from "./money-wizard.shared"
 import type { MoneyWizardInput } from "./useMoneyWizard"
 
+
 /** The draft after a stored connection is adopted; the key is in clear only when the server just created it, a masked one never replaces it. */
 const followAfterAdopt = (current: FollowDraft, stored: WizardConnection): FollowDraft => ({
     ...current,

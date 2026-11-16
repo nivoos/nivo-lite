@@ -1,43 +1,63 @@
 import { Module, type DynamicModule, type OnModuleInit } from "@nestjs/common"
-import { MessageInboxPollerRegistryService } from "@modules/domain/provider-registry"
-import { MessageInboxPollSourcesService } from "./message-inbox-poll-sources.service"
+import { CustomerSendRegistryService, ZaloCustomerSendService } from "@modules/domain/channels"
+import { triggerDeclarations } from "@modules/domain/provider-triggers"
+import { ChannelProfileRegistryService } from "@modules/domain/provider-registry"
+import { SandboxCatalogueRegistryService } from "@modules/domain/provider-sandbox"
+import { ZALO_ACCESS_TOKENS } from "./zalo-access-tokens.port"
 import { ZaloInboxPollerService } from "./zalo-inbox-poller.service"
-import { ZaloInboxPollTriggerService } from "./zalo-poll-trigger.service"
-import { ZaloInboxPollService } from "./zalo-poll.service"
-import { ZaloProfileService } from "./zalo-profile.service"
-import { ZaloReconcileService } from "./zalo-reconcile.service"
+import { ZALO_TRIGGERS } from "./zalo-message.trigger"
+import { ZaloProfileReaderService } from "./zalo-profile-reader.service"
+import { ZALO_SANDBOX_CATALOGUE } from "./zalo-sandbox.catalogue"
+import { ZALO_SEND_SANDBOX_CATALOGUE } from "./zalo-sandbox-send.catalogue"
+import { ZaloSandboxSendService } from "./zalo-sandbox-send.service"
+import { ZaloSandboxInboxPollerService } from "./zalo-sandbox-inbox-poller.service"
+import { ZaloStaleJudgeService } from "./zalo-stale-judge.service"
+import { ZaloSandboxProfileService } from "./zalo-sandbox-profile.service"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./zalo-provider.module-definition"
-
-const PROVIDERS = [
-    ZaloInboxPollerService,
-    ZaloInboxPollService,
-    ZaloInboxPollTriggerService,
-    MessageInboxPollSourcesService,
-    ZaloProfileService,
-    ZaloReconcileService,
-]
 
 @Module({})
 /**
- * Everything Zalo-specific that core asks a provider for, registered under the capability names: the inbox poller that reads the customer messages
- * the webhook never delivered, with the limits and error classes the scheduler needs, and the first poll of a connection that just became ready.
+ * The Zalo OA provider's faces, registered once at boot: its trigger (`zalo.message.received`, a pure translate of the stored event row)
+ * its poll readers (the live reader of the OA's chats and its sandbox twin, which the inbox's poll receiver wraps), Zalo's stale rule, and its profile read (name and picture of a customer), its customer SEND (the live Zalo route and its sandbox twin, registered on the customer-send registry), which the provider-neutral profile tool reaches by the registry. It keeps nothing: the intake keeps every event, the engine meets the person.
  */
 export class ZaloProviderModule extends ConfigurableModuleClass implements OnModuleInit {
     constructor(
-        private readonly pollers: MessageInboxPollerRegistryService,
-        private readonly poller: ZaloInboxPollerService,
+        private readonly profiles: ChannelProfileRegistryService,
+        private readonly profileReader: ZaloProfileReaderService,
+        private readonly profileSandbox: ZaloSandboxProfileService,
+        private readonly catalogues: SandboxCatalogueRegistryService,
+        private readonly sends: CustomerSendRegistryService,
+        private readonly sendLive: ZaloCustomerSendService,
+        private readonly sendSandbox: ZaloSandboxSendService,
     ) {
         super()
     }
 
-    /** Registers the app's Zalo provider once. */
+    /** Registers the app's Zalo provider once; the app root names the class behind its token port. */
     static register(options: typeof OPTIONS_TYPE): DynamicModule {
         const base = super.register(options)
-        return { ...base, providers: [...(base.providers ?? []), ...PROVIDERS], exports: PROVIDERS }
+        return {
+            ...base,
+            providers: [
+                ...(base.providers ?? []),
+                ZaloInboxPollerService,
+                ZaloProfileReaderService,
+                ZaloSandboxInboxPollerService,
+                ZaloStaleJudgeService,
+                ZaloSandboxProfileService,
+                ZaloSandboxSendService,
+                { provide: ZALO_ACCESS_TOKENS, useExisting: options.ports.tokens },
+            ],
+            exports: [ZaloInboxPollerService, ZaloSandboxInboxPollerService, ZaloStaleJudgeService, ZaloProfileReaderService],
+        }
     }
 
-    /** Hands the inbox poller to its registry. */
+    /** Hands the profile read and the customer send, each with its sandbox twin, to their registries, the sandbox catalogue to its registry and the trigger declarations to theirs. */
     onModuleInit(): void {
-        this.pollers.register(this.poller)
+        this.profiles.register({ live: this.profileReader, sandbox: this.profileSandbox })
+        this.sends.register({ live: this.sendLive, sandbox: this.sendSandbox })
+        this.catalogues.register(ZALO_SANDBOX_CATALOGUE)
+        this.catalogues.register(ZALO_SEND_SANDBOX_CATALOGUE)
+        triggerDeclarations.register(...ZALO_TRIGGERS)
     }
 }

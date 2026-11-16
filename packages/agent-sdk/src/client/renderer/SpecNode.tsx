@@ -7,7 +7,9 @@ import { BoundAction } from "./BoundAction"
 import { BoundRead } from "./BoundRead"
 import { MISSING_READ, UNBOUND_ACTION, UNBOUND_READ } from "./inert"
 import { NodeBoundary } from "./NodeBoundary"
+import { NodeFilesProvider } from "./node-files"
 import type { SpecContext } from "./renderer.types"
+import { isShownFor } from "./show-when"
 
 type SlotValue = ReadHandle | ActionHandle
 type SlotValues = Readonly<Record<string, SlotValue>>
@@ -28,6 +30,13 @@ interface SlotChainProps {
     readonly done: (values: SlotValues) => ReactNode
 }
 
+/** The id a spec bound to each slot, by slot name. */
+const boundIds = <K extends "read" | "action">(
+    bound: Readonly<Record<string, { readonly [Key in K]: string }>>,
+    key: K,
+): Readonly<Record<string, string>> =>
+    Object.fromEntries(Object.entries(bound).map(([name, binding]) => [name, binding[key]]))
+
 /** The slots of a node in declaration order, each with its binding. */
 const slotEntries = (node: PlanNode): ReadonlyArray<SlotEntry> =>
     Object.entries(node.block.slots).map(([name, slot]): SlotEntry => {
@@ -38,19 +47,7 @@ const slotEntries = (node: PlanNode): ReadonlyArray<SlotEntry> =>
 /** Resolves the slots of a node one after the other, each in a component of its own so every hook list stays stable. */
 const SlotChain = (props: SlotChainProps): ReactNode => {
     const [entry, ...rest] = props.entries
-    return entry === undefined ? props.done(props.values) : <SlotStep {...props} entry={entry} rest={rest} />
-}
-
-interface SlotStepProps extends SlotChainProps {
-    /** The slot this step resolves. */
-    readonly entry: SlotEntry
-    /** The slots that follow it. */
-    readonly rest: ReadonlyArray<SlotEntry>
-}
-
-/** Resolves one slot of a node, then hands the chain on with the value it found. */
-const SlotStep = (props: SlotStepProps): ReactElement => {
-    const { entry, rest } = props
+    if (entry === undefined) return props.done(props.values)
     const next = (value: SlotValue): ReactElement => (
         <SlotChain {...props} entries={rest} values={{ ...props.values, [entry.name]: value }} />
     )
@@ -102,21 +99,23 @@ export const SpecNode = (props: SpecNodeProps): ReactNode => {
     const renderer = props.context.renderers.get(props.node.block.id)
     if (!canSee) return null
     const showWhen = props.node.showWhen
-    if (showWhen !== null && !showWhen.is.includes(props.context.params.value(showWhen.param) ?? "")) return null
+    if (showWhen !== null && !isShownFor(showWhen, props.context.params.value(showWhen.param))) return null
     if (renderer === undefined) return <EmptyNotice message={text({ key: "renderer.unavailable" })} />
     const draw = (values: SlotValues): ReactNode =>
         props.node.forbidden === "hide" && hasForbidden(values) ? null : (
             <Suspense fallback={<Skeleton shape="text" lines={3} />}>
-                <renderer.Component
-                    props={props.node.props}
-                    slots={values}
-                    nodeId={props.node.id}
-                    params={props.context.params}
-                >
-                    {props.node.children.map((child) => (
-                        <SpecNode key={child.id} node={child} context={props.context} />
-                    ))}
-                </renderer.Component>
+                <NodeFilesProvider reads={boundIds(props.node.reads, "read")} actions={boundIds(props.node.actions, "action")}>
+                    <renderer.Component
+                        props={props.node.props}
+                        slots={values}
+                        nodeId={props.node.id}
+                        params={props.context.params}
+                    >
+                        {props.node.children.map((child) => (
+                            <SpecNode key={child.id} node={child} context={props.context} />
+                        ))}
+                    </renderer.Component>
+                </NodeFilesProvider>
             </Suspense>
         )
     return (

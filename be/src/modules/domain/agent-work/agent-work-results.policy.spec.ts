@@ -36,6 +36,21 @@ describe("parseBegin", () => {
         expect(parseBegin({ result }, "agent-1", "agent")).toEqual({ result, ended: [] })
     })
 
+    it("reads the wait an idle answer tells: how long is left and the wake it is for; a plain idle when either is missing or malformed", async () => {
+        const { parseBegin } = await buildSubject()
+
+        expect(parseBegin({ result: "idle", ended: [], waitMs: 1099.2, waitFor: "wake-9" }, "agent-1", "conversation:c")).toEqual({
+            result: "idle",
+            ended: [],
+            wait: { ms: 1100, wakeId: "wake-9" },
+        })
+        for (const answer of [{ waitMs: 1100 }, { waitFor: "wake-9" }, { waitMs: 0, waitFor: "wake-9" }, { waitMs: "1100", waitFor: "wake-9" }]) {
+            expect(parseBegin({ result: "idle", ...answer }, "agent-1", "conversation:c")).toEqual({ result: "idle", ended: [] })
+        }
+        // Only an idle scope waits: the fields mean nothing on another answer.
+        expect(parseBegin({ result: "busy", waitMs: 1100, waitFor: "wake-9" }, "agent-1", "conversation:c")).toEqual({ result: "busy", ended: [] })
+    })
+
     it("reads a begun turn for the agent and scope it was asked about", async () => {
         const { parseBegin } = await buildSubject()
         expect(parseBegin(begun(), "agent-1", "agent")).toEqual({
@@ -95,7 +110,7 @@ describe("parseBegin", () => {
         ["an ended wake with a field missing", { result: "idle", ended: [{ state: "held", wakeId: "wake-1" }] }],
         ["a word that is none of the four", { result: "later" }],
         ["a begun answer without its turn", { result: "begun" }],
-        ["an unknown source", begun({ source: "robot" })],
+        ["a source that is not a key", begun({ source: "Not A Key" })],
         ["a date that does not parse", begun({ wakeCreatedAt: "not a date" })],
         ["a date that is not text", begun({ wakeCreatedAt: 5 })],
         ["an actor that is a number", begun({ actorMemberId: 7 })],
@@ -124,6 +139,29 @@ describe("storedWakeContextOf", () => {
     })
 })
 
+describe("storedWakeContextOf for a channel wake that names its entrance", () => {
+    it("keeps the route, the person, the entrance, the front door, the key of the line and the flags of a wake with no new words", async () => {
+        const { storedWakeContextOf } = await buildSubject()
+        const written = {
+            conversationId: "route-1",
+            contactId: "contact-1",
+            channel: "telegram",
+            connectionId: "conn-1",
+            externalId: "555",
+            agentId: "agent-front",
+            visitor: "Minh",
+            channelEventId: "tg:conn-1:555:9",
+            messageId: "row-1",
+            messageKey: "tg:conn-1:555:9",
+            filesJson: '[{"id":"k-0"}]',
+            resume: "held",
+            isStart: true,
+        }
+        expect(storedWakeContextOf(written)).toEqual(written)
+        expect(storedWakeContextOf({ isStart: "yes", connectionId: 3 })).toEqual({})
+    })
+})
+
 describe("storedWakeContextOf for a tag and a burst", () => {
     it("keeps what the tag door and the burst window wrote: the words, the data, the tagger, the lead and the merged messages", async () => {
         const { storedWakeContextOf } = await buildSubject()
@@ -137,7 +175,6 @@ describe("storedWakeContextOf for a tag and a burst", () => {
             authorAgentId: "a-1",
             conversationId: "c-1",
             messageId: "m-1",
-            mergedMessageIds: "m-2,m-3,m-4",
             locale: "vi",
         }
         expect(storedWakeContextOf(written)).toEqual(written)
@@ -157,7 +194,7 @@ describe("storedWakeContextOf for an inbound wake", () => {
 })
 
 describe("parseBegin for a source an adapter added", () => {
-    it("reads a wake of a registered source and refuses one nobody registered", async () => {
+    it("reads a wake of a registered source, and one nobody registers (any more): the drain closes it (rule RETIRED SOURCE)", async () => {
         const { parseBegin } = await buildSubject()
         wakeSources.add("results_spec_adapter", {
             priority: 25,
@@ -172,7 +209,14 @@ describe("parseBegin for a source an adapter added", () => {
             result: "begun",
             turn: { source: "results_spec_adapter" },
         })
-        expect(parseBegin(begun({ source: "never_registered" }), "agent-1", "agent")).toBeNull()
+        expect(parseBegin(begun({ source: "never_registered" }), "agent-1", "agent")).toMatchObject({
+            result: "begun",
+            turn: { source: "never_registered" },
+        })
+        // A held wake of a retired source in the ended list no longer makes the whole answer unreadable.
+        expect(
+            parseBegin({ result: "idle", ended: [{ ...begun({ source: "never_registered" }), state: "held" }] }, "agent-1", "agent"),
+        ).toMatchObject({ result: "idle", ended: [{ state: "held", wake: { source: "never_registered" } }] })
     })
 })
 

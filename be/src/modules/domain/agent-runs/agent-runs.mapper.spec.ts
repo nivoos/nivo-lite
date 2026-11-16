@@ -1,12 +1,6 @@
 import { Test } from "@nestjs/testing"
-import {
-    WHEN,
-    runRecordOf as sampleRun,
-    runRowOf,
-    stepRecordOf as sampleStep,
-    stepRowOf,
-} from "@tests/fixtures/builders/agent-runs.builder"
-import { handlerViewsOf, routeStepOf, runRecordOf, runViewOf, stepRecordOf, stepViewOf } from "./agent-runs.mapper"
+import { WHEN, runRowOf, stepRowOf } from "@tests/fixtures/builders/agent-runs.builder"
+import { runEngineOf, runRecordOf, runViewOf, stepRecordOf } from "./agent-runs.mapper"
 
 const SUBJECT = Symbol("agent-runs.mapper")
 
@@ -15,22 +9,25 @@ const buildSubject = async () => {
         providers: [
             {
                 provide: SUBJECT,
-                useValue: { handlerViewsOf, routeStepOf, runRecordOf, runViewOf, stepRecordOf, stepViewOf },
+                useValue: {
+                    runEngineOf,
+                    runRecordOf,
+                    runViewOf,
+                    stepRecordOf,
+                },
             },
         ],
     }).compile()
     return moduleRef.get<{
-        handlerViewsOf: typeof handlerViewsOf
-        routeStepOf: typeof routeStepOf
+        runEngineOf: typeof runEngineOf
         runRecordOf: typeof runRecordOf
         runViewOf: typeof runViewOf
         stepRecordOf: typeof stepRecordOf
-        stepViewOf: typeof stepViewOf
     }>(SUBJECT)
 }
 
 describe("run records", () => {
-    it("reads a run record from the engine row", async () => {
+    it("reads a run record from its stored row", async () => {
         const { runRecordOf, runViewOf } = await buildSubject()
         const run = runRecordOf(
             runRowOf({ error: { code: "boom" }, deadLetteredAt: WHEN.toISOString(), status: "parked" }),
@@ -47,6 +44,13 @@ describe("run records", () => {
         expect(runRecordOf(runRowOf({ error: { code: 3 } })).errorCode).toBeNull()
     })
 
+    it("reads the engine a run is on: the one its row names", async () => {
+        const { runEngineOf } = await buildSubject()
+        expect(runEngineOf(runRowOf({ engine: "legacy" }))).toBe("legacy")
+        expect(runEngineOf(runRowOf({ engine: "langgraph" }))).toBe("langgraph")
+        expect(() => runEngineOf(runRowOf({ engine: "unknown-engine" }))).toThrow()
+    })
+
     it.each([
         ["a field that is no text", { agentId: 4 }],
         ["a field that is no number", { stepSeq: "1" }],
@@ -60,59 +64,44 @@ describe("run records", () => {
 })
 
 describe("step records", () => {
-    it("reads a step record from the engine row", async () => {
-        const { stepRecordOf, stepViewOf } = await buildSubject()
+    it("reads a step record from its stored row", async () => {
+        const { stepRecordOf } = await buildSubject()
         const step = stepRecordOf(
             stepRowOf({
-                effect: { kind: "compensable", compensation: "undo" },
+                effect: { kind: "write" },
                 result: { ok: true },
                 claimedUntil: WHEN.toISOString(),
             }),
         )
 
-        expect(step).toMatchObject({ stepKey: "step-1", effect: { kind: "compensable", compensation: "undo" } })
+        expect(step).toMatchObject({ stepKey: "step-1", effect: { kind: "write" } })
         expect(step.claimedUntil?.toISOString()).toBe(WHEN.toISOString())
-        expect(stepViewOf(step)).toMatchObject({ seq: 1, fence: 2, result: { ok: true } })
+        expect(step).toMatchObject({ ordinal: 1, version: "2", result: { ok: true } })
     })
 
     it.each([
         [{ kind: "read" }, { kind: "read" }],
-        [{ kind: "pivot" }, { kind: "pivot" }],
+        [{ kind: "write" }, { kind: "write" }],
     ])("reads the effect %j", async (effect, expected) => {
         const { stepRecordOf } = await buildSubject()
         expect(stepRecordOf(stepRowOf({ effect })).effect).toEqual(expected)
     })
 
+    it.each([null, undefined])(
+        "reads a step row that names no deadline (%s: a thread's step row, D-P10-6) with the default deadline",
+        async (deadlineMs) => {
+            const { stepRecordOf } = await buildSubject()
+            expect(stepRecordOf(stepRowOf({ deadlineMs })).deadlineMs).toBe(120_000)
+        },
+    )
+
     it.each([
+        ["a deadline that is no number", { deadlineMs: "soon" }],
         ["an effect of an unknown kind", { effect: { kind: "other" } }],
-        ["a compensable effect with no handler", { effect: { kind: "compensable" } }],
         ["a step status it does not know", { status: "limbo" }],
         ["an input that is no object", { input: "x" }],
     ])("refuses %s", async (_name, over) => {
         const { stepRecordOf } = await buildSubject()
         expect(() => stepRecordOf(stepRowOf(over))).toThrow()
-    })
-
-    it("hands the failure route only what it reads", async () => {
-        const { routeStepOf, stepViewOf } = await buildSubject()
-        expect(routeStepOf(stepViewOf(sampleStep({ ordinal: 4, status: "failed" })))).toEqual({
-            stepKey: "step-1",
-            seq: 4,
-            status: "failed",
-            effect: { kind: "read" },
-        })
-    })
-
-    it("gives every step the results of the steps done before it, by step key", async () => {
-        const { handlerViewsOf } = await buildSubject()
-        const run = sampleRun()
-        const views = handlerViewsOf(run, [
-            sampleStep({ stepKey: "a", ordinal: 1, result: { x: 1 } }),
-            sampleStep({ stepKey: "b", ordinal: 2, status: "running", result: null }),
-            sampleStep({ stepKey: "c", ordinal: 3, status: "pending" }),
-        ])
-
-        expect(views.map((view) => view.earlier)).toEqual([{}, { a: { x: 1 } }, { a: { x: 1 } }])
-        expect(views[1]).toMatchObject({ workspaceId: "ws-1", agentId: "agent-1", runId: "run-1", fence: 2 })
     })
 })

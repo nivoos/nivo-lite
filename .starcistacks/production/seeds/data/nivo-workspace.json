@@ -1,5 +1,0 @@
-{
-  "schema": "nivo/management-seed@1",
-  "workspaceName": "NIVO",
-  "values": { "secret": "seeds-nivo-workspace" }
-}

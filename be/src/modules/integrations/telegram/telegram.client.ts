@@ -2,9 +2,22 @@ import { Injectable } from "@nestjs/common"
 import { InjectHttpClient, type HttpClient } from "@modules/platform/http"
 import { isRecord } from "@modules/platform/primitives"
 import { TelegramError, TelegramErrorCode } from "./errors/telegram.error"
-import type { TelegramParams } from "./telegram.contracts"
+import type { TelegramParams, TelegramPhoto } from "./telegram.contracts"
 import { InjectTelegramOptions } from "./telegram.decorators"
 import type { TelegramOptions } from "./telegram.options"
+
+/**
+ * The typed fields of a Bot API refusal (`{ ok: false, error_code, parameters: { retry_after } }`): `errorCode` = Telegram's own code (429 =
+ * too many requests: nothing was sent), `retryAfter` = the seconds Telegram asks to wait. Absent when the answer does not carry them.
+ */
+const typedRefusalOf = (body: unknown): { errorCode?: number; retryAfter?: number } => {
+    if (!isRecord(body)) return {}
+    const parameters = isRecord(body.parameters) ? body.parameters : {}
+    return {
+        ...(typeof body.error_code === "number" ? { errorCode: body.error_code } : {}),
+        ...(typeof parameters.retry_after === "number" ? { retryAfter: parameters.retry_after } : {}),
+    }
+}
 
 @Injectable()
 /** The one place that talks to api.telegram.org. The token is always explicit (the bot of one connection) and never logged. */
@@ -33,7 +46,12 @@ export class TelegramClient {
                     isRecord(answer.body) && answer.body.ok === false
                         ? TelegramErrorCode.Rejected
                         : TelegramErrorCode.Unavailable,
-                params: { method, reason: typeof description === "string" ? description : String(answer.status) },
+                params: {
+                    method,
+                    reason: typeof description === "string" ? description : String(answer.status),
+                    status: answer.status,
+                    ...typedRefusalOf(answer.body),
+                },
             })
         }
         return answer.body.result
@@ -42,6 +60,34 @@ export class TelegramClient {
     /** Sends a text message to a chat. */
     async sendMessage(token: string, chatId: string, text: string): Promise<void> {
         await this.call(token, "sendMessage", { chat_id: chatId, text })
+    }
+
+    /** Sends one picture, fetched by Telegram from its public address, with a caption under it. */
+    async sendPhoto(token: string, chatId: string, photoUrl: string, caption: string): Promise<void> {
+        await this.call(token, "sendPhoto", { chat_id: chatId, photo: photoUrl, ...(caption === "" ? {} : { caption }) })
+    }
+
+    /** Sends two to ten pictures as one album (Bot API `sendMediaGroup`), each fetched by Telegram from its public address and each with its own caption. */
+    async sendMediaGroup(token: string, chatId: string, photos: ReadonlyArray<TelegramPhoto>): Promise<void> {
+        await this.call(token, "sendMediaGroup", {
+            chat_id: chatId,
+            media: photos.map((photo) => ({
+                type: "photo",
+                media: photo.url,
+                ...(photo.caption === "" ? {} : { caption: photo.caption }),
+            })),
+        })
+    }
+
+    /**
+     * The address a file a customer sent can be downloaded from for at least an hour (Bot API `getFile`, then
+     * `<apiBase>/file/bot<token>/<file_path>`), or an empty text when Telegram gives no `file_path`. The address carries the token: it is
+     * only handed to the guarded file fetch, never stored or logged. Bots download files of up to 20 MB.
+     */
+    async fileUrl(token: string, fileId: string): Promise<string> {
+        const file = await this.call(token, "getFile", { file_id: fileId })
+        const path = isRecord(file) && typeof file.file_path === "string" ? file.file_path : ""
+        return path === "" ? "" : `${this.options.apiBase}/file/bot${token}/${path}`
     }
 
     /** Shows "typing" in a chat; best effort, so a failure here never stops the reply. Resolves true when Telegram accepted it. */

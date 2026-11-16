@@ -29,9 +29,9 @@ const build = async () => {
 }
 
 describe("MetaDeliveryService", () => {
-    it.each([{}, { deliveryId: 7 }, { deliveryId: " " }])("ignores an invalid receipt %j", async (payload) => {
+    it.each([{}, { deliveryId: 7 }, { deliveryId: " " }])("refuses an invalid receipt %j as an input failure", async (payload) => {
         const { service, inbox, claims } = await build()
-        await service.process(jobOf(payload))
+        await expect(service.process(jobOf(payload))).rejects.toMatchObject({ params: { failureClass: "input" } })
         expect(claims.advance).not.toHaveBeenCalled()
         expect(inbox.processRecordedDelivery).not.toHaveBeenCalled()
     })

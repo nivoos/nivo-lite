@@ -18,9 +18,11 @@ export const DEFAULT_POLL_SCHEDULE: PollScheduleOptions = {
     unavailableRecheckMs: 24 * 3_600_000,
     batchSize: 50,
     leaseMs: 10 * 60_000,
-    maxInlineWaitMs: 5_000,
     backfillChunkPages: 2,
 }
+
+/** A provider whose concurrency slots are all taken is asked again after this long (the schedule's declared value: a connection is planned again, nothing waits for a slot). */
+export const BUSY_PROVIDER_RECHECK_MS = 5_000
 
 /** The facts of a connection the interval is chosen from. */
 export type IntervalFacts = Pick<PollScheduleRow, "failures" | "hotUntil" | "lastWebhookAt">
@@ -180,6 +182,34 @@ const rateLimitedPlan = (
         breakerOpenedAt: row.breakerState === "half_open" ? null : (row.breakerOpenedAt?.getTime() ?? null),
         needsReauth: false,
         raiseOwnerNotice: false,
+        succeeded: false,
+        unavailableReason: row.unavailableReason,
+        ...keptBackfill(row),
+    }
+}
+
+/**
+ * The plan after a poll that could not start or finish because the provider's rate limit left no call: it is planned again when the named window
+ * has passed (jittered), nothing is lost (the breaker, the backfill and the credential stay as they were), and the cycle counts as one more
+ * poll that did not read. The cycle that makes `options.breakerThreshold` of them in a row is the one that asks for a person (once: the next
+ * cycles count past it); any poll that reads resets the count.
+ */
+export const planAfterDeferral = (
+    row: PollScheduleRow,
+    waitMs: number,
+    now: number,
+    options: PollScheduleOptions,
+    unit: number,
+): PollPlan => {
+    const failures = row.failures + 1
+    return {
+        nextPollAt: now + jittered(waitMs, options.jitterRatio, unit),
+        intervalMs: row.intervalMs,
+        failures,
+        breakerState: row.breakerState,
+        breakerOpenedAt: row.breakerOpenedAt?.getTime() ?? null,
+        needsReauth: false,
+        raiseOwnerNotice: failures === options.breakerThreshold,
         succeeded: false,
         unavailableReason: row.unavailableReason,
         ...keptBackfill(row),

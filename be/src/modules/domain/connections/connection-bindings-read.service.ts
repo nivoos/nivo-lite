@@ -8,10 +8,15 @@ import type {
     OptionalConnectionState,
     OptionalConnectionWorkspace,
 } from "./connection-bindings-read.contracts"
+import { actsAs, halvesOf, hostsOf } from "./account-halves.policy"
 import { toConnectionRecord } from "./connections.mapper"
 import type { OptionalConnectionRecord } from "./connections.contracts"
 import { projectConnections, type ConnectionProjection } from "./persistence/connection.projection"
 import { ConnectionEntity } from "./persistence/entities"
+
+/** The public facts that are texts (what a half's presence is read from). */
+const metaTextsOf = (meta: Readonly<Record<string, unknown>>): Readonly<Record<string, string>> =>
+    Object.fromEntries(Object.entries(meta).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
 
 /** The text a provider reported in the public meta, trimmed; null when it is missing or blank. */
 const reportedText = (meta: Readonly<Record<string, unknown>>, key: string): string | null => {
@@ -27,9 +32,23 @@ const bindingFactsOf = (row: ConnectionEntity): ConnectionBindingFacts => ({
     name: row.name,
     status: row.status,
     createdAt: row.createdAt,
+    sandbox: row.sandbox === true,
     botUsername: reportedText(row.publicMeta, "bot_username"),
     accountMasked: reportedText(row.publicMeta, "account_masked"),
 })
+
+/** The account a connection is: its workspace, its provider and the halves it holds. */
+export interface ConnectionAccount {
+    /** The workspace that owns the connection. */
+    readonly workspaceId: string
+    /** The provider, as `connections.provider` names it. */
+    readonly provider: string
+    /** The providers whose halves the account holds (a mailbox `smtp` account holding its inbound `imap` half); absent or empty: none. */
+    readonly halves?: ReadonlyArray<string> | undefined
+}
+
+/** The account of a connection, or null when there is no such connection. */
+export type OptionalConnectionAccount = ConnectionAccount | null
 
 @Injectable()
 /** The connection reads the agent bindings need: the facts of the connections an agent is bound to, and whether a workspace holds one. */
@@ -40,7 +59,7 @@ export class ConnectionBindingsReadService {
     async factsOf(connectionIds: ReadonlyArray<string>, limit: number): Promise<Array<ConnectionBindingFacts>> {
         if (connectionIds.length === 0) return []
         const rows = await this.entityManager.find(ConnectionEntity, {
-            select: { id: true, provider: true, name: true, status: true, createdAt: true, publicMeta: true },
+            select: { id: true, provider: true, name: true, status: true, createdAt: true, sandbox: true, publicMeta: true },
             where: { id: In([...new Set(connectionIds)]) },
             take: limit,
         })
@@ -90,16 +109,19 @@ export class ConnectionBindingsReadService {
                 publicMeta: true,
                 lastError: true,
             },
-            where: { workspaceId, provider },
+            // An account of the provider, or one that holds the provider's half (a mailbox `smtp` account holding its inbound `imap` half).
+            where: { workspaceId, provider: In([provider, ...hostsOf(provider)]) },
             order: { createdAt: "ASC", id: "ASC" },
-            take: limit,
         })
-        return rows.map((row) => ({
-            ...bindingFactsOf(row),
-            lastError: row.lastError,
-            oaId: reportedText(row.publicMeta, "oa_id"),
-            email: reportedText(row.publicMeta, "email"),
-        }))
+        return rows
+            .filter((row) => actsAs({ provider: row.provider, meta: metaTextsOf(row.publicMeta) }, provider))
+            .slice(0, limit)
+            .map((row) => ({
+                ...bindingFactsOf(row),
+                lastError: row.lastError,
+                oaId: reportedText(row.publicMeta, "oa_id"),
+                email: reportedText(row.publicMeta, "email"),
+            }))
     }
 
     /** Whether the workspace holds the connection; the row is read with a shared lock so it stays until the transaction ends. */
@@ -119,6 +141,20 @@ export class ConnectionBindingsReadService {
             where: { id: connectionId },
         })
         return row?.workspaceId ?? null
+    }
+
+    /** The workspace and the provider of the connection (one primary-key read); null when there is no such connection. */
+    async accountOf(
+        connectionId: string,
+        manager: EntityManager,
+    ): Promise<OptionalConnectionAccount> {
+        const row = await manager.findOne(ConnectionEntity, {
+            select: { id: true, workspaceId: true, provider: true, publicMeta: true },
+            where: { id: connectionId },
+        })
+        return row === null
+            ? null
+            : { workspaceId: row.workspaceId, provider: row.provider, halves: halvesOf({ provider: row.provider, meta: metaTextsOf(row.publicMeta) }) }
     }
 
     /** The name and environment of the connection; null when there is no such connection. */

@@ -1,11 +1,21 @@
-import { Alert, Avatar, Cluster, Badge, Button, DescriptionList, Stack, Text, Section } from "@starci/grammar/common"
+import {
+    Alert,
+    Avatar,
+    Cluster,
+    Badge,
+    Button,
+    DescriptionList,
+    Stack,
+    Text,
+    Section,
+    SurfaceCard,
+} from "@starci/grammar/common"
 import type { AgentGraphAnswerView, AgentGraphDetailView } from "@/modules/types"
 
-/** The seven answers of the selected node, and the commands that go with a branch. */
+/** The seven answers of the selected node (read only), and the command that opens the runs. */
 type AgentGraphDetailProps = {
     readonly view: AgentGraphDetailView
     readonly isLoading: boolean
-    readonly onEdit: (nodeKey: string) => void
     readonly onRuns: () => void
 }
 
@@ -26,10 +36,12 @@ const AnswerBody = (props: AnswerBodyProps) => {
         )
     if (answer.kind === "lines")
         return (
-            <DescriptionList
-                isLoading={props.isLoading === true}
-                items={answer.lines.map((line) => ({ id: line.label, term: line.label, description: line.note }))}
-            />
+            <SurfaceCard>
+                <DescriptionList
+                    isLoading={props.isLoading === true}
+                    items={answer.lines.map((line) => ({ id: line.label, term: line.label, description: line.note }))}
+                />
+            </SurfaceCard>
         )
     if (answer.kind === "approver")
         return (
@@ -47,21 +59,23 @@ const AnswerBody = (props: AnswerBodyProps) => {
             </Cluster>
         )
     return (
-        <DescriptionList
-            isLoading={props.isLoading === true}
-            items={answer.sources.map((source) => ({
-                id: source.id,
-                term: source.kindLabel,
-                description: (
-                    <Stack gap="identity">
-                        <Text isLoading={props.isLoading === true}>{source.quote}</Text>
-                        <Text size="sm" tone="muted" isLoading={props.isLoading === true}>
-                            {source.place}
-                        </Text>
-                    </Stack>
-                ),
-            }))}
-        />
+        <SurfaceCard>
+            <DescriptionList
+                isLoading={props.isLoading === true}
+                items={answer.sources.map((source) => ({
+                    id: source.id,
+                    term: source.kindLabel,
+                    description: (
+                        <Stack gap="identity">
+                            <Text isLoading={props.isLoading === true}>{source.quote}</Text>
+                            <Text size="sm" tone="muted" isLoading={props.isLoading === true}>
+                                {source.place}
+                            </Text>
+                        </Stack>
+                    ),
+                }))}
+            />
+        </SurfaceCard>
     )
 }
 
@@ -69,7 +83,7 @@ const AnswerBody = (props: AnswerBodyProps) => {
 export const AgentGraphDetail = (props: AgentGraphDetailProps) => (
     <Section
         title={props.view.title}
-        description={props.view.subtitle}
+        caption={props.view.subtitle}
         isLoading={props.isLoading === true}
         action={<Badge isLoading={props.isLoading === true}>{props.view.badge}</Badge>}
         headingLevel={3}
@@ -99,18 +113,8 @@ export const AgentGraphDetail = (props: AgentGraphDetailProps) => (
                 description: <AnswerBody answer={answer} isLoading={props.isLoading === true} />,
             }))}
         />
-        {props.view.editLabel === "" ? null : (
-            <Button
-                intent="commit"
-                size="sm"
-                isLoading={props.isLoading === true}
-                onPress={() => props.onEdit(props.view.editNodeKey)}
-            >
-                {props.view.editLabel}
-            </Button>
-        )}
         {props.view.runsLabel === "" ? null : (
-            <Button intent="neutral" size="sm" isLoading={props.isLoading === true} onPress={props.onRuns}>
+            <Button endArrow intent="neutral" size="sm" isLoading={props.isLoading === true} onPress={props.onRuns}>
                 {props.view.runsLabel}
             </Button>
         )}

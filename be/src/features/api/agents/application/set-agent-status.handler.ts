@@ -20,6 +20,7 @@ export class SetAgentStatusHandler extends ICQRSHandler<SetAgentStatusCommand, v
             command.params.request.workspaceId,
             command.params.request.agentId,
             command.params.request.active,
+            command.params.request.keep,
         )
     }
 }

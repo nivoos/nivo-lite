@@ -1,9 +1,7 @@
-import { Button, Text } from "@starci/grammar/common"
+import { Button } from "@starci/grammar/common"
 import { ConnectionSteps, stepsWithBodies } from "@/components/composites/ConnectionSteps"
 import { ConnectionGrantsBand, type ConnectionGrantsBandProps } from "@/components/frames/ConnectionGrantsBand"
-import { SepayAccountBody, type SepayAccountBodyProps } from "@/components/frames/SepayAccountBody"
 import { SepayChecklistBody, type SepayChecklistBodyProps } from "@/components/frames/SepayChecklistBody"
-import { SepayEnvironmentBody, type SepayEnvironmentBodyProps } from "@/components/frames/SepayEnvironmentBody"
 import { SepayPasteBody, type SepayPasteBodyProps } from "@/components/frames/SepayPasteBody"
 
 /** One setup step as it is worded: its title, the summary beside it, the guidance under it, and where it stands. */
@@ -21,45 +19,29 @@ export interface SepayConnectionStepsBaseProps {
     readonly props: {
         readonly stepsLabel: string
         readonly steps: ReadonlyArray<SepayStepView>
-        readonly environment: SepayEnvironmentBodyProps["props"]
-        readonly account: SepayAccountBodyProps["props"]
         readonly paste: SepayPasteBodyProps["props"]
         /** Opens the webhook page of SePay for the chosen environment in a new tab (the third step command). */
         readonly openSepay: { readonly label: string; readonly href: string }
         readonly checklist: SepayChecklistBodyProps["props"]
-        /** How a credit is matched to an invoice, and what happens to one that is not. */
-        readonly matching: string
         readonly grants: ConnectionGrantsBandProps["props"]
     }
-    readonly on: SepayAccountBodyProps["on"] &
-        SepayPasteBodyProps["on"] & {
+    readonly on: SepayPasteBodyProps["on"] & {
+            readonly retry: () => void
             readonly toggle: (id: string, isOpen: boolean) => void
-            readonly changeEnvironment: (environment: "test" | "live") => void
-            readonly pickGrant: (agentId: string, level: string) => void
+            readonly removeGrant: (agentId: string) => void
             readonly assignGrant: (agentId: string) => void
             readonly retryGrants: () => void
         }
 }
 
 /**
- * Draws the five setup steps of a SePay connection as one joined list with its stepper: each step keeps its own body (environment,
- * bank account, what to create on SePay, the test checklist, the agents with their levels) and its mark says where it stands.
+ * Draws the three setup steps of a SePay connection that the form does not cover, as one joined list with its stepper: what to
+ * create on SePay (the webhook address and key to paste, and the reveal / new key control), the test checklist, and the agents bound
+ * to it. The environment and the bank account are fields of the form.
  */
 export const SepayConnectionStepsBase = (props: SepayConnectionStepsBaseProps) => {
     const { on } = props
     const bodies = {
-        environment: (
-            <SepayEnvironmentBody
-                props={props.props.environment}
-                on={{ change: on.changeEnvironment, retry: on.retry }}
-            />
-        ),
-        account: (
-            <SepayAccountBody
-                props={props.props.account}
-                on={{ retry: on.retry, bank: on.bank, account: on.account, holder: on.holder, save: on.save }}
-            />
-        ),
         paste: (
             <SepayPasteBody
                 props={props.props.paste}
@@ -74,18 +56,15 @@ export const SepayConnectionStepsBase = (props: SepayConnectionStepsBaseProps) =
         ),
         test: <SepayChecklistBody props={props.props.checklist} on={{ retry: on.retry }} />,
         agents: (
-            <>
-                <Text size="sm">{props.props.matching}</Text>
-                <ConnectionGrantsBand
-                    props={props.props.grants}
-                    on={{ pick: on.pickGrant, assign: on.assignGrant, retry: on.retryGrants }}
-                />
-            </>
+            <ConnectionGrantsBand
+                props={props.props.grants}
+                on={{ remove: on.removeGrant, assign: on.assignGrant, retry: on.retryGrants }}
+            />
         ),
     }
     const actions = {
         paste: (
-            <Button intent="neutral" href={props.props.openSepay.href} target="_blank" rel="noreferrer">
+            <Button endArrow intent="neutral" href={props.props.openSepay.href} target="_blank" rel="noreferrer">
                 {props.props.openSepay.label}
             </Button>
         ),

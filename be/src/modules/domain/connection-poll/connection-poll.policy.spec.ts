@@ -4,6 +4,7 @@ import {
     POLL_CURSOR_KEY,
     POLL_OVERLAP_MS,
     cursorOf,
+    inTimeOrder,
     laterOf,
     metaWithCursor,
     olderPageEnd,
@@ -14,7 +15,7 @@ const SUBJECT = Symbol("connection-poll.policy")
 
 const build = async () => {
     const moduleRef = await Test.createTestingModule({
-        providers: [{ provide: SUBJECT, useValue: { cursorOf, windowStartOf, laterOf, olderPageEnd, metaWithCursor } }],
+        providers: [{ provide: SUBJECT, useValue: { cursorOf, windowStartOf, laterOf, olderPageEnd, metaWithCursor, inTimeOrder } }],
     }).compile()
     return moduleRef.get<typeof import("./connection-poll.policy")>(SUBJECT)
 }
@@ -99,5 +100,47 @@ describe("metaWithCursor", () => {
             bank_code: "VCB",
             [POLL_CURSOR_KEY]: T1.toISOString(),
         })
+    })
+})
+
+describe("inTimeOrder", () => {
+    const rowOf = (id: string, at: Date | null) => ({ id, at })
+    const idsOf = (rows: ReadonlyArray<{ readonly id: string }>) => rows.map((row) => row.id)
+
+    it("puts the oldest first whatever order the rows came in", async () => {
+        const subject = await build()
+        const rows = [rowOf("new", NOW), rowOf("mid", T1), rowOf("old", T2)]
+
+        expect(idsOf(subject.inTimeOrder(rows))).toEqual(["old", "mid", "new"])
+    })
+
+    it("puts the rows with no time last", async () => {
+        const subject = await build()
+        const rows = [rowOf("none", null), rowOf("new", NOW), rowOf("old", T2)]
+
+        expect(idsOf(subject.inTimeOrder(rows))).toEqual(["old", "new", "none"])
+    })
+
+    it("keeps the rows with no time in the order the page listed them, reversed with the page (a page is newest first)", async () => {
+        const subject = await build()
+        const rows = [rowOf("first", null), rowOf("second", null)]
+
+        expect(idsOf(subject.inTimeOrder(rows))).toEqual(["second", "first"])
+    })
+
+    it("reverses the tie of two rows of one instant: the provider listed the newer first", async () => {
+        const subject = await build()
+        const rows = [rowOf("listed-first", T1), rowOf("listed-second", T1), rowOf("old", T2)]
+
+        expect(idsOf(subject.inTimeOrder(rows))).toEqual(["old", "listed-second", "listed-first"])
+    })
+
+    it("answers an empty list for no rows and leaves the input as it was", async () => {
+        const subject = await build()
+        const rows = [rowOf("new", NOW), rowOf("old", T2)]
+
+        expect(subject.inTimeOrder([])).toEqual([])
+        subject.inTimeOrder(rows)
+        expect(idsOf(rows)).toEqual(["new", "old"])
     })
 })

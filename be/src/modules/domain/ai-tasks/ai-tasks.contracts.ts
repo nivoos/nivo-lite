@@ -8,6 +8,8 @@ export interface ChatMessage {
     readonly content: string
     /** The pictures said with it, as addresses the model host can fetch. */
     readonly images?: ReadonlyArray<string>
+    /** True on the last message of the stable part: where a model that takes explicit cache breakpoints gets one. */
+    readonly cacheMark?: boolean
 }
 
 /** The lane of the Second Brain a drafting task reads: the module and agent instance that owns it, and who the text reaches. */
@@ -32,6 +34,34 @@ export interface AiTaskScope {
     readonly module?: string
     /** The lane a drafting task retrieves business notes from; without it the task reads no notes. */
     readonly lane?: AiTaskLane
+    /**
+     * The model a graph node's call is declared with (the node's own, else blocks-core's for its step, else the default); absent for
+     * a fixed task of the app, which keeps the endpoint's chat profile.
+     */
+    readonly model?: DeclaredModel | undefined
+}
+
+/** The model a graph node's call is declared with, and where the declaration came from. */
+export interface DeclaredModel {
+    /** `auto`, or a model id (an unknown id is booked as such and served by the default). */
+    readonly model: string
+    /** The step's weight as blocks-core declares it; Auto reads it. */
+    readonly weight: "light" | "heavy"
+    /** `node`: the graph's node names it (the shop's choice); `declared`: blocks-core's table; `default`: neither. */
+    readonly source: "node" | "declared" | "default"
+    /**
+     * The most completion tokens one call of the step may produce, reasoning included, as blocks-core declares it beside the step's
+     * model (`NodeModel.maxOutputTokens`): a bound on a runaway answer. Absent: the app's cap of node calls; the smaller one is sent.
+     */
+    readonly maxOutputTokens?: number | undefined
+}
+
+/** Which providers of the AI pool hold a key in this deployment (an explicit model of a provider without one fails loudly). */
+export interface ConfiguredProviders {
+    /** Anthropic: every chat model (Claude Sonnet 5.5, Claude Haiku 5.5). */
+    readonly anthropic: boolean
+    /** OpenRouter for chat: always false since 2026-11-11 (no OpenRouter chat); kept for the retired model's picker label. */
+    readonly openrouter: boolean
 }
 
 /** One retrieval of business notes for a drafting task. */
@@ -52,12 +82,10 @@ export interface RecalledPassage {
     readonly content: string
 }
 
-/** What the text generator port takes. */
+/** One prompt as it is run and metered. */
 export interface TextRequest {
     /** The workspace. */
     readonly workspaceId: string
-    /** What the text is for, `<module>:<kind>`. */
-    readonly purpose: string
     /** The prompt. */
     readonly messages: ReadonlyArray<ChatMessage>
     /** True when the answer must be one JSON object. */
@@ -66,217 +94,8 @@ export interface TextRequest {
     readonly kind: string
     /** The usage module. */
     readonly module: string
-}
-
-/** The lead a prompt talks about. */
-export interface LeadInput {
-    /** The contact's name. */
-    readonly contact_name: string
-    /** The contact's company. */
-    readonly company: string
-    /** The channel the lead came through. */
-    readonly channel: string
-    /** What the lead needs. */
-    readonly need: string
-}
-
-/** The agent a prompt speaks as. */
-export interface AgentInput {
-    /** The display name. */
-    readonly name: string
-    /** The handle. */
-    readonly handle: string
-    /** The role. */
-    readonly role: string
-    /** The owner's instructions. */
-    readonly instructions: string
-    /** What the agent knows about the business. */
-    readonly knowledge?: string
-    /** When the agent must ask for approval. */
-    readonly approval_rule?: string
-}
-
-/** An agent or nothing. */
-export type OptionalAgentInput = AgentInput | null
-
-/** One turn of a chat. */
-export interface ChatTurn {
-    /** Who spoke. */
-    readonly role: "user" | "agent"
-    /** What was said. */
-    readonly body: string
-}
-
-/** A lead the customer chat captured. */
-export interface CapturedLead {
-    /** The contact's name. */
-    readonly contact_name: string
-    /** The company. */
-    readonly company: string
-    /** What the contact needs. */
-    readonly need: string
-    /** The phone. */
-    readonly phone?: string | null
-    /** The email. */
-    readonly email?: string | null
-}
-
-/** An order the customer clearly committed to. */
-export interface CapturedOrder {
-    /** The item as written in the knowledge. */
-    readonly items: string
-    /** The price copied from the knowledge, VND. */
-    readonly amount_vnd: number
-}
-
-/** A question the business knowledge could not answer. */
-export interface KnowledgeGap {
-    /** The customer's question. */
-    readonly question: string
-    /** Where it would be filed, `subject | attribute`. */
-    readonly topic: string
-}
-
-/** A job application the chat captured: validated again by the hiring capability. */
-export interface ChatApplication {
-    /** Any field the hiring contract defines. */
-    readonly [field: string]: string | number | boolean | null
-}
-
-/** A loyalty redeem request. */
-export interface LoyaltyRedeem {
-    /** The only intent. */
-    readonly intent: "redeem"
-    /** The reward key. */
-    readonly reward_key: string
-}
-
-/** The structured reply the customer-facing model returns. */
-export interface CustomerChatOut {
-    /** What to say to the customer. */
-    readonly reply: string
-    /** The lead the chat captured, or null. */
-    readonly lead: CapturedLead | null
-    /** True when the customer asks for something outside the granted authority, or the answer is unsure. */
-    readonly needs_human: boolean
-    /** Why a person is needed. */
-    readonly reason: "over_authority" | "unclear_outcome" | null
-    /** The answer proposed for the owner to approve. */
-    readonly proposed_answer: string | null
-    /** The order the customer committed to. */
-    readonly order: CapturedOrder | null
-    /** True when the customer says they paid; a claim, never evidence. */
-    readonly payment_claim: boolean
-    /** The knowledge gap, when the question was not answered. */
-    readonly knowledge_gap?: KnowledgeGap | null
-    /** A job application. */
-    readonly application?: ChatApplication | null
-    /** A loyalty redeem request. */
-    readonly loyalty?: LoyaltyRedeem | null
-}
-
-/** The sales classification of a lead. */
-export interface Classification {
-    /** The stage. */
-    readonly stage: "new" | "qualified" | "proposal" | "won" | "lost"
-    /** How sure the stage is, 0..1. */
-    readonly confidence: number
-    /** One concrete next step. */
-    readonly next_action: string
-    /** Information still missing. */
-    readonly missing: ReadonlyArray<string>
-    /** A short context brief. */
-    readonly context: string
-}
-
-/** An order read from free text. */
-export interface ExtractedOrder {
-    /** What they order. */
-    readonly items: string
-    /** The total, VND, or null when none is stated. */
-    readonly amount_vnd: number | null
-    /** How sure the reading is, 0..1. */
-    readonly confidence: number
-}
-
-/** The responsibility the model proposes for a lead. */
-export interface ProposedResponsibility {
-    /** The title. */
-    readonly title: string
-    /** Who owns it. */
-    readonly owner_kind: "human" | "agent"
-    /** The handle of the owning agent, or null. */
-    readonly owner_handle: string | null
-    /** The next action. */
-    readonly next_action: string
-    /** The due date, days from now. */
-    readonly due_in_days: number
-    /** Why this owner. */
-    readonly rationale: string
-}
-
-/** The agent definition the model designs from a description. */
-export interface DesignedModule {
-    /** The display name. */
-    readonly name: string
-    /** The handle. */
-    readonly handle: string
-    /** The role. */
-    readonly role: string
-    /** The instructions. */
-    readonly instructions: string
-}
-
-/** One authority rule the owner changed in chat. */
-export interface AuthorityRuleChange {
-    /** The action key. */
-    readonly action: string
-    /** The new mode, or null for unchanged. */
-    readonly mode?: "auto" | "ask" | "never" | null
-    /** The new limit, VND, or null for unchanged. */
-    readonly limit_vnd?: number | null
-}
-
-/** The goals the owner stated. */
-export interface AuthorityGoals {
-    /** The revenue goal, VND. */
-    readonly revenue_vnd?: number | null
-    /** The new customers goal. */
-    readonly new_customers?: number | null
-    /** The first reply goal, minutes. */
-    readonly first_reply_minutes?: number | null
-    /** A free note. */
-    readonly note?: string | null
-}
-
-/** What the owner granted in a chat message, as structured changes. */
-export interface AuthorityChange {
-    /** The goals. */
-    readonly goals: AuthorityGoals
-    /** New business policies. */
-    readonly policies_add: ReadonlyArray<string>
-    /** The reply style, or null. */
-    readonly reply_style: string | null
-    /** The brand voice, or null. */
-    readonly brand_voice: string | null
-    /** A new "always ask me when" statement, or null. */
-    readonly limits_note_add: string | null
-    /** The rule changes. */
-    readonly rules: ReadonlyArray<AuthorityRuleChange>
-    /** False when the message grants or changes nothing. */
-    readonly understood: boolean
-}
-
-/** The owner's granted authority as the prompts carry it. */
-export interface AuthorityInput {
-    /** The business policies. */
-    readonly policies: string
-    /** How replies are written. */
-    readonly reply_style: string
-    /** The brand voice. */
-    readonly brand_voice: string
-    /** What the agent must always ask about first. */
-    readonly limits_note: string
+    /** The call kind booked with the usage: the `purpose` of a graph node's call; absent for a fixed task of the app. */
+    readonly purpose?: string | undefined
 }
 
 /** A prompt call's metering: the usage kind and module. */
@@ -291,78 +110,24 @@ export interface CallMeta {
 export interface NodeAsk {
     /** `<node id>:<purpose>`; the namespace of the node is the usage module. */
     readonly purpose: string
-    /** The node's instructions, the system message. */
+    /** The step's own words (L3), a system message: the stable part of the call, the same text for the same agent, workspace and step. */
     readonly instructions: string
+    /**
+     * What every call of the agent shares before `instructions` (agent-sdk `NodeModelRequest.opening`): L1 `craft` (the agent's craft
+     * and its whole tool set) and L2 `rules` (the workspace's policies). Each non-empty layer is its own system part with a cache breakpoint at
+     * its end, so another step's first call reads them from the cache. Absent: the call is its instructions alone.
+     */
+    readonly opening?: { readonly craft: string; readonly policies: string } | undefined
+    /** Words that hold for this call only; they go after the stable part, never inside it. */
+    readonly volatile?: string | undefined
+    /** The reasoning the node asks a reasoning model for on this call; absent takes the default of node calls. */
+    readonly reasoning?: "off" | "low" | "medium" | "high" | undefined
     /** What the node asks about, sent as JSON. */
     readonly input: unknown
+    /** What the earlier turns of the same loop came to, oldest first: each sent as JSON in its own part after `input`, appended only. */
+    readonly turns?: ReadonlyArray<unknown> | undefined
     /** Pictures to look at, sent with the input as image parts of the user message. */
     readonly images?: ReadonlyArray<string> | undefined
-}
-
-/** What a command does, in both languages. */
-export interface CommandDescription {
-    /** Vietnamese. */
-    readonly vi: string
-    /** English. */
-    readonly en: string
-}
-
-/** One command of the agent the owner's message may map to. */
-export interface CommandOption {
-    /** The command key. */
-    readonly command: string
-    /** What it does, in both languages. */
-    readonly description: CommandDescription
-    /** The kind of record it is about. */
-    readonly subjectType: string
-    /** The payload keys it needs. */
-    readonly requiredFields: ReadonlyArray<string>
-}
-
-/** A customer the message names; the only customer ids the model may use. */
-export interface CustomerReference {
-    /** The customer id. */
-    readonly id: string
-    /** The customer's name. */
-    readonly name: string
-}
-
-/** An order the message names; the only order ids the model may use. */
-export interface OrderReference {
-    /** The order id. */
-    readonly id: string
-    /** The order number as people write it. */
-    readonly order_no: string
-    /** The customer it belongs to, or null. */
-    readonly lead_id: string | null
-}
-
-/** What the command proposal prompt is built from. */
-export interface CommandProposalInput {
-    /** The display name of the agent the message is for. */
-    readonly agentName: string
-    /** The commands that agent accepts. */
-    readonly options: ReadonlyArray<CommandOption>
-    /** The customers the message names. */
-    readonly customers: ReadonlyArray<CustomerReference>
-    /** The orders the message names. */
-    readonly orders: ReadonlyArray<OrderReference>
-    /** The owner's message. */
-    readonly text: string
-}
-
-/** The model's raw reading of an owner's message; nothing in it is validated yet. */
-export interface ProposedCommand {
-    /** `command` when the owner asks the agent to do something, `question` for a question or small talk. */
-    readonly intent: "command" | "question"
-    /** The command key, or null when nothing maps. */
-    readonly command: string | null
-    /** The record the command is about, or null. */
-    readonly subject_id: string | null
-    /** The customer, or null. */
-    readonly lead_id: string | null
-    /** The other required keys taken from the message. */
-    readonly fields: Readonly<Record<string, string | number>>
 }
 
 /** What a metered run cost, in the meter's own shape. */
@@ -373,6 +138,8 @@ export interface MeteredRun {
     readonly completion_tokens: number
     /** Prompt tokens served from a cache; the endpoint does not report them. */
     readonly cached_tokens: number
+    /** Prompt tokens written to the provider's cache; absent when not told. */
+    readonly cache_write_tokens?: number | undefined
     /** The provider cost. */
     readonly cost: number
     /** Who served the run. */
@@ -391,6 +158,41 @@ export interface MeterEntry {
     readonly usage: MeteredRun | null
     /** The length of the generated text. */
     readonly completionChars: number
+    /** What the call was and how it went: its kind, hidden reasoning, time, try, upstream and finish reason. */
+    readonly call?: MeteredCall | undefined
+    /** The model a call booked with no usage asked for (a failed try): what its estimate is priced at. */
+    readonly model?: string | undefined
+    /** The characters of the prompt, for a call booked with no usage (a failed try): the meter estimates its tokens from them. */
+    readonly promptChars?: number | undefined
+    /** Set for a FAILED try (`timeout`, `provider`, `length`, `empty`): booked estimated and priced, never billed. */
+    readonly failure?: string | undefined
+    /**
+     * A failed try whose usage is the provider's OWN report (FX5: a try cut at the token limit whose reply carried its usage): booked
+     * with those figures, not estimated; still never billed. Absent or false: the failed try is booked estimated.
+     */
+    readonly reported?: boolean | undefined
+}
+
+/** What one metered model call was and how it went, beside what it cost: the run page shows it per call kind. */
+export interface MeteredCall {
+    /** The call kind: the `purpose` of a graph node's call (`<node id>:<tag>`); null for a fixed task of the app. */
+    readonly purpose: string | null
+    /** The answer's tokens spent on hidden reasoning (a part of the completion tokens); null when the endpoint did not say. */
+    readonly reasoningTokens: number | null
+    /** The wall time of the try that answered, milliseconds; null when not timed. */
+    readonly durationMs: number | null
+    /** Which try of the call answered, from one. */
+    readonly tryNumber: number
+    /** The upstream of the endpoint that served it; null when it did not say. */
+    readonly upstream: string | null
+    /** Why the model stopped; null when it did not say. */
+    readonly finishReason: string | null
+    /** What the node declared (`auto` or a model id); absent for a fixed task of the app. */
+    readonly declaredModel?: string | undefined
+    /** The provider of the model that served the call (`anthropic`, `openrouter`); absent when not known. */
+    readonly modelProvider?: string | undefined
+    /** Why the call went to the model it went to (`model-choice.policy.ts`); absent for a fixed task. */
+    readonly modelReason?: string | undefined
 }
 
 /** The sentence a workspace over its allowance is shown. */

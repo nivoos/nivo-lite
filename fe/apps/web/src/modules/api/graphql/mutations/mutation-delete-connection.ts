@@ -1,6 +1,6 @@
 import { gql, type ApolloClient, type TypedDocumentNode } from "@apollo/client"
-import { createAuthApolloClient } from "../clients"
-import type { InputVariables, MutateParams, WireInput } from "../types"
+import { createAuthApolloClient, type InputVariables, type MutateParams, type WireInput } from "@nivo-lite/api"
+import { webApiTransport } from "@/modules/api-transport"
 import type { DeleteConnectionMutation, DeleteConnectionMutationVariables } from "../__generated__/graphql"
 
 /** The input of the `deleteConnection` mutation. */
@@ -35,7 +35,7 @@ export const mutateDeleteConnection = async ({
     request,
     signal,
 }: MutateDeleteConnectionParams): Promise<ApolloClient.MutateResult<MutateDeleteConnectionResponse>> => {
-    const apollo = createAuthApolloClient({ signal })
+    const apollo = createAuthApolloClient(webApiTransport, { signal })
     return apollo.mutate({
         mutation: mutationMap[mutation],
         variables: { input: request },

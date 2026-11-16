@@ -1,0 +1,238 @@
+/*
+ * THE PROVIDER SANDBOX (owner rulings R56, R58, R59, R60, R62; lane concept provider-sandbox): a provider ACCOUNT flagged `sandbox` is answered
+ * by its provider's second implementation of the same port, from a HARDCODED catalogue of named cases written next to it (ids
+ * `<PROVIDER>-<n>`, identical on every machine), never a real host. The engine keeps per account only the STATE a call changes (a domain
+ * renewed, the next case the owner picked) and the call log. It is dev only: one switch. The engine knows "sandbox account"; operations, keys and cases are the provider's.
+ */
+
+/** The account a sandbox door is asked about: the connection's id, workspace, provider key and its creation-time flag. */
+export interface SandboxAccount {
+    readonly id: string
+    readonly workspaceId: string
+    readonly provider: string
+    readonly sandbox: boolean
+}
+
+/** What a call came to, as the call log keeps it: the provider's answer, or the error its answer threw (its code, else its name). */
+export type SandboxCallOutcome =
+    | { readonly outcome: "answered"; readonly value: unknown }
+    | { readonly outcome: "threw"; readonly error: string }
+
+/** One logged call of a sandbox implementation. */
+export interface SandboxCall {
+    readonly id: string
+    readonly operation: string
+    readonly key: string
+    readonly request: unknown
+    readonly result: SandboxCallOutcome
+    readonly at: string
+}
+
+/**
+ * The account's sandbox STATE as one call's answer reads and changes it (only what a call must change: a renewal moves the domain's
+ * expiry, an issue takes the next invoice number, an inbound case keeps the bank movements it made), by (name, key), how many calls of
+ * this operation the account took before this one (a deterministic running number for references), and the account's NEXT CASE for this
+ * operation (R62: the outbound case the owner picked on the Sandbox page; null = the provider's default, its success case).
+ */
+export interface SandboxState {
+    /** The calls of this call's operation the account took before it. */
+    readonly seq: number
+    /** The case the account's selector names for this operation, or null (the provider answers its default, the success case). */
+    readonly nextCase: string | null
+    /** The kept value of (name, key), or null when the account's state holds none (the catalogue's own value applies). */
+    read(name: string, key: string): Promise<unknown>
+    /** Keeps a new value of (name, key). */
+    write(name: string, key: string, value: unknown): Promise<void>
+}
+
+/**
+ * How a provider's sandbox implementation answers one call: the key of the request (a domain name, a draft id) and the answer, which
+ * reads the account's next case and state, may change the state, and throws the SAME error its live twin throws for a failing case (a
+ * case that applies its effect and still fails changes the state first, then throws).
+ */
+export interface SandboxCallPlan<Answer> {
+    readonly key?: string | undefined
+    /**
+     * `"outside"` for an answer that awaits the CALLER'S OWN WORK on the caller's connections (a pull that writes what it brings into the
+     * caller's tables) and only READS the account's state: it runs without the account's lock, because a connection holding a lock
+     * never waits for another connection of the same pool. Its `seq` may equal a parallel call's, and a `write` it makes is not one
+     * step with its read. Absent: the answer runs under the account's lock, every read and write on the lock's own transaction, and
+     * awaits nothing but that state (no outside call, no other service).
+     */
+    readonly lock?: "outside" | undefined
+    answer(state: SandboxState): Answer | Promise<Answer>
+}
+
+/** One value an inbound case takes (R62: `{ content, amount }` for a bank): bank words, never a NIVO word like "order". */
+export type SandboxInputValue = string | number
+
+/** The inputs an inbound case is sent with, by field name. */
+export type SandboxInput = Readonly<Record<string, SandboxInputValue>>
+
+/**
+ * How one inbound case reaches NIVO (GENERIC: built once in the frame, every provider's inbound case can be sent with any mode that
+ * applies to it): `once` the provider's event delivered once; `twice` the SAME event delivered two times (the engine must book it once);
+ * `withheld` the provider remembers the event but its webhook never comes (only the provider's poll read finds it: needs `polled`);
+ * `late` the event happened `lateBySeconds` BEFORE it arrives (its own timestamps say so; the arrival is the clock port's now).
+ */
+export type SandboxDeliveryMode = "once" | "twice" | "withheld" | "late"
+
+/** Every delivery mode, in the order the page lists them. */
+export const SANDBOX_DELIVERY_MODES: ReadonlyArray<SandboxDeliveryMode> = ["once", "twice", "withheld", "late"]
+
+/** A delivery mode with the interval of `late` (seconds); the interval is meaningless for the other modes. */
+export interface SandboxDelivering {
+    readonly mode: SandboxDeliveryMode
+    readonly lateBySeconds?: number | undefined
+}
+
+/**
+ * The answers an outbound call of ANY sandbox tool can come to (GENERIC; the provider says its own shape of each in its cases):
+ * `ok` the call succeeds; `refused` a typed PERMANENT refusal the provider gives; `final` a refusal the tool declares FINAL (nobody can make
+ * the act happen through it); `transient` the provider says "not now" (5xx, 429): nothing is known to have happened or nothing was sent,
+ * a retry may pass; `timeout` the provider never answers: the outcome is UNKNOWN.
+ */
+export type SandboxOutcome = "ok" | "refused" | "final" | "transient" | "timeout"
+
+/** Every outcome, in the order the page lists them. */
+export const SANDBOX_OUTCOMES: ReadonlyArray<SandboxOutcome> = ["ok", "refused", "final", "transient", "timeout"]
+
+/** One input field an inbound case declares, for the page's form and the API's check. */
+export interface SandboxInputField {
+    /** The field name (`content`, `amount`, `text`, `userId`). */
+    readonly name: string
+    /** What the field is, for the page. */
+    readonly label: string
+    /** A text, or an integer (VND for an amount). */
+    readonly kind: "text" | "integer"
+    /** The value the page shows when nothing prefills it. */
+    readonly example: SandboxInputValue
+}
+
+/** One webhook call an inbound case makes: the body the provider would post and the headers it sends besides its signature (no secret). */
+export interface SandboxWebhookEvent {
+    readonly body: unknown
+    readonly headers?: Readonly<Record<string, string>> | undefined
+}
+
+/** What an inbound case is built from besides its inputs: the account, the moment it is sent, and the account's state. */
+export interface SandboxInboundContext {
+    /** The sandbox account. */
+    readonly connectionId: string
+    /** The moment of the send (read by the sender, never by a catalogue). */
+    readonly at: Date
+    /** The account's state (`seq` = the inbound cases the account was sent before this one: running ids). */
+    readonly state: SandboxState
+}
+
+/**
+ * An inbound case (R62): a named TRANSFORMATION of inputs into the webhook payload(s) the provider would post to its OWN route on NIVO
+ * for one account. It may keep what it made in the state (a bank movement the poll then lists, the moment of a customer's line).
+ */
+export interface SandboxInboundCase {
+    /** The trigger it feeds (its declaration's name), for the page. */
+    readonly trigger: string
+    /** The path of the provider's webhook route for one account, e.g. `api/connections/sepay/<id>`. */
+    path(connectionId: string): string
+    /** The inputs it takes (none for a case that needs none). */
+    readonly inputs: ReadonlyArray<SandboxInputField>
+    /** The webhook call(s) the case makes, in order (two of the same body for a duplicate delivery). */
+    eventsOf(input: SandboxInput, context: SandboxInboundContext): Promise<ReadonlyArray<SandboxWebhookEvent>>
+    /**
+     * True when the provider's own poll / list read (its sandbox implementation) returns what this case keeps in the state, so the case
+     * can be `withheld` (no webhook) and still come back by the poll. Equals the provider's trigger: `via` has `poll`; a trigger that
+     * declares `withoutPoll` is never `polled` (a spec holds the two together). Absent: webhook only.
+     */
+    readonly polled?: true | undefined
+    /** The delivery this case is a thin NAME for (SEPAY-6 is SEPAY-1 delivered `twice`); a send may still pick another mode. Absent: `once`. */
+    readonly delivery?: SandboxDelivering | undefined
+}
+
+/**
+ * One named, fixed case of a provider's sandbox: `<PROVIDER>-<n>`, what it proves, and either the outbound operation it answers (picked
+ * by the account's NEXT CASE selector; `default` marks the success case answered when nothing is picked: exactly one per operation) or
+ * the inbound event it is.
+ */
+export interface SandboxCase {
+    readonly id: string
+    readonly label: string
+    /** The operation (port method) it answers, when it is an outbound case. */
+    readonly operation?: string | undefined
+    /** The generic outcome an outbound case is a thin NAME for (`ok` for the default). Every outbound case declares one. */
+    readonly outcome?: SandboxOutcome | undefined
+    /** The success case of its operation: answered while the account's selector names nothing. */
+    readonly default?: true | undefined
+    /** The inbound event it is, when it is one (the page's "send"). */
+    readonly inbound?: SandboxInboundCase | undefined
+}
+
+/**
+ * Where an inbound case's inputs are prefilled from (R62): the operation of the account's call log that IS a request of the agent's (a
+ * bank's payment instruction: `transfer`), and how a logged request of it reads as the inputs (`{ content, amount }`).
+ */
+export interface SandboxPrefill {
+    readonly operation: string
+    inputOf(request: unknown): SandboxInput | null
+}
+
+/** Where a pay link is in its life, in the words of the Sandbox page (a provider maps its own status words onto these). */
+export type SandboxPayLinkStatus = "open" | "paid" | "cancelled" | "expired"
+
+/**
+ * One pay link (a payment link, a QR request) of a sandbox account as the provider's own kept state tells it: what was asked, what came
+ * of it. `amountReceivedVnd` is what the account was paid so far (an `open` link may hold some: a short payment leaves it open).
+ */
+export interface SandboxPayLinkRead {
+    /** The link id (the provider's own id of it, unique across accounts). */
+    readonly linkId: string
+    /** The amount asked, in VND. */
+    readonly amountVnd: number
+    /** The transfer content (the description) the link was made with. */
+    readonly content: string
+    /** The provider's order code of the link, as text. */
+    readonly orderCode: string
+    /** Where the link is. */
+    readonly status: SandboxPayLinkStatus
+    /** What was received on it so far, in VND. */
+    readonly amountReceivedVnd: number
+}
+
+/** A read of one kept value of an account's state, by (name, key); null when none is kept. */
+export type SandboxStateReader = (name: string, key: string) => Promise<unknown>
+
+/**
+ * How a provider that issues pay links lets the Sandbox page resolve one by its id (SBX-6): the page API knows no provider name, it
+ * asks the catalogue. The link id names its account (`accountOf`), so the id alone finds the account.
+ */
+export interface SandboxPayLinks {
+    /** The account a link id names, or null when the id is not one this provider's sandbox issues. */
+    accountOf(linkId: string): string | null
+    /** The link as the account's kept state tells it, or null when the account never created it. `now` decides an expiry. */
+    read(linkId: string, state: SandboxStateReader, now: Date): Promise<SandboxPayLinkRead | null>
+    /** The inbound cases that apply to a link that is open (the ones that pay it). */
+    readonly caseIds: ReadonlyArray<string>
+    /** What the link gives the inputs of its cases (the order code, or the content and the amount); a field a case does not declare is left out by the send. */
+    inputsOf(link: SandboxPayLinkRead): SandboxInput
+}
+
+/** A provider's hardcoded catalogue, registered at boot beside its sandbox implementation. */
+export interface SandboxCatalogue {
+    readonly provider: string
+    readonly cases: ReadonlyArray<SandboxCase>
+    /** How its pay links are resolved by id, when the provider issues them. */
+    readonly payLinks?: SandboxPayLinks | undefined
+    /** Where its inbound cases' inputs are prefilled from, when the provider takes requests of the agent's (a payment instruction). */
+    readonly prefill?: SandboxPrefill | undefined
+}
+
+/** The request an agent last made of a sandbox account, read as an inbound case's inputs (R62 "latest payment request"). */
+export interface SandboxLatestRequest {
+    readonly operation: string
+    readonly input: SandboxInput
+    readonly at: string
+}
+
+/** The dev switch (R60): read once from the environment; off in production. */
+export interface ProviderSandboxSwitch {
+    readonly enabled: boolean
+}

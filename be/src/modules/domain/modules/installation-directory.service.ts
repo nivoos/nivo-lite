@@ -2,7 +2,6 @@ import { Injectable } from "@nestjs/common"
 import type {
     Installation,
     InstallationDirectory,
-    InstallationRef,
     OptionalContextVersion,
     OptionalInstallation,
 } from "@modules/domain/agents"
@@ -10,7 +9,6 @@ import { ContextVersionsService } from "@modules/domain/module-context-versions"
 import {
     InstallationRecordsService,
     type InstallationRecord,
-    type OptionalRowId,
     type OptionalInstallationRecord,
 } from "@modules/domain/module-installations"
 import { ModulesService } from "./modules.service"
@@ -35,7 +33,7 @@ const toInstallation = (record: InstallationRecord): Installation => ({
 })
 
 @Injectable()
-/** The installed agents as the agents capability reads them for the OpenClaw copy: the installation, its settings and its active version. */
+/** The installed agents as the agents capability reads them: the installation, its settings and its active version. */
 export class InstallationDirectoryService implements InstallationDirectory {
     constructor(
         private readonly installations: InstallationRecordsService,
@@ -58,17 +56,12 @@ export class InstallationDirectoryService implements InstallationDirectory {
         return installationOf(await this.installations.ofAgent(workspaceId, agentId))
     }
 
-    /** Up to `limit` installations that run on OpenClaw, of one workspace or of all when `workspaceId` is null. */
-    onOpenclaw(workspaceId: OptionalRowId, limit: number): Promise<ReadonlyArray<InstallationRef>> {
-        return this.installations.onOpenclaw(workspaceId, limit)
-    }
-
     /** The context version with that id, flattened for the bundle: the confirmed gates in the order of the module, the facts, the tone. */
     async contextVersionOf(versionId: string): Promise<OptionalContextVersion> {
         const version = await this.versions.find(versionId)
         if (version === null) return null
         const installation = await this.installations.findById(version.installationId)
-        const module = installation === null ? null : await this.catalog.findByKey(installation.moduleKey)
+        const module = installation === null ? null : await this.catalog.find(installation.moduleKey)
         const { gates, facts, summary } = version.snapshot
         return {
             version: version.version,

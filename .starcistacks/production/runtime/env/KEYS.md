@@ -25,7 +25,7 @@ turns every granted key into one versioned Swarm secret (see the production READ
 | `OTP_PEPPER` | its sealed member (granted in `application-stacks.yaml`) | At least 32 characters; hashes loyalty one-time codes. |
 | `CHANNEL_TOKEN_KEY` | its sealed member (granted in `application-stacks.yaml`) | Encrypts stored channel tokens and the per-workspace credentials of remote MCP connectors. One random 32-byte key, set once and never overwritten or rotated: a different key leaves every sealed credential unreadable. |
 | `N8N_SIGNING_SECRET` | its sealed member (granted in `application-stacks.yaml`) | Must equal what the n8n workflows sign with. |
-| `HTTP_SECURITY_ALLOWED_ORIGINS` | `api-public.conf` | Comma-separated exact HTTPS origins of the console and the landing. |
+| `HTTP_SECURITY_ALLOWED_ORIGINS` | `api-public.conf` | Comma-separated exact HTTPS origins of the console, the platform admin and the landing. |
 | `SITE_URL` | `api-public.conf` | The public origin of the console (`https://app.nivo.vn`); the browser return pages are served there. |
 | `PUBLIC_SITE_URL` | `api-public.conf` | The public origin of the console, used in links the api sends. |
 | `PUBLIC_API_URL` | `api-public.conf` | The public origin of the api (`https://api.nivo.vn`), used in webhook and callback URLs and as the base of the agents' tool door (`<origin>/agent-tools`); it must be https (http only for a loopback host) or the api refuses to boot. |
@@ -62,15 +62,7 @@ The capability is off while its keys are absent; a group is all-or-none where no
 | `N8N_ALLOWED_HOSTS` | Hosts the n8n client may call; a stack setting, default `n8n`. |
 | `N8N_PROTOCOL` | The protocol n8n serves its editor and webhooks on behind the proxy; a stack setting, `https` in production. |
 | `N8N_SECURE_COOKIE` | Whether n8n marks its session cookie secure; a stack setting, `true` in production. |
-| `OPENCLAW_GATEWAY_URL` | Gateway URL (`ws://nivo-openclaw:18790`), set by the deploy block; absent or without credentials = the gateway is off, and `cli prune-workspaces` and `cli cleanup-workspaces` refuse to delete. Both run inside `nivo-api`, the service that holds this key, the token and the `agents` network. |
-| `OPENCLAW_GATEWAY_TOKEN` | Gateway token, granted to the api and to openclaw from the sealed `openclaw`/`n8n` member. |
-| `OPENCLAW_GATEWAY_PASSWORD` | Alternative gateway credential when no token exists; not used in production. |
 | `BACKUP_RUN_ONCE` | Stack environment of `nivo-postgres-backup`: `1` takes one backup now and exits (tests and the manual run); unset keeps the daily schedule. |
-| `OPENCLAW_TOOL_SECRET` | Sealed `api`, read only through `OPENCLAW_TOOL_SECRET_FILE`: signs the per-turn tool token OpenClaw calls the api back with. Without it no token is minted, so a turn of an agent holding connector grants fails closed (`tools_not_configured`); other agents answer without tools. |
-| `OPENCLAW_BRIDGE_SECRET` | Sealed `openclaw`, granted to the api and to nivo-openclaw (the api reads it through `OPENCLAW_BRIDGE_SECRET_FILE`): the nivo-bridge plugin signs each `nivo_call` with it and the api finds the running turn from the signed agent and session. Without it on the api every bridge call is refused; without it on openclaw the plugin registers no tool. Adding it to the sealed member is a deploy step for the owner. |
-| `OPENCLAW_BRIDGE_URL` | Where the plugin posts a tool call (`http://nivo-api:8787/agent-tools`); set on nivo-openclaw by `stack.yaml`, not read by the api. |
-| `OPENCLAW_SKIP_CRON` | `1` on nivo-openclaw (`stack.yaml`): OpenClaw's own cron scheduler stays off, because NIVO owns every schedule. |
-| `OPENCLAW_MANAGE_AGENTS` | `true` or `false`; granted from the sealed `openclaw`/`n8n` member. |
 | `META_APP_ID` | The Meta app credentials (both or none); the Meta channels are off while absent. |
 | `META_APP_SECRET` | The Meta app credentials (both or none); the Meta channels are off while absent. |
 | `META_WEBHOOK_VERIFY_TOKEN` | The verify token of the Meta webhook subscription. |
@@ -80,23 +72,11 @@ The capability is off while its keys are absent; a group is all-or-none where no
 | `ZALO_APP_SECRET` | Zalo app secret the channel provisioning cli (`connect-channel zalo`) seals into the new connection; read only through `ZALO_APP_SECRET_FILE` on the operator machine for that run, optional, and granted to no service. |
 | `ZALO_OA_SECRET` | Zalo Official Account secret key the same cli seals beside the app secret; read only through `ZALO_OA_SECRET_FILE`, optional, and granted to no service. |
 | `HTTP_SECURITY_TRUSTED_PROXY_HOPS` | `0`, `1` or `2`: trusted proxy hops before the api; optional. |
-| `AI_BASE_URL` | The AI gateway base URL (`http://ai-router:8788/v1`), a stack value of the api and openclaw; the port is the declared `port` of the `ai-router` component. |
-| `STARCI_AI_KEY` | The one virtual key of the AI gateway (`sk-starci-nivo-...`), sealed in `ai`, read through `STARCI_AI_KEY_FILE` by the api and exported by the entrypoint wrapper for openclaw. |
+| `AI_BASE_URL` | The AI gateway base URL (`http://ai-router:8788/v1`), a stack value of the api; the port is the declared `port` of the `ai-router` component. |
+| `STARCI_AI_KEY` | The one virtual key of the AI gateway (`sk-starci-nivo-...`), sealed in `ai`, read through `STARCI_AI_KEY_FILE` by the api. |
 | `AI_CHAT_MODEL` | Profile the chat calls use (default `work`; stack value). |
 | `AI_EMBEDDING_MODEL` | Profile the embedding calls use (default `embed`; stack value). |
-| `APP_BUILD_ID` | The name of the running build (the release tag or git sha), set per release; a run parked under an older build is run again when a newer one starts. Absent = the empty build, so parked runs are resumed only by the sweep. |
-| `AGENT_RUNS_PARK_SWEEP_MINUTES` | Minutes between two sweeps of the parked agent runs (default `30`; stack value). |
-| `AGENT_RUNS_PARK_MAX_RESUMES` | How many times a parked agent run is tried again before it is dead-lettered (default `5`; stack value). |
-
-## api: optional executable paths
-
-These nonsecret keys select operator-installed executables. Omission retains the platform installation defaults. Paths must be absolute and local; the executable and every parent directory must be unwritable by untrusted users. PATH is never searched.
-
-| Key | Semantics |
-| --- | --- |
-| `VIDEO_FFMPEG_PATH` | Optional trusted FFmpeg executable path. |
-| `VIDEO_FFPROBE_PATH` | Optional trusted FFprobe executable path. |
-| `VIDEO_NICE_PATH` | Optional trusted priority-lowering executable path, used when priority lowering is enabled. |
+| `APP_BUILD_ID` | The name of the running build (the release tag or git sha), set per release; the jobs and the entity engine read it. |
 
 ## mcp (the NIVO MCP gateway, `be/apps/mcp`)
 
@@ -108,17 +88,15 @@ The gateway reads only these keys (`be/apps/mcp/src/mcp.env.ts`). Its secrets co
 | `PORT` | stack environment | The listener port (`8790`); internal only, on the private `agents` network as `nivo-mcp`. |
 | `PRIMARY_DB_URL` | its sealed member (granted in `application-stacks.yaml`) (required) | The same `app_be` connection as the api: connectors, grants and the call audit. |
 | `ENTITY_ENGINE_CURSOR_KEY` | its sealed member (granted in `application-stacks.yaml`) (required) | The same cursor key as the api: the gateway reads the graph of each agent through the entity engine. |
-| `CHANNEL_TOKEN_KEY` | its sealed member (granted in `application-stacks.yaml`) (required) | The same connection key as the api: it opens the bearer credential each remote connector has sealed in its own `mcp_connectors` row. Connector credentials are set per workspace in the console (Settings > Connections), never as deployment keys. |
+| `CHANNEL_TOKEN_KEY` | its sealed member (granted in `application-stacks.yaml`) (required) | The same connection key as the api: the tool families open the connections' sealed credentials with it. |
 | `PRIMARY_DB_SCHEMA` | stack environment | `public`. |
 | `HTTP_SECURITY_ALLOWED_ORIGINS` | stack environment | The OriginGuard and CORS allowlist (`https://app.nivo.vn`); the gateway has no browser caller, so only the console origin is listed. |
-| `MCP_GATEWAY_TIMEOUT_MS` | not set | Per-call timeout, default 4000. |
-| `MCP_CLIENT_NAME` | not set | Client name announced to remote MCP servers, default `nivo-mcp-gateway`. |
+| `TOOLS_TIMEOUT_MS` | not set | Per-call time limit of a tool family that declares none, default 4000. |
 
-## Stack settings (sealed `openclaw`/`n8n`, read at render time)
+## Stack settings (sealed `n8n`, read at render time)
 
 | Key | Semantics |
 | --- | --- |
-| `OPENCLAW_MODEL` | The model the openclaw service runs (default `nivo-ai/work`, the openclaw provider that points at the AI gateway). |
 | `JOBS_FAILED_ALERT` | Becomes the api `JOBS_ALERT_FAILED_MAX` (default 20). |
 | `JOBS_STALE_SECONDS` | Becomes the api `JOBS_ALERT_STALE_SECONDS` (default 300). |
 | `N8N_ENCRYPTION_KEY` | Swarm secret of the n8n service (`N8N_ENCRYPTION_KEY_FILE`). |
@@ -140,8 +118,7 @@ The gateway reads only these keys (`be/apps/mcp/src/mcp.env.ts`). Its secrets co
 | `READY_OWNER_PASSWORD` | `test-accounts` | Ready-state accounts of the post-deploy smoke tests. |
 | `READY_STAFF_EMAIL` | `test-accounts` | Ready-state accounts of the post-deploy smoke tests. |
 | `READY_STAFF_PASSWORD` | `test-accounts` | Ready-state accounts of the post-deploy smoke tests. |
-| `WORKSPACE_SEED_INPUT` | `test-accounts` | Private explicit workspace access input. The managed `ensure-workspace` and `verify-workspace` tasks read it as `WORKSPACE_SEED_INPUT_FILE`; the profile workflow uses the same input contract. See the production runbook's "Workspace access" procedure. |
-| `WORKSPACE_PROFILE_INPUT` | `test-accounts` | Private profile input `{"schema":"nivo/workspace-profile-input@1","connectors":{"hakuen":{"url":"https://..."}}}`: the endpoint of each remote MCP connector the profile registers. The same workflow hands it to `cli seed-workspace profile` as `WORKSPACE_PROFILE_INPUT_FILE`; a dry run refuses when a connector endpoint is missing. |
+| `WORKSPACE_SEED_INPUT` | `test-accounts` | Private explicit workspace access input. The managed `ensure-workspace` and `verify-workspace` tasks read it as `WORKSPACE_SEED_INPUT_FILE`. See the production runbook's "Workspace access" procedure. |
 | `privateKey` | `vps` | The operator SSH key (`starci app stack` reads it from the member `deploy.remote.sealed.sshKey` names). |
 | `knownHosts` | `vps` | The pinned host keys (`starci app stack` reads them from the member `deploy.remote.sealed.knownHosts` names). |
 | `ciPrivateKey` | `vps` | The operator copy of the CI deploy key (CI itself reads the sealed member `vps-ci`), kept apart from the operator `privateKey`. |
@@ -155,7 +132,8 @@ Public by design, passed as image build arguments (`deploy.images.web.buildArgs`
 | --- | --- |
 | `NEXT_PUBLIC_SITE_URL` | The public origin of the app (`https://app.nivo.vn`) or, for the landing, of the landing (`https://nivo.vn`). |
 | `NEXT_PUBLIC_LANDING_URL` | The landing origin (`https://nivo.vn`). |
-| `NEXT_PUBLIC_APP_URL` | The console origin the landing links to (`https://app.nivo.vn`). |
+| `NEXT_PUBLIC_APP_URL` | The console origin the landing and the admin link to (`https://app.nivo.vn`). |
+| `NEXT_PUBLIC_ADMIN_URL` | The platform-admin origin (`https://admin.nivo.vn`): `/admin` of the console redirects there. The admin image takes `NEXT_PUBLIC_SITE_URL=https://admin.nivo.vn`, `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_APP_URL`. |
 | `NEXT_PUBLIC_API_URL` | The api origin (`https://api.nivo.vn`). |
 | `NEXT_PUBLIC_DEVELOPER_API_URL` | The api origin (`https://api.nivo.vn`). |
 
@@ -168,7 +146,7 @@ The api hosts the gateway through `AiRouterGatewayModule`; it listens on `AI_ROU
 | `AI_ROUTER_PORT` | api stack value | The gateway listener (`8788`); declared on the `nivo-api` component. |
 | `AI_ROUTER_KEYS_PATH` | api stack value | SQLite key store (`/var/lib/ai-router/keys.sqlite`) on the volume `nivo-engine_ai-router-data`. |
 | `OPENROUTER_API_KEY` | `ai` (granted in `application-stacks.yaml`) | The single upstream key (OpenRouter). |
-| `STARCI_AI_KEY` | its sealed member (granted in `application-stacks.yaml`) | The one gateway virtual key (`nivo`), shared by the api and openclaw; openclaw holds no OpenRouter key. Mounted by the gateway from this secret at boot (no key is issued by hand); it must start with `sk-starci-nivo-`. |
+| `STARCI_AI_KEY` | its sealed member (granted in `application-stacks.yaml`) | The one gateway virtual key (`nivo`), used by the api. Mounted by the gateway from this secret at boot (no key is issued by hand); it must start with `sk-starci-nivo-`. |
 
 ## Self-hosted cutover (sh-cutover)
 

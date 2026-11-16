@@ -2,7 +2,6 @@ import { builder } from "@starci/jest-preset"
 import type { EntityManager } from "typeorm"
 import { teamChatEntities } from "@modules/domain/team-chat"
 import { agentsEntities } from "@modules/domain/agents"
-import { approvalRequestsEntities } from "@modules/domain/approval-requests"
 import { workspaceMembersEntities } from "@modules/domain/workspace-members"
 import { workspacesEntities } from "@modules/domain/workspaces"
 import { eachInOrder } from "@modules/platform/primitives"
@@ -15,7 +14,6 @@ type ChatRoomEntity = InstanceType<typeof ChatRoomEntity>
 type ChatRoomMemberEntity = InstanceType<typeof ChatRoomMemberEntity>
 type ChatRoomMessageEntity = InstanceType<typeof ChatRoomMessageEntity>
 const [AgentEntity] = agentsEntities
-const [ApprovalRequestEntity] = approvalRequestsEntities
 const [WorkspaceMemberEntity] = workspaceMembersEntities
 
 /** The people of one team chat proof: an owner, three staff and a person of another workspace. */
@@ -143,52 +141,6 @@ export const persistStranger = async (manager: EntityManager, userId: string): P
     await manager.insert("auth.users", { id: userId })
 }
 
-/** One pending approval request to write. */
-export interface ApprovalRequestInput {
-    /** The id of the request (the decision id the chat carries). */
-    readonly id: string
-    /** The chain step the request answers; unique among pending requests. */
-    readonly chainStepId: string
-    /** The workspace. */
-    readonly workspaceId: string
-    /** The seats (workspace_members.id) that may decide. */
-    readonly seatIds: ReadonlyArray<string>
-    /** The agent that asked. */
-    readonly agentId: string
-    /** The department the request belongs to. */
-    readonly department: string
-}
-
-/** Writes a pending approval request of the workspace that names the given seats as its approvers; answers its id. */
-export const openApprovalRequest = async (manager: EntityManager, request: ApprovalRequestInput): Promise<string> => {
-    await manager.insert(ApprovalRequestEntity, {
-        id: request.id,
-        chainStepId: request.chainStepId,
-        workspaceId: request.workspaceId,
-        department: request.department,
-        action: "refund",
-        policy: "any",
-        approvers: request.seatIds.map((memberId) => ({ memberId, name: "x", role: "staff", roomId: null })),
-        requestedByAgentId: request.agentId,
-        timeoutMinutes: 30,
-        expiresAt: new Date("2099-01-01T00:00:00.000Z"),
-    })
-    return request.id
-}
-
-/** Marks an approval request as rejected by the given seat. */
-export const rejectApprovalRequest = async (
-    manager: EntityManager,
-    requestId: string,
-    seatId: string,
-): Promise<void> => {
-    await manager.update(
-        ApprovalRequestEntity,
-        { id: requestId },
-        { status: "rejected", resolvedAt: new Date("2098-01-01T00:00:00.000Z"), resolvedBy: seatId },
-    )
-}
-
 const ANA = "22222222-1111-4111-8111-111111111111"
 const ROOM = "41111111-1111-4111-8111-111111111111"
 const AT = new Date("2026-11-06T10:00:00.000Z")
@@ -209,6 +161,7 @@ export const messageOf: (overrides?: Partial<ChatRoomMessageEntity>) => ChatRoom
         createdAt: AT,
         editedAt: null,
         clientId: null,
+        replyTo: null,
         updatedAt: AT,
     })
 
@@ -227,6 +180,7 @@ export const seatOf = (
         role,
         lastReadAt: AT,
         muted,
+        mayPost: false,
         createdAt: AT,
         updatedAt: AT,
     })()
@@ -239,6 +193,8 @@ export const roomOf: (overrides?: Partial<ChatRoomEntity>) => ChatRoomEntity = b
     workspaceId: "11111111-1111-4111-8111-111111111111",
     position: 4,
     directKey: null,
+    purpose: "group",
+    purposeModule: null,
     createdBy: ANA,
     createdAt: AT,
     updatedAt: AT,

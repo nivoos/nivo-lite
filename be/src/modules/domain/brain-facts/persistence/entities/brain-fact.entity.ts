@@ -3,6 +3,7 @@ import { Column, Entity } from "typeorm"
 import type {
     BrainSubjectType,
     Evidence,
+    FactFlag,
     FactSource,
     FactStatus,
     FactProposalKind,
@@ -115,4 +116,27 @@ export class BrainFactEntity extends UuidAbstractEntity {
     /** Whether the proposal sets a value or retires one. */
     @Column({ name: "proposal_kind", type: "text", default: () => "'set'::text" })
     proposalKind!: FactProposalKind
+
+    /** Which value of its key this is: 1 on the first activation, one more on each replacement; null until it was in force. */
+    @Column({ name: "version", type: "integer", nullable: true })
+    version?: number | null
+
+    /** What the brain noticed for the founder (`stale`, `same_meaning`); empty when nothing. Migration 20261112013100. */
+    @Column({ name: "review_flags", type: "text", array: true, default: () => "'{}'::text[]" })
+    reviewFlags?: Array<FactFlag> | null
+
+    /** The embedding identity (`<model>@<dimensions>`) of the point the vector index accepted for the fact's line, or null. */
+    @Column({ name: "embedding_model", type: "text", nullable: true })
+    embeddingModel?: string | null
+
+    /** `passageTextHashOf` of the embedded line: the same hash and identity mean the point is current. */
+    @Column({ name: "embedding_hash", type: "text", nullable: true })
+    embeddingHash?: string | null
+
+    /**
+     * When the vector index accepted the vector of the fact's line (vectors live in the index, one point per row; migration
+     * 20261112015600). Never read back by default: a build that meets a database without the column still reads facts.
+     */
+    @Column({ name: "indexed_at", type: "timestamptz", nullable: true, select: false })
+    indexedAt?: Date | null
 }

@@ -1,4 +1,4 @@
-import { Alert, Button, Cluster, Icon, IconTile, Select, Stack, type ListBoxItem } from "@starci/grammar/common"
+import { Alert, Button, Cluster, IconTile, Select, Stack, type ListBoxItem } from "@starci/grammar/common"
 import { SlotView } from "@nivo-lite/agent-sdk/client"
 import { LessonDetail } from "@/components/composites/LessonDetail"
 import { RowTrailing } from "@/components/composites/RowTrailing"
@@ -39,7 +39,6 @@ export interface BrainLessonsBaseProps {
         readonly drawer: LessonDrawerView | null
     }
     readonly on: {
-        readonly reviewAll: () => void
         readonly selectTab: (id: string) => void
         readonly setFilter: (id: string) => void
         readonly setAgent: (value: string | null) => void
@@ -76,13 +75,7 @@ const AgentRow = (props: BrainLessonsBaseProps) => {
                 onValueChange={props.on.setAgent}
             />
             {agent.canMine ? (
-                <Button
-                    intent="neutral"
-                    size="sm"
-                    isPending={agent.isMining}
-                    startContent={<Icon source={nivoIconSource("sparkle", "leading")} usage="leading" />}
-                    onPress={props.on.mine}
-                >
+                <Button intent="neutral" isPending={agent.isMining} onPress={props.on.mine}>
                     {agent.mineLabel}
                 </Button>
             ) : null}

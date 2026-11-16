@@ -1,6 +1,6 @@
 import { gql, type ApolloClient, type TypedDocumentNode } from "@apollo/client"
-import { createAuthApolloClient } from "../clients"
-import type { InputVariables, MutateParams, WireInput } from "../types"
+import { createAuthApolloClient, type InputVariables, type MutateParams, type WireInput } from "@nivo-lite/api"
+import { webApiTransport } from "@/modules/api-transport"
 import type { CopyInviteLinkMutation, CopyInviteLinkMutationVariables } from "../__generated__/graphql"
 
 /** The input of the `copyInviteLink` mutation. */
@@ -37,7 +37,8 @@ export const mutateCopyInviteLink = async ({
     mutation = MutationCopyInviteLink.Mutation1,
     request,
     signal,
+    headers,
 }: MutateCopyInviteLinkParams): Promise<ApolloClient.MutateResult<MutateCopyInviteLinkResponse>> => {
-    const apollo = createAuthApolloClient({ signal })
+    const apollo = createAuthApolloClient(webApiTransport, { signal, headers })
     return apollo.mutate({ mutation: mutationMap[mutation], variables: { input: request } })
 }

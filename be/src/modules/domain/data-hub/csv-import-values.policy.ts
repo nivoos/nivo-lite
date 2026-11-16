@@ -1,3 +1,4 @@
+import { dayStartMs, zonedMs } from "@modules/domain/workspace-settings"
 const char = (code: number): string => String.fromCodePoint(code)
 const COMBINING_MARKS = new RegExp(`[${char(0x300)}-${char(0x36f)}]`, "gu")
 const D_STROKE = new RegExp(`[${char(0x110)}${char(0x111)}]`, "gu")
@@ -95,8 +96,11 @@ const datePartsOf = (text: string): DateParts | null => {
     return { year, month: Number(local[2]), day: Number(local[1]), rest: dateRest(local[4] ?? "") }
 }
 
-/** A date from the common Vietnamese and ISO spellings, as an ISO instant (date-only values are midnight in Vietnam, +07:00). */
-export const parseDateLoose = (raw: string): string | null => {
+/**
+ * A date from the common Vietnamese and ISO spellings, as an ISO instant: a date alone is its midnight, and a time written with no
+ * zone is that wall time, on the clock of the workspace's `timeZone`; a time with its own zone keeps it.
+ */
+export const parseDateLoose = (raw: string, timeZone: string): string | null => {
     const text = raw.trim()
     if (text === "") return null
     const parts = datePartsOf(text)
@@ -105,13 +109,21 @@ export const parseDateLoose = (raw: string): string | null => {
     if (month < 1 || month > 12 || day < 1 || day > 31 || year < 1900 || year > 2200) return null
     if (new Date(Date.UTC(year, month - 1, day)).getUTCMonth() !== month - 1) return null
     const date = `${year}-${pad(month)}-${pad(day)}`
-    if (rest === "") return new Date(`${date}T00:00:00+07:00`).toISOString()
+    if (rest === "") return new Date(dayStartMs(date, timeZone)).toISOString()
     const zoneMatch = /(Z|[+-]\d{2}:?\d{2})$/iu.exec(rest)
     const clock = (zoneMatch === null ? rest : rest.slice(0, zoneMatch.index)).trimEnd()
     const time = /^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?$/u.exec(clock)
     if (time === null || Number(time[1]) > 23 || Number(time[2]) > 59) return null
-    let zone = zoneMatch?.[1] ?? "+07:00"
+    const seconds = Number(time[3] ?? "0")
+    if (zoneMatch === null) {
+        const wall = zonedMs(date, `${pad(Number(time[1]))}:${time[2]}`, timeZone) + seconds * 1000
+        return Number.isNaN(wall) ? null : new Date(wall).toISOString()
+    }
+    let zone = zoneMatch[1] ?? "Z"
     if (/^[+-]\d{4}$/u.test(zone)) zone = `${zone.slice(0, 3)}:${zone.slice(3)}`
     const instant = new Date(`${date}T${pad(Number(time[1]))}:${time[2]}:${time[3] ?? "00"}${zone.toUpperCase()}`)
     return Number.isNaN(instant.getTime()) ? null : instant.toISOString()
 }
+
+/** Whether a cell spells a date in one of the spellings `parseDateLoose` reads (the time zone never changes that). */
+export const looksLikeDate = (raw: string): boolean => parseDateLoose(raw, "UTC") !== null

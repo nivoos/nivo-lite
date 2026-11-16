@@ -1,0 +1,8 @@
+export type { ChannelChoice, CreateAgentInstanceRequest, CreatedAgent } from "./agent-instances.contracts"
+export { ChannelFrontDoorService } from "./channel-front-door.service"
+export type { FrontDoorOutcome } from "./channel-front-door.service"
+export { AgentInstanceCreationService } from "./agent-instance-creation.service"
+export { AgentInstancesModule } from "./agent-instances.module"
+export { ConversationOwnersService } from "./conversation-owners.service"
+export { AGENT_INSTANCES_ERROR_KINDS } from "./errors/agent-instances.error"
+export { AGENT_INSTANCES_MESSAGES } from "./messages/agent-instances.messages"

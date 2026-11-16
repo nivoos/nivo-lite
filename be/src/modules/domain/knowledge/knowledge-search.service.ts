@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
-import { KnowledgeChunksService, toVector, type ChunkHit } from "@modules/domain/knowledge-chunks"
+import { EMBEDDING_DIMENSIONS } from "@modules/domain/knowledge-chunks"
 import { KnowledgeSourcesReadService } from "@modules/domain/knowledge-sources"
 import { catalogAudienceOf } from "@modules/domain/module-audiences"
 import { NivoKnowledgeSearchService } from "@modules/domain/nivo-knowledge"
@@ -10,6 +10,8 @@ import { EmbeddingService } from "./embedding.service"
 import { KnowledgeError, KnowledgeErrorCode } from "./errors/knowledge.error"
 import type { AgentSearch, AskInput, Lens, Passage } from "./knowledge.contracts"
 import { lensOf } from "./lens.policy"
+import type { PassageFound } from "./passage-retrieval.contracts"
+import { PassageRetrievalService } from "./passage-retrieval.service"
 import { businessPassage, rankPassages, tsqueryOf } from "./passage.mapper"
 
 /** The longest question that is searched. */
@@ -28,7 +30,7 @@ export class KnowledgeSearchService {
         @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
         private readonly members: WorkspaceMembersService,
         private readonly embeddings: EmbeddingService,
-        private readonly chunks: KnowledgeChunksService,
+        private readonly retrieval: PassageRetrievalService,
         private readonly sources: KnowledgeSourcesReadService,
         private readonly nivo: NivoKnowledgeSearchService,
     ) {}
@@ -49,7 +51,8 @@ export class KnowledgeSearchService {
     /**
      * What an agent lane may read for a question, with no member check: the retrieval step of a task the system runs for the agent.
      * The lens is the same as in `ask`: a customer-facing module or audience sees public passages only, and the instance joins its
-     * own notes to the shared ones. A blank question finds nothing and spends nothing.
+     * own notes to the shared ones. A blank question finds nothing and spends nothing; a question the caller already embedded is not
+     * embedded again.
      */
     forAgent(request: AgentSearch): Promise<ReadonlyArray<Passage>> {
         const question = request.question.trim().slice(0, QUESTION_MAX_CHARS)
@@ -63,12 +66,16 @@ export class KnowledgeSearchService {
             requestedAudience: request.audience,
             installationId: request.installationId,
         })
+        const given = request.questionVector
+        if (given?.length === EMBEDDING_DIMENSIONS) {
+            return this.match(lens, question, request.limit, given)
+        }
         return this.passages(lens, question, request.limit, request.embedTimeoutMs ?? QUERY_TIMEOUT_MS)
     }
 
     /**
-     * Hybrid search over both layers, filtered by the lens in SQL; the embedding of the query is metered against the workspace and
-     * gets `embedTimeoutMs` before the search falls back to words.
+     * Search over both layers by words and meaning, filtered by the lens in the statements; the embedding of the query is metered
+     * against the workspace and gets `embedTimeoutMs` before the search falls back to words.
      */
     async passages(
         lens: Lens,
@@ -83,9 +90,9 @@ export class KnowledgeSearchService {
                       workspaceId: lens.workspaceId,
                       texts: [query],
                       timeoutMs: embedTimeoutMs,
+                      step: "search",
                   })
-        const vector = vectors?.[0]
-        return this.match(lens, query, limit, vector === undefined ? null : toVector(vector))
+        return this.match(lens, query, limit, vectors?.[0] ?? null)
     }
 
     /**
@@ -101,32 +108,36 @@ export class KnowledgeSearchService {
         lens: Lens,
         query: string,
         limit: number,
-        vector: string | null,
+        vector: ReadonlyArray<number> | null,
     ): Promise<ReadonlyArray<Passage>> {
         const [folded] = await callDbFunction<{ knowledge_fold: string }>(this.entityManager, "public.knowledge_fold", [
             query,
         ])
-        const search = {
-            vector,
-            model: vector === null ? null : this.embeddings.model(),
-            tsquery: tsqueryOf(folded?.knowledge_fold ?? ""),
-            limit,
-        }
+        // The business documents: the two indexed legs of the passage store, the words RANKED as the passage tools rank them (the passage
+        // holding most of the question's words comes first; D-R-10), fused by rank; a vector the caller already made is handed on, so
+        // nothing is embedded twice. The lens (customer audience) is unchanged.
         const [business, base] = await Promise.all([
-            this.chunks.search({
-                workspaceId: lens.workspaceId,
-                module: lens.module,
-                audience: lens.audience,
-                installationId: lens.installationId,
-                ...search,
+            this.retrieval.search(lens, {
+                query,
+                mode: vector === null ? "words" : "auto",
+                match: "ranked",
+                limit,
+                after: 0,
+                ...(vector === null ? {} : { vector }),
             }),
-            this.nivo.search({ module: lens.module, ...search }),
+            this.nivo.search({
+                module: lens.module,
+                vector,
+                model: vector === null ? null : this.embeddings.model(),
+                tsquery: tsqueryOf(folded?.knowledge_fold ?? ""),
+                limit,
+            }),
         ])
-        return rankPassages(await this.withSources(lens.workspaceId, business), base, limit)
+        return rankPassages(await this.withSources(lens.workspaceId, business.hits), base, limit)
     }
 
     /** The passages of the business documents, each with the kind, title and topic of its source. */
-    private async withSources(workspaceId: string, hits: ReadonlyArray<ChunkHit>): Promise<ReadonlyArray<Passage>> {
+    private async withSources(workspaceId: string, hits: ReadonlyArray<PassageFound>): Promise<ReadonlyArray<Passage>> {
         const briefs = await this.sources.briefsOf(workspaceId, [...new Set(hits.map((hit) => hit.sourceId))])
         return hits.flatMap((hit) => {
             const brief = briefs.find((candidate) => candidate.id === hit.sourceId)

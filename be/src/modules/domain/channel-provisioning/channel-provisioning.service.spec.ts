@@ -3,7 +3,7 @@ import { mock } from "@starci/jest-preset"
 import { ChannelConnectionsService } from "@modules/domain/channel-connections"
 import { ConnectionGrantsService } from "@modules/domain/connection-grants"
 import { ConnectionsError, ConnectionsErrorCode, ConnectionsService } from "@modules/domain/connections"
-import type { ConnectionRecord } from "@modules/domain/connections"
+import type { ConnectionRecord, CreateConnectionInput } from "@modules/domain/connections"
 import { Secret } from "@modules/platform/config"
 import { AgentDirectoryService } from "@modules/domain/agents"
 import { WorkspaceMemberDirectoryService } from "@modules/domain/workspace-members"
@@ -11,6 +11,13 @@ import type { ProvisionFlags } from "./channel-provisioning.contracts"
 import { CHANNEL_PROVISIONING_OPTIONS } from "./channel-provisioning.decorators"
 import type { ChannelProvisioningOptions } from "./channel-provisioning.options"
 import { ChannelProvisioningService } from "./channel-provisioning.service"
+
+/** A create call that must be a live connection: only a live one carries a credential. */
+type LiveConnectionInput = Extract<CreateConnectionInput, { readonly secret: unknown }>
+const liveOf = (input: CreateConnectionInput): LiveConnectionInput => {
+    if (input.sandbox === true) throw new Error("expected a live connection input")
+    return input
+}
 
 const WORKSPACE = "12345678-1234-5678-9abc-123456789abc"
 const ACTOR = { principalId: "owner-1", workspaceId: WORKSPACE }
@@ -25,6 +32,7 @@ const TELEGRAM: ConnectionRecord = {
     status: "connected",
     lastError: null,
     environment: "live",
+    sandbox: false,
     isDefault: false,
     lastEventAt: null,
     firstEvent: null,
@@ -121,7 +129,7 @@ const invalid = (field: string) =>
 
 const AGENT_ROWS = [
     { id: "chat-1", module: "chatbot" },
-    { id: "bank-1", module: "accounting" },
+    { id: "sales-1", module: "sales" },
     { id: "unknown-1", module: "unknown" },
     { id: "booking-1", module: "booking" },
     { id: "chat-2", module: "chatbot" },
@@ -149,10 +157,10 @@ describe("ChannelProvisioningService zalo", () => {
             meta: { app_id: "1234567890", oa_secret_saved: "true" },
             secret: {
                 plain: JSON.stringify({ appId: "1234567890", appSecret: "app-secret-123", oaSecret: "oa-secret-123" }),
-                webhookSecret: connections.create.mock.calls[0]?.[0].secret.webhookSecret,
+                webhookSecret: liveOf(connections.create.mock.calls[0]![0]).secret.webhookSecret,
             },
         })
-        expect(connections.create.mock.calls[0]?.[0].secret.webhookSecret).toMatch(/^[0-9a-f]{64}$/u)
+        expect(liveOf(connections.create.mock.calls[0]![0]).secret.webhookSecret).toMatch(/^[0-9a-f]{64}$/u)
         expect(print.mock.calls[0]?.[0]).toContain("zalo connection zalo-1")
         expect(grants.setConnectionAgents).toHaveBeenCalled()
     })
@@ -291,14 +299,14 @@ describe("ChannelProvisioningService", () => {
 })
 
 describe("ChannelProvisioningService", () => {
-    it("binds only the agents whose modules can use Telegram, preserving their order", async () => {
+    it("binds only the agents whose modules can use Telegram, preserving their order, with one front door", async () => {
         const { service, agentDirectory, grants, print } = await build({}, scenarioOf(undefined, AGENT_ROWS))
 
         await service.run("telegram", { workspace: WORKSPACE, bind: true })
 
         expect(agentDirectory.moduleRefsOf).toHaveBeenCalledWith(WORKSPACE, 500)
         expect(grants.setConnectionAgents.mock.calls).toEqual([
-            [ACTOR, "telegram-1", [{ agentId: "chat-1" }, { agentId: "booking-1" }, { agentId: "chat-2" }]],
+            [ACTOR, "telegram-1", [{ agentId: "chat-1" }, { agentId: "sales-1" }, { agentId: "booking-1" }]],
         ])
         expect(print.mock.calls).toEqual([
             ["telegram connection telegram-1 (Bot Telegram); webhook registered"],
@@ -306,7 +314,7 @@ describe("ChannelProvisioningService", () => {
         ])
     })
 
-    it("uses the supplied SePay name and environment and binds only accounting agents", async () => {
+    it("uses the supplied SePay name and environment and binds only the agents that list SePay (sales)", async () => {
         const { service, agentDirectory, channels, grants, print } = await build({}, scenarioOf(undefined, AGENT_ROWS))
 
         await service.run("sepay", {
@@ -331,7 +339,7 @@ describe("ChannelProvisioningService", () => {
             ],
         ])
         expect(agentDirectory.moduleRefsOf).toHaveBeenCalledWith(WORKSPACE, 500)
-        expect(grants.setConnectionAgents.mock.calls).toEqual([[ACTOR, "sepay-1", [{ agentId: "bank-1" }]]])
+        expect(grants.setConnectionAgents.mock.calls).toEqual([[ACTOR, "sepay-1", [{ agentId: "sales-1" }]]])
         expect(print.mock.calls).toEqual([
             [
                 "sepay connection sepay-1; paste into SePay: url " +
@@ -346,7 +354,7 @@ describe("ChannelProvisioningService", () => {
     it("sets an empty agent wish list and prints zero when no module can use the provider", async () => {
         const { service, grants, print } = await build(
             {},
-            scenarioOf(undefined, [{ id: "bank-1", module: "accounting" }]),
+            scenarioOf(undefined, [{ id: "unknown-1", module: "unknown" }]),
         )
 
         await service.run("telegram", { workspace: WORKSPACE, bind: true })

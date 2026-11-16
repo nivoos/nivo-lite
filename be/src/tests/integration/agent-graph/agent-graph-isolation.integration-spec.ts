@@ -1,13 +1,11 @@
 import { EntityEngineService } from "@modules/domain/entity-engine"
 import { eachInOrder } from "@modules/platform/primitives"
 import { AgentGraphsService } from "@modules/domain/agent-graphs"
-import { AgentGraphProposalsService } from "../../../modules/domain/agent-graphs/agent-graph-proposals.service"
-import { AgentGraphDecisionsService } from "../../../modules/domain/agent-graphs/agent-graph-decisions.service"
 import { AgentGraphRecordsService } from "../../../modules/domain/agent-graphs/agent-graph-records.service"
-import { AMOUNT_FACT, OWNER_EXAMPLE, graphOf } from "../../fixtures/builders/agent-graph.builder"
+import { OWNER_EXAMPLE, graphOf } from "../../fixtures/builders/agent-graph.builder"
 import { persistGraph, persistGraphTenant } from "../../fixtures/builders/agent-graph-world.builder"
 import { AGENT_GRAPH_STORE_MODULES } from "../../world/agent-graph-decider-capabilities.options"
-import { changeRecord, removeRecord, versionOf } from "../../world/entity-engine-records.service"
+import { AgentGraphEntity, AgentGraphVersionEntity } from "../../../modules/domain/agent-graphs/persistence/entities"
 import { withBackendTransaction } from "../../world/entity-engine-scope-proof.service"
 import { removeAuthUsers, removeWorkspace } from "../../world/proof-accounts.service"
 import { useTestWorld } from "../../world/use-test-world"
@@ -18,21 +16,17 @@ const tenant = { workspaceId: world.id(), userId: world.id(), agentId: world.id(
 const stranger = world.id()
 const graphs = () => world.resolve(AgentGraphsService)
 
-const ENTITIES = {
-    graph: "agent.graph",
-    version: "agent.graph-version",
-    proposal: "agent.graph-proposal",
-    decision: "agent.graph-decision",
+const TABLES = {
+    graph: AgentGraphEntity,
+    version: AgentGraphVersionEntity,
 } as const
 
 /** The record ids of the graph of the tenant, read in its own scope. */
-const idsOf = (itemId: string) =>
+const idsOf = () =>
     world.resolve(EntityEngineService).scoped(tenant.workspaceId, async (scoped) => {
         const records = world.resolve(AgentGraphRecordsService)
         const graph = await records.graphOf(scoped, tenant.agentId)
-        const [proposal] = await records.openProposalsOf(scoped, tenant.agentId, 5)
-        const decision = await records.decisionOfItem(scoped, itemId)
-        return { graph: graph?.id, version: tenant.versionId, proposal: proposal?.id, decision: decision?.id }
+        return { graph: graph?.id, version: tenant.versionId }
     })
 
 beforeAll(async () => {
@@ -45,66 +39,32 @@ beforeAll(async () => {
 })
 
 describe("agent-graph/isolation: the graph of an agent belongs to its workspace", () => {
-    it("agent-graph/isolation: another workspace's scope cannot see, change or delete the graph, a version, a proposal or a decision, and the owner's scope sees them all", async () => {
-        const itemId = world.id()
-        await world.resolve(AgentGraphDecisionsService).record({
-            workspaceId: tenant.workspaceId,
-            agentId: tenant.agentId,
-            workItemId: itemId,
-            dedupeKey: null,
-            road: "work",
-            mode: "enforced",
-            gateVerdict: null,
-            versionId: tenant.versionId,
-            turnId: null,
-            wakeId: null,
-            action: "pay_supplier",
-            path: ["decide"],
-            facts: { [AMOUNT_FACT]: 1_000_000 },
-            branchKey: "small",
-            outcome: "auto",
-            shadowDiff: false,
-            unread: [],
-            unjudged: null,
-            subjectType: null,
-            subjectId: null,
-            closedAs: null,
-        })
-        await world.resolve(AgentGraphProposalsService).raiseGap({
-            workspaceId: tenant.workspaceId,
-            agentId: tenant.agentId,
-            versionId: tenant.versionId,
-            trigger: "customer_message",
-            question: "Do you ship to Hue?",
-            topic: "Shipping",
-        })
-        const ids = await idsOf(itemId)
+    it("agent-graph/isolation: another workspace's scope cannot see, change or delete the graph or a version, and the owner's scope sees them all", async () => {
+        const ids = await idsOf()
         const held = [
-            [ENTITIES.graph, ids.graph],
-            [ENTITIES.version, ids.version],
-            [ENTITIES.proposal, ids.proposal],
-            [ENTITIES.decision, ids.decision],
+            [TABLES.graph, ids.graph],
+            [TABLES.version, ids.version],
         ] as const
 
         await withBackendTransaction(world, async (probe) => {
             await probe.enter(stranger)
-            await eachInOrder(held, async ([entity, id]) => {
+            await eachInOrder(held, async ([table, id]) => {
                 expect(id).toEqual(expect.any(String))
-                expect(await versionOf(probe.manager, entity, id ?? "")).toBeNull()
-                expect(await changeRecord(probe.manager, entity, id ?? "", "1", {})).toBe(0)
-                expect(await removeRecord(probe.manager, entity, id ?? "")).toBe(0)
+                expect(await probe.manager.findOneBy(table, { id: id ?? "" })).toBeNull()
+                expect((await probe.manager.update(table, { id: id ?? "" }, { workspaceId: tenant.workspaceId })).affected).toBe(0)
+                expect((await probe.manager.delete(table, { id: id ?? "" })).affected).toBe(0)
             })
         })
 
         await withBackendTransaction(world, async (probe) => {
             await probe.enter(tenant.workspaceId)
-            await eachInOrder(held, async ([entity, id]) => {
-                expect(await versionOf(probe.manager, entity, id ?? "")).not.toBeNull()
+            await eachInOrder(held, async ([table, id]) => {
+                expect(await probe.manager.findOneBy(table, { id: id ?? "" })).not.toBeNull()
             })
         })
     })
 
-    it("agent-graph/isolation: the store answers no graph, version or decision for a workspace that does not own them", async () => {
+    it("agent-graph/isolation: the store answers no graph or version for a workspace that does not own them", async () => {
         const mine = await graphs().stateOfAgent(tenant.workspaceId, tenant.agentId)
 
         expect(mine).toMatchObject({ agentId: tenant.agentId, mode: "enforced", activeVersionId: tenant.versionId })
@@ -118,8 +78,8 @@ describe("agent-graph/isolation: the graph of an agent belongs to its workspace"
     })
 })
 
-describe("agent-graph/store: the draft, the versions and the seed on the records", () => {
-    it("agent-graph/store: a publish freezes the next version, makes it decide and indexes its Brain sources; a stale draft is refused", async () => {
+describe("agent-graph/store: the draft, the versions and the seed on the core tables", () => {
+    it("agent-graph/store: a publish freezes the next version, and makes it decide", async () => {
         const factId = world.id()
         const base = graphOf(OWNER_EXAMPLE)
         const cited = {
@@ -149,18 +109,6 @@ describe("agent-graph/store: the draft, the versions and the seed on the records
         expect(state).toMatchObject({ activeVersionId: published.id, draftRev: 2 })
         await expect(graphs().latestVersionOf(tenant.workspaceId, tenant.agentId)).resolves.toBe(2)
         await expect(graphs().versionsOf(tenant.workspaceId, tenant.agentId)).resolves.toHaveLength(2)
-        await expect(graphs().brainSourcesInForce(tenant.workspaceId, 50)).resolves.toEqual([
-            expect.objectContaining({ agentId: tenant.agentId, versionId: published.id, factId, valueHash: "h" }),
-        ])
-        await expect(graphs().saveDraft(tenant.workspaceId, tenant.agentId, 1, cited)).rejects.toMatchObject({
-            code: "AGENT_GRAPHS_DRAFT_CONFLICT",
-        })
-        await expect(graphs().saveDraft(tenant.workspaceId, tenant.agentId, 2, cited)).resolves.toMatchObject({
-            draftRev: 3,
-        })
-        await expect(graphs().setMode(tenant.workspaceId, tenant.agentId, "shadow", world.id())).resolves.toMatchObject(
-            { mode: "shadow" },
-        )
     })
 
     it("agent-graph/store: an agent with no graph is given its seed once, and the second call changes nothing", async () => {

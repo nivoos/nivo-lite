@@ -1,16 +1,23 @@
-import { burstIsSound } from "./graph-burst"
+import { nodeAccountProblems, type NodeAccountLookup } from "./graph-accounts"
+import { LOOP_BODY_ROUTE } from "../node/memory.contracts"
 import { graphSpecJsonDocument } from "./graph-spec.schema"
 import {
     BRANCH_FIELD,
     graphNodeProblems,
     inputSourcesOf,
-    nodeSagaOf,
     TRIGGER_SOURCE,
     type NodeDefinition,
     type NodeIndex,
 } from "../node"
-import type { DataRight } from "../rights/rights.types"
 import type { GraphSpec, GraphSpecNode, GraphSpecProblem } from "./graph-spec.types"
+import {
+    contractProblems,
+    entryProblems,
+    outcomeEndsOf,
+    outcomeProblems,
+    triggerProblems,
+    type ProviderTriggerLookup,
+} from "./workflow-contract"
 
 /**
  * The JSON Schema of a graph spec, generated from `graphSpecSchema`: what a seed step that validates spec files by JSON Schema reads, so
@@ -32,7 +39,8 @@ export const edgesOf = (node: GraphSpecNode): ReadonlyArray<string> => [
  * `next`; null ends the run (no next, or a branch without a route).
  */
 export const nextKeyOf = (node: GraphSpecNode, output: unknown): string | null => {
-    if (node.routes === undefined) return node.next ?? null
+    const branching = Object.keys(node.routes ?? {}).some((name) => name !== LOOP_BODY_ROUTE)
+    if (node.routes === undefined || !branching) return node.next ?? null
     const branch: unknown =
         typeof output === "object" && output !== null ? Reflect.get(output, BRANCH_FIELD) : undefined
     return typeof branch === "string" ? (node.routes[branch] ?? null) : null
@@ -85,70 +93,15 @@ const refProblems = (spec: GraphSpec, nodes: ReadonlyMap<string, GraphSpecNode>)
             .map((source): GraphSpecProblem => ({ code: "GRAPH_REF_NOT_UPSTREAM", at: `${node.key}<-${source}` }))
     })
 
-/**
- * The saga rule: a compensable node reachable after a pivot could never be undone (the run goes forward past a pivot, never back), so
- * each one is named. A node not installed is judged elsewhere.
- */
-const sagaProblems = (
-    spec: GraphSpec,
-    nodes: ReadonlyMap<string, GraphSpecNode>,
-    index: NodeIndex,
-): ReadonlyArray<GraphSpecProblem> => {
-    const sagaOf = (node: GraphSpecNode): string | null => {
-        const definition = index.nodes.get(node.step)
-        return definition === undefined ? null : nodeSagaOf(definition, index)
-    }
-    const after = spec.nodes
-        .filter((node) => sagaOf(node) === "pivot")
-        .flatMap((pivot) => [...reachedFrom(nodes, edgesOf(pivot))])
-    return [...new Set(after)]
-        .filter((key) => {
-            const node = nodes.get(key)
-            return node !== undefined && sagaOf(node) === "compensable"
-        })
-        .map((at): GraphSpecProblem => ({ code: "GRAPH_COMPENSABLE_AFTER_PIVOT", at }))
-}
-
-/** The problems of the trigger's burst: an entry that is not sound durations, or one for a source the trigger does not list. */
-const burstProblems = (spec: GraphSpec): ReadonlyArray<GraphSpecProblem> =>
-    Object.entries(spec.trigger.burst ?? {})
-        .filter(
-            ([source, burst]) =>
-                !new Set<string>(spec.trigger.sources).has(source) || (burst !== undefined && !burstIsSound(burst)),
-        )
-        .map(([at]): GraphSpecProblem => ({ code: "GRAPH_BURST_INVALID", at: `burst.${at}` }))
-
-/** What a node needs the agent to hold: its own rights and those of every effect and tool it may use. */
-const requiredRights = (node: NodeDefinition, index: NodeIndex): ReadonlyArray<DataRight> => [
-    ...node.rights,
-    ...node.effects.flatMap((effect) => index.effects.get(effect)?.rights ?? []),
-    ...(node.tools ?? []).flatMap((tool) => index.tools.get(tool)?.rights ?? []),
-]
-
 /** The members of `granted` that `needed` does not contain. */
 const surplus = (granted: ReadonlyArray<string>, needed: ReadonlyArray<string>): ReadonlyArray<string> =>
     [...new Set(granted)].filter((item) => !needed.includes(item))
 
 /** The problems of a grant that holds more than its nodes need, or lists fewer effects or tools than they use. */
-const minimumProblems = (
-    spec: GraphSpec,
-    installed: ReadonlyArray<NodeDefinition>,
-    index: NodeIndex,
-): ReadonlyArray<GraphSpecProblem> => {
-    const rights = installed.flatMap((node) => requiredRights(node, index))
+const minimumProblems = (spec: GraphSpec, installed: ReadonlyArray<NodeDefinition>): ReadonlyArray<GraphSpecProblem> => {
     const effects = installed.flatMap((node) => node.effects)
     const tools = installed.flatMap((node) => node.tools ?? [])
-    const fieldsOf = (granted: DataRight): ReadonlyArray<string> =>
-        rights
-            .filter((right) => right.kind === granted.kind && right.access === granted.access)
-            .flatMap((right) => right.fields)
     return [
-        ...spec.grant.rights.flatMap((granted) =>
-            surplus(granted.fields, fieldsOf(granted)).map((field): GraphSpecProblem => ({
-                code: "GRAPH_GRANT_EXCESS",
-                at: `${granted.kind}:${granted.access}.${field}`,
-            })),
-        ),
         ...surplus(spec.grant.effects, effects).map((at): GraphSpecProblem => ({ code: "GRAPH_GRANT_EXCESS", at })),
         ...surplus(spec.grant.tools, tools).map((at): GraphSpecProblem => ({ code: "GRAPH_GRANT_EXCESS", at })),
         ...surplus(effects, spec.grant.effects).map((at): GraphSpecProblem => ({ code: "GRAPH_EFFECTS_MISMATCH", at })),
@@ -157,14 +110,20 @@ const minimumProblems = (
 }
 
 /**
- * The problems of a graph spec against the installed nodes: its shape (keys, edges, references), the saga rule (nothing undoable after a
- * pivot), every node as `graphNodeProblems`
+ * The problems of a graph spec against the installed nodes: its shape (keys, edges, references), every node as `graphNodeProblems`
  * judges it under the spec's own grant, and a grant that holds more than its nodes need. A step that is not installed is
  * `NODE_UNKNOWN` (any built-in step but `stop`: a spec is composed of SDK nodes), and the minimum is not judged while one is missing.
+ * The accounts a node asks for are judged by `nodeAccountProblems`, with what the host told of its kinds and ask-only operations
+ * (`accounts`); a spec whose nodes ask for none is judged exactly as before.
  */
-export const graphSpecProblems = (spec: GraphSpec, index: NodeIndex): ReadonlyArray<GraphSpecProblem> => {
+export const graphSpecProblems = (
+    spec: GraphSpec,
+    index: NodeIndex,
+    providerTriggers?: ProviderTriggerLookup,
+    accounts?: NodeAccountLookup,
+): ReadonlyArray<GraphSpecProblem> => {
     const nodes = new Map(spec.nodes.map((node) => [node.key, node]))
-    const grant = { rights: spec.grant.rights, tools: spec.grant.tools }
+    const grant = { tools: spec.grant.tools }
     const working = spec.nodes.filter((node) => node.step !== STOP_STEP)
     const judged = working.flatMap((node): ReadonlyArray<GraphSpecProblem> =>
         index.nodes.has(node.step) ? graphNodeProblems(node, index, grant) : [{ code: "NODE_UNKNOWN", at: node.key }],
@@ -172,10 +131,13 @@ export const graphSpecProblems = (spec: GraphSpec, index: NodeIndex): ReadonlyAr
     const installed = working.flatMap((node) => index.nodes.get(node.step) ?? [])
     return [
         ...shapeProblems(spec, nodes),
-        ...burstProblems(spec),
+        ...contractProblems(spec.contract),
+        ...triggerProblems(spec.triggers, spec.contract, providerTriggers),
+        ...outcomeProblems(spec.outcomes, outcomeEndsOf(spec.nodes)),
+        ...entryProblems(spec.entry, spec.contract),
         ...refProblems(spec, nodes),
-        ...sagaProblems(spec, nodes, index),
         ...judged,
-        ...(installed.length === working.length ? minimumProblems(spec, installed, index) : []),
+        ...nodeAccountProblems(spec.nodes, index, accounts),
+        ...(installed.length === working.length ? minimumProblems(spec, installed) : []),
     ]
 }

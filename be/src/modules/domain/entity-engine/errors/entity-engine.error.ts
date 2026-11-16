@@ -44,6 +44,10 @@ export enum EntityEngineErrorCode {
     NotDeletable = "ENTITY_ENGINE_NOT_DELETABLE",
     /** A statement answered no row where it must answer one. */
     ResultMissing = "ENTITY_ENGINE_RESULT_MISSING",
+    /** A write for a module (a job, a seed, a person's action) found no installed agent of the module in the workspace to stamp it with. */
+    AgentMissing = "ENTITY_ENGINE_AGENT_MISSING",
+    /** An update or upsert of a record type declared append-only: its records are facts, never changed (concept agent-data rule 10). */
+    AppendOnly = "ENTITY_ENGINE_APPEND_ONLY",
 }
 
 /** How each entity engine code travels. */
@@ -69,6 +73,8 @@ export const ENTITY_ENGINE_ERROR_KINDS: Record<EntityEngineErrorCode, ErrorKind>
     [EntityEngineErrorCode.PositionMismatch]: "invalid",
     [EntityEngineErrorCode.NotDeletable]: "forbidden",
     [EntityEngineErrorCode.ResultMissing]: "internal",
+    [EntityEngineErrorCode.AgentMissing]: "forbidden",
+    [EntityEngineErrorCode.AppendOnly]: "invalid",
 }
 
 /** The one error class of the entity engine capability. */

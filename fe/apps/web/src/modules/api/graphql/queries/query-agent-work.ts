@@ -1,6 +1,6 @@
 import { gql, type ApolloClient, type TypedDocumentNode } from "@apollo/client"
-import { createAuthApolloClient } from "../clients"
-import type { InputVariables, QueryParams, WireInput } from "../types"
+import { createAuthApolloClient, type InputVariables, type QueryParams, type WireInput } from "@nivo-lite/api"
+import { webApiTransport } from "@/modules/api-transport"
 import type { AgentWorkQuery, AgentWorkQueryVariables } from "../__generated__/graphql"
 
 /** The input of the `agentWork` query. */
@@ -18,14 +18,6 @@ const query1: TypedDocumentNode<QueryAgentWorkResponse, InputVariables<QueryAgen
                 failures
                 lastTurnAt
                 workEnabled
-            }
-            goals {
-                detail
-                dueAt
-                id
-                source
-                status
-                title
             }
             tasks {
                 dedupeKey
@@ -46,7 +38,6 @@ const query1: TypedDocumentNode<QueryAgentWorkResponse, InputVariables<QueryAgen
                 lastFiredAt
                 nextRunAt
                 preset
-                probeKey
                 seedKey
                 timeZone
             }
@@ -82,12 +73,12 @@ const queryMap: Record<
 
 type QueryAgentWorkParams = QueryParams<QueryAgentWork, QueryAgentWorkRequest> & { request: QueryAgentWorkRequest }
 
-/** The back end `agentWork` query. The work of one agent: its switch, goals, open tasks, triggers and the last turns. Rejects with the back end failure (message localized by the server). */
+/** The back end `agentWork` query. The work of one agent: its switch, open tasks, triggers and the last turns. Rejects with the back end failure (message localized by the server). */
 export const queryAgentWork = async ({
     query = QueryAgentWork.Query1,
     request,
     signal,
 }: QueryAgentWorkParams): Promise<ApolloClient.QueryResult<QueryAgentWorkResponse>> => {
-    const apollo = createAuthApolloClient({ signal })
+    const apollo = createAuthApolloClient(webApiTransport, { signal })
     return apollo.query({ query: queryMap[query], variables: { input: request }, fetchPolicy: "no-cache" })
 }

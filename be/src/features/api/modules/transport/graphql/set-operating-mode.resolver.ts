@@ -13,7 +13,7 @@ import { toModuleInstallationType, toSetOperatingModeRequest } from "./modules.m
 export class SetOperatingModeResolver {
     constructor(@InjectCommandBus() private readonly commandBus: CommandBus) {}
 
-    /** Autopilot applies the authority rules as configured; assist downgrades every automatic action to a question. */
+    /** Gone: a node's declared mode alone decides; the web still calls it, so it answers a typed refusal (MODULES_OPERATING_MODE_REMOVED). */
     @Mutation(() => ModuleInstallationType, { name: "setOperatingMode" })
     async setOperatingMode(
         @CurrentPrincipal() principal: Principal,

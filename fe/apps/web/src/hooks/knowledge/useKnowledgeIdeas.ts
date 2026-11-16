@@ -1,17 +1,20 @@
 "use client"
 
 import { useMemo } from "react"
-import { useTranslations } from "next-intl"
-import { ideasFor, topicsOf } from "@/modules/documents"
+import { useLocale } from "next-intl"
+import { useModuleCatalog } from "@/hooks/moduleCatalog"
+import { ideasFor, ideasOf, topicsOf, wordsOfIdea } from "@/modules/documents"
 import type { IdeaDecision } from "@/modules/types"
 import { useKnowledgeSources } from "./useKnowledgeSources"
 import { useKnowledgeSuggestions } from "./useKnowledgeSuggestions"
 import { useModuleInstallations } from "./useModuleInstallations"
 import { useWorkspaceMember } from "./useWorkspaceMember"
 
-/** One idea, by the key its words are stored under. */
+/** One idea: its key and its words in the reader language. */
 interface IdeaView {
     readonly key: string
+    readonly topic: string
+    readonly hint: string
     readonly state?: IdeaDecision
 }
 
@@ -29,7 +32,8 @@ interface KnowledgeIdeas {
  * ones the owner decided about and the ones already covered by a document topic.
  */
 export const useKnowledgeIdeas = (): KnowledgeIdeas => {
-    const t = useTranslations("knowledge")
+    const locale = useLocale() === "en" ? "en" : "vi"
+    const catalog = useModuleCatalog()
     const member = useWorkspaceMember()
     const { sources, isLoading: sourcesLoading } = useKnowledgeSources()
     const { installations, isLoading: installationsLoading } = useModuleInstallations()
@@ -37,6 +41,7 @@ export const useKnowledgeIdeas = (): KnowledgeIdeas => {
     const isLoading =
         member.isLoading ||
         sourcesLoading ||
+        catalog.read.isLoading ||
         installationsLoading ||
         (member.canWrite && contextLoading) ||
         sources === undefined ||
@@ -46,16 +51,17 @@ export const useKnowledgeIdeas = (): KnowledgeIdeas => {
         const decided = context?.states ?? new Map<string, IdeaDecision>()
         const used = new Set(topicsOf(sources).map((topic) => topic.toLowerCase()))
         const installed = installations.map((one) => one.moduleKey)
-        const fitting = ideasFor(installed, context === undefined ? null : context.businessType)
+        const fitting = ideasFor(ideasOf(catalog.list), installed, context === undefined ? null : context.businessType)
         return {
-            open: fitting
-                .filter((one) => !decided.has(one.key) && !used.has(t(`suggest_${one.key}_topic`).toLowerCase()))
-                .map((one) => ({ key: one.key })),
+            open: fitting.flatMap((one) => {
+                const words = wordsOfIdea(one, locale)
+                return decided.has(one.key) || used.has(words.topic.toLowerCase()) ? [] : [{ key: one.key, ...words }]
+            }),
             skipped: fitting.flatMap((one) => {
                 const state = decided.get(one.key)
-                return state === undefined ? [] : [{ key: one.key, state }]
+                return state === undefined ? [] : [{ key: one.key, ...wordsOfIdea(one, locale), state }]
             }),
         }
-    }, [member.canWrite, context, sources, installations, t])
+    }, [member.canWrite, context, sources, installations, catalog.list, locale])
     return { canWrite: member.canWrite, open, skipped, isLoading }
 }

@@ -12,9 +12,9 @@ export abstract class AdvancingJobStepPolicy {
     /** Rejects a stale fencing token before invoking the step's effect, then waits for that effect to finish. */
     async run(job: ClaimedJob): Promise<void> {
         await this.claims.advance({ jobId: job.jobId, expectedFencingToken: job.fencingToken, step: this.step })
-        await this.perform(job.payload)
+        await this.perform(job.payload, job)
     }
 
-    /** Performs the domain effect after the worker's claim has been checked. */
-    protected abstract perform(payload: object): Promise<unknown>
+    /** Performs the domain effect after the worker's claim has been checked; the claimed job is the second argument for a step whose effect keys its outside acts or reports its progress by the job. */
+    protected abstract perform(payload: object, job: ClaimedJob): Promise<unknown>
 }

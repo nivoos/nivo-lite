@@ -1,6 +1,6 @@
 import { factSlugOf, sameValue, type FactRecord } from "@modules/domain/brain-facts"
 import { ellipsize, withinBudget } from "@modules/platform/primitives"
-import type { ProposedWrite } from "./setup-writes.policy"
+import type { ProposedFact } from "./setup-writes.policy"
 
 /** The most lines the setup chat shows of what is on record. */
 export const KNOWN_LINES_MAX = 30
@@ -49,11 +49,10 @@ export const knownLinesOf = (
 
 /** The proposed fact writes whose value differs from the fact in force on the same subject and attribute. */
 export const conflictsOf = (
-    writes: ReadonlyArray<ProposedWrite>,
+    writes: ReadonlyArray<ProposedFact>,
     inForce: ReadonlyArray<FactRecord>,
 ): ReadonlyArray<FactConflict> =>
     writes.flatMap((write): ReadonlyArray<FactConflict> => {
-        if (write.kind !== "fact") return []
         const { subjectLabel, attributeLabel, value } = write.payload
         const subjectKey = factSlugOf(subjectLabel)
         const attribute = factSlugOf(attributeLabel)

@@ -64,13 +64,14 @@ describe("usage cost policy > estimateTokens", () => {
 })
 
 describe("usage cost policy > creditsOf", () => {
-    it("converts dollars at 250 credits and rounds to two decimal places", async () => {
+    it("converts dollars at one credit per 0.00113 USD, exactly to 6 decimals, never rounded up", async () => {
         const { creditsOf } = await build()
 
         expect(CREDIT_USD_VALUE).toBe(0.00113)
         expect(creditsOf(0)).toBe(0)
-        expect(creditsOf(1)).toBe(885)
-        expect(creditsOf(0.123456)).toBe(110)
+        expect(creditsOf(1)).toBe(884.955752)
+        expect(creditsOf(0.123456)).toBe(109.253097)
+        expect(creditsOf(CREDIT_USD_VALUE * 0.4)).toBe(0.4)
     })
 })
 
@@ -81,6 +82,7 @@ describe("usage cost policy > figuresOf", () => {
         expect(figuresOf({ ...input, model: "DeepSeek-chat" }, null)).toEqual({
             promptTokens: 3,
             completionTokens: 2,
+            cachedTokens: 0,
             costUsd: 0.00000098,
             estimated: true,
         })
@@ -92,9 +94,18 @@ describe("usage cost policy > figuresOf", () => {
         expect(figuresOf({ ...input, promptChars: 0, completionChars: 0 }, {})).toEqual({
             promptTokens: 1,
             completionTokens: 0,
+            cachedTokens: 0,
             costUsd: 0.0000003,
             estimated: true,
         })
+    })
+
+    it("prompt cache: books the cached prompt tokens the provider reported, never more than the prompt and never for an estimate", async () => {
+        const { figuresOf } = await build()
+
+        expect(figuresOf(input, { prompt_tokens: 100, completion_tokens: 5, cached_tokens: 80 }).cachedTokens).toBe(80)
+        expect(figuresOf(input, { prompt_tokens: 100, completion_tokens: 5, cached_tokens: 800 }).cachedTokens).toBe(100)
+        expect(figuresOf(input, { cached_tokens: 80 }).cachedTokens).toBe(0)
     })
 
     it("uses provider counts and cost, rounding the cost to eight decimal places", async () => {
@@ -102,7 +113,7 @@ describe("usage cost policy > figuresOf", () => {
 
         expect(
             figuresOf(input, { prompt_tokens: 100, completion_tokens: 50, total_tokens: 500, cost: 0.123456789 }),
-        ).toEqual({ promptTokens: 100, completionTokens: 50, costUsd: 0.12345679, estimated: false })
+        ).toEqual({ promptTokens: 100, completionTokens: 50, cachedTokens: 0, costUsd: 0.12345679, estimated: false })
     })
 
     it("keeps explicit zero counts and a zero provider cost", async () => {
@@ -111,6 +122,7 @@ describe("usage cost policy > figuresOf", () => {
         expect(figuresOf(input, { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost: 0 })).toEqual({
             promptTokens: 0,
             completionTokens: 0,
+            cachedTokens: 0,
             costUsd: 0,
             estimated: false,
         })
@@ -124,6 +136,7 @@ describe("usage cost policy > figuresOf", () => {
         expect(figuresOf(input, { prompt_tokens: 4.4, completion_tokens: 2.6 })).toEqual({
             promptTokens: 4,
             completionTokens: 3,
+            cachedTokens: 0,
             costUsd: 0.00000444,
             estimated: false,
         })
@@ -135,6 +148,7 @@ describe("usage cost policy > figuresOf", () => {
         expect(figuresOf(input, { total_tokens: 10, completion_tokens: 4 })).toEqual({
             promptTokens: 6,
             completionTokens: 4,
+            cachedTokens: 0,
             costUsd: 0.0000066,
             estimated: false,
         })
@@ -146,6 +160,7 @@ describe("usage cost policy > figuresOf", () => {
         expect(figuresOf(input, { total_tokens: 10, prompt_tokens: 4 })).toEqual({
             promptTokens: 4,
             completionTokens: 6,
+            cachedTokens: 0,
             costUsd: 0.0000084,
             estimated: false,
         })
@@ -157,6 +172,7 @@ describe("usage cost policy > figuresOf", () => {
         expect(figuresOf(input, { total_tokens: 12 })).toEqual({
             promptTokens: 12,
             completionTokens: 0,
+            cachedTokens: 0,
             costUsd: 0.0000036,
             estimated: false,
         })
@@ -170,12 +186,14 @@ describe("usage cost policy > figuresOf", () => {
         expect(figuresOf(input, { prompt_tokens: 12 })).toEqual({
             promptTokens: 12,
             completionTokens: 0,
+            cachedTokens: 0,
             costUsd: 0.0000036,
             estimated: false,
         })
         expect(figuresOf(input, { completion_tokens: 4 })).toEqual({
             promptTokens: 0,
             completionTokens: 4,
+            cachedTokens: 0,
             costUsd: 0.0000048,
             estimated: false,
         })
@@ -187,12 +205,14 @@ describe("usage cost policy > figuresOf", () => {
         expect(figuresOf(input, { total_tokens: 2, completion_tokens: 4 })).toEqual({
             promptTokens: 0,
             completionTokens: 4,
+            cachedTokens: 0,
             costUsd: 0.0000048,
             estimated: false,
         })
         expect(figuresOf(input, { total_tokens: 2, prompt_tokens: 12 })).toEqual({
             promptTokens: 12,
             completionTokens: 0,
+            cachedTokens: 0,
             costUsd: 0.0000036,
             estimated: false,
         })
@@ -210,7 +230,7 @@ describe("usage cost policy > figuresOf", () => {
                     total_tokens: invalid,
                     cost: invalid,
                 }),
-            ).toEqual({ promptTokens: 3, completionTokens: 2, costUsd: 0.0000033, estimated: true })
+            ).toEqual({ promptTokens: 3, completionTokens: 2, cachedTokens: 0, costUsd: 0.0000033, estimated: true })
         },
     )
 
@@ -220,8 +240,52 @@ describe("usage cost policy > figuresOf", () => {
         expect(figuresOf(input, { cost: 0.25 })).toEqual({
             promptTokens: 3,
             completionTokens: 2,
+            cachedTokens: 0,
             costUsd: 0.25,
             estimated: true,
         })
+    })
+})
+
+describe("usage cost policy > Claude Sonnet 5.5 (no cost reported through the router)", () => {
+    it("prices Sonnet at $2 in and $10 out, a cached prompt token at $0.10", () => {
+        expect(realPriceOf("claude-sonnet-5-5", 1_000_000, 0)).toBeCloseTo(2, 8)
+        expect(realPriceOf("claude-sonnet-5-5", 0, 1_000_000)).toBeCloseTo(10, 8)
+        expect(realPriceOf("claude-sonnet-5-5", 1_000_000, 0, 800_000)).toBeCloseTo(0.4 + 0.08, 8)
+    })
+
+    it("prices Claude Haiku 5.5 at $0.10 in and $0.50 out (not verified live), a cached token at the input price", () => {
+        expect(realPriceOf("claude-haiku-5-5", 1_000_000, 0)).toBeCloseTo(0.1, 8)
+        expect(realPriceOf("claude-haiku-5-5", 0, 1_000_000)).toBeCloseTo(0.5, 8)
+        expect(realPriceOf("claude-haiku-5-5", 1_000_000, 0, 500_000)).toBeCloseTo(0.1, 8)
+    })
+
+    it("prices OpenAI's text-embedding-3-small at $0.02 per million prompt tokens", () => {
+        expect(realPriceOf("text-embedding-3-small", 1_000_000, 0)).toBeCloseTo(0.02, 8)
+        // An embeddings call is booked under the model identity the AI layer records (`text-embedding-3-small@1536`).
+        expect(realPriceOf("text-embedding-3-small@1536", 1_000_000, 0)).toBeCloseTo(0.02, 8)
+    })
+
+    it("keeps every other model's cached tokens at its full input price, as before", () => {
+        expect(realPriceOf("deepseek/deepseek-v4.1-flash", 1_000_000, 0, 900_000)).toBeCloseTo(0.14, 8)
+    })
+
+    it("prices a call whose reported cost is zero for used tokens from the table, so Sonnet never books free", () => {
+        const figures = realFiguresOf(
+            { model: "claude-sonnet-5-5", promptChars: 0, completionChars: 0 },
+            { prompt_tokens: 10_000, completion_tokens: 1_000, cached_tokens: 8_000, cost: 0 },
+        )
+
+        expect(figures.costUsd).toBeCloseTo((2_000 * 2 + 8_000 * 0.1 + 1_000 * 10) / 1_000_000, 8)
+        expect(figures.cachedTokens).toBe(8_000)
+    })
+
+    it("keeps a reported cost above zero as the provider's word", () => {
+        expect(
+            realFiguresOf(
+                { model: "deepseek/deepseek-v4.1-flash", promptChars: 0, completionChars: 0 },
+                { prompt_tokens: 10, completion_tokens: 1, cost: 0.5 },
+            ).costUsd,
+        ).toBe(0.5)
     })
 })

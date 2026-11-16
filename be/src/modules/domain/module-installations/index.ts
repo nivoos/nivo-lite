@@ -1,14 +1,9 @@
 export type {
-    AgentSyncState,
-    AgentSyncStatus,
     InstallationLifecycle,
     InstallationMode,
     InstallationRecord,
-    InstallationSettings,
     InstallationStatus,
     RecordInstallation,
-    OptionalRowId,
-    OptionalAgentSyncStatus,
     OptionalInstallationRecord,
     RequirementFacts,
 } from "./module-installations.contracts"
@@ -18,4 +13,3 @@ export type { InstallationWrite } from "./installation-records.service"
 export { ModuleInstallationsModule } from "./module-installations.module"
 export { moduleInstallationsEntities } from "./persistence/entities"
 export { ModuleInstallationsAdminReadService } from "./module-installations-admin-read.service"
-export { InstallationOperationsService } from "./installation-operations.service"

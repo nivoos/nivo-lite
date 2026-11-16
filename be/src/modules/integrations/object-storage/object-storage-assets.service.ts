@@ -22,8 +22,8 @@ export class StorageAssetsService implements StorageAssetsPort {
                 return { data: null, error: new ObjectStorageError({ code: ObjectStorageErrorCode.ObjectNotFound }) }
             }
             return { data: new Blob([found.bytes], { type: found.contentType }), error: null }
-        } catch (error_) {
-            return { data: null, error: error_ instanceof Error ? error_ : new Error("storage failure") }
+        } catch (error) {
+            return { data: null, error: error instanceof Error ? error : new Error("storage failure") }
         }
     }
 
@@ -32,8 +32,8 @@ export class StorageAssetsService implements StorageAssetsPort {
         try {
             await this.storage.put(bucketNameOf(this.options.bucketPrefix, bucket), path, body, contentType)
             return { error: null }
-        } catch (error_) {
-            return { error: error_ instanceof Error ? error_ : new Error("storage failure") }
+        } catch (error) {
+            return { error: error instanceof Error ? error : new Error("storage failure") }
         }
     }
 }

@@ -13,6 +13,7 @@ import { toDataConnection } from "./data-hub.mapper"
 import { DataHubError, DataHubErrorCode } from "./errors/data-hub.error"
 
 const OWNER = ["owner"] as const
+const OWNER_OR_MANAGER = ["owner", "manager"] as const
 const MIN_EVERY_MINUTES = 5
 const MAX_EVERY_MINUTES = 10_080
 
@@ -26,8 +27,13 @@ export class DataHubService {
         return this.connections.authorize(actor, OWNER)
     }
 
-    /** One live data connection of the workspace (of the given provider when one is named); a missing, disconnected or foreign one is a typed not-found. */
-    async own(workspaceId: string, id: string, provider: ProviderFilter = undefined): Promise<DataConnection> {
+    /** Requires the owner or a manager of the workspace (a CRM connection, owner decision 2026-11-13). */
+    ownerOrManager(actor: ConnectionActor): Promise<ConnectionMember> {
+        return this.connections.authorize(actor, OWNER_OR_MANAGER)
+    }
+
+    /** One live data connection of the workspace (of the given provider when one is named); null when it is missing, disconnected or foreign. */
+    async find(workspaceId: string, id: string, provider: ProviderFilter = undefined): Promise<DataConnection | null> {
         const record = await this.connections.find(workspaceId, id)
         const kind = record?.provider
         if (
@@ -37,9 +43,16 @@ export class DataHubService {
             !isDataProvider(kind) ||
             (provider !== undefined && kind !== provider)
         ) {
-            throw new DataHubError({ code: DataHubErrorCode.NotFound })
+            return null
         }
         return toDataConnection(record, kind, await this.connections.scheduleOf(workspaceId, id))
+    }
+
+    /** One live data connection of the workspace (of the given provider when one is named); a missing, disconnected or foreign one is a typed not-found. */
+    async own(workspaceId: string, id: string, provider: ProviderFilter = undefined): Promise<DataConnection> {
+        const found = await this.find(workspaceId, id, provider)
+        if (found === null) throw new DataHubError({ code: DataHubErrorCode.NotFound })
+        return found
     }
 
     /** Creates a data connection with its sealed credential and schedule; answers its id. */

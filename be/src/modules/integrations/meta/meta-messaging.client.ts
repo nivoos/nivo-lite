@@ -71,8 +71,10 @@ export class MetaMessagingClient {
     ): Promise<SendResult> {
         const chunk = chunks[index]
         if (chunk === undefined) return { ok: true, ids: [...ids] }
+        // A refusal after the first part says how many parts Meta had already taken (typed), so a caller never reads it as "nothing sent".
+        const sent = index === 0 ? {} : { partsSent: index }
         if (!this.sendLimiter.take(page.pageId, this.clock.now().getTime())) {
-            return this.refuse("rate_limited", ids.length ? `sent ${ids.length} of ${chunks.length} parts` : undefined)
+            return { ...this.refuse("rate_limited", ids.length ? `sent ${ids.length} of ${chunks.length} parts` : undefined), ...sent }
         }
         const res = await this.request(`${page.pageId}/messages`, {
             token: page.pageToken,
@@ -85,7 +87,7 @@ export class MetaMessagingClient {
                 message: { text: chunk },
             },
         })
-        if (!res.ok) return this.refuse(res.failure, res.detail)
+        if (!res.ok) return { ...this.refuse(res.failure, res.detail), ...sent }
         const id = textOf(res.body.message_id)
         return this.sendChunks(page, recipientId, via, chunks, index + 1, id ? [...ids, id] : ids)
     }

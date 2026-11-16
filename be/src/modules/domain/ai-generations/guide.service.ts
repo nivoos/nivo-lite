@@ -32,6 +32,17 @@ export class GuideService {
         const words: GuideWords = { text: (key) => this.catalog.get(key, {}, ask.locale) }
         const messages = guidePrompt(ask, isManagerRole(member.role), words)
         const since = new Date(this.clock.now().getTime() - GUIDE_WINDOW_MS)
+        // The allowance is checked BEFORE the asker's lock (concept outbox-job rule 12): inside it only the transaction's own manager is used.
+        const admitted = await this.generations.admit({
+            workspaceId: ask.workspaceId,
+            purpose: "guide",
+            messages,
+            responseFormat: "json",
+            timeoutMs: GUIDE_TIMEOUT_MS,
+            kind: "guide",
+            module: "other",
+            locale: ask.locale,
+        })
         return this.entityManager.transaction(async (tx) => {
             await advisoryXactLock(tx, guideAskerKey(ask.workspaceId, userId))
             const asked = await tx
@@ -45,20 +56,7 @@ export class GuideService {
             if (asked >= GUIDE_ASKS_PER_WINDOW) {
                 throw new AiGenerationsError({ code: AiGenerationsErrorCode.GuideRateLimited })
             }
-            return this.generations.request(
-                {
-                    workspaceId: ask.workspaceId,
-                    purpose: "guide",
-                    messages,
-                    responseFormat: "json",
-                    timeoutMs: GUIDE_TIMEOUT_MS,
-                    kind: "guide",
-                    module: "other",
-                    locale: ask.locale,
-                },
-                { requestedBy: userId },
-                tx,
-            )
+            return this.generations.request(admitted, { requestedBy: userId }, tx)
         })
     }
 }

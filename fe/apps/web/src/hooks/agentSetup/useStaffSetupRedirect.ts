@@ -5,10 +5,9 @@ import { useWorkspaceId } from "@/hooks/workspaces"
 import { navigation } from "@/modules/i18n"
 import { OWNER_SETUP_NOTICE, agentHref } from "@/modules/installations"
 import { workspaceHref } from "@/modules/routes"
-import type { ModuleKey } from "@/modules/catalog"
 
 /** Staff may not set an agent up: once the session is known, they are sent to the agent's workbench, which says so in a soft notice. */
-export const useStaffSetupRedirect = (module: ModuleKey, installationId: string): void => {
+export const useStaffSetupRedirect = (module: string, installationId: string): void => {
     const member = useMember()
     const { canEdit } = useAgentRights()
     const router = navigation.useRouter()

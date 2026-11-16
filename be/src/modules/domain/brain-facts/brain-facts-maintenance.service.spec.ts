@@ -9,6 +9,7 @@ import type { FakeQueryBuilder } from "@tests/fixtures/builders/entity-query-bui
 import { evaluatedValues } from "@tests/fixtures/builders/evaluated-calls.builder"
 import { BrainFactsMaintenanceService } from "./brain-facts-maintenance.service"
 import { BrainFactsReadService } from "./brain-facts-read.service"
+import { BrainFactRelationsService } from "./brain-fact-relations.service"
 import { BrainFactEntity } from "./persistence/entities"
 
 const build = async (em: MockEntityManager) => {
@@ -17,6 +18,7 @@ const build = async (em: MockEntityManager) => {
         providers: [
             BrainFactsMaintenanceService,
             { provide: BrainFactsReadService, useValue: reads },
+            { provide: BrainFactRelationsService, useValue: mock<BrainFactRelationsService>() },
             { provide: PRIMARY_ENTITY_MANAGER, useValue: em },
         ],
     }).compile()
@@ -65,12 +67,12 @@ const registerWithdraw = () => {
         ])
         const service = (await build(em)).service
 
-        await expect(service.withdrawChanged(facts.WS, "doc-1", "Changed", "open from 8 to 21 daily")).resolves.toEqual(
-            {
-                orphans: [],
-                withdrawn: 1,
-            },
-        )
+        await expect(
+            service.withdrawChanged(facts.WS, "doc-1", "Changed", { hashes: [], folded: "open from 8 to 21 daily" }),
+        ).resolves.toEqual({
+            orphans: [],
+            withdrawn: 1,
+        })
         expect(reject?.callsOf("where")).toEqual([[{ workspaceId: facts.WS, id: "gone", status: "proposed" }]])
         expect(em.createQueryBuilder).toHaveBeenCalledTimes(2)
     })
@@ -119,8 +121,51 @@ const registerMaintenance = () => {
         ])
         expect(promoted?.callsOf("where")).toEqual([[{ workspaceId: facts.WS, id: "f1", status: "scheduled" }]])
         expect(expire?.callsOf("returning")).toEqual([["id"]])
-        expect(setOf(promoted)).toEqual({ status: "active" })
+        expect(setOf(promoted)).toEqual({
+            status: "active",
+            version: 1,
+            validTo: "coalesce(valid_to, coalesce(valid_from, now()) + interval '1 year')",
+        })
         expect(setOf(expire)).toEqual({ status: "expired" })
+    })
+
+    it("FX5: a scheduled replacement ends the fact its approval named when it starts, even of another key (never two in force)", async () => {
+        const em = mockEntityManager({
+            find: [BrainFactEntity, [facts.rowOf({ id: "new", status: "scheduled", supersedesId: "old" })]],
+            update: [BrainFactEntity, { affected: 1 }],
+        })
+        const { service, reads } = await build(em)
+        // Nothing active under the new fact's own key and scope: the replaced value is only reachable by the name its approval kept.
+        reads.keyed.mockResolvedValue([])
+        reads.fetch.mockResolvedValue(
+            facts.factOf({ id: "old", status: "active", version: 1, subjectKey: "giao-hang-noi-thanh" }),
+        )
+        const [promoted] = queueQueryBuilders(em, [answered(facts.rowOf({ id: "new", status: "active" })), answered()])
+
+        await service.maintain(facts.WS)
+
+        expect(reads.fetch).toHaveBeenCalledWith(em, facts.WS, "old")
+        expect(em.update.mock.calls.map((call): unknown => call[1])).toEqual([
+            { workspaceId: facts.WS, id: "old", status: "active" },
+        ])
+        expect(setOf(promoted)).toMatchObject({ status: "active", version: 2 })
+    })
+
+    it("FX5: a named fact that is no longer active is not touched again; the key's own value is", async () => {
+        const em = mockEntityManager({
+            find: [BrainFactEntity, [facts.rowOf({ id: "new", status: "scheduled", supersedesId: "gone" })]],
+            update: [BrainFactEntity, { affected: 1 }],
+        })
+        const { service, reads } = await build(em)
+        reads.keyed.mockResolvedValue([facts.factOf({ id: "keyed", status: "active" })])
+        reads.fetch.mockResolvedValue(facts.factOf({ id: "gone", status: "expired" }))
+        queueQueryBuilders(em, [answered(facts.rowOf({ id: "new", status: "active" })), answered()])
+
+        await service.maintain(facts.WS)
+
+        expect(em.update.mock.calls.map((call): unknown => call[1])).toEqual([
+            { workspaceId: facts.WS, id: "keyed", status: "active" },
+        ])
     })
 
     it("counts no expirations when the statement answers no rows", async () => {
@@ -133,4 +178,29 @@ const registerMaintenance = () => {
 describe("BrainFactsMaintenanceService", () => {
     registerWithdraw()
     registerMaintenance()
+})
+
+describe("BrainFactsMaintenanceService withdraw by chunk hash", () => {
+    it("moves only the facts born from the changed chunk: the others are not even written", async () => {
+        const em = mockEntityManager()
+        const hours = { ...facts.PROOF, chunkHash: "h-hours", quote: "Open 8" }
+        const ship = { ...facts.PROOF, chunkHash: "h-ship", quote: "Ship 20.000" }
+        const [, orphanWrite] = queueQueryBuilders(em, [
+            {
+                getMany: [
+                    facts.rowOf({ id: "hours", status: "active", sourceKind: "document", evidence: [hours] }),
+                    facts.rowOf({ id: "ship", status: "active", sourceKind: "document", evidence: [ship] }),
+                ],
+            },
+            { execute: {} },
+        ])
+        const service = (await build(em)).service
+
+        await expect(
+            service.withdrawChanged(facts.WS, "doc-1", "Changed", { hashes: ["h-hours"], folded: "" }),
+        ).resolves.toEqual({ orphans: ["ship"], withdrawn: 1 })
+        expect(orphanWrite?.callsOf("where")).toEqual([[{ workspaceId: facts.WS, id: "ship" }]])
+        expect(orphanWrite?.callsOf("setParameter")).toEqual([["evidence", "[]"]])
+        expect(em.createQueryBuilder).toHaveBeenCalledTimes(2)
+    })
 })

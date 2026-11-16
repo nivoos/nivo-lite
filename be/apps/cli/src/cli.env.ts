@@ -2,24 +2,23 @@ import { parseAiConfig } from "@modules/integrations/ai"
 import { parseEntityEngineConfig } from "@modules/domain/entity-engine"
 import { parseChannelProvisioningConfig } from "@modules/domain/channel-provisioning"
 import { parseWorkspaceSeedConfig } from "@modules/domain/workspace-seed"
-import { parseMcpGatewayConfig } from "@modules/domain/mcp-gateway"
-import { parseMcpConfig } from "@modules/integrations/mcp"
+import { parseToolsConfig } from "@modules/domain/tools"
 import { parseConnectionsConfig } from "@modules/domain/connections"
 import { parseChannelSetupConfig } from "@modules/integrations/channel-setup"
-import { parseOpenclawConfig } from "@modules/integrations/openclaw"
 import { parseObjectStorageConfig } from "@modules/integrations/object-storage"
 import { parseIdentityAuthConfig } from "@modules/domain/identity"
 import { parseMailConfig } from "@modules/integrations/mail"
 import { parsePassportConfig } from "@modules/integrations/passport"
 import { parsePrimaryDatabaseConfig } from "@modules/platform/database"
 import type { EnvSource } from "@modules/platform/config"
+import { parseSeedConfig } from "@modules/integrations/seed"
 
 /** Everything the lite cli needs: the PostgreSQL connection and the own-auth account administration. */
 export interface CliAppOptions {
     /** Private target-runner input for explicit account and membership operations. */
     readonly workspaceSeed: ReturnType<typeof parseWorkspaceSeedConfig>
-    /** The gateway console a workspace profile registers its remote connectors through (its time limit). */
-    readonly mcpGateway: ReturnType<typeof parseMcpGatewayConfig>
+    /** The engine tools settings of the console (the per-call time limit). */
+    readonly toolsConfig: ReturnType<typeof parseToolsConfig>
     /** The connections the built-in migrate and seed groups operate on. */
     readonly connections: ReadonlyArray<ReturnType<typeof parsePrimaryDatabaseConfig>>
     /** Our own access-token keys: the accounts the demo-workspace seed proves a password or a token against. */
@@ -38,13 +37,10 @@ export interface CliAppOptions {
     readonly channelSetup: ReturnType<typeof parseChannelSetupConfig>
     /** The secrets and output of the connect-channel command. */
     readonly channelProvisioning: ReturnType<typeof parseChannelProvisioningConfig>
-    /**
-     * The OpenClaw settings the agent sync is composed with. Applying a setup only queues the sync of the agent (the api worker
-     * writes it), so every key is optional here. Deleting a workspace does need the gateway: prune and cleanup refuse without its address and credential.
-     */
-    readonly openclaw: ReturnType<typeof parseOpenclawConfig>
     /** The key that signs the cursors of the entity engine, which holds the graph of each agent. */
     readonly entityEngine: ReturnType<typeof parseEntityEngineConfig>
+    /** The cache, the environment identity and the git author the seed standard driver works with. */
+    readonly seed: ReturnType<typeof parseSeedConfig>
 }
 
 /**
@@ -53,7 +49,7 @@ export interface CliAppOptions {
  */
 export const readCliEnv = (env: EnvSource): CliAppOptions => ({
     workspaceSeed: parseWorkspaceSeedConfig(env),
-    mcpGateway: parseMcpGatewayConfig(env, parseMcpConfig(env)),
+    toolsConfig: parseToolsConfig(env),
     connections: [parsePrimaryDatabaseConfig(env)],
     passport: parsePassportConfig(env),
     identityAuth: parseIdentityAuthConfig(env),
@@ -65,6 +61,6 @@ export const readCliEnv = (env: EnvSource): CliAppOptions => ({
     channelProvisioning: parseChannelProvisioningConfig(env, (line) => {
         process.stdout.write(`${line}\n`)
     }),
-    openclaw: parseOpenclawConfig(env),
     entityEngine: parseEntityEngineConfig(env),
+    seed: parseSeedConfig(env),
 })

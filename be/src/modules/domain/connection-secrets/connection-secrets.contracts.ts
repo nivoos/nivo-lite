@@ -10,6 +10,14 @@ export interface ConnectionSecret {
     readonly tokenExpiresAt: string | null
 }
 
+/** A connection whose access token ends at a known time. */
+export interface ExpiringSecret {
+    /** The connection. */
+    readonly connectionId: string
+    /** When the access token ends, epoch milliseconds. */
+    readonly expiresAt: number
+}
+
 /** The sealed credential of a connection, opened for its owner. */
 export interface StoredSecret {
     /** The decrypted credential. */
@@ -25,14 +33,6 @@ export type OptionalStoredSecret = StoredSecret | null
 
 /** A sealed text, or null when there is none to prove the connection key against. */
 export type OptionalSealedText = string | null
-
-/** A sealed text split into the key version it names and its base64 body. */
-export interface VersionedSeal {
-    /** The key version label (`v1`, `v2`, ...). */
-    readonly version: string
-    /** The base64 of iv | tag | ciphertext. */
-    readonly body: string
-}
 
 /** What the owner of a connection tells the secret check about it. */
 export interface ConnectionSecretFacts {

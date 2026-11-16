@@ -3,8 +3,11 @@ import { ConnectionInterestButton } from "@/components/blocks/ConnectionInterest
 import { ConnectionRow } from "@/components/blocks/ConnectionRow"
 import { ProviderLogo } from "@/components/branches/ProviderLogo"
 import type { ReactNode } from "react"
-import type { AgentOption, Connection, ConnectorGlyph, Provider } from "@/modules/types"
+import type { Connection, ConnectorGlyph, Provider } from "@/modules/types"
 import { connectorDetailClassNames as classNames } from "./classNames"
+
+/** The logo address of a connector, only when it has one. */
+const logoOf = (logo: string | undefined) => (logo === undefined ? {} : { src: logo })
 
 /** One connection of the connector with the names of the agents bound to it. */
 export interface DetailRow {
@@ -62,9 +65,7 @@ export interface ConnectorDetailOverlayBaseProps {
         readonly entry: DetailEntry | null
         readonly words: DetailWords
         readonly rows: ReadonlyArray<DetailRow>
-        readonly agents: ReadonlyArray<AgentOption>
         readonly localOnly: boolean
-        readonly ownerEmail: string
         readonly canManage: boolean
         /** The viewer may start a connection of this connector. */
         readonly canConnect: boolean
@@ -90,17 +91,11 @@ const bodyOf = (props: ConnectorDetailOverlayBaseProps, entry: DetailEntry) => {
     const provider = entry.provider
     return (
         <>
-            <Text size="sm">
-                <Text as="span" size="sm" isStrong>
-                    {detail.words.needs}:{" "}
-                </Text>
-                {entry.needs}
-            </Text>
             <Section
                 kind="list"
                 title={detail.words.yours}
                 headingLevel={3}
-                meta={detail.words.yoursFact}
+                count={detail.rows.length}
                 empty={<EmptyNotice message={detail.words.none} />}
                 items={detail.rows.map((row) => ({
                     id: row.connection.id,
@@ -110,8 +105,6 @@ const bodyOf = (props: ConnectorDetailOverlayBaseProps, entry: DetailEntry) => {
                             connection={row.connection}
                             agentNames={row.agentNames}
                             localOnly={detail.localOnly}
-                            ownerEmail={detail.ownerEmail}
-                            agents={detail.agents}
                             canManage={detail.canManage}
                         />
                     ),
@@ -119,7 +112,7 @@ const bodyOf = (props: ConnectorDetailOverlayBaseProps, entry: DetailEntry) => {
             />
             {detail.canConnect ? (
                 <div>
-                    <Button intent="commit" onPress={() => props.on.add(provider)}>
+                    <Button intent="commit" startGlyph="plus" onPress={() => props.on.add(provider)}>
                         {detail.words.add}
                     </Button>
                 </div>
@@ -136,7 +129,7 @@ const bodyOf = (props: ConnectorDetailOverlayBaseProps, entry: DetailEntry) => {
  */
 export const ConnectorDetailOverlayBase = (props: ConnectorDetailOverlayBaseProps) => {
     const entry = props.props.entry
-    const logo = entry?.logo === undefined ? {} : { src: entry.logo }
+    const statusTone = entry?.isOfficial === true ? "success" : "neutral"
     return (
         <Drawer
             isOpen={entry !== null}
@@ -150,14 +143,14 @@ export const ConnectorDetailOverlayBase = (props: ConnectorDetailOverlayBaseProp
             {entry === null ? null : (
                 <Stack gap="section">
                     <Cluster gap="inline" align="start">
-                        <ProviderLogo glyph={entry.glyph} {...logo} />
+                        <ProviderLogo glyph={entry.glyph} {...logoOf(entry.logo)} />
                         <div className={classNames.lead}>
                             <Stack gap="identity">
                                 <Cluster gap="inline" align="center" justify="between">
                                     <Text size="sm" isStrong>
                                         {entry.category}
                                     </Text>
-                                    <Badge tone={entry.isOfficial ? "success" : "neutral"}>{entry.statusLabel}</Badge>
+                                    <Badge tone={statusTone}>{entry.statusLabel}</Badge>
                                 </Cluster>
                                 <Text size="sm" tone="muted">
                                     {entry.blurb}
@@ -165,18 +158,18 @@ export const ConnectorDetailOverlayBase = (props: ConnectorDetailOverlayBaseProp
                             </Stack>
                         </div>
                     </Cluster>
-                    <Text size="sm">
-                        <Text as="span" size="sm" isStrong>
-                            {props.props.words.brings}:{" "}
-                        </Text>
-                        {entry.brings}
-                    </Text>
-                    <Text size="sm">
-                        <Text as="span" size="sm" isStrong>
-                            {props.props.words.audience}:{" "}
-                        </Text>
-                        {entry.audience}
-                    </Text>
+                    <Section
+                        kind="list"
+                        ariaLabel={entry.name}
+                        empty={null}
+                        items={[
+                            { id: "brings", title: props.props.words.brings, description: entry.brings },
+                            { id: "audience", title: props.props.words.audience, description: entry.audience },
+                            ...(entry.needs === ""
+                                ? []
+                                : [{ id: "needs", title: props.props.words.needs, description: entry.needs }]),
+                        ]}
+                    />
                     {bodyOf(props, entry)}
                 </Stack>
             )}

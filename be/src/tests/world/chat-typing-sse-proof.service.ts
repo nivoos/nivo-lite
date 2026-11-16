@@ -1,9 +1,16 @@
+import type { ChatTypingFrame } from "@modules/domain/chat-typing"
 import assert from "node:assert/strict"
 import { Module, type DynamicModule } from "@nestjs/common"
 import { APP_FILTER, APP_GUARD } from "@nestjs/core"
 import { Test } from "@nestjs/testing"
 import type { EntityManager } from "typeorm"
 import * as typingContract from "@modules/domain/chat-typing"
+import {
+    CHAT_TYPING_ERROR_KINDS,
+    CHAT_TYPING_MESSAGES,
+    ChatTypingModule,
+    ChatTypingService,
+} from "@modules/domain/chat-typing"
 import { TeamChatRoomsService } from "@modules/domain/team-chat"
 import {
     AuthGuard,
@@ -25,6 +32,7 @@ import { LoggingModule } from "@modules/platform/logging"
 import { ok } from "@modules/platform/primitives"
 import { RetryModule } from "@modules/platform/retry"
 import * as realtimeContract from "@modules/platform/realtime"
+import { RealtimeModule } from "@modules/platform/realtime"
 import type { TeamChatIdentity } from "../fixtures/builders/team-chat.builder"
 import { TeamChatProofModule } from "./team-chat-proof.module"
 import { TEAM_CHAT_PROOF_MODULES } from "./team-chat-capabilities.options"
@@ -136,7 +144,7 @@ const platformModules = (retry: RetryContract): Array<DynamicModule> => [
             ERRORS_MESSAGES,
             IDENTITY_MESSAGES,
             WORKSPACE_MEMBERS_MESSAGES,
-            typingContract.CHAT_TYPING_MESSAGES,
+            CHAT_TYPING_MESSAGES,
             HTTP_SECURITY_MESSAGES,
         ],
     }),
@@ -145,7 +153,7 @@ const platformModules = (retry: RetryContract): Array<DynamicModule> => [
         kinds: [
             IDENTITY_ERROR_KINDS,
             WORKSPACE_MEMBERS_ERROR_KINDS,
-            typingContract.CHAT_TYPING_ERROR_KINDS,
+            CHAT_TYPING_ERROR_KINDS,
             HTTP_SECURITY_ERROR_KINDS,
         ],
     }),
@@ -170,9 +178,9 @@ const compileReplica = (world: LiteWorld, identity: TeamChatIdentity, prefix: st
             ...platformModules(contracts.retry),
             ...TEAM_CHAT_PROOF_MODULES,
             IdentityModule.register({ isGlobal: true, verifyAccessToken: verifierFor(identity) }),
-            realtimeContract.RealtimeModule.register(options),
+            RealtimeModule.register(options),
             ...CHAT_ACTIVITY_PROOF_MODULES,
-            typingContract.ChatTypingModule.register({ isGlobal: true }),
+            ChatTypingModule.register({ isGlobal: true }),
             contracts.door.ChatTypingSseModule.register({}),
         ],
         providers: [
@@ -187,7 +195,7 @@ type StartTypingReplicaResultShape = {
     origin: string
     typing: typingContract.ChatTypingService
     team: TeamChatRoomsService
-    topic: (recipientId: string, roomId: string) => realtimeContract.RealtimeTopic<typingContract.ChatTypingFrame>
+    topic: (recipientId: string, roomId: string) => realtimeContract.RealtimeTopic<ChatTypingFrame>
     open: (streamOptions: TypingStreamOptions) => Promise<TypingStreamClient>
     close: () => Promise<void>
 }
@@ -210,7 +218,7 @@ export const startTypingReplica = async (
         return {
             hub,
             origin,
-            typing: app.get(typingContract.ChatTypingService),
+            typing: app.get(ChatTypingService),
             team: app.get(TeamChatRoomsService),
             topic: (recipientId: string, roomId: string) =>
                 contracts.topicOf(recipientId, identity.workspaceId, roomId),

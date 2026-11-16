@@ -10,7 +10,6 @@ import type { GoogleOptions } from "./google.options"
 import {
     GOOGLE_SCOPE,
     RENEWAL_GRANT_FIELD,
-    type CreatedSpreadsheet,
     type GoogleIdentityTokens,
     type GoogleTokenSet,
     type OAuthStateInput,
@@ -19,15 +18,9 @@ import {
     type OptionalOAuthState,
     type ReceivedText,
     type SheetCell,
-    type SheetConfig,
-    type SheetEventIn,
-    type SheetEventResult,
-    type SheetRowRef,
-    type SheetsApi,
 } from "./google.contracts"
-import { applySheetEvent, buildCreateBody, buildFormatBody, ordersTab } from "./google-sheet.policy"
 import { signState, stateKey, verifyState } from "./google-state.policy"
-import { buildAuthUrl, redirectUri, sheetUrlOf, sheetsBase, tokenEndpoint, userinfoEndpoint } from "./google-url.policy"
+import { buildAuthUrl, redirectUri, sheetsBase, tokenEndpoint, userinfoEndpoint } from "./google-url.policy"
 
 type Json = Readonly<Record<string, unknown>>
 
@@ -35,36 +28,16 @@ const isJson = (value: unknown): value is Json => typeof value === "object" && v
 
 const textOf = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined)
 
-/** The text of a value, or null when it is not text or is empty. */
-const filledTextOf = (value: unknown): string | null => {
+/** The email a userinfo answer names, or null when it names none (an empty text names none). */
+const emailOf = (value: unknown): string | null => {
     const text = textOf(value)
     return text === undefined || text === "" ? null : text
 }
 
 const a1 = (tab: string, range: string): string => encodeURIComponent(`'${tab}'!${range}`)
 
-/** The columns a ledger fills, on the first tab of the sheet the owner named. */
-const LEDGER_RANGE = "A:G"
-
-const columnLetter = (width: number): string => String.fromCodePoint(64 + width)
-
-/** Reads a cell reference ending at an offset without retrying an unanchored pattern at every letter. */
-const endingCell = (range: string, end: number): { readonly start: number; readonly row: number } | null => {
-    let digits = end
-    while (digits > 0 && /\d/u.test(range.charAt(digits - 1))) digits -= 1
-    if (digits === end) return null
-    let start = digits
-    while (start > 0 && /[A-Z]/u.test(range.charAt(start - 1))) start -= 1
-    return start === digits ? null : { start, row: Number(range.slice(digits, end)) }
-}
-
-/** The first row of the final cell or cell range reported by Sheets; zero when no reference ends it. */
-const appendedRow = (range: string): number => {
-    const final = endingCell(range, range.length)
-    if (final === null) return 0
-    const first = range[final.start - 1] === ":" ? endingCell(range, final.start - 1) : null
-    return first?.row ?? final.row
-}
+/** The columns of the ledger tab: date, document, description, in, out, counterpart, category, balance. */
+const LEDGER_COLUMNS = "A:H"
 
 @Injectable()
 /** Talks to Google OAuth and the Sheets API for the connections capability: consent urls, tokens, spreadsheets and rows. */
@@ -134,64 +107,62 @@ export class GoogleClient {
                 url: userinfoEndpoint(this.options),
                 headers: { authorization: `Bearer ${tokens.accessToken}` },
             })
-            return filledTextOf(body.email)
+            return emailOf(body.email)
         } catch (cause) {
             this.logger.error(GoogleLogEvent.EmailUnavailable, cause)
             return null
         }
     }
 
-    /** Creates the orders spreadsheet (two tabs, header rows, a sample row) and formats the money column. */
-    async createOrdersSpreadsheet(token: string, title: string): Promise<CreatedSpreadsheet> {
-        const base = sheetsBase(this.options)
-        const created = await this.call({
-            method: "POST",
-            url: `${base}/v4/spreadsheets`,
-            headers: this.bearer(token),
-            body: buildCreateBody(title, this.clock.now()),
-        })
-        const spreadsheetId = textOf(created.spreadsheetId)
-        if (!spreadsheetId) throw new GoogleError({ code: GoogleErrorCode.ContractMismatch })
-        await this.call({
-            method: "POST",
-            url: `${base}/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}:batchUpdate`,
-            headers: this.bearer(token),
-            body: buildFormatBody(),
-        })
-        return { spreadsheetId, spreadsheetUrl: textOf(created.spreadsheetUrl) ?? sheetUrlOf(spreadsheetId) }
-    }
-
-    /** The sheet operations bound to one access token. */
-    sheets(token: string): SheetsApi {
-        return {
-            findRow: (spreadsheetId, codes) => this.findRow(token, spreadsheetId, codes),
-            appendRow: (spreadsheetId, tab, width, row) => this.appendRow(token, spreadsheetId, tab, width, row),
-            updateCells: (spreadsheetId, row, cells) => this.updateCells(token, spreadsheetId, row, cells),
-        }
-    }
-
-    /** Applies one NIVO event to the shop's sheet with an access token; throws on any API failure so the caller retries. */
-    applyEvent(token: string, config: SheetConfig, event: SheetEventIn): Promise<SheetEventResult> {
-        return applySheetEvent(this.sheets(token), config, event, this.clock.now())
-    }
-
     /**
-     * Appends rows after the last one of the first tab of a spreadsheet, as the values are (no formula is run), and answers the A1 range
-     * Google wrote them to. Never updates or removes a cell. Throws `GOOGLE_REFUSED` (with the HTTP status) when Google refuses.
+     * Appends rows after the last one of a tab of a spreadsheet and answers the A1 range Google wrote them to. The values are entered as a
+     * person would type them (a date becomes a date, a number a number, and a formula runs), so the caller makes every text cell text.
+     * Never updates or removes a cell. Throws `GOOGLE_REFUSED` (with the HTTP status) when Google refuses.
      */
     async appendValues(
         token: string,
         spreadsheetId: string,
+        tab: string,
         rows: ReadonlyArray<ReadonlyArray<SheetCell>>,
     ): Promise<string> {
         const body = await this.call({
             method: "POST",
-            url: `${sheetsBase(this.options)}/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(LEDGER_RANGE)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+            url: `${sheetsBase(this.options)}/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${a1(tab, LEDGER_COLUMNS)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
             headers: this.bearer(token),
             body: { majorDimension: "ROWS", values: rows },
         })
         const updates = isJson(body.updates) ? body.updates : {}
         return textOf(updates.updatedRange) ?? ""
+    }
+
+    /**
+     * Makes sure a spreadsheet has a tab of this title, adding it (with a frozen header row) when it has none. Adds only; no cell or
+     * tab already there is changed. Throws `GOOGLE_REFUSED` (with the HTTP status) when Google refuses.
+     */
+    async ensureTab(token: string, spreadsheetId: string, title: string): Promise<void> {
+        const base = `${sheetsBase(this.options)}/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}`
+        const body = await this.call({
+            method: "GET",
+            url: `${base}?fields=sheets.properties.title`,
+            headers: this.bearer(token),
+        })
+        const sheets: ReadonlyArray<unknown> = Array.isArray(body.sheets) ? body.sheets : []
+        const titles = sheets.map((sheet) => (isJson(sheet) && isJson(sheet.properties) ? textOf(sheet.properties.title) : undefined))
+        if (titles.includes(title)) return
+        await this.call({
+            method: "POST",
+            url: `${base}:batchUpdate`,
+            headers: this.bearer(token),
+            body: {
+                requests: [
+                    {
+                        addSheet: {
+                            properties: { title, gridProperties: { frozenRowCount: 1, rowCount: 1000, columnCount: 8 } },
+                        },
+                    },
+                ],
+            },
+        })
     }
 
     /** The title of a spreadsheet, blank when Google names none. Throws `GOOGLE_REFUSED` (with the HTTP status) when Google refuses. */
@@ -220,68 +191,10 @@ export class GoogleClient {
         return rows.map((row) => (Array.isArray(row) ? row.map(String) : []))
     }
 
-    private async findRow(
-        token: string,
-        spreadsheetId: string,
-        codes: ReadonlyArray<string>,
-    ): Promise<SheetRowRef | null> {
-        const wanted = codes.map((code) => code.trim()).filter(Boolean)
-        if (wanted.length === 0) return null
-        const body = await this.call({
-            method: "GET",
-            url: `${sheetsBase(this.options)}/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${a1(ordersTab(), "B:B")}`,
-            headers: this.bearer(token),
-        })
-        const rows: ReadonlyArray<unknown> = Array.isArray(body.values) ? body.values : []
-        const cells = rows.map((row) => (Array.isArray(row) ? String(row[0] ?? "").trim() : ""))
-        for (const code of wanted) {
-            const at = cells.findIndex((cell, index) => index > 0 && cell === code)
-            if (at >= 0) return { row: at + 1, code }
-        }
-        return null
-    }
-
-    private async appendRow(
-        token: string,
-        spreadsheetId: string,
-        tab: string,
-        width: number,
-        row: ReadonlyArray<SheetCell>,
-    ): Promise<number> {
-        const range = a1(tab, `A:${columnLetter(width)}`)
-        const body = await this.call({
-            method: "POST",
-            url: `${sheetsBase(this.options)}/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
-            headers: this.bearer(token),
-            body: { majorDimension: "ROWS", values: [row] },
-        })
-        const updates = isJson(body.updates) ? body.updates : {}
-        return appendedRow(textOf(updates.updatedRange) ?? "")
-    }
-
-    private async updateCells(
-        token: string,
-        spreadsheetId: string,
-        row: number,
-        cells: Readonly<Record<string, SheetCell>>,
-    ): Promise<void> {
-        const data = Object.entries(cells).map(([column, value]) => ({
-            range: `'${ordersTab()}'!${column}${row}`,
-            majorDimension: "ROWS",
-            values: [[value]],
-        }))
-        await this.call({
-            method: "POST",
-            url: `${sheetsBase(this.options)}/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values:batchUpdate`,
-            headers: this.bearer(token),
-            body: { valueInputOption: "RAW", data },
-        })
-    }
-
     private emailOfIdToken(idToken: string | null): string | null {
         if (idToken === null) return null
         const read = parseJsonText(Buffer.from(idToken.split(".")[1] ?? "", "base64url").toString("utf8"))
-        return read.ok && isJson(read.value) ? filledTextOf(read.value.email) : null
+        return read.ok && isJson(read.value) ? emailOf(read.value.email) : null
     }
 
     private bearer(token: string): Record<string, string> {

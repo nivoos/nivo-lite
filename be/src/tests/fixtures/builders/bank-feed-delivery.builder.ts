@@ -12,7 +12,7 @@ type BankFeedDomainBuilderResultShape = {
 /** Arranges the actual domain coordinator and a recorder for the downstream receipt effect. */
 export const bankFeedDomainBuilder = async (claims: JobClaims): Promise<BankFeedDomainBuilderResultShape> => {
     const inbox = mock<BankFeedService>()
-    inbox.processRecordedFeedDelivery.mockResolvedValue([])
+    inbox.processRecordedFeedDelivery.mockResolvedValue(undefined)
     const billing = await Test.createTestingModule({
         providers: [
             BankFeedDeliveryService,

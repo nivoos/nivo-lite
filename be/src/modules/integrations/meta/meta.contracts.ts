@@ -91,10 +91,25 @@ export interface MetaEvent {
     readonly postback_payload: string | null
     /** The message id. */
     readonly mid: string | null
+    /**
+     * The content parts of a direct message beside its text (Meta's `message.attachments[]`: a picture, a sticker, a video, a voice
+     * note, a file, a shared location or link), in the order Meta gave them; absent or empty when the message carries none.
+     */
+    readonly attachments?: ReadonlyArray<MetaAttachment> | undefined
     /** Milliseconds since the epoch. */
     readonly timestamp: number
     /** Stable per event: the idempotency key (Meta redelivers). */
     readonly event_key: string
+}
+
+/** One content part of a direct message, as Meta names it: its type and the address of its bytes (null when Meta gives none). */
+export interface MetaAttachment {
+    /** Meta's own type word (`image`, `video`, `audio`, `file`, `location`, `fallback`, ...), as sent. */
+    readonly type: string
+    /** The address of the bytes (`payload.url`; it may expire), or null. */
+    readonly url: string | null
+    /** The name or title Meta gives the part (`payload.title` / `name`), or null. */
+    readonly name: string | null
 }
 
 /** The contact and the answers of one lead-form submission. */
@@ -140,6 +155,7 @@ export type MetaFailure =
     | "comment_age_unknown"
     | "private_reply_expired"
     | "rate_limited"
+    | "unavailable"
     | "token"
     | "permission"
     | "not_found"
@@ -187,7 +203,13 @@ export type SendResult =
           /** A private reply: the PSID / IGSID of the commenter the message reached. */
           readonly recipientId?: string
       }
-    | { readonly ok: false; readonly reason: MetaFailure; readonly detail?: string }
+    | {
+          readonly ok: false
+          readonly reason: MetaFailure
+          readonly detail?: string
+          /** How many parts of a long text Meta had already taken before this refusal (a text goes in parts); absent = none. */
+          readonly partsSent?: number
+      }
 
 /** One object of the app-level webhook subscription. */
 export interface AppObject {

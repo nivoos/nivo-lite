@@ -136,14 +136,13 @@ export const namesById = async <Row extends NamedRow>(
 }
 
 /** The rows `where` selects among the given ids, each holding only the `select`ed columns; no ids reads nothing, and the read never exceeds the ids. */
-export const findRowsOfIds = async <Row extends { readonly id: string }>(
+export const findRowsOfIds = <Row extends { readonly id: string }>(
     manager: EntityManager,
-    target: EntityTarget<Row>,
+    entity: EntityTarget<Row>,
     where: FindOptionsWhere<Row>,
     select: FindOptionsSelect<Row>,
     ids: ReadonlyArray<string>,
 ): Promise<Array<Row>> => {
-    if (ids.length === 0) return []
-    const rows = await manager.find(target, { select, where, take: ids.length })
-    return rows
+    if (ids.length === 0) return Promise.resolve([])
+    return manager.find(entity, { select, where, take: ids.length })
 }

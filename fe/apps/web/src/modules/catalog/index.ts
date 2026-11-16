@@ -1,6 +1,3 @@
-export type { ActionKey, ModuleKey } from "./catalog.keys"
-export { MODULE_KEYS } from "./catalog.keys"
-export { isActionKey, isModuleKey } from "./catalog.guards"
-export type { ModuleCopy, RegistryGate } from "./catalog.types"
-export { MODULE_REGISTRY, actionDef } from "./catalog.registry"
+export type { ModuleCopy, ModuleChoices, ModuleLabelOf, RegistryGate } from "./catalog.types"
 export { pickCopy, pickCopyList } from "./catalog.copy"
+export { answersCustomersOf, hasReplyLimitsOf } from "./catalog.traits"

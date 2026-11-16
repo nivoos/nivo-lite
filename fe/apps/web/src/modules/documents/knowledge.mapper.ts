@@ -3,18 +3,9 @@ import type {
     KnowledgeSourceTextType,
     KnowledgeSourceType,
     KnowledgeSuggestionContextType,
-    ModuleInstallationType,
     NivoEntryType,
     RetrievedPassageType,
 } from "@/modules/api"
-import { isModuleKey } from "@/modules/catalog"
-import {
-    type Installation,
-    type InstallationStatus,
-    type OperatingMode,
-    displayNameOf,
-    installationLifecycleOf,
-} from "@/modules/installations"
 import type {
     DocumentKind,
     DocumentPassage,
@@ -39,15 +30,6 @@ const STATUSES: ReadonlyArray<DocumentStatus> = [
 ]
 const KINDS: ReadonlyArray<DocumentKind> = ["text", "faq", "file", "url"]
 const NIVO_KINDS: ReadonlyArray<NivoItemKind> = ["playbook", "authority", "escalation", "setup_checklist", "tone"]
-const INSTALLATION_STATUSES: ReadonlyArray<InstallationStatus> = [
-    "installing",
-    "setup",
-    "ready",
-    "live",
-    "paused",
-    "needs_connection",
-]
-const OPERATING_MODES: ReadonlyArray<OperatingMode> = ["assist", "autopilot"]
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
 
@@ -60,14 +42,11 @@ export const toSourceStatus = (value: string): DocumentStatus => STATUSES.find((
 /** The kind of a stored text; an unknown text is a note. */
 export const toSourceKind = (value: string): DocumentKind => KINDS.find((kind) => kind === value) ?? "text"
 
-/** The module of a stored text, or null when the document is for every module or the module is not in the catalogue. */
-const moduleOf = (value: string | null): string | null => (value !== null && isModuleKey(value) ? value : null)
-
 /** The document a `knowledgeSources` item stands for. */
-export const toKnowledgeDocument = (row: KnowledgeSourceType): KnowledgeDocument => ({
+export const toKnowledgeDocument = (row: Omit<KnowledgeSourceType, "truths">): KnowledgeDocument => ({
     id: row.id,
     workspaceId: row.workspaceId,
-    module: moduleOf(row.module ?? null),
+    module: row.module ?? null,
     installationId: row.installationId ?? null,
     kind: toSourceKind(row.kind),
     topic: row.topic ?? null,
@@ -145,32 +124,3 @@ export const toSuggestionContext = (row: KnowledgeSuggestionContextType): Sugges
         }),
     ),
 })
-
-/** Whether a wire value is a plain settings object. */
-const isSettings = (value: unknown): value is Readonly<Record<string, unknown>> =>
-    typeof value === "object" && value !== null && !Array.isArray(value)
-
-/** The installed agent a `moduleInstallations` item stands for, or null when its module is not in the catalogue. */
-export const toWireInstallation = (row: ModuleInstallationType): Installation | null => {
-    if (!isModuleKey(row.moduleKey)) return null
-    return {
-        id: row.id,
-        workspaceId: row.workspaceId,
-        moduleKey: row.moduleKey,
-        name: displayNameOf(row),
-        isMulti: row.isMulti,
-        agentId: row.agentId ?? null,
-        agentAvatarUrl: row.agentAvatarUrl ?? null,
-        agentHandle: row.agentHandle ?? null,
-        status: INSTALLATION_STATUSES.find((known) => known === row.status) ?? "setup",
-        lifecycle: installationLifecycleOf(row.lifecycle),
-        connectionNeeds: row.connectionNeeds,
-        operatingMode: OPERATING_MODES.find((known) => known === row.operatingMode) ?? "assist",
-        liveEnabled: row.liveEnabled,
-        activeContextVersionId: row.activeContextVersionId ?? null,
-        activeVersion: row.activeVersion ?? null,
-        settings: isSettings(row.settings) ? row.settings : {},
-        createdAt: row.createdAt,
-        setupProgress: { confirmed: row.setupProgress.confirmed, total: row.setupProgress.total },
-    }
-}

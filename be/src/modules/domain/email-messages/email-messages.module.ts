@@ -2,6 +2,12 @@ import { Module, type DynamicModule } from "@nestjs/common"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./email-messages.module-definition"
 import { EmailMessagesService } from "./email-messages.service"
 import { EmailMessagesLedgerService } from "./email-messages-ledger.service"
+import { MailCustomerSendService } from "./mail-customer-send.service"
+import { SmtpLiveSendService } from "./smtp-live-send.service"
+import { SmtpSandboxSendService } from "./smtp-sandbox-send.service"
+import { SmtpSendRegistrationService } from "./smtp-send-registration.service"
+import { SmtpSendRegistryService } from "./smtp-send-registry.service"
+import { SmtpConnectionFieldsService } from "./smtp-connection-fields.service"
 import { SmtpWizardService } from "./smtp-wizard.service"
 import { WorkspaceMailService } from "./workspace-mail.service"
 
@@ -18,9 +24,21 @@ export class EmailMessagesModule extends ConfigurableModuleClass {
                 EmailMessagesService,
                 EmailMessagesLedgerService,
                 WorkspaceMailService,
+                MailCustomerSendService,
+                SmtpSendRegistryService,
+                SmtpLiveSendService,
+                SmtpSandboxSendService,
+                SmtpSendRegistrationService,
                 SmtpWizardService,
+                SmtpConnectionFieldsService,
             ],
-            exports: [EmailMessagesService, EmailMessagesLedgerService, WorkspaceMailService, SmtpWizardService],
+            exports: [
+                EmailMessagesService,
+                EmailMessagesLedgerService,
+                WorkspaceMailService,
+                SmtpWizardService,
+                SmtpConnectionFieldsService,
+            ],
         }
     }
 }

@@ -8,4 +8,6 @@ export interface EventBusOptions {
     readonly batch?: number
     /** The pause between two reads of an empty queue, in milliseconds. Default 500. */
     readonly idleMs?: number
+    /** Names the running build (a git sha or a release tag); the item of a buried delivery carries it. Default "unknown". */
+    readonly buildId?: string | undefined
 }

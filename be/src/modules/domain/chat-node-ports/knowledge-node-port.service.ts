@@ -1,6 +1,5 @@
 import { Injectable, Optional, type OnModuleInit } from "@nestjs/common"
-import type { NodeQuery } from "@nivo-lite/agent-sdk/node"
-import type { RightScope } from "@nivo-lite/agent-sdk/rights"
+import type { NodeQuery, ReadScope } from "@nivo-lite/agent-sdk/node"
 import { AgentDirectoryService, InjectInstallations, type InstallationDirectory } from "@modules/domain/agents"
 import { GraphNodeRegistryService, type NodeDataPort, type NodeRow, type NodeTurn } from "@modules/domain/graph-nodes"
 import { KnowledgeSourcesReadableService } from "@modules/domain/knowledge-sources"
@@ -30,7 +29,7 @@ export class KnowledgeNodePortService implements NodeDataPort, OnModuleInit {
     }
 
     /** The documents the query asks for, cut to its fields; none when the turn's agent is gone. */
-    async read(turn: NodeTurn, query: NodeQuery, scope: RightScope): Promise<ReadonlyArray<NodeRow>> {
+    async read(turn: NodeTurn, query: NodeQuery, scope: ReadScope): Promise<ReadonlyArray<NodeRow>> {
         const agent = await this.agents.turnFactsOf(turn.agentId)
         if (agent === null) return []
         const installation = await this.installations.ofAgent(turn.workspaceId, turn.agentId)

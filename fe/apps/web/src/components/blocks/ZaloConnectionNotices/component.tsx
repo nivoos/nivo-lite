@@ -1,10 +1,10 @@
-import { Alert, PaneSection, type PresentationState } from "@starci/grammar/common"
+import { Alert, Stack, type PresentationState } from "@starci/grammar/common"
 import { SlotView } from "@nivo-lite/agent-sdk/client"
-import { ConnectionPaneLayoutNotice } from "@/components/frames/ConnectionPaneLayout"
+import { ConnectionBandRefusal } from "@/components/frames/ConnectionBand"
 import type { ConnectionRefusalView, DataSlot, SlotLabels, ZaloHeadView } from "@/modules/types"
 
 /** The head read, used only to say it failed in place. */
-const ZALO_HEAD_PLACEHOLDER: ZaloHeadView = { name: "-", chipLabel: "-", chipTone: "neutral", facts: "-", banner: "" }
+const ZALO_HEAD_PLACEHOLDER: ZaloHeadView = { name: "-", chipLabel: "-", chipTone: "neutral", facts: "-", banner: "", attention: null }
 
 /** One notice of the page: why the OA cannot send, a refused command, or the one step left. */
 interface ZaloPageNotice {
@@ -12,6 +12,8 @@ interface ZaloPageNotice {
     readonly tone: PresentationState
     readonly title: string
     readonly description?: string
+    /** A command beside the notice: the provider's reconnect action. */
+    readonly action?: { readonly label: string; readonly run: () => void }
 }
 
 /** The notices that open the main pane of a Zalo OA page. */
@@ -32,30 +34,29 @@ export const ZaloConnectionNoticesBase = (props: ZaloConnectionNoticesBaseProps)
     const failed = "isError" in head || "isForbidden" in head
     return (
         <>
-            <ConnectionPaneLayoutNotice refusal={props.props.refusal} />
+            <ConnectionBandRefusal refusal={props.props.refusal} />
             {failed ? (
-                <PaneSection>
-                    <SlotView
-                        slot={head}
-                        placeholder={ZALO_HEAD_PLACEHOLDER}
-                        labels={props.props.slotLabels}
-                        forbidden="notice"
-                        onRetry={props.on.retry}
-                        render={() => null}
-                    />
-                </PaneSection>
+                <SlotView
+                    slot={head}
+                    placeholder={ZALO_HEAD_PLACEHOLDER}
+                    labels={props.props.slotLabels}
+                    forbidden="notice"
+                    onRetry={props.on.retry}
+                    render={() => null}
+                />
             ) : null}
             {notices.length === 0 ? null : (
-                <PaneSection>
+                <Stack gap="row">
                     {notices.map((notice) => (
                         <Alert
                             key={notice.id}
                             tone={notice.tone}
                             title={notice.title}
                             {...(notice.description === undefined ? {} : { description: notice.description })}
+                            {...(notice.action === undefined ? {} : { action: { label: notice.action.label, onAction: notice.action.run } })}
                         />
                     ))}
-                </PaneSection>
+                </Stack>
             )}
         </>
     )

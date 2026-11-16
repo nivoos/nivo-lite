@@ -132,10 +132,38 @@ describe("JobTickService", () => {
     })
 })
 
+describe("JOB_TICKS: the data copy ticks", () => {
+    it("declares the seed backup tick hourly and the verify tick daily, once each, on the data_copies queue with the tick payload", () => {
+        const backup = JOB_TICKS.filter((tick) => tick.name === "data-backup-tick")
+        const verify = JOB_TICKS.filter((tick) => tick.name === "data-verify-tick")
+
+        expect(backup).toEqual([
+            {
+                name: "data-backup-tick",
+                cron: "0 * * * *",
+                timeZone: "UTC",
+                queue: "data_copies",
+                job: "data.backup-due",
+                payload: { tick: true },
+            },
+        ])
+        expect(verify).toEqual([
+            {
+                name: "data-verify-tick",
+                cron: "30 3 * * *",
+                timeZone: "UTC",
+                queue: "data_copies",
+                job: "data.verify",
+                payload: { tick: true },
+            },
+        ])
+    })
+})
+
 describe("JOB_TICKS", () => {
-    it("holds the 15 ticks, each with a unique name and a five-field UTC cron expression", () => {
-        expect(JOB_TICKS).toHaveLength(15)
-        expect(new Set(JOB_TICKS.map((tick) => tick.name)).size).toBe(15)
+    it("holds the 14 ticks, each with a unique name and a five-field UTC cron expression", () => {
+        expect(JOB_TICKS).toHaveLength(14)
+        expect(new Set(JOB_TICKS.map((tick) => tick.name)).size).toBe(14)
         for (const tick of JOB_TICKS) {
             expect(tick.timeZone).toBe("UTC")
             expect(tick.cron.split(" ")).toHaveLength(5)
@@ -160,10 +188,10 @@ describe("cronSchedulerOf", () => {
 
     it("hands a failed firing to the error handler", async () => {
         const registry = mock<SchedulerRegistry>()
-        const cause = new Error("redis down")
+        const cause = new JobsError({ code: JobsErrorCode.ConnectionMissing })
         const onError = jest.fn()
 
-        cronSchedulerOf(registry).schedule(TICK, jest.fn<Promise<never>, []>().mockRejectedValue(cause), onError)
+        cronSchedulerOf(registry).schedule(TICK, () => Promise.reject(cause), onError)
         const [, job] = registry.addCronJob.mock.calls[0] ?? []
         await job?.fireOnTick()
         void job?.stop()

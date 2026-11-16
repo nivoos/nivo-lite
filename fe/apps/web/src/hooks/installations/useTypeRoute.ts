@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect } from "react"
-import type { ModuleKey } from "@/modules/catalog"
 import { navigation } from "@/modules/i18n"
 import { agentListHref, instancesOf, type AgentTab, type Installation } from "@/modules/installations"
 import { AGENTS_ROUTE, workspaceHref } from "@/modules/routes"
@@ -28,7 +27,7 @@ interface TypeRoute {
  * catalogue, several stay on the list. `list`: the list stays even for one instance. `redirect`: an old tab url always leaves for an
  * instance or the list. While it decides, or sends the person away, the slot reads as loading.
  */
-export const useTypeRoute = (module: ModuleKey, tab: AgentTab, query: string, mode: TypeRouteMode): TypeRoute => {
+export const useTypeRoute = (module: string, tab: AgentTab, query: string, mode: TypeRouteMode): TypeRoute => {
     const router = navigation.useRouter()
     const workspaceId = useWorkspaceId()
     const installed = useInstallations()

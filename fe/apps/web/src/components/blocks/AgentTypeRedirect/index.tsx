@@ -1,7 +1,7 @@
 "use client"
 
 import { useTranslations } from "next-intl"
-import { useModuleName, useTypeRoute, type AgentTab, type ModuleKey } from "@/hooks/installations"
+import { useModuleName, useTypeRoute, type AgentTab } from "@/hooks/installations"
 import { useWorkspaceId } from "@/hooks/workspaces"
 import { navigation } from "@/modules/i18n"
 import { AGENTS_ROUTE, workspaceHref } from "@/modules/routes"
@@ -15,7 +15,7 @@ const PLACEHOLDER: ReadonlyArray<{ readonly id: string; readonly text: string }>
 
 /** What the old tab url hands the block. */
 interface AgentTypeRedirectProps {
-    readonly module: ModuleKey
+    readonly module: string
     readonly tab: AgentTab
     readonly query: string
 }

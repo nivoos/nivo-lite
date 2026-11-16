@@ -41,7 +41,7 @@ const rowOfPicked = (doc: PickedDoc): DriveFileRow => ({
 /** The files the owner chose directly in Picker, as a listing with no folder. */
 const listingOfChosenFiles = (docs: ReadonlyArray<PickedDoc>): DriveListing => ({
     name: "",
-    files: docs.filter((doc) => !isPickedFolder(doc)).map((item) => rowOfPicked(item)),
+    files: docs.filter((doc) => !isPickedFolder(doc)).map((entry) => rowOfPicked(entry)),
     truncated: false,
     empty: false,
 })
@@ -88,12 +88,7 @@ export const useDriveListing = (failedPickerMessage: string): DriveListingViewSh
         setIsReading(false)
         if (result.kind !== "ok") return setError(result.message)
         const folder = result.value
-        show({
-            name: folder.name,
-            files: folder.files.map((item) => rowOf(item)),
-            truncated: folder.truncated,
-            empty: false,
-        })
+        show({ name: folder.name, files: folder.files.map((entry) => rowOf(entry)), truncated: folder.truncated, empty: false })
     }, [settle, readLinked, link, show])
 
     const showChoice = useCallback(
@@ -105,7 +100,7 @@ export const useDriveListing = (failedPickerMessage: string): DriveListingViewSh
             const picked = result.value
             show({
                 name: picked.name,
-                files: picked.files.map((item) => rowOf(item)),
+                files: picked.files.map((entry) => rowOf(entry)),
                 truncated: picked.truncated,
                 empty: picked.empty,
             })

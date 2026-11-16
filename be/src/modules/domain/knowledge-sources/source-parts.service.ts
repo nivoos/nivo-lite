@@ -1,14 +1,16 @@
-import { Injectable } from "@nestjs/common"
+import { Injectable, Optional } from "@nestjs/common"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
-import { type EntityManager, IsNull, Not } from "typeorm"
+import { IsNull, Not, type EntityManager } from "typeorm"
 import type { QueryDeepPartialEntity } from "typeorm/query-builder/QueryPartialEntity"
 import { eachInOrder } from "@modules/platform/primitives"
 import { KnowledgeQueue } from "@modules/queues/knowledge"
+import { VectorSyncService } from "@modules/domain/vector-sync"
 import { KnowledgeSourcesError, KnowledgeSourcesErrorCode } from "./errors/knowledge-sources.error"
-import { KnowledgeProgressService } from "./knowledge-progress.service"
-import { type DeletedSource, PUBLIC_DOCUMENT_ORIGIN } from "./knowledge-sources.contracts"
+import { PUBLIC_DOCUMENT_ORIGIN, type DeletedSource } from "./knowledge-sources.contracts"
+import { type MaybeWholeDocument } from "./source-areas.contracts"
 import { KnowledgeSourceEntity } from "./persistence/entities"
 import { removedTitle } from "./persistence/knowledge-source.projection"
+import { changesReaders } from "./source-input.policy"
 import { partOriginOf, partTitleOf } from "./source-parts.policy"
 
 /** The most later parts a document has: a source may be at most `MAX_SOURCE_CHARS` and a file at most `MAX_UPLOAD_BYTES`, far fewer than this. */
@@ -20,7 +22,7 @@ export class SourcePartsService {
     constructor(
         @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
         private readonly queue: KnowledgeQueue,
-        private readonly progress: KnowledgeProgressService,
+        @Optional() private readonly vectorSync?: VectorSyncService,
     ) {}
 
     /**
@@ -35,7 +37,7 @@ export class SourcePartsService {
         later: ReadonlyArray<string>,
     ): Promise<string> {
         const total = later.length + 1
-        const created = await this.entityManager.transaction(async (tx) => {
+        await this.entityManager.transaction(async (tx) => {
             const first = await tx.findOne(KnowledgeSourceEntity, { where: { id: sourceId, workspaceId } })
             await tx.delete(KnowledgeSourceEntity, { workspaceId, origin: partOriginOf(sourceId) })
             if (first === null) return []
@@ -60,7 +62,6 @@ export class SourcePartsService {
             await eachInOrder(ids, (id) => this.queue.enqueueIndex({ sourceId: id, workspaceId }, tx))
             return ids
         })
-        await eachInOrder(created, (id) => this.progress.announce(workspaceId, id))
         return partTitleOf(title, 1, total)
     }
 
@@ -98,6 +99,8 @@ export class SourcePartsService {
                 })
             }
             await tx.delete(KnowledgeSourceEntity, { workspaceId, origin: partOriginOf(sourceId) })
+            // The vector index lets go of the document and its parts: the sync event commits with the delete (QDRANT-2 contract).
+            await this.sourcesChanged(workspaceId, [sourceId, ...later.map((part) => part.id)], tx)
             return { title, parts: later.map((part) => ({ id: part.id, title: part.title })) }
         })
     }
@@ -107,7 +110,45 @@ export class SourcePartsService {
         workspaceId: string,
         sourceId: string,
         changes: QueryDeepPartialEntity<KnowledgeSourceEntity>,
+        tx: EntityManager = this.entityManager,
     ): Promise<void> {
-        await this.entityManager.update(KnowledgeSourceEntity, { workspaceId, origin: partOriginOf(sourceId) }, changes)
+        const where = { workspaceId, origin: partOriginOf(sourceId) }
+        await tx.update(KnowledgeSourceEntity, where, changes)
+        if (!changesReaders(changes) || this.vectorSync === undefined) return
+        const parts = await tx.find(KnowledgeSourceEntity, { select: { id: true }, where, take: PARTS_MAX })
+        await this.sourcesChanged(
+            workspaceId,
+            parts.map((part) => part.id),
+            tx,
+        )
+    }
+
+    /** A whole document as a move reads it, in the caller's transaction: its first source and later parts; null when it is gone. */
+    async wholeOf(
+        workspaceId: string,
+        sourceId: string,
+        tx: EntityManager = this.entityManager,
+    ): Promise<MaybeWholeDocument> {
+        const first = await tx.findOne(KnowledgeSourceEntity, {
+            select: { id: true, title: true, visibility: true, origin: true },
+            where: { id: sourceId, workspaceId },
+        })
+        if (first === null) return null
+        const later = await tx.find(KnowledgeSourceEntity, {
+            select: { id: true },
+            where: { workspaceId, origin: partOriginOf(sourceId) },
+            take: PARTS_MAX,
+        })
+        return {
+            ids: [sourceId, ...later.map((part) => part.id)],
+            title: first.title,
+            visibility: first.visibility,
+            origin: first.origin,
+        }
+    }
+
+    /** The `vector.sync` event of each source, in the caller's transaction; nothing when the deployment has no vector index. */
+    async sourcesChanged(workspaceId: string, sourceIds: ReadonlyArray<string>, tx: EntityManager): Promise<void> {
+        await eachInOrder(sourceIds, (id) => this.vectorSync?.changedSource(workspaceId, id, tx) ?? Promise.resolve())
     }
 }

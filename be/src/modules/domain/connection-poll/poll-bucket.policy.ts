@@ -1,5 +1,15 @@
 import type { PollLimits } from "./connection-poll.contracts"
 
+/**
+ * The longest a call waits for a token inside its own poll: the time a busy provider is asked again (the schedule's declared recheck). A read that
+ * spends several calls (a list, then each conversation) needs more calls than the burst holds, so each call after the bucket ran dry waits for
+ * the refill the limit names; a wait longer than this is no pacing but a closed gate, and the poll is planned again instead (`Deferred`).
+ */
+export const MAX_TOKEN_WAIT_MS = 5_000
+
+/** How many times one call waits for a token and takes again before the poll is planned again (another replica may have taken the refilled token). */
+export const TOKEN_WAIT_ATTEMPTS = 3
+
 /** The tokens a bucket holds and the instant they were counted at. */
 export interface BucketState {
     /** Whole and fractional calls that may be made now. */

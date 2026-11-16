@@ -20,6 +20,7 @@ export class CreateApiKeyHandler extends ICQRSHandler<CreateApiKeyCommand, Creat
             command.params.principal.id,
             command.params.request.workspaceId,
             command.params.request.name,
+            command.params.request.kind,
             command.params.request.agentId,
         )
     }

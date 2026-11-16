@@ -1,6 +1,6 @@
 import { gql, type ApolloClient, type TypedDocumentNode } from "@apollo/client"
-import { createAuthApolloClient } from "../clients"
-import type { InputVariables, QueryParams, WireInput } from "../types"
+import { createAuthApolloClient, type InputVariables, type QueryParams, type WireInput } from "@nivo-lite/api"
+import { webApiTransport } from "@/modules/api-transport"
 import type { ChatRoomsQuery, ChatRoomsQueryVariables } from "../__generated__/graphql"
 
 /** Generated variables of the ChatRooms query. */
@@ -16,6 +16,7 @@ const query1: Document = gql`
             id
             kind
             name
+            withNivo
             position
             createdBy
             createdAt
@@ -26,6 +27,7 @@ const query1: Document = gql`
                 role
                 lastReadAt
                 muted
+                mayPost
             }
             unreadCount
             mentionCount
@@ -37,6 +39,23 @@ const query1: Document = gql`
                 authorName
                 body
                 createdAt
+                backgroundStopped {
+                    work
+                    reason
+                    since
+                    episode
+                    target {
+                        kind
+                    }
+                }
+                jobParked {
+                    job
+                    jobId
+                    failureClass
+                    reason
+                    episode
+                    since
+                }
             }
         }
     }
@@ -58,7 +77,7 @@ export const queryChatRooms = async ({
     signal,
     headers,
 }: QueryChatRoomsParams): Promise<ApolloClient.QueryResult<QueryChatRoomsResponse>> => {
-    const apollo = createAuthApolloClient({ signal, headers })
+    const apollo = createAuthApolloClient(webApiTransport, { signal, headers })
     return apollo.query({
         query: queryMap[query],
         variables: { input: request },

@@ -1,6 +1,7 @@
 import { Button, IconButton, Page, Pane, PaneGrid } from "@starci/grammar/common"
 import { SlotView } from "@nivo-lite/agent-sdk/client"
 import { BrainHeaderActions, brainHeaderTabs } from "@/components/composites/BrainHeaderActions"
+import { brainHeaderSubTabs } from "@/components/composites/BrainKnowledgeChips"
 import { KnowledgeDocAside } from "@/components/composites/KnowledgeDocAside"
 import { KnowledgeDocBody, KnowledgeNivoBody } from "@/components/composites/KnowledgeDocBody"
 import { KnowledgeDocHead } from "@/components/frames/KnowledgeDocHead"
@@ -19,6 +20,7 @@ import type {
     NivoBodyView,
 } from "@/modules/types"
 import { ADD_ICON_CLASS_NAME, ADD_WORDS_CLASS_NAME } from "./classNames"
+import { DOC_AREA_PLACEHOLDER } from "./placeholders"
 
 /** The words and values the connected documents screen supplies, and the drawer that adds documents. */
 export interface KnowledgeDocsBaseProps {
@@ -42,6 +44,7 @@ const DOC_PLACEHOLDER: DocOpenedView<DocBodyView> = {
         chips: [{ label: "-", tone: "neutral" }],
         reindex: { label: "-", isPending: false, isDisabled: false },
         menu: [{ id: "placeholder", label: "-" }],
+        area: DOC_AREA_PLACEHOLDER,
         remove: null,
     },
     body: {
@@ -61,7 +64,7 @@ const DOC_PLACEHOLDER: DocOpenedView<DocBodyView> = {
 
 /** An item of the base knowledge of the same shape as a ready one. */
 const NIVO_PLACEHOLDER: DocOpenedView<NivoBodyView> = {
-    head: { ...DOC_PLACEHOLDER.head, reindex: null, menu: [] },
+    head: { ...DOC_PLACEHOLDER.head, reindex: null, menu: [], area: null },
     body: { noticeTitle: "-", noticeBody: "-", contentTitle: "-", lines: ["-", "-", "-"] },
     facts: DOC_PLACEHOLDER.facts,
 }
@@ -132,11 +135,14 @@ const HeadOf = (props: Props) => {
             detailsLabel={props.props.hasAside ? copy.asideTitle : null}
             isLoading={isWaiting || found.isLoading}
             isRemoveOpen={props.props.isRemoveOpen}
+            isAreaOpen={props.props.isAreaOpen}
             onBack={props.on.back}
             onReindex={props.on.reindex}
             onMenu={props.on.menu}
             onRemoveOpenChange={props.on.removeOpenChange}
             onRemove={props.on.remove}
+            onAreaOpenChange={props.on.areaOpenChange}
+            onArea={props.on.area}
         />
     )
 }
@@ -206,6 +212,7 @@ const AsideBody = (props: Props) => {
                     facts={shown.facts}
                     ideas={props.props.ideas}
                     nextReview={props.props.nextReview}
+                    questions={props.props.questions}
                     isLoading={isWaiting || shown.isLoading}
                     onIdea={props.on.idea}
                     onMore={props.on.moreIdeas}
@@ -233,14 +240,11 @@ export const KnowledgeDocsBase = (props: KnowledgeDocsBaseProps) => {
                 actions: (
                     <>
                         <AddAction view={view} />
-                        <BrainHeaderActions
-                            review={view.header.actions.review}
-                            add={null}
-                            onReview={props.on.reviewAll}
-                        />
+                        <BrainHeaderActions add={null} />
                     </>
                 ),
                 tabs: brainHeaderTabs({ tabs: view.header.tabs, onSelect: props.on.selectTab }),
+                ...brainHeaderSubTabs(view.header.chips),
             }}
             measure="product"
         >

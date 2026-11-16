@@ -1,5 +1,8 @@
 import { Alert, Select, Text } from "@starci/grammar/common"
 
+/** The `isLoading` prop, spread only when the caller states it (an absent flag stays absent). */
+const loadingOf = (isLoading: boolean | undefined) => (isLoading === undefined ? {} : { isLoading })
+
 /** What the import step draws and reports. */
 interface CsvImportRunProps {
     readonly isLoading?: boolean
@@ -18,25 +21,33 @@ interface CsvImportRunProps {
 }
 
 /** The import step: what will be imported, the refresh schedule of a sheet, and the outcome once it ran. */
-export const CsvImportRun = (props: CsvImportRunProps) => {
-    const loading = props.isLoading === undefined ? {} : { isLoading: props.isLoading }
-    return (
-        <>
-            <Text size="sm">{props.intro}</Text>
-            {props.schedule === null ? null : (
-                <Select
-                    {...loading}
-                    label={props.schedule.label}
-                    isDisabled={props.isDisabled || props.done !== null}
-                    value={props.schedule.value}
-                    options={[...props.schedule.options]}
-                    onValueChange={props.onSchedule}
-                />
-            )}
-            {props.done === null ? null : (
-                <Alert {...loading} tone="affirmative" title={props.done.title} description={props.done.description} />
-            )}
-            {props.done?.skipped ? <Alert {...loading} tone="informative" title={props.done.skipped} /> : null}
-        </>
-    )
-}
+export const CsvImportRun = (props: CsvImportRunProps) => (
+    <>
+        <Text size="sm">{props.intro}</Text>
+        {props.schedule === null ? null : (
+            <Select
+                {...loadingOf(props.isLoading)}
+                label={props.schedule.label}
+                isDisabled={props.isDisabled || props.done !== null}
+                value={props.schedule.value}
+                options={[...props.schedule.options]}
+                onValueChange={props.onSchedule}
+            />
+        )}
+        {props.done === null ? null : (
+            <Alert
+                {...loadingOf(props.isLoading)}
+                tone="affirmative"
+                title={props.done.title}
+                description={props.done.description}
+            />
+        )}
+        {props.done?.skipped ? (
+            <Alert
+                {...loadingOf(props.isLoading)}
+                tone="informative"
+                title={props.done.skipped}
+            />
+        ) : null}
+    </>
+)

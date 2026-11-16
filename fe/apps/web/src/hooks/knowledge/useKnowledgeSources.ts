@@ -1,15 +1,11 @@
 "use client"
 
 import { useMemo } from "react"
-import { useQueryKnowledgeSourcesSwr, useSubscribeKnowledgeProgressSwr } from "@/hooks/swr"
+import { useQueryKnowledgeSourcesSwr } from "@/hooks/swr"
 import { slotOfSwr } from "@/hooks/slot"
-import { liveOf, overlayPush, toKnowledgeDocument, type LiveProgress } from "@/modules/documents"
-import type { ModuleKey } from "@/modules/catalog"
+import { liveOf, toDocumentTruths, toKnowledgeDocument, type LiveProgress } from "@/modules/documents"
 import { readError } from "@/hooks/workspaceread"
-import type { KnowledgeDocument, DataSlot } from "@/modules/types"
-
-/** How often the list is read while the stream is open: a check for a frame the stream lost. */
-const LIVE_POLL_MS = 15_000
+import type { DataSlot, DocumentTruths, KnowledgeDocument } from "@/modules/types"
 
 /** The view `useKnowledgeSources` returns. */
 export interface KnowledgeSourcesView {
@@ -17,6 +13,8 @@ export interface KnowledgeSourcesView {
     live: {
         [k: string]: LiveProgress
     }
+    /** Where the truths work of each document stands, by document id; null until the document is indexed. */
+    truths: { [k: string]: DocumentTruths | null }
     error: unknown
     isLoading: boolean
     slot: DataSlot<KnowledgeDocument[]>
@@ -24,35 +22,30 @@ export interface KnowledgeSourcesView {
 }
 
 /**
- * The documents of the active workspace, in the shape the blocks know. While a worker is on a document its progress arrives on
- * the progress stream and is laid over the stored list; when the stream is not open the list polls as before.
+ * The documents of the active workspace, in the shape the blocks know. While a worker is on a document the list polls, so its status
+ * and stored progress move on their own; the state of the jobs of a document comes from `useKnowledgeJobs`, where a list draws it.
  * `module` = "all" or undefined lists every document.
  */
-export const useKnowledgeSources = (module?: ModuleKey | "all"): KnowledgeSourcesView => {
-    const stream = useSubscribeKnowledgeProgressSwr()
-    const pushed = stream.data?.bySource
-    const swrRead = useQueryKnowledgeSourcesSwr(
-        module === undefined || module === "all" ? {} : { module },
-        stream.data?.isLive === true ? LIVE_POLL_MS : undefined,
-    )
+export const useKnowledgeSources = (module?: string | "all"): KnowledgeSourcesView => {
+    const swrRead = useQueryKnowledgeSourcesSwr(module === undefined || module === "all" ? {} : { module })
     const { data, isLoading } = swrRead
     const error = readError(swrRead)
-    const sources = useMemo(
-        () =>
-            data === undefined ? undefined : data.map((row) => overlayPush(toKnowledgeDocument(row), pushed?.[row.id])),
-        [data, pushed],
-    )
+    const sources = useMemo(() => (data === undefined ? undefined : data.map((row) => toKnowledgeDocument(row))), [data])
     const live = useMemo(
         () =>
             Object.fromEntries(
                 (sources ?? []).flatMap((source) => {
-                    const state = liveOf(source, pushed?.[source.id])
+                    const state = liveOf(source)
                     return state === null ? [] : [[source.id, state]]
                 }),
             ),
-        [sources, pushed],
+        [sources],
+    )
+    const truths = useMemo(
+        () => Object.fromEntries((data ?? []).map((row) => [row.id, toDocumentTruths(row.truths)])),
+        [data],
     )
     const slot = slotOfSwr({ data: sources, error: swrRead.error, isLoading })
     const reload = () => void swrRead.mutate()
-    return { sources, live, error, isLoading, slot, reload }
+    return { sources, live, truths, error, isLoading, slot, reload }
 }

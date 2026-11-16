@@ -1,7 +1,9 @@
+import type { AccountOwner, PendingRow } from "@modules/domain/account-data"
+
 /** The provider identity admitted by a bank-feed receipt. */
 export type BankFeedProvider = "casso" | "payos" | "sepay-feed"
 
-/** What a payment connection reports before the connection decides how to book it: money in, or money out of the account. */
+/** One movement a payment connection reports: money in, or money out of the account. */
 export interface IncomingCredit {
     /** The moved amount in VND, always positive. */
     readonly amount: number
@@ -19,25 +21,27 @@ export interface IncomingCredit {
     readonly payer?: string
     /** When the bank booked the movement, ISO text, when the provider says. */
     readonly occurredAt?: string
+    /**
+     * The BANK's own reference of the movement (the transfer's reference number at the bank), when the provider passes it on: never the
+     * provider's row id. With the account number and the amount it names the movement whichever feed reports it.
+     */
+    readonly bankRef?: string
+    /**
+     * The provider's own reference of the payment request this movement pays (payOS: the paid link's order code), when the provider names
+     * one: a request's paid event is matched by it (owner ruling R111), never by the transfer's words.
+     */
+    readonly requestRef?: string
 }
 
-/** The payload stored for one workspace-feed receipt. */
-export interface FeedReceiptPayload {
-    /** The authenticated connection identity. */
-    readonly connection: string
-    /** The normalized credits of the delivery. */
-    readonly credits: ReadonlyArray<IncomingCredit>
-    /** `poll` when a reconcile run read the transaction back from the provider because its webhook never delivered it; absent for a webhook delivery. */
-    readonly source?: "poll"
+/** A pending movement of a bank door, held by the caller's transaction lock until its consumption and completion commit together. */
+export interface PendingBankMovement {
+    /** The movement as its `<provider>.transaction` row holds it. */
+    readonly value: Readonly<Record<string, unknown>>
+    /** The account the movement belongs to. */
+    readonly owner: AccountOwner
+    /** The locked row, as its completion needs it. */
+    readonly row: PendingRow
 }
 
-/** A pending receipt held by the caller's transaction lock. */
-export interface PendingBankFeedInboxReceipt {
-    /** The row to complete after successful booking. */
-    readonly id: string
-    /** The immutable receipt data. */
-    readonly payload: FeedReceiptPayload
-}
-
-/** A pending receipt, or undefined when it is absent or already complete. */
-export type BankFeedInboxReceiptLookup = PendingBankFeedInboxReceipt | undefined
+/** A pending movement, or undefined when it is absent or already complete. */
+export type BankMovementLookup = PendingBankMovement | undefined

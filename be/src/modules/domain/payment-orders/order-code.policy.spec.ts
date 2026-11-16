@@ -1,8 +1,7 @@
 import { Test } from "@nestjs/testing"
-import { newOrderCode, orderCodesIn } from "./order-code.policy"
+import { orderCodesIn } from "./order-code.policy"
 
 type Subject = {
-    newOrderCode: typeof newOrderCode
     orderCodesIn: typeof orderCodesIn
 }
 
@@ -10,27 +9,12 @@ const SUBJECT = Symbol("order-code.policy")
 
 const buildSubject = async () => {
     const moduleRef = await Test.createTestingModule({
-        providers: [{ provide: SUBJECT, useValue: { newOrderCode, orderCodesIn } }],
+        providers: [{ provide: SUBJECT, useValue: { orderCodesIn } }],
     }).compile()
     return moduleRef.get<Subject>(SUBJECT)
 }
 
 describe("order code policy", () => {
-    describe("newOrderCode", () => {
-        it("prints NIVO and five characters of the readable alphabet", async () => {
-            const subject = await buildSubject()
-
-            expect(subject.newOrderCode(() => Uint8Array.from([0, 1, 2, 3, 4]))).toBe("NIVO23456")
-        })
-
-        it("wraps a byte past the alphabet and never prints 0, O, 1, I or L", async () => {
-            const subject = await buildSubject()
-
-            expect(subject.newOrderCode(() => Uint8Array.from([31, 62, 255, 0, 30]))).toBe("NIVO2292Z")
-            for (let run = 0; run < 50; run += 1) expect(subject.newOrderCode()).toMatch(/^NIVO[2-9A-HJKMNP-Z]{5}$/)
-        })
-    })
-
     describe("orderCodesIn", () => {
         it("finds a code whatever the case, spaces and dashes the bank added", async () => {
             const subject = await buildSubject()

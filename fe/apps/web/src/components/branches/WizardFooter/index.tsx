@@ -7,6 +7,8 @@ export type WizardAction = {
     readonly intent: "alternative" | "dismiss" | "neutral"
     /** The one way forward of the step: the footer draws it as the commit. */
     readonly isNext?: true
+    /** The way forward leads on to the next step: its button ends in the arrow. */
+    readonly isForward?: true
     readonly onPress: () => void
     readonly isPending?: boolean
     readonly isDisabled?: boolean
@@ -18,6 +20,9 @@ type WizardFooterProps = {
     /** The buttons are drawn but cannot be pressed while the step is a placeholder. */
     readonly isLoading?: boolean
 }
+
+/** The arrow a forward action ends in. */
+const arrowOf = (action: WizardAction) => (action.isForward === true ? { endArrow: true } : {})
 
 /** The flags a wizard action may carry onto its button. */
 const flagsOf = (action: WizardAction, isLoading: boolean) => ({
@@ -33,7 +38,12 @@ export const WizardFooter = (props: WizardFooterProps) => {
     return (
         <>
             {next === undefined ? null : (
-                <Button intent="commit" {...flagsOf(next, isLoading)} onPress={next.onPress}>
+                <Button
+                    intent="commit"
+                    {...arrowOf(next)}
+                    {...flagsOf(next, isLoading)}
+                    onPress={next.onPress}
+                >
                     {next.label}
                 </Button>
             )}
@@ -67,6 +77,13 @@ export const nextAction = (
     ...flags,
 })
 
+/** The commit button of a step that leads on to the next step: the way forward, with the arrow of where it goes. */
+export const forwardAction = (
+    label: string,
+    onPress: () => void,
+    flags: { readonly isPending?: boolean; readonly isDisabled?: boolean } = {},
+): WizardAction => ({ ...nextAction(label, onPress, flags), isForward: true })
+
 /** The dismiss button that leaves the wizard from its first step. */
 export const closeAction = (label: string, onPress: () => void, isDisabled = false): WizardAction => ({
     id: "close",
@@ -91,4 +108,4 @@ export const startActions = (
     closeLabel: string,
     onNext: () => void,
     onClose: () => void,
-): ReadonlyArray<WizardAction> => [nextAction(nextLabel, onNext), closeAction(closeLabel, onClose)]
+): ReadonlyArray<WizardAction> => [forwardAction(nextLabel, onNext), closeAction(closeLabel, onClose)]

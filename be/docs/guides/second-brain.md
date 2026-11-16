@@ -41,19 +41,17 @@ public, whatever the model judged; from an Internal document it keeps the audien
 
 | Tab             | Purpose                                                                                                                                                                                                                                                                                                                      |
 | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| To do           | The daily work, one queue worst first: dossier findings (cards with the evidence of both documents and the actions that answer them), facts waiting for review (conflicts first, with the current value, evidence and NIVO's suggestion) and customer questions nobody answered. Its count is the one number the rail shows. |
-| Dossiers        | How complete the dossiers are: a stat strip, then the dossiers of each category with the next step.                                                                                                                                                                                                                          |
+| To do           | The daily work, one queue worst first: facts waiting for review (conflicts first, with the current value, evidence and NIVO's suggestion) and customer questions nobody answered. Its count is the one number the rail shows.                                                                                                |
 | Add sources     | Add documents (the owner chooses Public or Internal first), watch the four stages live, see what was taken in.                                                                                                                                                                                                               |
-| Map             | Health at a glance. Clusters = dossier categories, colour = status. Not an embedding projection.                                                                                                                                                                                                                             |
 | Facts           | Facts in force and scheduled; add, new value, stop using; scheduled values show "From dd/mm".                                                                                                                                                                                                                                |
 | Lessons         | Lessons NIVO proposes from the owner's corrections (apply or skip) and the ones in force; add by hand; retire.                                                                                                                                                                                                               |
 | What agents see | A table of what the customer and each agent may read of the shared knowledge.                                                                                                                                                                                                                                                |
 
-The old Review and Unanswered tabs redirect to To do. Details of the queue and the finding card: `dossier-review.md` section 7.
+The old Review and Unanswered tabs redirect to To do.
 
 ## Next
 
 1. Source profiles UI (confirm field meanings per data hub connection) and extraction of facts from data hub rows and Office notes ("@nivo remember") as proposals.
 2. Full-text / vector index over `data_records` (the data hub will switch `searchRecordsForAgent` to it).
 3. Replay `brain_eval_cases` before applying a lesson; quality metrics per agent (edit rate, ask rate, citation rate).
-4. Read back what OpenClaw agents write to their own memory as proposals.
+4. ~~Read back what OpenClaw agents write to their own memory as proposals.~~ Dropped: OpenClaw is removed (2026-11-11); what an agent learns reaches the brain as a change request ([engine-threads.md](engine-threads.md), concept `truth-graph`).

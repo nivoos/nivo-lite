@@ -109,6 +109,19 @@ describe("PublicDocumentsService countProposals", () => {
     })
 })
 
+describe("PublicDocumentsService approverOf", () => {
+    it("names who approved the text a published document serves; null for a draft or an id that is no public document", async () => {
+        const published = await build(mockEntityManager({ findOne: [PublicDocumentEntity, rowOf({ status: "published", approvedBy: "owner-1" })] }))
+        await expect(published.service.approverOf(WS, "d1")).resolves.toBe("owner-1")
+
+        const draft = await build(mockEntityManager({ findOne: [PublicDocumentEntity, rowOf({ status: "draft", approvedBy: null })] }))
+        await expect(draft.service.approverOf(WS, "d1")).resolves.toBeNull()
+
+        const none = await build(mockEntityManager({ findOne: [PublicDocumentEntity, null] }))
+        await expect(none.service.approverOf(WS, "s9")).resolves.toBeNull()
+    })
+})
+
 describe("PublicDocumentsService write", () => {
     it("keeps a hand-written text as a draft of the owner", async () => {
         const em = mockEntityManager(writtenDocumentAnswers())
@@ -168,7 +181,7 @@ describe("PublicDocumentsService requestDraft", () => {
             { documentId: "d1", sourceId: "s1", workspaceId: WS, sourceTitle: "Delivery policy", contentHash: "h1" },
         ])
         expect(queue.enqueuePublicDraft).toHaveBeenCalledWith(
-            { documentId: "d1", workspaceId: WS, draftRevision: 0 },
+            { documentId: "d1", workspaceId: WS, draftRevision: 0, requestedBy: "u1" },
             expect.anything(),
         )
         expect(tx.commits).toBe(1)
@@ -179,6 +192,15 @@ describe("PublicDocumentsService requestDraft", () => {
         const { service } = await build(tx.em)
 
         await service.requestDraft("u1", WS, { title: "T", sourceIds: ["s1"] })
+
+        expect(tx.em.insert).toHaveBeenCalledWith(PublicDocumentEntity, expect.objectContaining({ instructions: null }))
+    })
+
+    it("stores no note when the owner gave only blanks", async () => {
+        const tx = draftRequestTransaction([])
+        const { service } = await build(tx.em)
+
+        await service.requestDraft("u1", WS, { title: "T", sourceIds: ["s1"], instructions: "   " })
 
         expect(tx.em.insert).toHaveBeenCalledWith(PublicDocumentEntity, expect.objectContaining({ instructions: null }))
     })
@@ -206,7 +228,7 @@ describe("PublicDocumentsService redraft", () => {
             { status: "drafting", failureCode: null, draftRevision: 1 },
         )
         expect(queue.enqueuePublicDraft).toHaveBeenCalledWith(
-            { documentId: "d1", workspaceId: WS, draftRevision: 1 },
+            { documentId: "d1", workspaceId: WS, draftRevision: 1, requestedBy: "u1" },
             expect.anything(),
         )
     })
@@ -328,7 +350,6 @@ describe("PublicDocumentsService approve", () => {
         )
         expect(published.publish).not.toHaveBeenCalled()
         expect(published.replace).not.toHaveBeenCalled()
-        expect(published.announce).not.toHaveBeenCalled()
 
         expect(tx.em.update).toHaveBeenCalledWith(
             PublicDocumentSourceEntity,
@@ -419,7 +440,6 @@ describe("PublicDocumentsService publication rollback", () => {
         expect(tx.rollbacks).toBe(1)
         expect(tx.commits).toBe(0)
         expect(published.publish).toHaveBeenCalledWith(WS, "u1", "d1", expect.anything(), expect.anything())
-        expect(published.announce).not.toHaveBeenCalled()
         expect(tx.em.findOne).toHaveBeenCalledWith(PublicDocumentEntity, {
             where: { id: "d1", workspaceId: WS },
             lock: { mode: "pessimistic_write" },
@@ -452,7 +472,6 @@ describe("PublicDocumentsService reviewed revision", () => {
         expect(tx.em.update).not.toHaveBeenCalled()
         expect(published.publish).not.toHaveBeenCalled()
         expect(published.replace).not.toHaveBeenCalled()
-        expect(published.announce).not.toHaveBeenCalled()
     })
 })
 

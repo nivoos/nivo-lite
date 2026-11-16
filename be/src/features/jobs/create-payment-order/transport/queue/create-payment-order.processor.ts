@@ -1,13 +1,15 @@
 import { Injectable } from "@nestjs/common"
-import { PAYMENT_ORDER_REQUEST_QUEUE, PaymentOrderRequestsService } from "@modules/domain/payment-order-requests"
-import { FencedProcessor, type ClaimedJob } from "@modules/platform/jobs"
+import { PaymentOrderRequestsService } from "@modules/domain/payment-order-requests"
+import { FencedProcessor, type ClaimedJob, type JobDefinition } from "@modules/platform/jobs"
 import type { QueueDelivery } from "@modules/platform/queue"
+import { CREATE_PAYMENT_ORDER_JOB, PAYMENT_ORDER_REQUEST_QUEUE, type OrderRequestPayload } from "@modules/queues/payment-order-request"
 import { PlaceOrderStep } from "../../steps/place-order.step"
 
 @Injectable()
 /** The processor of the create-payment-order job: the runner claims and settles it; `process` delegates the fenced claim to the one step. */
 export class CreatePaymentOrderProcessor extends FencedProcessor {
-    readonly queue: "payment_order_requested" = PAYMENT_ORDER_REQUEST_QUEUE
+    override readonly queue: "payment_order_requested" = PAYMENT_ORDER_REQUEST_QUEUE
+    override readonly definition: JobDefinition<OrderRequestPayload> = CREATE_PAYMENT_ORDER_JOB
 
     constructor(
         private readonly placeOrder: PlaceOrderStep,
@@ -16,12 +18,12 @@ export class CreatePaymentOrderProcessor extends FencedProcessor {
         super()
     }
 
-    /** Makes the order; a stale token throws the fenced-out error from the guarded write before the effect and nothing else happens. */
+    /** Makes the order (one domain method); a stale token throws the fenced-out error from the guarded write before the effect. */
     async process(job: ClaimedJob): Promise<void> {
         await this.placeOrder.run(job)
     }
 
-    /** Publishes a terminal request failure when the queue will no longer retry this delivery. */
+    /** The job was dead-lettered (one item for a person): the request shows `failed` with its stable code; a resume of the job makes the order. */
     override onFailed(delivery: QueueDelivery, cause: unknown): Promise<void> {
         return this.requests.fail(delivery.payload, cause)
     }

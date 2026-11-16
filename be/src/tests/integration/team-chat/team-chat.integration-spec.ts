@@ -60,7 +60,7 @@ const group = async (
         await chat().createRoom(identity.workspaceId, identity.ownerId, {
             kind: "group",
             name,
-            members: members.map((member) => user(member)),
+            members: members.map((memberId) => user(memberId)),
         }),
     )
 

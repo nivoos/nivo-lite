@@ -78,17 +78,8 @@ const options = {
     channelSetup: wiringSettings.channelSetup,
     entityEngine: { cursorKey: new Secret(Buffer.alloc(32, 9).toString("base64")), buildId: undefined },
     channelProvisioning: { telegramToken: undefined, print: refuseWiringOperation },
-    workspaceSeed: { input: undefined, profileInput: undefined },
-    mcpGateway: { remote: { clientName: "nivo-mcp-gateway" }, defaultTimeoutMs: 1000 },
-    openclaw: {
-        gateway: null,
-        turnTimeoutMs: 90_000,
-        settleMs: 3000,
-        configDir: undefined,
-        gatewayStateDir: "/wiring",
-        manageAgents: false,
-        toolSecret: null,
-    },
+    workspaceSeed: { input: undefined },
+    toolsConfig: { defaultTimeoutMs: 1000 },
 }
 
 /** Explicit doubles for the private resource tokens of the real registered modules. */
@@ -163,28 +154,12 @@ type BuildWiringProofResultOverridesShape = {
     value: unknown
 }
 
-type BuildWiringProofResultOptionsOpenclawShape = {
-    gateway: null
-    turnTimeoutMs: number
-    settleMs: number
-    configDir: undefined
-    gatewayStateDir: string
-    manageAgents: boolean
-    toolSecret: null
-}
-
-type BuildWiringProofResultOptionsMcpGatewayRemoteShape = {
-    clientName: string
-}
-
-type BuildWiringProofResultOptionsMcpGatewayShape = {
-    remote: BuildWiringProofResultOptionsMcpGatewayRemoteShape
+type BuildWiringProofResultOptionsToolsConfigShape = {
     defaultTimeoutMs: number
 }
 
 type BuildWiringProofResultOptionsWorkspaceSeedShape = {
     input: undefined
-    profileInput: undefined
 }
 
 type BuildWiringProofResultOptionsChannelProvisioningShape = {
@@ -282,8 +257,7 @@ type BuildWiringProofResultOptionsShape = {
     entityEngine: BuildWiringProofResultOptionsEntityEngineShape
     channelProvisioning: BuildWiringProofResultOptionsChannelProvisioningShape
     workspaceSeed: BuildWiringProofResultOptionsWorkspaceSeedShape
-    mcpGateway: BuildWiringProofResultOptionsMcpGatewayShape
-    openclaw: BuildWiringProofResultOptionsOpenclawShape
+    toolsConfig: BuildWiringProofResultOptionsToolsConfigShape
 }
 
 type BuildWiringProofResultShape = {

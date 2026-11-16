@@ -1,19 +1,27 @@
 import { builder } from "@starci/jest-preset"
 import { QueryRunnerProviderAlreadyReleasedError } from "typeorm"
 import {
+    DELIVER_GENERIC_WEBHOOK_JOB,
     GENERIC_WEBHOOK_QUEUE,
-    GenericWebhookJob,
     GenericWebhookQueue,
-    genericWebhookKey,
     type GenericWebhookPayload,
 } from "@modules/queues/generic-webhook"
 import { useTestWorld } from "@tests/world/use-test-world"
+import { GenericWebhookIntakeService } from "@modules/domain/agent-inbound"
+import { persistReceiptAccount } from "@tests/fixtures/builders/account-data.builder"
 import {
+    GENERIC_WEBHOOK_INTAKE_MODULES,
     GENERIC_WEBHOOK_QUEUE_MODULES,
     observeCommittedWebhookDelivery,
     releasedTransactionOf,
+    webhookAccountReceipts,
 } from "@tests/world/generic-webhook-queue-proof.service"
-import { deliveryEnvelopes, deliveryPublications, removeDeliveryOutbox } from "@tests/world/proof-database.service"
+import {
+    cleanupWorkspace,
+    deliveryEnvelopes,
+    deliveryPublications,
+    removeDeliveryOutbox,
+} from "@tests/world/proof-database.service"
 import { TestWorldError, TestWorldErrorCode } from "@tests/world/test-world.error"
 
 const payloadOf = builder<GenericWebhookPayload>({
@@ -40,14 +48,14 @@ describe("GenericWebhookQueue", () => {
             const rows = await deliveryPublications(tx, GENERIC_WEBHOOK_QUEUE, payload.deliveryId)
             expect(rows).toHaveLength(1)
             expect(rows.map(({ payload: stored, dedupe_key }) => ({ payload: stored, dedupe_key }))).toEqual([
-                { payload, dedupe_key: genericWebhookKey(payload.deliveryId) },
+                { payload, dedupe_key: DELIVER_GENERIC_WEBHOOK_JOB.onceKey(payload) },
             ])
             expect(await deliveryEnvelopes(tx, GENERIC_WEBHOOK_QUEUE, payload.deliveryId)).toEqual([
                 {
                     message: {
-                        name: GenericWebhookJob.Deliver,
+                        name: DELIVER_GENERIC_WEBHOOK_JOB.name,
                         payload,
-                        dedupe: genericWebhookKey(payload.deliveryId),
+                        dedupe: DELIVER_GENERIC_WEBHOOK_JOB.onceKey(payload),
                         outbox_id: rows[0]?.id,
                     },
                 },
@@ -66,7 +74,7 @@ describe("GenericWebhookQueue", () => {
         const rows = await deliveryPublications(world.db.primary, GENERIC_WEBHOOK_QUEUE, payload.deliveryId)
         expect(rows).toHaveLength(1)
         expect(rows[0]?.payload).toEqual(payload)
-        expect(rows[0]?.dedupe_key).toBe(genericWebhookKey(payload.deliveryId))
+        expect(rows[0]?.dedupe_key).toBe(DELIVER_GENERIC_WEBHOOK_JOB.onceKey(payload))
     })
 
     it("rolls back the publication with the caller's rejected receipt transaction", async () => {
@@ -89,5 +97,52 @@ describe("GenericWebhookQueue", () => {
         const tx = await releasedTransactionOf(world)
         await expect(queue.enqueueDeliver(payload, tx)).rejects.toEqual(new QueryRunnerProviderAlreadyReleasedError())
         expect(await deliveryPublications(world.db.primary, GENERIC_WEBHOOK_QUEUE, payload.deliveryId)).toEqual([])
+    })
+})
+
+describe("GenericWebhookIntakeService receipts in the account", () => {
+    const world = useTestWorld({ modules: [...GENERIC_WEBHOOK_INTAKE_MODULES] })
+
+    it("a redelivery writes no second account_data row and queues no second job", async () => {
+        const userId = world.id()
+        const workspaceId = world.id()
+        const endpoint = world.id()
+        cleanupWorkspace(world, userId, workspaceId)
+        await persistReceiptAccount(world.db.primary, { userId, workspaceId, connectionId: endpoint, provider: "webhook" })
+        const deliveryId = `${endpoint}:receipt-1`
+        world.cleanup(() => removeDeliveryOutbox(world.db.primary, GENERIC_WEBHOOK_QUEUE, deliveryId))
+        const delivery = {
+            endpoint,
+            rawBody: Buffer.from('{"type":"payment.received","id":"receipt-1"}'),
+            signature: "proven",
+            eventType: undefined,
+            deliveryKey: undefined,
+        }
+        const intake = world.resolve(GenericWebhookIntakeService)
+        await intake.accept(delivery)
+        await intake.accept(delivery)
+        const receipts = await webhookAccountReceipts(world, endpoint)
+        expect(receipts).toEqual([
+            {
+                key: "receipt-1",
+                value: { deliveryId: "receipt-1", raw: { type: "payment.received", id: "receipt-1" } },
+                processedAt: null,
+            },
+        ])
+        expect(await deliveryPublications(world.db.primary, GENERIC_WEBHOOK_QUEUE, deliveryId)).toHaveLength(1)
+    })
+
+    it("a delivery for an endpoint nobody holds keeps no receipt and queues nothing", async () => {
+        const endpoint = world.id()
+        const deliveryId = `${endpoint}:receipt-1`
+        await world.resolve(GenericWebhookIntakeService).accept({
+            endpoint,
+            rawBody: Buffer.from('{"type":"payment.received","id":"receipt-1"}'),
+            signature: "proven",
+            eventType: undefined,
+            deliveryKey: undefined,
+        })
+        expect(await webhookAccountReceipts(world, endpoint)).toEqual([])
+        expect(await deliveryPublications(world.db.primary, GENERIC_WEBHOOK_QUEUE, deliveryId)).toEqual([])
     })
 })

@@ -5,10 +5,18 @@ import {
 import { Module, type DynamicModule } from "@nestjs/common"
 import { CLOCK, type Clock } from "@modules/platform/clock"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./object-storage.module-definition"
-import { STORAGE_ASSETS, STORAGE_OBJECTS, STORAGE_OPTIONS } from "./object-storage.decorators"
+import {
+    STORAGE_ASSETS,
+    STORAGE_BUCKETS_PORT,
+    STORAGE_FILES,
+    STORAGE_OBJECTS,
+    STORAGE_OPTIONS,
+} from "./object-storage.decorators"
 import type { ObjectStorageOptions } from "./object-storage.options"
 import { StorageAssetsService } from "./object-storage-assets.service"
 import { StorageBootstrapService } from "./object-storage-bootstrap.service"
+import { StorageBucketsService } from "./object-storage-buckets.service"
+import { StorageFilesService } from "./object-storage-files.service"
 import { StorageObjectsService } from "./object-storage-objects.service"
 
 /** The settings of `@starci/object-storage` for the parsed options of the app and its clock. */
@@ -40,9 +48,11 @@ export class ObjectStorageModule extends ConfigurableModuleClass {
                 { provide: STORAGE_OPTIONS, useValue: options },
                 { provide: STORAGE_OBJECTS, useClass: StorageObjectsService },
                 { provide: STORAGE_ASSETS, useClass: StorageAssetsService },
+                { provide: STORAGE_FILES, useClass: StorageFilesService },
+                { provide: STORAGE_BUCKETS_PORT, useClass: StorageBucketsService },
                 StorageBootstrapService,
             ],
-            exports: [STORAGE_OBJECTS, STORAGE_ASSETS, StorageBootstrapService],
+            exports: [STORAGE_OBJECTS, STORAGE_ASSETS, STORAGE_FILES, STORAGE_BUCKETS_PORT, StorageBootstrapService],
         }
     }
 }

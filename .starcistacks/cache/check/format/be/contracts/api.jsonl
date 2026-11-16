@@ -1,2 +1,2 @@
-{"findings":[],"hash":"f36d50b79f222b453d436f1333e710fa46085c0ba32d89599f0bcc268d257128","path":"be/contracts/api/events.json","step":"prettier"}
-{"findings":[],"hash":"204c64a784b8465c926973643c18703436d261c8886456aa65cb57ebad1df235","path":"be/contracts/api/schema.graphql","step":"prettier"}
+{"findings":[],"hash":"362040db302e987297ce2c48d3dcb10a9fd7e9614df02ab5fd9a7506fa1b68f2","path":"be/contracts/api/events.json","step":"prettier"}
+{"findings":[],"hash":"b24505b1e243957acf5c57ca6f17ffa4fccd5e9b1cd1690c3ba9197bbd9133f3","path":"be/contracts/api/schema.graphql","step":"prettier"}

@@ -1,6 +1,6 @@
 import { gql, type ApolloClient, type TypedDocumentNode } from "@apollo/client"
-import { createAuthApolloClient } from "../clients"
-import type { QueryParams } from "../types"
+import { createAuthApolloClient, type QueryParams } from "@nivo-lite/api"
+import { webApiTransport } from "@/modules/api-transport"
 import type { MyWorkspacesQuery } from "../__generated__/graphql"
 
 /** The response of the `myWorkspaces` query: the typed payload straight from the back end contract. */
@@ -25,6 +25,21 @@ const query1: TypedDocumentNode<QueryMyWorkspacesResponse> = gql`
                 displayName
                 status
             }
+            lobby {
+                deletedAt
+                disabledAt
+                disabledByName
+                disabledByRole
+                disabledNote
+                lastOpenedAt
+                restoreBefore
+                memberCount
+                ownerCount
+                planCode
+                planNameEn
+                planNameVi
+                seatLimit
+            }
         }
     }
 `
@@ -48,6 +63,6 @@ export const queryMyWorkspaces = async ({
     query = QueryMyWorkspaces.Query1,
     signal,
 }: QueryMyWorkspacesParams = {}): Promise<ApolloClient.QueryResult<QueryMyWorkspacesResponse>> => {
-    const apollo = createAuthApolloClient({ signal })
+    const apollo = createAuthApolloClient(webApiTransport, { signal })
     return apollo.query({ query: queryMap[query] })
 }

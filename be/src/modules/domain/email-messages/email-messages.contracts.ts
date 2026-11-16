@@ -1,3 +1,4 @@
+import type { MailThread } from "./smtp-send.contracts"
 import type { SentMail } from "@modules/integrations/mail"
 
 /** Who a message is for: the owner of the workspace or a customer. */
@@ -10,7 +11,7 @@ export type EmailVia = "workspace" | "platform" | "none"
 export type SendEmailStatus = "sent" | "failed" | "no_smtp" | "blocked" | "rate_limited"
 
 /** Why a send did not go out, in terms a caller can branch on. */
-export type SendEmailFailure = "no_smtp" | "gate" | "rate" | "recipient" | "attachment" | "mail"
+export type SendEmailFailure = "no_smtp" | "rate" | "recipient" | "attachment" | "mail"
 
 /** A file attached to an email, as a caller hands it over. */
 export interface EmailAttachment {
@@ -47,10 +48,10 @@ export interface SendEmailInput {
     readonly refs?: Readonly<Record<string, unknown>>
     /** The audience; a customer by default. */
     readonly audience?: EmailAudience | undefined
-    /** Customer-facing mail: the work item whose gate approved this send. */
-    readonly workItemId?: string
     /** Files to attach: at most three, 2 MB together. */
     readonly attachments?: ReadonlyArray<EmailAttachment>
+    /** The thread the mail answers (a reply to a person's mail on a route), when it answers one. */
+    readonly thread?: MailThread | undefined
 }
 
 /** What a send answered. */
@@ -67,6 +68,8 @@ export interface SendEmailResult {
     readonly error?: string | undefined
     /** Why it did not go out. */
     readonly failure?: SendEmailFailure | undefined
+    /** The mail integration's typed code of a failure (`MailErrorCode`: a refused login, a timeout), when the server answered one. */
+    readonly code?: string | undefined
 }
 
 /** One send attempt to write down. */
@@ -81,8 +84,8 @@ export interface EmailRecord {
     readonly subject: string
     /** What the email is for. */
     readonly purpose: string
-    /** How it ended, or that it waits for the owner's decision. */
-    readonly status: SendEmailStatus | "waiting_decision"
+    /** How it ended. */
+    readonly status: SendEmailStatus
     /** The sender used. */
     readonly via: EmailVia
     /** The mail server's id of the message. */

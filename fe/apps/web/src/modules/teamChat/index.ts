@@ -1,5 +1,5 @@
 import { foldText } from "@/modules/installations"
-import type { ChatParty } from "@/modules/types"
+import type { ChatParty, TeamChatMarkView, TeamChatMessageRow } from "@/modules/types"
 
 /** How many mentions one message may carry. */
 const MENTIONS_MAX = 20
@@ -25,6 +25,8 @@ type ChatRefusalCode =
     | "too_many_files"
     | "file_too_large"
     | "file_type_not_allowed"
+    | "reaction_invalid"
+    | "reaction_rate_limited"
 
 /** What the end of a draft asks for: where the `@` stands and what was typed after it. */
 interface MentionTrigger {
@@ -109,6 +111,8 @@ export const isChatRefusal = (code: string): code is ChatRefusalCode =>
         "too_many_files",
         "file_too_large",
         "file_type_not_allowed",
+        "reaction_invalid",
+        "reaction_rate_limited",
     ].includes(code)
 
 /** The largest file a message may carry (bytes). */
@@ -143,3 +147,27 @@ export const partyKeyOf = (party: ChatParty): string => `${party.kind}:${party.i
 /** The party a picked key names, among the parties offered; undefined when none matches. */
 export const partyOfKey = (key: string, parties: ReadonlyArray<ChatParty>): ChatParty | undefined =>
     parties.find((party) => partyKeyOf(party) === key)
+export { agentCardOf } from "./agentCard"
+export { agentMessageWordsOf } from "./agentWords"
+export { stopPreviewNodeOf, stopPreviewOf } from "./stopPreview"
+export { NIVO_MARK, backgroundStoppedViewOf } from "./backgroundStopped"
+export type { BackgroundStoppedWords } from "./backgroundStopped"
+export { eventOfJobId, jobParkedViewOf } from "./jobParked"
+export type { JobParkedWords } from "./jobParked"
+export { brainChangeViewOf } from "./brainChange"
+export { quoteOf } from "./quote"
+export type { BrainChangeWords } from "./brainChange"
+export { stopCardViewOf } from "./stopCard"
+export type { StopCardWords } from "./stopCard"
+export { groupPositionsOf } from "./grouping"
+export type { GroupItem, GroupPosition } from "./grouping"
+export { createPendingTaps, createReactionBatcher, withPendingTaps } from "./reactions"
+export type { PendingTaps, ReactionBatch } from "./reactions"
+
+/** The mark of the sender of a message, as the thread draws it beside a bubble and a card: the agent's picture or the person's avatar. */
+export const chatMarkOf = (row: TeamChatMessageRow): TeamChatMarkView => ({
+    kind: row.author?.kind ?? "user",
+    id: row.author?.id ?? row.id,
+    name: row.authorName,
+    picture: row.author?.picture ?? null,
+})

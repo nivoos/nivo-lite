@@ -1,22 +1,12 @@
-import { Alert, AlertDialog, Stack, Text, type DropdownMenuEntry } from "@starci/grammar/common"
-import { ConnectionAccessMenu } from "@/components/composites/ConnectionAccessMenu"
+import { Alert, AlertDialog, Badge, Cluster, Link, Stack, Text, type DropdownMenuEntry } from "@starci/grammar/common"
 import { ConnectionCopyInput } from "@/components/composites/ConnectionCopyInput"
-import { ConnectionSmtpPanel } from "@/components/composites/ConnectionSmtpPanel"
 import type { RowDialog, RowPrimary, RowView } from "@/modules/types"
 
 /** The commands a connection's detail, menu and dialogs give. */
 export interface RowCommandSet {
     readonly primary: (id: RowPrimary["id"]) => void
     readonly menu: (id: string) => void
-    readonly pick: (agentId: string, value: string) => void
     readonly dialog: (kind: "disconnect" | "remove", action: "confirm" | "cancel") => void
-    readonly smtpToggle: (panel: "test" | "password") => void
-    readonly smtpTo: (value: string) => void
-    readonly smtpPassword: (value: string) => void
-    readonly smtpTest: () => void
-    readonly smtpSavePassword: () => void
-    readonly smtpMakeDefault: () => void
-    readonly smtpClose: () => void
 }
 
 /** The menu entries of a connection: the editing commands first, the destructive one last. */
@@ -49,22 +39,43 @@ const questionOf = (kind: "disconnect" | "remove", dialog: RowDialog, on: RowCom
     />
 )
 
+/** What the two destructive questions of a connection read. */
+interface ConnectionRowQuestionsProps {
+    readonly view: RowView
+    readonly on: RowCommandSet
+}
+
+/** The two questions a connection's destructive commands ask first (disconnect, remove); drawn in a portal, so they take no room. */
+export const ConnectionRowQuestions = (props: ConnectionRowQuestionsProps) => (
+    <>
+        {questionOf("disconnect", props.view.disconnect, props.on)}
+        {questionOf("remove", props.view.remove, props.on)}
+    </>
+)
+
 /** What the detail of a connection draws. */
 interface ConnectionRowBodyProps {
     readonly view: RowView
     readonly on: RowCommandSet
-    /** The access picker is part of the detail pane; a row inside a drawer keeps it beside its buttons. */
-    readonly withAccess?: boolean
+    /** The page's band draws the two questions (its menu opens them); a row inside a drawer keeps them here. */
+    readonly withoutQuestions?: boolean
+    /** The page of the account itself: its form owns the sender's password, test send and default, so no link to it is drawn. */
+    readonly onAccountPage?: boolean
 }
 
-/** What a connection says beyond its name: alerts, notes, the SMTP panel, the keys, the last note, and the two destructive questions. */
+/** Whether the connection says anything beyond its name (the two questions aside). */
+const hasContent = (view: RowView): boolean =>
+    view.alerts.length > 0 || view.notes.length > 0 || view.smtp !== null || view.keys !== null || view.note !== null
+
+/**
+ * What a connection says beyond its name: alerts, notes, the SMTP panel, the keys, the last note, and the two destructive questions.
+ * Nothing at all when there is nothing to say and the questions live elsewhere, so the page keeps no empty slot.
+ */
 export const ConnectionRowBody = (props: ConnectionRowBodyProps) => {
     const { view, on } = props
+    if (props.withoutQuestions === true && !hasContent(view)) return null
     return (
         <Stack gap="row">
-            {props.withAccess !== true || view.access === null ? null : (
-                <ConnectionAccessMenu {...view.access} onPick={on.pick} />
-            )}
             {view.alerts.map((alert) => (
                 <Alert key={alert.id} tone={alert.tone} title={alert.title} description={alert.description} />
             ))}
@@ -74,20 +85,17 @@ export const ConnectionRowBody = (props: ConnectionRowBodyProps) => {
                 </Text>
             ))}
             {view.smtp === null ? null : (
-                <ConnectionSmtpPanel
-                    {...view.smtp}
-                    id={view.id}
-                    onToggle={on.smtpToggle}
-                    onTo={on.smtpTo}
-                    onPassword={on.smtpPassword}
-                    onTest={on.smtpTest}
-                    onSavePassword={on.smtpSavePassword}
-                    onMakeDefault={on.smtpMakeDefault}
-                    onClose={on.smtpClose}
-                />
+                <Cluster gap="inline" align="center">
+                    {view.smtp.isDefault ? <Badge tone="success">{view.smtp.defaultBadge}</Badge> : null}
+                    {props.onAccountPage === true ? null : (
+                        <Link variant="head" href={view.smtp.page.href}>
+                            {view.smtp.page.label}
+                        </Link>
+                    )}
+                </Cluster>
             )}
             {view.keys === null ? null : (
-                <Stack gap="row">
+                <Stack gap="inline">
                     <ConnectionCopyInput
                         id={`row-${view.id}-url`}
                         name="webhookUrl"
@@ -106,8 +114,7 @@ export const ConnectionRowBody = (props: ConnectionRowBodyProps) => {
                 </Stack>
             )}
             {view.note === null ? null : <Alert title={view.note.text} tone={view.note.tone} />}
-            {questionOf("disconnect", view.disconnect, on)}
-            {questionOf("remove", view.remove, on)}
+            {props.withoutQuestions === true ? null : <ConnectionRowQuestions view={view} on={on} />}
         </Stack>
     )
 }

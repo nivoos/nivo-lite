@@ -1,3 +1,5 @@
 export { PublicApiQueueModule } from "./public-api.module"
 export { PUBLIC_API_QUEUE, PublicApiQueue } from "./public-api.queue"
-export { PublicApiQueueJob } from "./public-api.contracts"
+export { PublicApiQueueJob, isPublicMessageSendPayload } from "./public-api.contracts"
+export type { PublicApiRequestPayload, PublicMessageSendPayload } from "./public-api.contracts"
+export { PROCESS_PUBLIC_REQUEST_JOB, SEND_PUBLIC_MESSAGE_JOB } from "./public-api.jobs"

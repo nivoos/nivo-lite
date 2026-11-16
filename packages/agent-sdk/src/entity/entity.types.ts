@@ -1,6 +1,8 @@
 import type { ZodType } from "zod"
 import type { Namespaced } from "../schema/schema.types"
 import type { FilterExpr } from "../query/query.types"
+import type { TriggerCombine } from "../graph/trigger-event"
+import type { FileRef } from "./file-ref"
 
 /*
  * The entity declarations of the records model: every record has the system fields of `SYSTEM_FIELDS` (record columns, never in
@@ -10,9 +12,27 @@ import type { FilterExpr } from "../query/query.types"
 /** The record columns every entity has; their names are reserved and never declared as fields. */
 export type SystemField = "id" | "workspaceId" | "version" | "createdAt" | "updatedAt"
 
-/** The kinds of field an entity declares. `sequence` is a per-workspace counter (plan 9.3); `jsonb` carries a declared shape (plan 10). */
+/**
+ * The kinds of field an entity declares. `sequence` is a per-workspace counter (plan 9.3); `jsonb` carries a declared shape (plan 10);
+ * `file` carries a reference to one object of the core's file store (`FileRef`: key, content type, size, name), never its bytes (or,
+ * with `many`, an ordered list of such references);
+ * `contact` carries the id of a core contact (`contacts`, never a record): the engine proves the contact on write and erases (or
+ * clears) the record when the contact is deleted.
+ */
 export type FieldKind =
-    "uuid" | "text" | "int" | "bigint" | "bool" | "timestamptz" | "date" | "jsonb" | "enum" | "money_vnd" | "sequence"
+    | "uuid"
+    | "text"
+    | "int"
+    | "bigint"
+    | "bool"
+    | "timestamptz"
+    | "date"
+    | "jsonb"
+    | "enum"
+    | "money_vnd"
+    | "sequence"
+    | "file"
+    | "contact"
 
 /** A literal default the engine writes when a value is absent. */
 export interface LiteralDefault {
@@ -60,12 +80,37 @@ export interface FieldDef<K extends FieldKind = FieldKind, N extends boolean = b
     readonly keys?: Readonly<Record<string, CustomKeyDef>>
     /** jsonb: free-key filtering is declared, so the planner adds a GIN index on that key. */
     readonly freeKeys?: true
+    /** file: the content types accepted, exact (`image/png`) or a family (`image/*`); required for file. */
+    readonly accept?: readonly [string, ...Array<string>]
+    /** file: the largest object accepted, in bytes; required for file. */
+    readonly maxBytes?: number
+    /** file: the field holds an ordered list of references (`FileRef[]`) instead of one reference; needs `max`. */
+    readonly many?: true
+    /** file with `many`: the most references the list holds. */
+    readonly max?: number
+    /**
+     * contact: what deleting the contact does to a record that points at it: `erase` removes the record (its files and the records
+     * its refs cascade to included), `clear` empties the field (the field must be nullable). Absent on a contact field: `erase`.
+     */
+    readonly onContactDelete?: ContactDeleteRule
 }
+
+/** What deleting a contact does to a record whose contact field points at it. */
+export type ContactDeleteRule = "erase" | "clear"
 
 /** The declared fields of an entity, by field name. */
 export type FieldMap = Readonly<Record<string, FieldDef>>
 
-/** A relation stored as `record_links` rows with real foreign keys to `records` (plan 11). */
+/**
+ * What deleting the TARGET of a ref does to the records that point at it: `restrict` refuses the delete (the default), `clear` removes
+ * the link and keeps the record, `cascade` deletes the records that point at it too (in the same transaction, their own refs applied).
+ */
+export type RefDeleteRule = "restrict" | "cascade" | "clear"
+
+/**
+ * A relation (a `ref` of the records frame) stored as `record_links` rows with real foreign keys to `records` (plan 11). The target is
+ * a record type of the SAME agent (`RECORD_REF_OTHER_AGENT` otherwise): agents never reach each other's records.
+ */
 export interface RelationDef {
     /** One target per record, or many. */
     readonly kind: "toOne" | "toMany"
@@ -73,8 +118,42 @@ export interface RelationDef {
     readonly target: Namespaced
     /** toOne: a link must exist on insert. */
     readonly required?: true
-    /** What deleting the target does to the link. */
-    readonly onDelete?: "restrict" | "cascade"
+    /** What deleting the target does to the records that point at it; absent: `restrict`. */
+    readonly onDelete?: RefDeleteRule
+}
+
+/**
+ * The declared states of a record type: an `enum` field whose value only moves along the declared transitions. A write that moves it
+ * any other way is refused (`invalid`, constraint `<field>_transition`); an insert starts in one of `initial` (any value when absent).
+ */
+export interface StatesDef {
+    /** The enum field that holds the state. */
+    readonly field: string
+    /** The states a record may be created in; absent: any value of the field. */
+    readonly initial?: readonly [string, ...Array<string>]
+    /** The states each state may move to; a state with no entry is final. Staying in the same state is always allowed. */
+    readonly transitions: Readonly<Record<string, ReadonlyArray<string>>>
+}
+
+/**
+ * WHAT A WRITE OF A RECORD TYPE IS AS AN EVENT (concept agent-data rules 2, 3, 7): every write of a type that declares `events` (insert,
+ * update, upsert, an ensure that creates, the soft delete) is ONE event of `nivo.trigger.record.written`, delivered through the one
+ * pipeline. The type states its subject (never assumed to be a person), how pending events of one subject combine, and the closed values
+ * the event carries for a `where` to compare. Ids only otherwise: the node reads the record.
+ */
+export interface RecordEventsDef {
+    /**
+     * What the event is about: `id` (the record itself), or a declared field (a `contact` field: keyed by the person; any other: keyed by
+     * its value). A field of kind uuid, text, enum, int, bigint or contact.
+     */
+    readonly subject: string
+    /**
+     * Required, no default: overwritten state `latest` (the run re-reads the current record), facts `each`, a type declared `append` may
+     * `stream` (one marker; the node reads the stream with `consume: true`).
+     */
+    readonly combine: TriggerCombine
+    /** Declared `enum` fields whose value the event carries in its `data`, copied from the stored row (a `where` may compare them). */
+    readonly members?: ReadonlyArray<string>
 }
 
 /** A fold index part: public.knowledge_fold of a text field. */
@@ -171,11 +250,14 @@ export interface ProjectionDef {
     readonly sources: readonly [Namespaced, ...Array<Namespaced>]
 }
 
-/** What a module declares for one entity. */
+/**
+ * What a module declares for one record type (`defineRecordType`, the same builder as `defineEntity`). The key it declares (a unique
+ * constraint or index) is unique per workspace AND agent: agents never see each other's values.
+ */
 export interface EntityConfig<F extends FieldMap> {
-    /** `<module>.<thing>`; also the `records.entity` value and the partition name source. */
+    /** `<package>.<agent>.<domain>` (the records frame); also the `records.entity` value and the partition name source. */
     readonly name: Namespaced
-    /** The graph node data kind (rights grants are per kind). */
+    /** The graph node data kind the entity's data port is registered under. */
     readonly dataKind: string
     /** The declared fields, stored in `data`. */
     readonly fields: F
@@ -193,6 +275,16 @@ export interface EntityConfig<F extends FieldMap> {
     readonly deletable?: true
     /** Generate a typed read-only view `v_<partition>` (reporting and hand queries). */
     readonly view?: true
+    /** The declared states of one enum field and their transitions. */
+    readonly states?: StatesDef
+    /**
+     * Rows are FACTS (concept agent-data rule 5): never changed after insert (the engine refuses update and upsert; the soft delete of an
+     * erase stays), ordered by the engine's sequence, split by `events.subject`: a STREAM a consumer reads after its own position. Needs
+     * `events`; declares no `states`.
+     */
+    readonly append?: true
+    /** Every write of the type is an event (concept agent-data rule 2); absent: a write emits nothing. */
+    readonly events?: RecordEventsDef
 }
 
 /** A frozen entity declaration. */
@@ -210,7 +302,11 @@ type FieldValue<D extends FieldDef> = D["kind"] extends "int" | "money_vnd"
         ? D["shape"] extends ZodType<infer T>
             ? T
             : never
-        : string
+        : D["kind"] extends "file"
+          ? D["many"] extends true
+              ? ReadonlyArray<FileRef>
+              : FileRef
+          : string
 
 /** A value or null when the field is nullable. */
 type Nullable<D extends FieldDef, V> = D["nullable"] extends true ? V | null : V
@@ -251,6 +347,18 @@ export type EntityProblemCode =
     | "ENTITY_PROJECTION_SOURCE_UNKNOWN"
     | "ENTITY_CONSTRAINT_FIELD_UNKNOWN"
     | "ENTITY_PARTITION_NAME_TAKEN"
+    | "ENTITY_FILE_ACCEPT_INVALID"
+    | "ENTITY_FILE_MAX_BYTES_INVALID"
+    | "ENTITY_FILE_PRESENCE_INVALID"
+    | "ENTITY_FILE_MANY_INVALID"
+    | "ENTITY_CONTACT_INVALID"
+    | "ENTITY_STATES_INVALID"
+    | "ENTITY_EVENTS_SUBJECT_INVALID"
+    | "ENTITY_EVENTS_COMBINE_INVALID"
+    | "ENTITY_EVENTS_MEMBER_INVALID"
+    | "ENTITY_EVENTS_STREAM_NOT_APPEND"
+    | "ENTITY_APPEND_INVALID"
+    | "RECORD_REF_OTHER_AGENT"
 
 /** One problem of a declaration. */
 export interface EntityProblem {

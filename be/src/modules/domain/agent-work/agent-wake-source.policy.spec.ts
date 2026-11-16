@@ -1,5 +1,5 @@
 import { Test } from "@nestjs/testing"
-import { WakeSourcesPolicy, wakeSources } from "./agent-wake-source.policy"
+import { ENGINE_THREAD_SOURCE, WakeSourcesPolicy, wakeSources } from "./agent-wake-source.policy"
 import { AgentWorkError, AgentWorkErrorCode } from "./errors/agent-work.error"
 import type { AgentWakeTraits } from "@modules/domain/agent-wake-rules"
 
@@ -32,16 +32,17 @@ const codeOf = (run: () => unknown): unknown => {
 }
 
 describe("WakeSourcesPolicy built-in sources", () => {
-    it("gives the four sources that existed before adapters exactly the traits the work core always gave them", async () => {
+    it("gives the built-in sources exactly their traits (the old `customer` source is gone: a person's line is a pipeline event)", async () => {
         const table = await buildSubject()
 
-        expect(table.of("customer")).toEqual({
+        expect(table.lookup("customer")).toBeUndefined()
+        expect(table.of("trigger")).toEqual({
             priority: 10,
-            maxAttempts: 2,
-            scopedToConversation: true,
+            maxAttempts: 3,
+            scopedToConversation: false,
             background: false,
             restoresHeld: true,
-            awaitsAnswer: true,
+            awaitsAnswer: false,
         })
         expect(table.of("tag")).toEqual({
             priority: 20,
@@ -67,8 +68,35 @@ describe("WakeSourcesPolicy built-in sources", () => {
             restoresHeld: false,
             awaitsAnswer: false,
         })
-        expect(table.builtIn()).toEqual(["customer", "tag", "internal", "schedule"])
+        expect(table.builtIn()).toEqual(["tag", "internal", "trigger", "schedule"])
         expect(table.registered()).toEqual(table.builtIn())
+    })
+})
+
+describe("WakeSourcesPolicy engine sources", () => {
+    it("knows the thread source: a person waits on it, it restores when work is switched back on, three tries, not background", async () => {
+        const table = await buildSubject()
+
+        expect(ENGINE_THREAD_SOURCE).toBe("thread")
+        expect(table.of(ENGINE_THREAD_SOURCE)).toEqual({
+            priority: 15,
+            maxAttempts: 3,
+            scopedToConversation: false,
+            background: false,
+            restoresHeld: true,
+            awaitsAnswer: false,
+        })
+    })
+
+    it("never offers the thread source to a trigger, and refuses other traits for it", async () => {
+        const table = await buildSubject()
+
+        expect(table.registered()).not.toContain(ENGINE_THREAD_SOURCE)
+        expect(table.builtIn()).not.toContain(ENGINE_THREAD_SOURCE)
+        expect(codeOf(() => table.add(ENGINE_THREAD_SOURCE, traits({ background: true })))).toBe(
+            AgentWorkErrorCode.SourceInvalid,
+        )
+        expect(wakeSources.lookup(ENGINE_THREAD_SOURCE)?.restoresHeld).toBe(true)
     })
 })
 
@@ -78,17 +106,17 @@ describe("WakeSourcesPolicy.add", () => {
 
         table.add("invoice_hook", traits())
         table.add("invoice_hook", traits())
-        table.add("customer", table.of("customer"))
+        table.add("trigger", table.of("trigger"))
 
         expect(table.of("invoice_hook")).toEqual(traits())
         expect(table.lookup("invoice_hook")).toEqual(traits())
-        expect(table.registered()).toEqual(["customer", "tag", "internal", "schedule", "invoice_hook"])
+        expect(table.registered()).toEqual(["tag", "internal", "trigger", "schedule", "invoice_hook"])
     })
 
     it("refuses other traits for a known source, so two adapters cannot disagree about one key", async () => {
         const table = await buildSubject()
 
-        expect(codeOf(() => table.add("customer", traits()))).toBe(AgentWorkErrorCode.SourceInvalid)
+        expect(codeOf(() => table.add("trigger", traits()))).toBe(AgentWorkErrorCode.SourceInvalid)
         table.add("invoice_hook", traits())
         expect(codeOf(() => table.add("invoice_hook", traits({ priority: 99 })))).toBe(AgentWorkErrorCode.SourceInvalid)
     })
@@ -125,6 +153,6 @@ describe("WakeSourcesPolicy lookups", () => {
     })
 
     it("shares one process table", () => {
-        expect(wakeSources.lookup("customer")?.priority).toBe(10)
+        expect(wakeSources.lookup("trigger")?.priority).toBe(10)
     })
 })

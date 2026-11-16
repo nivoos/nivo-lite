@@ -1,13 +1,7 @@
 import { Test } from "@nestjs/testing"
 import { MODULE_CATEGORIES } from "../categories.contracts"
 import { MODULE_CATALOG } from "../modules.catalog.contracts"
-import type {
-    AcceptedCommand,
-    AuthorityActionDefinition,
-    ModuleCategory,
-    ModuleDefinition,
-    ModuleGate,
-} from "../modules.contracts"
+import type { ModuleCategory, ModuleDefinition, ModuleGate } from "../modules.contracts"
 import { checkCatalog as realCheckCatalog } from "./catalog.policy"
 
 const SUBJECT = Symbol("catalog.policy")
@@ -27,24 +21,6 @@ const blank = { vi: "", en: "" }
 const list = { vi: ["v"], en: ["e"] }
 const CATEGORIES: ReadonlyArray<ModuleCategory> = [{ key: "ops", label: text }]
 const GATE: ModuleGate = { key: "g1", label_vi: "v", label_en: "e", hint_vi: "v", hint_en: "e" }
-const ACTION: AuthorityActionDefinition = {
-    action: "do_thing",
-    label: text,
-    mode: "ask",
-    limitVnd: null,
-    requiredFields: [],
-    amountLimit: false,
-    maxMode: null,
-    note: "",
-    next: [],
-}
-const COMMAND: AcceptedCommand = {
-    command: "do_it",
-    action: "do_thing",
-    subjectType: "thing",
-    requiredFields: [],
-    description: text,
-}
 const GOOD: ModuleDefinition = {
     key: "demo",
     order: 1,
@@ -70,9 +46,9 @@ const GOOD: ModuleDefinition = {
     multiInstance: false,
     agent: { label: text, handle: "demo", summary: text, capabilities: list, role: text, instructions: text },
     gates: [GATE],
-    authorityActions: [ACTION],
-    accepts: [COMMAND],
 }
+
+const IDEA = { key: "i1", topic: text, hint: text }
 
 const INVALID_MODULES: Array<[string, ModuleDefinition, string]> = [
     ["a key that is not lowercase ASCII", { ...GOOD, key: "Bad-Key" }, "key must be short lowercase ASCII"],
@@ -122,44 +98,12 @@ const INVALID_MODULES: Array<[string, ModuleDefinition, string]> = [
     ["a gate without a hint", { ...GOOD, gates: [{ ...GATE, hint_en: "" }] }, "every gate needs"],
     ["a duplicate gate", { ...GOOD, gates: [GATE, GATE] }, "duplicate gate g1"],
     [
-        "a gate rule write for an action the module does not own",
-        { ...GOOD, gates: [{ ...GATE, writes: [{ kind: "rule", action: "nope", field: "mode" }] }] },
-        "a gate rule write names an action",
+        "a knowledge idea without its English hint",
+        { ...GOOD, knowledgeIdeas: [{ ...IDEA, hint: { vi: "x", en: "" } }] },
+        "every knowledge idea needs",
     ],
-    ["no authority actions", { ...GOOD, authorityActions: [] }, "authorityActions must not be empty"],
-    [
-        "a badly named action",
-        { ...GOOD, authorityActions: [{ ...ACTION, action: "Bad Action" }] },
-        "bad action Bad Action",
-    ],
-    ["an action without a label", { ...GOOD, authorityActions: [{ ...ACTION, label: blank }] }, "bad action do_thing"],
-    [
-        "an action accepted by two commands",
-        { ...GOOD, accepts: [COMMAND, { ...COMMAND, command: "other_command" }] },
-        "action do_thing is accepted by two commands",
-    ],
-    ["an action without a command", { ...GOOD, accepts: [] }, "action do_thing has no accepted command"],
-    [
-        "a command for an action the module does not own",
-        { ...GOOD, accepts: [COMMAND, { ...COMMAND, command: "stray", action: "nope" }] },
-        "command stray maps to an action",
-    ],
-    [
-        "a command with a bad subject",
-        { ...GOOD, accepts: [{ ...COMMAND, subjectType: "Bad" }] },
-        "needs a lower_snake subject",
-    ],
-    [
-        "a command without a description",
-        { ...GOOD, accepts: [{ ...COMMAND, description: blank }] },
-        "needs a lower_snake subject",
-    ],
-    ["a duplicate command", { ...GOOD, accepts: [COMMAND, { ...COMMAND, action: "nope" }] }, "duplicate command do_it"],
-    [
-        "an action that chains to an unknown action",
-        { ...GOOD, authorityActions: [{ ...ACTION, next: ["nowhere"] }] },
-        "chains to unknown action nowhere",
-    ],
+    ["a knowledge idea without a key", { ...GOOD, knowledgeIdeas: [{ ...IDEA, key: " " }] }, "every knowledge idea needs"],
+    ["a duplicate knowledge idea", { ...GOOD, knowledgeIdeas: [IDEA, IDEA] }, "duplicate knowledge idea i1"],
 ]
 
 describe("checkCatalog", () => {
@@ -169,7 +113,7 @@ describe("checkCatalog", () => {
         expect(checkCatalog([GOOD], CATEGORIES)).toEqual([])
     })
 
-    it("finds no problem in a module whose gates write a fact and a rule of its own action", async () => {
+    it("finds no problem in a module whose gates write a fact", async () => {
         const { checkCatalog } = await buildSubject()
 
         const gates: ReadonlyArray<ModuleGate> = [
@@ -177,12 +121,24 @@ describe("checkCatalog", () => {
                 ...GATE,
                 writes: [
                     { kind: "fact", subjectType: "business", attributeLabel: "x", scope: "public" },
-                    { kind: "rule", action: "do_thing", field: "mode" },
                 ],
             },
         ]
 
         expect(checkCatalog([{ ...GOOD, gates }], CATEGORIES)).toEqual([])
+    })
+
+    it("lets a back-office agent that speaks on channels run several instances (one role, many agents)", async () => {
+        const { checkCatalog } = await buildSubject()
+
+        const module: ModuleDefinition = {
+            ...GOOD,
+            audience: "internal",
+            multiInstance: true,
+            connectionProviders: ["telegram"],
+        }
+
+        expect(checkCatalog([module], CATEGORIES)).toEqual([])
     })
 
     it("finds no problem in the shipped catalogue", async () => {
@@ -204,13 +160,5 @@ describe("checkCatalog", () => {
         const { checkCatalog } = await buildSubject()
 
         expect(checkCatalog([GOOD, GOOD], CATEGORIES).join("\n")).toContain("duplicate module demo")
-    })
-
-    it("finds an action declared by two modules", async () => {
-        const { checkCatalog } = await buildSubject()
-
-        expect(checkCatalog([GOOD, { ...GOOD, key: "other" }], CATEGORIES).join("\n")).toContain(
-            "action do_thing is declared by two modules",
-        )
     })
 })

@@ -1,9 +1,12 @@
 "use client"
 
+import type { ModuleChoices } from "@/modules/catalog"
 import { useFormatter, useTranslations } from "next-intl"
 import { navigation } from "@/modules/i18n"
 import { brainTabHref, workspaceHref } from "@/modules/routes"
+import { useModuleLabels } from "@/hooks/moduleCatalog"
 import { useQueryKnowledgeUsageSwr } from "@/hooks/swr"
+import type { AddAreaView } from "@/modules/types"
 import { buildAddDocumentsView, type ZoneView, type AddDocumentsViewInput } from "./knowledge.shared"
 import { useAddDocuments } from "./useAddDocuments"
 import { useAddDropZone } from "./useAddDropZone"
@@ -114,7 +117,7 @@ export interface AddDocumentsViewShape {
             readonly titleError: string | undefined
             readonly contentError: string | undefined
         }
-        readonly internalNote: string
+        readonly area: AddAreaView
         readonly options: {
             readonly title: string
             readonly topicLabel: string
@@ -126,31 +129,8 @@ export interface AddDocumentsViewShape {
             readonly tags: string
             readonly module: string
             readonly moduleOptions: readonly [
-                {
-                    readonly id: "all"
-                    readonly label: string
-                },
-                ...(
-                    | {
-                          id:
-                              | "content"
-                              | "chatbot"
-                              | "lead_gen"
-                              | "sales"
-                              | "accounting"
-                              | "shifts"
-                              | "booking"
-                              | "inventory"
-                              | "loyalty"
-                              | "video"
-                              | "hiring"
-                          label: string
-                      }
-                    | {
-                          id: string
-                          label: string
-                      }
-                )[],
+                { readonly id: "all"; readonly label: string },
+                ...ModuleChoices,
             ]
         }
         readonly notice: string | undefined
@@ -167,7 +147,7 @@ export const useAddDocumentsView = (props: AddDocumentsViewInput): AddDocumentsV
     const t = useTranslations("knowledge")
     const formatter = useFormatter()
     const { data: usage } = useQueryKnowledgeUsageSwr()
-    const usageView = useUsageView(usage)
+    const usageView = useUsageView(usage?.documents)
     const router = navigation.useRouter()
     const actions = useQueueActions()
     const { canWrite, instances } = useAddInstances()
@@ -182,8 +162,9 @@ export const useAddDocumentsView = (props: AddDocumentsViewInput): AddDocumentsV
         onClose: () => router.replace(sourcesHref()),
     })
     const zone = useAddDropZone(sourcesHref)
+    const { choices: moduleChoices } = useModuleLabels()
     return {
         add,
-        view: buildAddDocumentsView({ t, formatter, props, add, canWrite, instances, zone, usage: usageView }),
+        view: buildAddDocumentsView({ t, formatter, props, add, canWrite, instances, modules: moduleChoices, zone, usage: usageView }),
     }
 }

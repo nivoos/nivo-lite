@@ -31,20 +31,20 @@ const build = async () => {
 
 describe("TelegramDeliveryService", () => {
     it.each([{}, { deliveryId: null }, { deliveryId: 42 }, { deliveryId: "" }, { deliveryId: "   " }])(
-        "leaves malformed jobs untouched: %p",
+        "refuses a malformed job as an input failure, untouched: %p",
         async (payload) => {
             const { service, inbox, claims } = await build()
-            await service.process(jobOf({ payload }))
+            await expect(service.process(jobOf({ payload }))).rejects.toMatchObject({ params: { failureClass: "input" } })
             expect(claims.advance).not.toHaveBeenCalled()
             expect(inbox.processRecordedDelivery).not.toHaveBeenCalled()
         },
     )
 
-    it.each([null, undefined, 1, "delivery-1"])("rejects malformed runtime payloads: %p", async (payload) => {
+    it.each([null, undefined, 1, "delivery-1"])("refuses malformed runtime payloads as an input failure: %p", async (payload) => {
         const { service, inbox, claims } = await build()
         const job = jobOf()
         Object.defineProperty(job, "payload", { value: payload })
-        await service.process(job)
+        await expect(service.process(job)).rejects.toMatchObject({ params: { failureClass: "input" } })
         expect(claims.advance).not.toHaveBeenCalled()
         expect(inbox.processRecordedDelivery).not.toHaveBeenCalled()
     })
@@ -62,7 +62,7 @@ describe("TelegramDeliveryService", () => {
             expectedFencingToken: 3,
             step: "telegram-delivery",
         })
-        expect(inbox.processRecordedDelivery).toHaveBeenCalledWith(job.payload)
+        expect(inbox.processRecordedDelivery).toHaveBeenCalledWith(job.payload, job)
     })
 
     it("stops a stale fence before the receipt effect", async () => {

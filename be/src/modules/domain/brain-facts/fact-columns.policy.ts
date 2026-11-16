@@ -34,6 +34,8 @@ export const RETURNED: string = [
     'decided_at AS "decidedAt"',
     'decision_note AS "decisionNote"',
     'proposal_kind AS "proposalKind"',
+    "version",
+    'review_flags AS "reviewFlags"',
 ].join(", ")
 
 /** True when a RETURNING row names the key of a stored fact, the shape the returned columns give it. */
@@ -47,7 +49,8 @@ export const returnedFacts = (raw: unknown): Array<BrainFactEntity> =>
     Array.isArray(raw) ? raw.filter(isBrainFactEntity) : []
 
 /** The scope of an installation in a condition: a null installation means the workspace-wide facts, which is IS NULL and never "any". */
-export const scopeOf = (installationId: InstallationScope): string | FindOperator<string> => installationId ?? IsNull()
+export const scopeOf = (installationId: InstallationScope): string | FindOperator<string> =>
+    installationId ?? IsNull()
 
 /** The condition that selects the facts of one key. */
 export interface FactKeyCondition {

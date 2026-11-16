@@ -12,15 +12,16 @@ const buildSubject = async () => {
     return moduleRef.get<{ routerOptionsOf: typeof routerOptionsOf }>(SUBJECT)
 }
 
-const provider = (id: string): AiGatewayProvider => ({
+const provider = (id: "anthropic" | "openai"): AiGatewayProvider => ({
     id,
+    kind: id,
     baseUrl: `https://${id}.test/v1`,
     keys: [{ alias: `${id.toUpperCase()}_KEY`, secret: new Secret(`sk-${id}`) }],
 })
 
 const optionsOf = (providers: ReadonlyArray<AiGatewayProvider>): AiGatewayOptions => ({
     providers,
-    models: { work: "m-work", embed: "m-embed" },
+    models: { work: "m-work", strong: "m-strong" },
     gateway: null,
 })
 
@@ -31,40 +32,91 @@ describe("routerOptionsOf", () => {
         expect(subject.routerOptionsOf(optionsOf([]))).toBeNull()
     })
 
-    it("serves chat and embeddings from the one upstream provider behind the work and embed profiles", async () => {
+    it("with OpenAI alone serves the pinned `embed-oa` only: text-embedding-3-small, its identity and 1536 dimensions", async () => {
         const subject = await buildSubject()
 
-        const router = subject.routerOptionsOf(optionsOf([provider("upstream")]))
+        const router = subject.routerOptionsOf(optionsOf([provider("openai")]))
 
-        expect(router?.providers.map((entry) => [entry.id, entry.models.map((model) => model.id)])).toEqual([
-            ["upstream", ["m-work", "m-embed"]],
+        expect(router?.providers.map((entry) => [entry.id, entry.kind, entry.models])).toEqual([
+            [
+                "openai",
+                "openai",
+                [
+                    {
+                        id: "text-embedding-3-small",
+                        identity: "text-embedding-3-small",
+                        dimensions: 1536,
+                        capabilities: ["embeddings"],
+                        cost: { input: 0.02, output: 0 },
+                    },
+                ],
+            ],
         ])
         expect(router?.profiles).toEqual({
-            work: { model: "m-work", providers: ["upstream"] },
-            embed: { model: "m-embed", allowFallback: false, providers: ["upstream"] },
+            "embed-oa": { pinned: true, candidates: [{ provider: "openai", model: "text-embedding-3-small" }], allowFallback: false },
         })
     })
 
-    it("sends embeddings to their own provider when there is one, and chat only to upstream", async () => {
+})
+
+describe("routerOptionsOf: chat profiles and keys", () => {
+    it("puts every chat profile on Anthropic: `work` cheap then strong, explicit profiles alone, Auto in both orders", async () => {
         const subject = await buildSubject()
 
-        const router = subject.routerOptionsOf(optionsOf([provider("upstream"), provider("embeddings")]))
+        const router = subject.routerOptionsOf(
+            optionsOf([provider("anthropic"), provider("openai")]),
+        )
 
-        expect(router?.providers.map((entry) => [entry.id, entry.models.map((model) => model.id)])).toEqual([
-            ["upstream", ["m-work"]],
-            ["embeddings", ["m-embed"]],
+        expect(router?.providers.map((entry) => [entry.id, entry.kind ?? null, entry.models.map((model) => model.id)])).toEqual([
+            ["anthropic", "anthropic", ["m-work", "m-strong"]],
+            ["openai", "openai", ["text-embedding-3-small"]],
         ])
-        expect(router?.profiles?.embed).toMatchObject({ providers: ["embeddings"] })
+        expect(router?.providers[0]).toMatchObject({ defaultMaxTokens: 32_000 })
+        expect(router?.providers[0]?.headers).toBeUndefined()
+        expect(router?.providers[1]?.headers).toBeUndefined()
+        const alone = (model: string) => ({
+            candidates: [{ provider: "anthropic", model }],
+            allowFallback: false,
+            maxAttempts: 1,
+            timeoutMs: 125_000,
+            deadlineMs: 130_000,
+        })
+        const both = (first: string, second: string) => ({
+            candidates: [
+                { provider: "anthropic", model: first },
+                { provider: "anthropic", model: second },
+            ],
+            allowFallback: true,
+            maxAttempts: 2,
+            timeoutMs: 125_000,
+            deadlineMs: 130_000,
+        })
+        expect(router?.profiles).toEqual({
+            work: {
+                candidates: [
+                    { provider: "anthropic", model: "m-work" },
+                    { provider: "anthropic", model: "m-strong" },
+                ],
+                maxAttempts: 1,
+                timeoutMs: 125_000,
+                deadlineMs: 130_000,
+            },
+            "embed-oa": { pinned: true, candidates: [{ provider: "openai", model: "text-embedding-3-small" }], allowFallback: false },
+            sonnet: alone("m-strong"),
+            haiku: alone("m-work"),
+            "auto-light": both("m-work", "m-strong"),
+            "auto-heavy": both("m-strong", "m-work"),
+        })
     })
 
     it("reads each key from its secret and never records prompt content", async () => {
         const subject = await buildSubject()
 
-        const router = subject.routerOptionsOf(optionsOf([provider("upstream")]))
+        const router = subject.routerOptionsOf(optionsOf([provider("openai")]))
         const key = router?.providers[0]?.keys[0]
 
-        expect(key?.alias).toBe("UPSTREAM_KEY")
-        expect(await (key !== undefined && "resolve" in key ? key.resolve() : undefined)).toBe("sk-upstream")
+        expect(key?.alias).toBe("OPENAI_KEY")
+        expect(await (key !== undefined && "resolve" in key ? key.resolve() : undefined)).toBe("sk-openai")
         expect(router?.telemetry).toEqual({ includeContent: false })
     })
 })

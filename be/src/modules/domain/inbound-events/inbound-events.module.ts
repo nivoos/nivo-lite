@@ -1,7 +1,6 @@
 import { Module, type DynamicModule } from "@nestjs/common"
 import { InboundEventRecordsModule } from "./inbound-event-records.module"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./inbound-events.module-definition"
-import { InboxFeedService } from "./inbox-feed.service"
 
 @Module({})
 /** The inbound-events capability over the primary PostgreSQL connection; it imports and exports the ledger sub-module. */
@@ -12,8 +11,7 @@ export class InboundEventsModule extends ConfigurableModuleClass {
         return {
             ...base,
             imports: [...(base.imports ?? []), InboundEventRecordsModule.register({})],
-            providers: [...(base.providers ?? []), InboxFeedService],
-            exports: [InboundEventRecordsModule, InboxFeedService],
+            exports: [InboundEventRecordsModule],
         }
     }
 }

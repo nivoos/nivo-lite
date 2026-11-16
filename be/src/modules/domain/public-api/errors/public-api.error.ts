@@ -16,6 +16,8 @@ export enum PublicApiErrorCode {
     RequestNotFound = "PUBLIC_API_REQUEST_NOT_FOUND",
     /** The inbox already holds a receipt for a ledger request that is still unprocessed: the two records disagree. */
     InboxInconsistent = "PUBLIC_API_INBOX_INCONSISTENT",
+    /** An earlier try of this send ended uncertain (the provider may have got the message): only a person decides to send it again. */
+    SendOutcomeUnknown = "PUBLIC_API_SEND_OUTCOME_UNKNOWN",
 }
 
 /** How each public-api code travels. */
@@ -27,6 +29,7 @@ export const PUBLIC_API_ERROR_KINDS: Record<PublicApiErrorCode, ErrorKind> = {
     [PublicApiErrorCode.RequestInvalid]: "invalid",
     [PublicApiErrorCode.RequestNotFound]: "not-found",
     [PublicApiErrorCode.InboxInconsistent]: "conflict",
+    [PublicApiErrorCode.SendOutcomeUnknown]: "conflict",
 }
 
 /** The one error class of the public-api capability. */

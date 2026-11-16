@@ -11,13 +11,14 @@ import { useWorkspaceId } from "@/hooks/workspaces"
 interface DocsCommandsInput {
     readonly selection: DocsSelection
     readonly selectTab: (id: string) => void
-    readonly reviewAll: () => void
     /** Reads again every read the screen is made of. */
     readonly reloads: ReadonlyArray<() => void>
     /** What the open document can do: read again, delete, and the commands of its row. */
     readonly doc: {
         readonly reindex: () => void
         readonly remove: () => Promise<void>
+        /** Moves the open document to the other area; the area it stands in is read from the document at the time. */
+        readonly area: () => Promise<void>
         readonly row: (sourceId: string, actionId: string) => void
     }
     readonly ideas: Pick<KnowledgeDocsView["on"], "idea" | "moreIdeas">
@@ -25,6 +26,7 @@ interface DocsCommandsInput {
     readonly overlays: {
         readonly openRemove: () => void
         readonly setRemoveOpen: (isOpen: boolean) => void
+        readonly setAreaOpen: (isOpen: boolean) => void
     }
     readonly hideAside: () => void
 }
@@ -38,7 +40,6 @@ export const useKnowledgeDocsCommands = (input: DocsCommandsInput): KnowledgeDoc
     const carried = address.carried
     return {
         selectTab: input.selectTab,
-        reviewAll: input.reviewAll,
         select: (id) =>
             router.push(
                 workspaceHref(
@@ -79,6 +80,8 @@ export const useKnowledgeDocsCommands = (input: DocsCommandsInput): KnowledgeDoc
         },
         removeOpenChange: input.overlays.setRemoveOpen,
         remove: input.doc.remove,
+        areaOpenChange: input.overlays.setAreaOpen,
+        area: input.doc.area,
         closeAside: input.hideAside,
         idea: input.ideas.idea,
         moreIdeas: input.ideas.moreIdeas,

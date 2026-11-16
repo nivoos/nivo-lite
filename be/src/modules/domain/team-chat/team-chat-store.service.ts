@@ -13,7 +13,7 @@ import {
     type RoomRole,
     type RoomUnread,
 } from "./team-chat.contracts"
-import { isUniqueViolation, type ThreadPosition } from "./team-chat.policy"
+import { isUniqueViolation, purposeColumnsOf, textRowOf, type ThreadPosition } from "./team-chat.policy"
 import type {
     CardKind,
     NewCard,
@@ -24,6 +24,7 @@ import type {
     OptionalPosition,
     RoomFilter,
     UnreadRow,
+    WithinStoredText,
 } from "./team-chat-store.contracts"
 
 /** The database clock as an insert value: every instant of the chat is the database's, so read positions and messages compare on one clock. */
@@ -67,6 +68,12 @@ export type OptionalRoom = ChatRoomEntity | null
 export type OptionalRoomMember = ChatRoomMemberEntity | null
 /** A message row, or none. */
 export type OptionalMessage = ChatRoomMessageEntity | null
+
+/** The text an agent line is rewritten to. */
+interface AgentLineContent {
+    readonly body: string
+    readonly agentMessage: string
+}
 
 @Injectable()
 /**
@@ -130,6 +137,7 @@ export class TeamChatStoreService {
                     kind: room.kind,
                     name: room.name,
                     directKey: room.directKey,
+                    ...purposeColumnsOf(room.kind, room.purpose),
                     createdBy: room.createdBy,
                 })
                 const creator: ChatMemberRef = { memberKind: "user", memberId: room.createdBy }
@@ -215,6 +223,22 @@ export class TeamChatStoreService {
         return this.entityManager.findOne(ChatRoomMessageEntity, { where: { id: messageId, roomId, workspaceId } })
     }
 
+    /** The line an agent wrote under a key, or null. */
+    agentLine(workspaceId: string, clientId: string): Promise<OptionalMessage> {
+        return this.entityManager.findOne(ChatRoomMessageEntity, {
+            where: { workspaceId, clientId, authorKind: "agent" },
+        })
+    }
+
+    /** What people replied to a message, oldest first. */
+    repliesTo(workspaceId: string, messageId: string): Promise<Array<ChatRoomMessageEntity>> {
+        return this.entityManager.find(ChatRoomMessageEntity, {
+            where: { workspaceId, replyTo: messageId, authorKind: "user" },
+            order: { createdAt: "ASC" },
+            take: 20,
+        })
+    }
+
     /** The message this author already sent under this client id, or null when there is none or no client id. */
     sentBefore(workspaceId: string, roomId: string, authorId: string, clientId: OptionalId): Promise<OptionalMessage> {
         return clientId === null
@@ -235,27 +259,41 @@ export class TeamChatStoreService {
     async insertText(text: NewText): Promise<ChatRoomMessageEntity> {
         try {
             const id = this.ids.next()
-            await this.entityManager.insert(ChatRoomMessageEntity, {
-                id,
-                roomId: text.roomId,
-                workspaceId: text.workspaceId,
-                authorKind: "user",
-                authorId: text.authorId,
-                body: text.body,
-                kind: "text",
-                ref: null,
-                mentions: text.mentions,
-                attachments: text.attachments,
-                clientId: text.clientId,
-            })
+            await this.entityManager.insert(ChatRoomMessageEntity, textRowOf(id, text))
             return await this.entityManager.findOneOrFail(ChatRoomMessageEntity, { where: { id } })
         } catch (cause) {
-            const again = isUniqueViolation(cause)
-                ? await this.sentBefore(text.workspaceId, text.roomId, text.authorId, text.clientId)
-                : null
+            const again = await this.sentAgain(text, cause)
             if (again === null) throw cause
             return again
         }
+    }
+
+    /**
+     * Stores a person's text message and, in the same transaction, what the message owes (`within`: the job that routes it), so the two
+     * commit together or not at all. A retry that lost the race on the client id answers the message the first write stored (whose
+     * transaction wrote that job); nothing is written again.
+     */
+    async insertTextWith(text: NewText, within: WithinStoredText): Promise<ChatRoomMessageEntity> {
+        try {
+            return await this.entityManager.transaction(async (tx) => {
+                const id = this.ids.next()
+                await tx.insert(ChatRoomMessageEntity, textRowOf(id, text))
+                const stored = await tx.findOneOrFail(ChatRoomMessageEntity, { where: { id } })
+                await within(tx, stored)
+                return stored
+            })
+        } catch (cause) {
+            const again = await this.sentAgain(text, cause)
+            if (again === null) throw cause
+            return again
+        }
+    }
+
+    /** The message a retried send already stored when the failure was the unique client id; none for any other failure. */
+    private sentAgain(text: NewText, cause: unknown): Promise<OptionalMessage> {
+        return isUniqueViolation(cause)
+            ? this.sentBefore(text.workspaceId, text.roomId, text.authorId, text.clientId)
+            : Promise.resolve(null)
     }
 
     /** The keys of one page of a thread, newest first, one more than `size` so the caller sees whether another page follows. */
@@ -386,18 +424,6 @@ export class TeamChatStoreService {
         return kept === undefined ? null : { messageId: kept.id, created: false }
     }
 
-    /** In how many rooms the approval card of a decision stands; 0 when none was posted. */
-    cardCount(workspaceId: string, decisionId: string): Promise<number> {
-        const { key } = cardRefOf("approval", decisionId)
-        return this.entityManager
-            .createQueryBuilder(ChatRoomMessageEntity, "msg")
-            .where(
-                "msg.workspace_id = :workspaceId AND msg.kind = :kind AND (msg.ref ->> CAST(:key AS text)) = :decisionId",
-                { workspaceId, kind: "approval", key, decisionId },
-            )
-            .getCount()
-    }
-
     /** Stores one line of an agent or of the system; the id of the new message, or null when the same key already wrote it. */
     async insertLine(line: NewLine): Promise<OptionalId> {
         const inserted = await this.entityManager
@@ -411,12 +437,34 @@ export class TeamChatStoreService {
                 authorId: line.authorAgentId,
                 body: line.body,
                 kind: line.authorAgentId === null ? "system" : "text",
+                ref:
+                    line.agentMessage === undefined || line.agentMessage === null
+                        ? null
+                        : { agent_message: line.agentMessage },
                 clientId: line.key,
+                replyTo: line.replyTo ?? null,
             })
             .orIgnore()
             .returning("id")
             .execute()
         return returnedIdRows(inserted.raw)[0]?.id ?? null
+    }
+
+    /**
+     * Rewrites the words and the structured content of the lines an agent wrote under these client ids (one card posted to several rooms),
+     * keeping each line, its id and its client id, so a person's reply to it still names the same key. Answers how many lines changed.
+     */
+    async updateAgentLines(
+        workspaceId: string,
+        clientIds: ReadonlyArray<string>,
+        content: AgentLineContent,
+    ): Promise<number> {
+        const updated = await this.entityManager.update(
+            ChatRoomMessageEntity,
+            { workspaceId, clientId: In([...clientIds]), authorKind: "agent" },
+            { body: content.body, ref: { agent_message: content.agentMessage } },
+        )
+        return updated.affected ?? 0
     }
 
     /** The message an agent already wrote under a key in a room; null when there is none. */

@@ -1,0 +1,69 @@
+import { channelSendCodePayload, channelSendEffect, lineOrderSchema } from "./channel-send-effect"
+
+const CARD = {
+    orderNo: "DH-1",
+    lines: [{ name: "Basket", qty: 1, unitText: "2.000" }],
+    amountText: "2.000",
+    address: "",
+    paid: false,
+}
+/** What package CODE may send (a node's own call): with the finished card of an order. */
+const parse = (payload: unknown) => channelSendCodePayload.safeParse(payload).success
+
+describe("channelSendEffect payload", () => {
+    it("takes a message to a person (the run's own by default), on a channel and an account when named, with the finished card of what it is about", () => {
+        expect(parse({ text: "Hello" })).toBe(true)
+        expect(parse({ contactId: "k1", channel: "zalo", accountId: "conn-1", text: "Hello", order: CARD })).toBe(true)
+        expect(parse({ text: "Hello", images: [{ url: "https://img/1.png", caption: "QR" }] })).toBe(true)
+    })
+
+    it("takes a message addressed by a ROUTE (the route a record came in on), alone: its person, channel and account are the address", () => {
+        expect(parse({ routeId: "route-1", text: "Hello" })).toBe(true)
+        expect(channelSendEffect.payload.safeParse({ routeId: "route-1", text: "Hello" }).success).toBe(true)
+        for (const beside of [{ contactId: "k1" }, { channel: "zalo" }, { accountId: "conn-1" }])
+            expect(parse({ routeId: "route-1", text: "Hello", ...beside })).toBe(false)
+        expect(parse({ routeId: "", text: "Hello" })).toBe(false)
+    })
+
+    it("names no conversation: an id of one is not part of the payload any more", () => {
+        const parsed = channelSendCodePayload.safeParse({ conversationId: "c1", text: "Hello" })
+        expect(parsed.success).toBe(true)
+        expect(parsed.data).toEqual({ text: "Hello" })
+    })
+
+    it("no longer takes an id to build a card from: the step builds the card", () => {
+        expect(lineOrderSchema.safeParse({ ...CARD, orderNo: 5 }).success).toBe(false)
+        expect(parse({ text: "Hello", order: { orderNo: "DH-1" } })).toBe(false)
+    })
+
+    it("never lets a MODEL type the card of an order: its call carries no order, whatever it typed beside its words", () => {
+        const typed = { contactId: "k1", text: "Hello", order: { ...CARD, amountText: "0", paid: true } }
+        const parsed = channelSendEffect.payload.safeParse(typed)
+        expect(parsed.success).toBe(true)
+        expect(parsed.data).toEqual({ contactId: "k1", text: "Hello" })
+        expect(channelSendEffect.codePayload).toBe(channelSendCodePayload)
+        expect(channelSendCodePayload.safeParse(typed).data).toEqual(typed)
+    })
+
+    it("refuses empty words and more than ten pictures", () => {
+        const pictures = Array.from({ length: 11 }, (_, index) => ({
+            url: `https://img/${String(index)}.png`,
+            caption: "",
+        }))
+        expect(parse({ text: "" })).toBe(false)
+        expect(parse({ text: "Hello", images: pictures })).toBe(false)
+    })
+
+    it("SEND-ONE: one call fits every channel: a subject line rides along (a channel that has none does not use it)", () => {
+        expect(parse({ subject: "Bao gia", text: "Hello" })).toBe(true)
+        expect(parse({ subject: "", text: "Hello" })).toBe(false)
+        expect(channelSendEffect.payload.safeParse({ subject: "Bao gia", text: "Hello" }).data).toEqual({ subject: "Bao gia", text: "Hello" })
+    })
+
+    it("SEND-ONE: a person's own address is named with its channel and no person; never with a route", () => {
+        expect(parse({ channel: "email", address: "lan@example.vn", subject: "Bao gia", text: "Hello" })).toBe(true)
+        expect(parse({ address: "lan@example.vn", text: "Hello" })).toBe(false)
+        expect(parse({ channel: "email", address: "lan@example.vn", contactId: "k1", text: "Hello" })).toBe(false)
+        expect(parse({ routeId: "r1", address: "lan@example.vn", text: "Hello" })).toBe(false)
+    })
+})

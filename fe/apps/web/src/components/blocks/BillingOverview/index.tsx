@@ -23,6 +23,7 @@ const wordsOf = (
     BillingOverviewBaseProps["props"],
     | "withOrders"
     | "planLabel"
+    | "planTermLabel"
     | "statusLabel"
     | "paidUntilLabel"
     | "renewalHint"
@@ -38,6 +39,7 @@ const wordsOf = (
 > => ({
     withOrders,
     planLabel: t("currentPlan"),
+    planTermLabel: t("planTerm"),
     statusLabel: t("status"),
     paidUntilLabel: t("paidUntil"),
     renewalHint: t("renewHint"),

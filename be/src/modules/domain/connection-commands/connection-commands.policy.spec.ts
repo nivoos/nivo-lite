@@ -66,29 +66,29 @@ const routes: ReadonlyArray<Route> = [
     byConnection("connection.delete", (s) => s.lifecycle.remove),
     {
         kind: "grant.set",
-        input: { connectionId: CONNECTION, agentId: AGENT, access: "read" },
-        args: [actor, CONNECTION, AGENT, "read"],
+        input: { connectionId: CONNECTION, agentId: AGENT, bound: true },
+        args: [actor, CONNECTION, AGENT, true],
         call: (s) => s.grants.setGrant,
     },
     {
         kind: "grant.connection-agents",
         input: {
             connectionId: CONNECTION,
-            agents: [AGENT, { agentId: OTHER }, { agentId: AGENT, access: "auto" }],
+            agents: [AGENT, { agentId: OTHER }, { agentId: AGENT }],
         },
-        args: [actor, CONNECTION, [{ agentId: AGENT }, { agentId: OTHER }, { agentId: AGENT, access: "auto" }]],
+        args: [actor, CONNECTION, [{ agentId: AGENT }, { agentId: OTHER }, { agentId: AGENT }]],
         call: (s) => s.grants.setConnectionAgents,
     },
     {
         kind: "grant.agent-connections",
         input: {
             agentId: AGENT,
-            connections: [CONNECTION, { connectionId: OTHER }, { connectionId: CONNECTION, access: "ask" }],
+            connections: [CONNECTION, { connectionId: OTHER }, { connectionId: CONNECTION }],
         },
         args: [
             actor,
             AGENT,
-            [{ connectionId: CONNECTION }, { connectionId: OTHER }, { connectionId: CONNECTION, access: "ask" }],
+            [{ connectionId: CONNECTION }, { connectionId: OTHER }, { connectionId: CONNECTION }],
         ],
         call: (s) => s.grants.setAgentConnections,
     },
@@ -350,19 +350,26 @@ describe("connection commands policy", () => {
     })
 })
 
-describe("connection commands policy access and optional fields", () => {
-    it.each(["read", "ask", "auto", null])("passes the grant level %p unchanged", async (access) => {
+describe("connection commands policy bound and optional fields", () => {
+    it.each([
+        [true, true],
+        [false, false],
+    ] as const)("binds by bound %p (a binding has no level: rights live in attachments)", async (bound, expected) => {
         const subject = await buildSubject()
 
         const services = build()
 
-        await subject.runCommand(services, actor, "grant.set", { connectionId: CONNECTION, agentId: AGENT, access })
+        await subject.runCommand(services, actor, "grant.set", { connectionId: CONNECTION, agentId: AGENT, bound })
 
-        expect(services.grants.setGrant).toHaveBeenCalledWith(actor, CONNECTION, AGENT, access)
+        expect(services.grants.setGrant).toHaveBeenCalledWith(actor, CONNECTION, AGENT, expected)
     })
 
-    it.each([undefined, "owner", "READ", 1, {}, []])("refuses the grant level %p", async (access) => {
-        await refuses("grant.set", { connectionId: CONNECTION, agentId: AGENT, access }, "access")
+    it.each([undefined, null, "true", 1, {}])("refuses a bound that is not a boolean: %p", async (bound) => {
+        await refuses("grant.set", { connectionId: CONNECTION, agentId: AGENT, bound }, "bound")
+    })
+
+    it("refuses the old level alone: access is no way to bind any more", async () => {
+        await refuses("grant.set", { connectionId: CONNECTION, agentId: AGENT, access: "auto" }, "bound")
     })
 
     it("omits an absent apiKey from a money update", async () => {
@@ -414,9 +421,6 @@ describe("connection commands policy", () => {
         it.each([null, 1, "bad-id"])("refuses a bad id in an object: %p", async (badId) => {
             await refuses(kind, { ...base, [listKey]: [{ [idKey]: badId }] }, listKey)
         })
-        it.each([null, "owner", 1, {}, []])("refuses a bad optional level: %p", async (access) => {
-            await refuses(kind, { ...base, [listKey]: [{ [idKey]: id, access }] }, listKey)
-        })
         it.each([0, 200])("accepts %i wishes and maps bare ids exactly", async (length) => {
             const subject = await buildSubject()
             const services = build()
@@ -429,7 +433,7 @@ describe("connection commands policy", () => {
                 list.map(() => ({ [idKey]: id })),
             )
         })
-        it("keeps all optional levels and leaves undefined access absent", async () => {
+        it("reads only the id of a wish: any other field is no level and is dropped", async () => {
             const subject = await buildSubject()
             const services = build()
             const list = [
@@ -442,12 +446,7 @@ describe("connection commands policy", () => {
             expect(routeFor(kind).call(services)).toHaveBeenCalledWith(
                 actor,
                 listKey === "agents" ? CONNECTION : AGENT,
-                [
-                    { [idKey]: id },
-                    { [idKey]: id, access: "read" },
-                    { [idKey]: id, access: "ask" },
-                    { [idKey]: id, access: "auto" },
-                ],
+                [{ [idKey]: id }, { [idKey]: id }, { [idKey]: id }, { [idKey]: id }],
             )
         })
     })

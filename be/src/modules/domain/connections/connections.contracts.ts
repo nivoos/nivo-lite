@@ -15,6 +15,17 @@ export type Provider =
     | "imap"
     | "telegram_user"
     | "meta"
+    | "inet"
+    | "tino"
+    | "elevenlabs"
+    | "veo"
+    | "tiktok"
+    | "shotstack"
+    | "creatomate"
+    | "json2video"
+    | "misa_amis"
+    | "misa_meinvoice"
+    | "model"
 
 /** `test` is the provider test mode: its money is not real, so the bank feed books none of its credits. */
 export type Environment = "test" | "live"
@@ -69,8 +80,13 @@ export interface ConnectionRecord {
     readonly status: ConnectionStatus
     /** The last failure shown to the owner, if any. */
     readonly lastError: string | null
-    /** Test or live. */
+    /** Test or live: the provider's OWN test host (real network, real credentials). */
     readonly environment: Environment
+    /**
+     * A SANDBOX account (lane concept provider-sandbox, ruling R56): its provider's sandbox implementation answers it from fixtures and
+     * scripts, never a real host; it holds no secret. Set at creation, never changed. The UI labels it and what came from it "Sandbox".
+     */
+    readonly sandbox: boolean
     /** SMTP only: the workspace default sender. */
     readonly isDefault: boolean
     /** When the last event arrived, ISO 8601. */
@@ -81,6 +97,11 @@ export interface ConnectionRecord {
     readonly createdBy: string | null
     /** When it was created, ISO 8601. */
     readonly createdAt: string
+    /**
+     * The health state recorded in its public facts, when one is: `ok`, `silent`, `failing`, `degraded` (the poll breaker is open for a
+     * reason that is no refused credential) or `needs_reauth` (the provider refused the credential: only the owner connecting again fixes it).
+     */
+    readonly health?: string | undefined
 }
 
 /** The secret to store with a new connection. */
@@ -91,8 +112,24 @@ export interface ConnectionSecretInput {
     readonly webhookSecret: string
 }
 
-/** What creating a connection takes. */
-export interface CreateConnectionInput {
+/** What creating a connection takes: a LIVE account carries its credential; a SANDBOX account (R56) carries none. */
+export type CreateConnectionInput = CreateLiveConnectionInput | CreateSandboxConnectionInput
+
+/** What creating a live connection takes. */
+export interface CreateLiveConnectionInput extends NewConnectionFields {
+    /** Never a sandbox account. */
+    readonly sandbox?: false | undefined
+    /** The credential and webhook secret. */
+    readonly secret: ConnectionSecretInput
+}
+
+/** What creating a sandbox connection takes (the provider-sandbox capability's door, behind the dev switch): no credential at all. */
+export interface CreateSandboxConnectionInput extends NewConnectionFields {
+    readonly sandbox: true
+}
+
+/** The fields every new connection carries. */
+interface NewConnectionFields {
     /** The id the row takes: only a seed names one, so its connection keeps the same id in every environment. */
     readonly id?: string
     /** The workspace that owns it. */
@@ -109,8 +146,6 @@ export interface CreateConnectionInput {
     readonly environment: Environment
     /** Non-secret facts. */
     readonly meta: Readonly<Record<string, string>>
-    /** The credential and webhook secret. */
-    readonly secret: ConnectionSecretInput
 }
 
 /** The fields of a connection that can change; an absent field stays. */
@@ -197,13 +232,13 @@ export interface HealthCandidate {
     readonly lastEventAt: string
     /** When the connection was created, as text. */
     readonly createdAt: string
-    /** The health state already recorded: ok, silent, failing, or empty when none. */
+    /** The health state already recorded: ok, silent, degraded, failing, or empty when none. */
     readonly health: string
 }
 
 /** The health verdict recorded on a connection. */
 export interface HealthMark {
-    /** ok, silent or failing. */
+    /** ok, silent, degraded, needs_reauth or failing. */
     readonly state: string
     /** Why, in a short sentence; empty for ok. */
     readonly reason: string
@@ -264,3 +299,13 @@ export interface SyncFacts {
 
 /** The id of a workspace's default SMTP connection; null when it has none. */
 export type OptionalConnectionId = string | null
+
+/** A live Zalo connection whose access token ends soon: the connection, its workspace and the end of the token (epoch milliseconds). */
+export interface DueZalo {
+    /** The connection. */
+    readonly id: string
+    /** The workspace of the connection. */
+    readonly workspaceId: string
+    /** When the access token ends, epoch milliseconds. */
+    readonly expiresAt: number
+}

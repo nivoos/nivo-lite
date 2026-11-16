@@ -1,13 +1,13 @@
-import type { AgentAccess, AgentPurpose } from "./agents-connections.contracts"
+import type { AgentPurpose } from "./agents-connections.contracts"
 import type { DashboardLine } from "./agents-reads.contracts"
 import type { AskAsAgentInput, AskedPassage } from "./agent-ask.contracts"
+import type { LensOverview } from "./agent-knowledge-overview.contracts"
 import type {
     AgentAudience,
     LensCounts,
     LensLanes,
     OptionalId,
     OptionalOpenGaps,
-    OptionalAgentText,
 } from "./agents.contracts"
 
 /** A module installation (an agent instance) as the agents capability needs it. Owned by the modules lane (module_installations). */
@@ -26,7 +26,7 @@ export interface Installation {
     readonly agentId: string | null
     /** assist or autopilot. */
     readonly operatingMode: string
-    /** The instance settings (processor, openclawTimeoutSec...). */
+    /** The instance settings (holdingMessage, workingHours...). */
     readonly settings: Readonly<Record<string, unknown>>
     /** The active context version, or null. */
     readonly activeContextVersionId: string | null
@@ -83,8 +83,6 @@ export interface InstallationDirectory {
     firstOfModule(workspaceId: string, module: string): Promise<OptionalInstallation>
     /** The installation that owns an agent. */
     ofAgent(workspaceId: string, agentId: string): Promise<OptionalInstallation>
-    /** Up to `limit` installations that run on OpenClaw (settings processor is not "nivo"), of one workspace or of all when null. */
-    onOpenclaw(workspaceId: OptionalId, limit: number): Promise<ReadonlyArray<InstallationRef>>
     /** The context version with that id, flattened. */
     contextVersionOf(versionId: string): Promise<OptionalContextVersion>
 }
@@ -135,27 +133,16 @@ export interface KnowledgeLens {
     countsFor(workspaceId: string, module: string, installationId: OptionalId): Promise<LensCounts>
     /** Tries a question as an agent: the passages its view reads, then the confirmed facts of the same view. */
     ask(userId: string, workspaceId: string, input: AskAsAgentInput): Promise<ReadonlyArray<AskedPassage>>
+    /** What the knowledge tab of an agent shows: layers, documents, waiting facts and the facts of this agent alone. */
+    overviewFor(workspaceId: string, module: string, installationId: OptionalId): Promise<LensOverview>
     /** Which kinds of knowledge the view of the module reads. */
     lanesOf(module: string): LensLanes
     /** Which kinds of knowledge the public's view reads. */
     customerLanes(): LensLanes
     /** Up to `limit` open gaps of the module, most asked first; null when the gaps are not kept. */
     openGapsOf(workspaceId: string, module: string, limit: number): Promise<OptionalOpenGaps>
-}
-
-/**
- * What the module definitions give the bundle. The modules lane (L13) implements it from the typed catalog and the reply contract
- * constants of the booking, loyalty and hiring lanes; the app root binds it to the token `AGENTS_MODULES`.
- */
-export interface ModuleProfiles {
-    /** The knowledge folder of a module key, or null when the key is not a module. */
-    knowledgeFolderOf(module: string): OptionalAgentText
-    /** The reply contract of the module given the base customer contract: the base itself (chatbot), the base with the module addendum (booking, loyalty), its own contract (hiring) or null. */
-    replyContractOf(module: string, base: string): OptionalAgentText
-    /** The chat-intake clause of the hiring application that the base contract embeds ("" when none). */
-    applicationClause(): string
-    /** The JSON member of the hiring application that the base contract embeds ("" when none). */
-    applicationShape(): string
+    /** How many proposed facts wait for the owner inside the view of the module (and instance): what its lens reads once approved. */
+    waitingFactsOf(workspaceId: string, module: string, installationId: OptionalId): Promise<number>
 }
 
 /** A connection an agent is bound to, as the dashboard of the agents capability reads it. */
@@ -172,16 +159,28 @@ export interface BoundConnectionView {
     readonly accountMasked: string | null
     /** connected, error, pending or disconnected. */
     readonly status: string
-    /** What the agent may do through the connection. */
-    readonly access: AgentAccess
     /** What the agent uses the connection for. */
     readonly purpose: AgentPurpose
+}
+
+/** One grant as the catalog reads it: the agent that holds it and the connection it may use. */
+export interface AgentGrantView {
+    /** The agent that holds the grant. */
+    readonly agentId: string
+    /** The connection with the purpose of the grant. */
+    readonly connection: BoundConnectionView
 }
 
 /** The connections bound to agents: the port the agent-connections capability implements for the agents dashboard. */
 export interface AgentConnectionsDirectory {
     /** The connections an agent is bound to for the purposes, oldest connection first. */
     connectionsFor(agentId: string, purposes: ReadonlyArray<AgentPurpose>): Promise<ReadonlyArray<BoundConnectionView>>
+    /** Every grant of the given agents of the workspace in one read, whatever the purpose; any member may look. */
+    connectionsOfAgents(
+        userId: string,
+        workspaceId: string,
+        agentIds: ReadonlyArray<string>,
+    ): Promise<ReadonlyArray<AgentGrantView>>
 }
 
 /** The scope of one dashboard list of a department's work items. */
@@ -230,4 +229,13 @@ export interface AgentSeatRoom {
     readonly userId: string
     /** The room id. */
     readonly key: string
+}
+
+/** The agent that answers a conversation's channel for a role, or null when none does. */
+export type OptionalOwnerAgentId = string | null
+
+/** Which agent of a role answers a conversation's channel: the port the agent-instances capability implements for hand-offs. */
+export interface ConversationChannelOwners {
+    /** The agent of `module` that answers the channel the conversation came in on; null when it came in on none or no agent of the role answers it. */
+    ownerAgentOf(workspaceId: string, conversationId: string, module: string): Promise<OptionalOwnerAgentId>
 }

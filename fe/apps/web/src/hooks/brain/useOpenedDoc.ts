@@ -4,6 +4,7 @@ import { notFound } from "next/navigation"
 import { useFormatter, useTranslations } from "next-intl"
 import { useKnowledgeSource, useSourceCommands } from "@/hooks/knowledge"
 import { mapSlot } from "@/hooks/slot"
+import { useModuleLabels } from "@/hooks/moduleCatalog"
 import { docBodyOf, docChipOf, docFactsOf, docHeadOf } from "@/modules/documents"
 import type { DataSlot, DocBodyView, DocOpenedView } from "@/modules/types"
 import type { KnowledgeRowOfView } from "./useKnowledgeRowOf"
@@ -12,6 +13,8 @@ import type { KnowledgeRowOfView } from "./useKnowledgeRowOf"
 export interface OpenedDocView {
     readonly opened: DataSlot<DocOpenedView<DocBodyView>>
     readonly commands: ReturnType<typeof useSourceCommands>
+    /** Moves the open document to the other area than the one it stands in. */
+    readonly setArea: () => Promise<void>
     readonly reload: () => undefined
     readonly title: string | undefined
 }
@@ -20,6 +23,7 @@ export interface OpenedDocView {
 export const useOpenedDoc = (id: string | undefined, row: KnowledgeRowOfView): OpenedDocView => {
     const t = useTranslations("knowledge")
     const format = useFormatter()
+    const { labelOf } = useModuleLabels()
     const { detail, slot, reload, isMissing } = useKnowledgeSource(id)
     if (isMissing) notFound()
     const commands = useSourceCommands(detail?.source.id ?? "")
@@ -43,8 +47,9 @@ export const useOpenedDoc = (id: string | undefined, row: KnowledgeRowOfView): O
                 found.chunks.length,
             ),
             body: docBodyOf(t, source, found.chunks),
-            facts: docFactsOf(t, format, source),
+            facts: docFactsOf(t, format, source, labelOf),
         }
     })
-    return { opened, commands, reload, title: detail?.source.title }
+    const setArea = () => commands.setArea(detail?.source.visibility === "public" ? "internal" : "public")
+    return { opened, commands, setArea, reload, title: detail?.source.title }
 }

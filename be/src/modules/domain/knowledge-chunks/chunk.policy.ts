@@ -196,7 +196,7 @@ const sectionsOf = (body: string): Array<string> => {
     }
     for (const block of body.split(/\n{2,}/u)) {
         const lines = block.split("\n")
-        if (delimiterOf(lines) !== null && !lines.slice(1).some((line) => isHeading(line))) {
+        if (delimiterOf(lines) !== null && !lines.slice(1).some((item) => isHeading(item))) {
             add(block, "\n\n")
             hasBody = true
             continue
@@ -289,7 +289,7 @@ export const chunkLocated = (parts: ReadonlyArray<LocatedText>, size: number = C
         if (body === "") return []
         return sectionsOf(body).flatMap((section) =>
             packed(piecesOf(section, size, seenBlocks), size)
-                .filter((piece) => isNew(piece))
+                .filter((item) => isNew(item))
                 .map((piece): LocatedText => ({ place: part.place, text: piece.text })),
         )
     })

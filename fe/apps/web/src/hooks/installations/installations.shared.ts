@@ -1,94 +1,11 @@
-import type { ModuleIconName } from "@/modules/types"
-import { MODULE_REGISTRY, isModuleKey, type ModuleKey } from "@/modules/catalog"
 import {
     agentHref,
     agentListHref,
-    displayNameOf,
-    installationLifecycleOf,
     instancesOf,
     type AgentTab,
     type Installation,
-    type InstallationStatus,
-    type OperatingMode,
 } from "@/modules/installations"
 import { AGENTS_ROUTE } from "@/modules/routes"
-
-/** The wire row of the back end `moduleInstallations` query (text fields; the closed sets are checked here). */
-interface InstallationWire {
-    readonly id: string
-    readonly workspaceId: string
-    readonly moduleKey: string
-    readonly name: string
-    readonly isMulti: boolean
-    readonly agentId?: string | null
-    readonly agentName: string
-    readonly agentAvatarUrl?: string | null
-    readonly agentHandle: string
-    readonly status: string
-    readonly lifecycle: string
-    readonly connectionNeeds: ReadonlyArray<{ readonly role: string; readonly providers: ReadonlyArray<string> }>
-    readonly operatingMode: string
-    readonly liveEnabled: boolean
-    readonly activeContextVersionId?: string | null
-    readonly activeVersion?: number | null
-    readonly settings: unknown
-    readonly createdAt: string
-    readonly setupProgress: { readonly confirmed: number; readonly total: number }
-}
-
-const STATUSES: ReadonlyArray<InstallationStatus> = [
-    "installing",
-    "setup",
-    "ready",
-    "live",
-    "paused",
-    "needs_connection",
-]
-const MODES: ReadonlyArray<OperatingMode> = ["assist", "autopilot"]
-
-/** The closed status a wire text names; an unknown text reads as being set up. */
-const statusOf = (value: string): InstallationStatus => STATUSES.find((status) => status === value) ?? "setup"
-
-/** The operating mode a wire text names; an unknown text reads as assist, the safe one. */
-export const operatingModeOf = (value: string): OperatingMode => MODES.find((mode) => mode === value) ?? "assist"
-
-/** The settings object of a wire row; anything else reads as no settings. */
-const settingsOf = (value: unknown): Readonly<Record<string, unknown>> =>
-    typeof value === "object" && value !== null && !Array.isArray(value)
-        ? Object.fromEntries(Object.entries(value))
-        : {}
-
-/** One installed agent as the screens read it, or none when the wire row names a module the catalogue does not know. */
-const toInstallation = (row: InstallationWire): Installation | null =>
-    isModuleKey(row.moduleKey)
-        ? {
-              id: row.id,
-              workspaceId: row.workspaceId,
-              moduleKey: row.moduleKey,
-              name: displayNameOf(row),
-              isMulti: row.isMulti,
-              agentId: row.agentId ?? null,
-              agentAvatarUrl: row.agentAvatarUrl ?? null,
-              agentHandle: row.agentHandle,
-              status: statusOf(row.status),
-              lifecycle: installationLifecycleOf(row.lifecycle),
-              connectionNeeds: row.connectionNeeds,
-              operatingMode: operatingModeOf(row.operatingMode),
-              liveEnabled: row.liveEnabled,
-              activeContextVersionId: row.activeContextVersionId ?? null,
-              activeVersion: row.activeVersion ?? null,
-              settings: settingsOf(row.settings),
-              createdAt: row.createdAt,
-              setupProgress: { confirmed: row.setupProgress.confirmed, total: row.setupProgress.total },
-          }
-        : null
-
-/** The installed agents of the wire rows, oldest first. */
-export const toInstallations = (rows: ReadonlyArray<InstallationWire>): ReadonlyArray<Installation> =>
-    rows
-        .map((item) => toInstallation(item))
-        .filter((installation): installation is Installation => installation !== null)
-        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 
 /** How a type-level url behaves: lead on (`page`), always stay on the list of instances (`list`), or always leave (`redirect`). */
 export type TypeRouteMode = "page" | "list" | "redirect"
@@ -110,7 +27,7 @@ export const carriedQuery = (search: Readonly<Record<string, string | string[] |
  */
 export const typeTargetOf = (
     installations: ReadonlyArray<Installation>,
-    module: ModuleKey,
+    module: string,
     tab: AgentTab,
     query: string,
 ): string | null => {
@@ -120,7 +37,3 @@ export const typeTargetOf = (
     if (instances.length === 1 && only !== undefined) return agentHref(module, only.id, tab, query)
     return tab === "setup" ? null : agentListHref(module)
 }
-
-/** The glyph of an agent type; an unknown or missing key falls back to the chatbot glyph. */
-export const moduleGlyphOf = (module: string | null): ModuleIconName =>
-    isModuleKey(module) ? MODULE_REGISTRY[module].glyph : MODULE_REGISTRY.chatbot.glyph

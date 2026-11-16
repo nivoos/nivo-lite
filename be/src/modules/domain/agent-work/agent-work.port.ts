@@ -1,5 +1,3 @@
-import type { EntityManager } from "typeorm"
-import type { AgentTagNotice } from "./agent-tag.contracts"
 import type { AgentTurnUsage, AgentTurnView, AgentWakeSource, AgentWakeView } from "./agent-work.contracts"
 
 /** A picture sent with a turn. */
@@ -77,20 +75,22 @@ export interface AgentWorkHandler {
  * any handler; a wake it does not take goes to the handler of its source as before.
  */
 export interface AgentWorkFlow {
-    /** True when the agent's active graph runs this wake. */
+    /** True when the agent's active graph runs this wake, or the wake is the flow's to end (an agent that runs on workflows). */
     takes(turn: AgentTurnView): Promise<boolean>
     /** Runs the wake through the graph and answers how the wake ends. */
     run(turn: AgentTurnView, signal: AbortSignal): Promise<AgentHandlerEnding>
+    /** Told when a wake the flow takes failed for good (`code`): the flow tells the people who must know, in place of any handler. */
+    stuck(turn: AgentTurnView, code: string): Promise<void>
+    /**
+     * Told when the engine GAVE UP on a wake before any turn ran (`begin` found it dead past its attempts: `code`): answers true when the
+     * wake is the flow's (an event of the one pipeline, or a workflow call) and the flow reported it to the team, in place of any handler.
+     * A wake the engine gives up on never dies silently.
+     */
+    gaveUp(wake: AgentWakeView, code: string): Promise<boolean>
 }
 
 /** The flow, or undefined while no capability set one. */
 export type OptionalAgentWorkFlow = AgentWorkFlow | undefined
-
-/** Told when the runtime that was answering a wake goes down, so the durable run of the wake retries its step and reaches a person when the tries are spent. */
-export interface WakeInterruptions {
-    /** The runtime went down while the wake's turn ran; `code` says why. */
-    interrupted(wakeId: string, code: string, signal: AbortSignal): Promise<void>
-}
 
 /** The handler of every source no handler answers by name: an inbound adapter with nothing of its own. It names the sources it takes. */
 export interface AgentWorkFallback extends AgentWorkHandler {
@@ -98,51 +98,10 @@ export interface AgentWorkFallback extends AgentWorkHandler {
     answers(source: AgentWakeSource): boolean
 }
 
-/** The one question the tag door asks the agents capability: the lists of who may tag whom. */
-export interface AgentTagRights {
-    /** Whether the agent may tag the other agent. */
-    canTag(agentId: string, targetAgentId: string): Promise<boolean>
-}
-
-/**
- * What the tag door asks of the conversations side: show the hand-off in the conversation, or move the conversation silently, and keep
- * the one speaker of a conversation, the holder of its right to speak to the customer.
- */
-export interface AgentTagVisibilityPort {
-    /** Posts the visible tag line in the conversation, in the caller's transaction. */
-    announce(notice: AgentTagNotice, tx: EntityManager): Promise<void>
-    /** Moves the conversation to the target agent with no line in it. */
-    redirect(notice: AgentTagNotice): Promise<void>
-    /** The agent that holds the conversation's right to speak, or null when a person holds it or there is no such conversation. */
-    holderOf(workspaceId: string, conversationId: string): Promise<OptionalSpeaker>
-    /** Gives the right to speak back to the agent that opened the door, when the holder is done; nothing when a person holds it. */
-    handBack(workspaceId: string, conversationId: string, fromAgentId: string): Promise<void>
-}
-
-/** The agent that speaks in a conversation, or null. */
-export type OptionalSpeaker = string | null
-
-/** The burst a flow asks of one kind of tag, in milliseconds; the longest wait is null when the flow names none. */
-export interface AgentBurstSetting {
-    /** The quiet time after the last tag before the run starts; zero turns the window off. */
-    readonly windowMs: number
-    /** The longest the burst may keep the run waiting; null leaves it to the app's default. */
-    readonly maxWaitMs: number | null
-}
-
-/** The setting of a flow's burst, or null when the agent has no flow or the flow asks nothing. */
-export type OptionalBurstSetting = AgentBurstSetting | null
-
-/** The burst a wake takes in the end: the flow's ask where it made one, else the app's defaults. */
+/** The settle time a wake takes, in milliseconds (its source's declaration): the window and the longest wait. */
 export interface AgentBurstWindow {
     /** The quiet time after the last tag before the run starts, in milliseconds. */
     readonly windowMs: number
     /** The longest the burst may keep the run waiting, in milliseconds; never shorter than the window. */
     readonly maxWaitMs: number
-}
-
-/** The one question the wake door asks the graphs: what the live flow of an agent asks of a kind of tag (`channel`, `agent`, `system-event`...). */
-export interface AgentBurstPolicy {
-    /** The setting of the live flow for the source, or null when the agent has no flow or the flow asks nothing. */
-    burstOf(workspaceId: string, agentId: string, source: string): Promise<OptionalBurstSetting>
 }

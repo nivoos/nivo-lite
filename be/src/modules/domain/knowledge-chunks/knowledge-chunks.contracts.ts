@@ -1,3 +1,4 @@
+import type { EntityManager } from "typeorm"
 /** The kinds of place a passage can sit at in its document. */
 export type PassagePlaceKind = "page" | "slide" | "sheet"
 
@@ -41,12 +42,12 @@ export interface PlaceWrite {
     readonly places: ReadonlyArray<PlacedOrder>
 }
 
-/** One passage to store: its text and its vector in the pgvector text form, or null when it has none. */
+/** One passage to store: its text, and whether its vector was made (the caller hands it to the vector index under the stored id). */
 export interface ChunkDraft {
     /** The text. */
     readonly text: string
-    /** The vector as `[a,b,...]`, or null for a passage found by keyword only. */
-    readonly vector: string | null
+    /** True when the passage's vector was made with the model in use; false for a passage found by words only (no credits). */
+    readonly embedded: boolean
     /** Where it sits in its document, or absent when the file names no places. */
     readonly place?: PassagePlace | null
 }
@@ -63,11 +64,25 @@ export interface ChunkWrite {
     readonly visibility: string
     /** The agent instance the source is kept for, or null for every instance. */
     readonly installationId: string | null
-    /** The model that made the vectors. */
+    /**
+     * The model that made the vectors. The row records it and the hash of an embedded passage but never the vector (the vector index
+     * holds it); `indexed_at` stays empty until the index accepts the vector.
+     */
     readonly model: string
     /** The passages in order. */
     readonly drafts: ReadonlyArray<ChunkDraft>
 }
+
+/** The row a passage was stored under at an order: the id its point takes in the vector index. */
+export interface StoredAt {
+    /** The order of the passage in its source. */
+    readonly order: number
+    /** The passage id. */
+    readonly id: string
+}
+
+/** The ids a passage write answered, or null when the write found its document deleted meanwhile and wrote nothing. */
+export type MaybeStoredAt = ReadonlyArray<StoredAt> | null
 
 /** A passage to store at a fixed place in its source. */
 export interface PlacedChunkDraft extends ChunkDraft {
@@ -80,6 +95,9 @@ export interface ChunkBatchWrite extends Omit<ChunkWrite, "drafts"> {
     /** The passages, each with its order. */
     readonly drafts: ReadonlyArray<PlacedChunkDraft>
 }
+
+/** A write the caller makes in the same transaction as the passages it stored (the settle of the effect that made them). */
+export type StoredWithin = (tx: EntityManager) => Promise<void>
 
 /** The embedding model in use, or null when the deployment has none. */
 export type ModelInUse = string | null
@@ -134,28 +152,6 @@ export interface ChunkArrangement {
     readonly count: number
 }
 
-/** One stored passage that needs a vector. */
-export interface StaleChunk {
-    /** The passage id. */
-    readonly id: string
-    /** The text. */
-    readonly text: string
-}
-
-/** Vectors to give to stored passages. */
-export interface VectorWrite {
-    /** The workspace that owns the passages. */
-    readonly workspaceId: string
-    /** The model that made the vectors. */
-    readonly model: string
-    /** The passage ids. */
-    readonly ids: ReadonlyArray<string>
-    /** One vector per id, in the pgvector text form. */
-    readonly vectors: ReadonlyArray<string>
-    /** One passage hash per id, of its text and this model. */
-    readonly hashes: ReadonlyArray<string>
-}
-
 /** One stored passage of a source as the Knowledge page shows it. */
 export interface PassageView {
     /** The passage id. */
@@ -164,7 +160,7 @@ export interface PassageView {
     readonly order: number
     /** The text. */
     readonly content: string
-    /** Whether the passage has a vector. */
+    /** Whether the vector index accepted the passage's vector (`indexed_at`): it is found by meaning. */
     readonly hasEmbedding: boolean
 }
 
@@ -180,43 +176,34 @@ export interface SourcePassage {
     readonly text: string
 }
 
-/** The dimensions of every stored vector (the pgvector column size); the embeddings provider is asked for exactly this many. */
+/** The dimensions of every vector (the vector index's collection size); the embeddings provider is asked for exactly this many. */
 export const EMBEDDING_DIMENSIONS = 1536
 
-/** What a passage search asks: the lens of the reader and the two halves of the query. */
-export interface ChunkQuery {
-    /** The workspace. */
-    readonly workspaceId: string
-    /** The module of the reader: its own passages and those for every module. */
-    readonly module: string
-    /** customer sees public passages only. */
-    readonly audience: "customer" | "internal"
-    /** The agent instance whose own passages join the shared ones; null = the shared ones only. */
-    readonly installationId: string | null
-    /** The query vector in the pgvector text form, or null. */
-    readonly vector: string | null
-    /** The model the vector comes from; passages of another model score by words only. */
-    readonly model: string | null
-    /** The words of the query as a tsquery text (`a | b`), or null. */
-    readonly tsquery: string | null
-    /** The most passages wanted. */
-    readonly limit: number
-}
+/** What triage says of a passage: `rule` (it states a rule of the shop, read into truths), `data` (shop records, never truths) or `none`. */
+export type TriageVerdict = "rule" | "data" | "none"
 
-/** One passage a search found. */
-export interface ChunkHit {
+/** The triage verdict of one passage, to store. */
+export interface PassageVerdict {
     /** The passage id. */
     readonly id: string
-    /** The source the passage was cut from. */
-    readonly sourceId: string
-    /** The module the passage is for, or null. */
-    readonly module: string | null
-    /** The text. */
-    readonly content: string
-    /** The relevance, higher first. */
-    readonly score: number
-    /** public or internal. */
-    readonly visibility: string
+    /** Its verdict. */
+    readonly verdict: TriageVerdict
+}
+
+/** A passage of a document as the truths work reads it: its text and where triage and the truth reading stand. */
+export interface TruthPassage {
+    /** The passage id. */
+    readonly id: string
     /** The order of the passage in its source. */
     readonly order: number
+    /** The text. */
+    readonly text: string
+    /** The model-free hash of the text (`passageTextHashOf`). */
+    readonly hash: string
+    /** The triage verdict, or null while not judged. */
+    readonly triage: TriageVerdict | null
+    /** The triage prompt version that judged it (0 = judged by code), or null while not judged. */
+    readonly triageVersion: number | null
+    /** The extraction prompt version its truths were read with, or null while not read. */
+    readonly truthsVersion: number | null
 }

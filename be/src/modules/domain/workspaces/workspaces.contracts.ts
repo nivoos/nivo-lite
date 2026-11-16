@@ -1,6 +1,6 @@
 import type { WorkspaceMember } from "@modules/domain/workspace-members"
 
-/** The business type a workspace names at onboarding: a known key the knowledge ideas and inventory starters read (`spa`, `retail`, `cafe`, `technology`...) or the owner's own words; none leaves it unset. */
+/** The business type a workspace names at onboarding: a known key the knowledge ideas read (`spa`, `retail`, `cafe`, `technology`...) or the owner's own words; none leaves it unset. */
 export type NamedBusinessType = string | null
 
 /** One workspace as a member sees it. */
@@ -33,7 +33,38 @@ export interface WorkspaceMembership {
     readonly workspace: WorkspaceSummary
     /** The caller's membership. */
     readonly member: WorkspaceMember
+    /** What the workspaces lobby shows beside it. */
+    readonly lobby: WorkspaceLobbyFacts
 }
+
+/** What the workspaces lobby shows of one workspace: its plan, its people and when the caller last opened it. */
+export interface WorkspaceLobbyFacts {
+    /** The plan code, or null before the first payment. */
+    readonly planCode: string | null
+    /** The paid seats of a per-seat plan, or null when the plan's own seats hold. */
+    readonly seatCount: number | null
+    /** The active members. */
+    readonly memberCount: number
+    /** The active owners: one means the only owner cannot leave. */
+    readonly ownerCount: number
+    /** When the caller last opened the workspace, ISO 8601; null until the first open. */
+    readonly lastOpenedAt: string | null
+    /** When its owner deleted it, ISO 8601; null while it lives. Only its owners see a deleted workspace. */
+    readonly deletedAt: string | null
+    /** Until when its owner may restore it, ISO 8601; null while it lives. */
+    readonly restoreBefore: string | null
+    /** When the caller's seat was switched off by a person, ISO 8601; null while it is on. */
+    readonly disabledAt: string | null
+    /** The name of who switched the caller's seat off, when known. */
+    readonly disabledByName: string | null
+    /** The role of who switched the caller's seat off, when known. */
+    readonly disabledByRole: string | null
+    /** The note left when the caller's seat was switched off. */
+    readonly disabledNote: string | null
+}
+
+/** How many days the owner of a deleted workspace has to restore it; after that the operator's prune removes it. */
+export const RESTORE_DAYS = 30
 
 /** The id of a workspace that was just created. */
 export interface CreatedWorkspace {
@@ -49,6 +80,23 @@ export interface FirstWorkspace {
 
 /** The billing statuses support can set by hand. */
 export type SupportStatus = "active" | "past_due"
+
+/** The enterprise identifier of a workspace (`nivo-web`); null for an ordinary workspace, known by its uuid alone. */
+export type EnterpriseKey = string | null
+
+/** A change of a workspace enterprise identifier: what it was and what it is. */
+export interface EnterpriseKeyChange {
+    /** The identifier before. */
+    readonly from: EnterpriseKey
+    /** The identifier now. */
+    readonly to: EnterpriseKey
+}
+
+/** What the enterprise filter reads of a listed module: its key. */
+export interface KeyedModule {
+    /** The module key. */
+    readonly key: string
+}
 
 /** An account id, or null when there is none. */
 export type OptionalAccountId = string | null
@@ -137,8 +185,6 @@ export interface ShellAgent {
 export interface ShellFacts {
     /** The installed agents. */
     readonly agents: ReadonlyArray<ShellAgent>
-    /** Whether a chatbot agent is installed. */
-    readonly hasChatbot: boolean
     /** Whether the workspace bought a module inside the founding window. */
     readonly isFoundingMember: boolean
 }

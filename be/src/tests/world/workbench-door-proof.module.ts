@@ -1,10 +1,7 @@
 import { Injectable, Module, type DynamicModule } from "@nestjs/common"
 import { DataSource } from "typeorm"
-import { FLOW_F_ENTITIES } from "@nivo-lite/blocks-core/entities"
-import { MODULE_DECLARATIONS, MODULE_JOBS } from "@nivo-lite/blocks-core/modules"
-import { AuthorityRulesService } from "@modules/domain/authority-rules"
-import { ENTITY_ENGINE_MESSAGES, EntityEngineModule, type EngineFailureAlerts } from "@modules/domain/entity-engine"
-import { MemberGrantsService } from "@modules/domain/member-grants"
+import { installedModules } from "@tests/fixtures/builders/installed-modules.builder"
+import { ENTITY_ENGINE_MESSAGES, EntityEngineModule } from "@modules/domain/entity-engine"
 import { InstallationRecordsService } from "@modules/domain/module-installations"
 import { WORKBENCH_DOOR_MESSAGES, WorkbenchDoorModule } from "@modules/domain/workbench-door"
 import { MemberLookupService, WorkspaceMembersService } from "@modules/domain/workspace-members"
@@ -17,6 +14,7 @@ import { JobsModule } from "@modules/platform/jobs"
 import { QueueModule } from "@modules/platform/queue"
 import type { WorldSandbox } from "./test-world.contracts"
 import { queueOptions } from "./test-capabilities.options"
+import { INSTALLED } from "@modules/domain/installed-plugins"
 
 /** The seat the proof acts as: an owner of every workspace it opens a scene in. */
 export const PROOF_MEMBER_ID = "00000000-0000-4000-8000-0000000000aa"
@@ -88,22 +86,6 @@ export class ProofSeats {
 }
 
 @Injectable()
-/** The owner's rules of the proof: the owner set none, so every action runs. */
-export class ProofRules {
-    ownerRuleFor(): Promise<null> {
-        return Promise.resolve(null)
-    }
-}
-
-@Injectable()
-/** The grants of the proof: none, the seat is an owner and holds every permission. */
-export class ProofGrants {
-    forAction(): Promise<ReadonlyArray<never>> {
-        return Promise.resolve([])
-    }
-}
-
-@Injectable()
 /** The installations of the proof: none are read, the modules under test have no installation port. */
 export class ProofInstallations {
     list(): Promise<ReadonlyArray<never>> {
@@ -111,27 +93,15 @@ export class ProofInstallations {
     }
 }
 
-@Injectable()
-/** The alerts of the proof: nobody is told, the specs read what parked. */
-export class ProofAlerts implements EngineFailureAlerts {
-    raise(): Promise<void> {
-        return Promise.resolve()
-    }
-}
-
 @Module({
     providers: [
         { provide: WorkspaceMembersService, useClass: ProofMembers },
         { provide: MemberLookupService, useClass: ProofSeats },
-        { provide: AuthorityRulesService, useClass: ProofRules },
-        { provide: MemberGrantsService, useClass: ProofGrants },
         { provide: InstallationRecordsService, useClass: ProofInstallations },
     ],
     exports: [
         WorkspaceMembersService,
         MemberLookupService,
-        AuthorityRulesService,
-        MemberGrantsService,
         InstallationRecordsService,
     ],
 })
@@ -152,15 +122,14 @@ export const workbenchDoorProofModules = (): Array<DynamicModule> => [
     { module: ProofSeatsModule, global: true },
     EntityEngineModule.register({
         isGlobal: true,
-        entities: FLOW_F_ENTITIES,
-        jobs: MODULE_JOBS,
-        alerts: ProofAlerts,
+        entities: INSTALLED.entities(),
+        jobs: INSTALLED.jobs(),
         cursorKey: CURSOR_KEY,
     }),
     WorkbenchDoorModule.register({
         isGlobal: true,
-        modules: MODULE_DECLARATIONS,
-        entities: FLOW_F_ENTITIES,
+        modules: installedModules(),
+        entities: INSTALLED.entities(),
         registryHash: REGISTRY_HASH,
     }),
 ]

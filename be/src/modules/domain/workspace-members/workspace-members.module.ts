@@ -9,6 +9,7 @@ import { WorkspaceMembersReadService } from "./workspace-members-read.service"
 import { WorkspaceMembersService } from "./workspace-members.service"
 import { MemberLookupService } from "./member-lookup.service"
 import { MemberRosterService } from "./member-roster.service"
+import { MemberLobbyService } from "./member-lobby.service"
 
 @Module({})
 /** Membership and roles inside a workspace: the proof of access every workspace-scoped operation asks for. */
@@ -30,6 +31,7 @@ export class WorkspaceMembersModule extends ConfigurableModuleClass {
                 WorkspaceMemberDirectoryService,
                 AccountSessionsService,
                 MemberLookupService,
+                MemberLobbyService,
             ],
             exports: [
                 MemberRosterService,
@@ -40,6 +42,7 @@ export class WorkspaceMembersModule extends ConfigurableModuleClass {
                 WorkspaceMemberDirectoryService,
                 AccountSessionsService,
                 MemberLookupService,
+                MemberLobbyService,
             ],
         }
     }

@@ -1,6 +1,5 @@
 import { isRecord } from "@modules/platform/primitives"
 import type {
-    AgentGoalRecord,
     AgentTaskRecord,
     AgentTriggerRecord,
     AgentTurnRecord,
@@ -10,7 +9,6 @@ import type {
     AgentWakeSource,
 } from "./agent-work.contracts"
 import type {
-    AgentGoalEntity,
     AgentTaskEntity,
     AgentTriggerEntity,
     AgentTurnEntity,
@@ -18,12 +16,11 @@ import type {
     AgentWorkStateEntity,
 } from "./persistence/entities"
 
-/** The settings of a workspace that has no row yet: work on, the core road, the default cap. */
+/** The settings of a workspace that has no row yet: work on, the core road. */
 export const defaultSettings = (workspaceId: string): AgentWorkSettingsRecord => ({
     workspaceId,
     workEnabled: true,
     road: "core",
-    backgroundDailyCap: 200,
 })
 
 /** The state of an agent that has no row yet: work on, no failures, nothing counted. */
@@ -42,7 +39,6 @@ export const toSettingsRecord = (row: AgentWorkSettingsEntity): AgentWorkSetting
     workspaceId: row.workspaceId,
     workEnabled: row.workEnabled,
     road: row.road,
-    backgroundDailyCap: row.backgroundDailyCap,
 })
 
 /** The state row as the capability's record. */
@@ -56,23 +52,10 @@ export const toStateRecord = (row: AgentWorkStateEntity): AgentWorkState => ({
     backgroundTurns: row.backgroundTurns,
 })
 
-/** The goal row as the capability's record. */
-export const toGoalRecord = (row: AgentGoalEntity): AgentGoalRecord => ({
-    id: row.id,
-    agentId: row.agentId,
-    title: row.title,
-    detail: row.detail,
-    status: row.status,
-    source: row.source,
-    dueAt: row.dueAt,
-    reviewedAt: row.reviewedAt,
-})
-
 /** The task row as the capability's record. */
 export const toTaskRecord = (row: AgentTaskEntity): AgentTaskRecord => ({
     id: row.id,
     agentId: row.agentId,
-    goalId: row.goalId,
     dedupeKey: row.dedupeKey,
     title: row.title,
     detail: row.detail,
@@ -80,6 +63,7 @@ export const toTaskRecord = (row: AgentTaskEntity): AgentTaskRecord => ({
     waitingOn: row.waitingOn,
     nextActionAt: row.nextActionAt,
     workItemId: row.workItemId,
+    data: row.data,
 })
 
 /** The trigger row as the capability's record; the time of day loses its seconds. */
@@ -91,7 +75,6 @@ export const toTriggerRecord = (row: AgentTriggerEntity): AgentTriggerRecord => 
     atTime: row.atTime === null ? null : row.atTime.slice(0, 5),
     timeZone: row.timeZone,
     eventName: row.eventName,
-    probeKey: row.probeKey,
     enabled: row.enabled,
     seedKey: row.seedKey,
     nextRunAt: row.nextRunAt,

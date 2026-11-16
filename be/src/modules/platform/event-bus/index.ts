@@ -12,7 +12,7 @@
  *
  *     constructor(@InjectEventConsumerRegistry() private readonly consumers: EventConsumerRegistry, private readonly door: LeadDoor) {}
  *     onModuleInit(): void {
- *         this.consumers.subscribe(LEAD_CAPTURED_AUTOMATIONS_TOPIC_QUEUE, this.door)
+ *         this.consumers.subscribe(KNOWLEDGE_SOURCE_INDEXED_BRAIN_TOPIC_QUEUE, this.door)
  *     }
  *
  * The consumer's command claims `(delivery.consumer, delivery.dedupeKey)` in the inbox inside the transaction of its effect. The
@@ -23,24 +23,16 @@ export { EVENT_BUS_ERROR_KINDS } from "./errors/event-bus.error"
 export { EVENT_BUS_MESSAGES } from "./messages/event-bus.messages"
 export { BaseEvent } from "./event-bus.contracts"
 export type { EventDelivery, EventPayload, ParsedEvent } from "./event-bus.contracts"
-export { EVENT_BUS, InjectEventBus, InjectEventConsumerRegistry } from "./event-bus.decorators"
+export { EVENT_BUS, EVENT_CONSUMER_REGISTRY, InjectEventBus, InjectEventConsumerRegistry } from "./event-bus.decorators"
 export { EventBusModule } from "./event-bus.module"
 export { EventBusService } from "./event-bus.service"
 export { EventConsumerService } from "./event-consumer.service"
 export type { EventBusOptions } from "./event-bus.options"
 export type { EventBus, EventConsumer, EventConsumerRegistry } from "./event-bus.port"
 export {
-    ORDER_CONFIRMED_INVENTORY_TOPIC_QUEUE,
     APPROVAL_RESOLVED_AGENT_GRAPHS_TOPIC_QUEUE,
-    BOOKING_STATUS_CHANGED_BOOKING_EFFECTS_TOPIC_QUEUE,
-    AI_GENERATION_COMPLETED_CONTENT_TOPIC_QUEUE,
-    AI_GENERATION_COMPLETED_VIDEO_TOPIC_QUEUE,
-    INSTALLATION_CHANGED_AGENT_SYNC_TOPIC_QUEUE,
     KNOWLEDGE_SOURCE_INDEXED_BRAIN_TOPIC_QUEUE,
-    BANK_CREDIT_BOOKED_AGENT_WAKES_TOPIC_QUEUE,
-    PAYMENT_RECONCILED_AGENT_WAKES_TOPIC_QUEUE,
     KNOWLEDGE_SOURCE_INDEXED_AGENT_WAKES_TOPIC_QUEUE,
     INSTALLATION_CHANGED_AGENT_WAKES_TOPIC_QUEUE,
-    CONNECTION_READY_BANK_FEED_POLL_TOPIC_QUEUE,
-    CONNECTION_READY_ZALO_INBOX_POLL_TOPIC_QUEUE,
+    CONNECTION_READY_CONNECTION_POLL_TOPIC_QUEUE,
 } from "./event-bus.queue"

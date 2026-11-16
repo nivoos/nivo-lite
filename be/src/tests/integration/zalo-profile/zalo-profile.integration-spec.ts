@@ -1,24 +1,17 @@
 import { ZaloCredentialsService } from "@modules/domain/channels"
 import { agentsEntities } from "@modules/domain/agents"
-import { ChatConversationsService } from "@modules/domain/chat-records"
 import { PollLimiterService } from "@modules/domain/connection-poll"
-import { mcpCallLogEntities } from "@modules/domain/mcp-call-log"
+import { toolCallLogEntities } from "@modules/domain/tool-call-log"
 import { ZaloReconcileService } from "@modules/domain/zalo-provider"
 import { ZALO, type ZaloClient } from "@modules/integrations/zalo"
 import { eachInOrder } from "@modules/platform/primitives"
+import { seedConversation, seededNameOf } from "../../fixtures/builders/chat-seed.builder"
 import { persistGraphTenant, type GraphTenant } from "../../fixtures/builders/agent-graph-world.builder"
 import { API_APP_MODULES } from "../../world/api-app.options"
 import { backendRoleSandbox } from "../../world/backend-role-sandbox.service"
 import { removeAuthUsers, removeWorkspace } from "../../world/proof-accounts.service"
 import { useSeedConnection } from "../../world/sales-door-world.service"
-import { TestWorldError, TestWorldErrorCode } from "../../world/test-world.error"
 import { useTestWorld } from "../../world/use-test-world"
-
-/** The provider outage a fake fails with, thrown inside a promise callback so the rejection carries the DomainError. */
-const providerDown = (): Promise<never> =>
-    Promise.resolve().then(() => {
-        throw new TestWorldError({ code: TestWorldErrorCode.ProviderDown })
-    })
 
 /** The real app opens in about a minute on the world; the whole suite shares that one boot. */
 jest.setTimeout(240_000)
@@ -38,7 +31,7 @@ const OA_ACCESS = "access-token"
 const ROWS_MAX = 20
 
 const [AgentEntity] = agentsEntities
-const [McpCallLogEntity] = mcpCallLogEntities
+const [ToolCallLogEntity] = toolCallLogEntities
 
 beforeAll(async () => {
     await persistGraphTenant(seed.manager, who)
@@ -69,7 +62,7 @@ beforeEach(() => {
     jest.spyOn(world.resolve<ZaloClient>(ZALO), "userProfile").mockImplementation((token, userId) => {
         asked.push({ token, userId })
         const profile = profiles.get(userId)
-        return profile === undefined ? providerDown() : Promise.resolve(profile)
+        return profile === undefined ? Promise.reject(new Error("zalo refused")) : Promise.resolve(profile)
     })
 })
 
@@ -79,7 +72,7 @@ afterEach(() => {
 
 /** A Zalo customer's conversation on a connection, opened as the webhook opens it: named after nobody. */
 const met = (connectionId: string, customerId: string) =>
-    world.resolve(ChatConversationsService).meet({
+    seedConversation(world, {
         workspaceId: who.workspaceId,
         agentId: who.agentId,
         channel: "zalo",
@@ -89,10 +82,8 @@ const met = (connectionId: string, customerId: string) =>
     })
 
 /** The name the inbox shows for the customer. */
-const nameOf = async (connectionId: string, customerId: string): Promise<string | null> => {
-    const found = await world.resolve(ChatConversationsService).find(who.workspaceId, "zalo", connectionId, customerId)
-    return found.kind === "ok" ? found.value.visitorName : null
-}
+const nameOf = (connectionId: string, customerId: string): Promise<string | null> =>
+    seededNameOf(world, who.workspaceId, "zalo", connectionId, customerId)
 
 /** One reconcile run of the connection, as the reconcile job runs it: the missed messages first (this connection has none), then the profiles. */
 const round = (connectionId: string) =>
@@ -116,13 +107,13 @@ describe("the profile round of a Zalo connection", () => {
             where: { workspaceId: who.workspaceId, module: "nivo" },
             take: 1,
         })
-        const logged = await seed.manager.find(McpCallLogEntity, {
+        const logged = await seed.manager.find(ToolCallLogEntity, {
             select: { connector: true, tool: true, outcome: true },
             where: { workspaceId: who.workspaceId, agentId: String(nivo?.id) },
             take: ROWS_MAX,
         })
         expect(logged.map(({ connector, tool, outcome }) => ({ connector, tool, outcome }))).toEqual([
-            { connector: "chat", tool: "chat.profile", outcome: "ok" },
+            { connector: "chat", tool: "nivo.tool.chat.profile.get", outcome: "ok" },
         ])
     })
 

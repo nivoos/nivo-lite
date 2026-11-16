@@ -1,8 +1,5 @@
 import { Field, ID, InputType } from "@nestjs/graphql"
-import { UndefinedAsNull } from "@modules/platform/graphql"
-import { IsIn, IsOptional, IsString, IsUUID, MaxLength } from "class-validator"
-import { ACCESS_LEVELS } from "@modules/domain/connection-grants"
-import type { Access } from "@modules/domain/agent-connections"
+import { IsBoolean, IsUUID, MaxLength } from "class-validator"
 
 @InputType()
 /** The bounded arguments of setConnectionGrant. */
@@ -19,12 +16,8 @@ export class SetConnectionGrantInput {
     @MaxLength(64)
     agentId!: string
 
-    /** The level, or nothing to remove the access. */
-    @Field(() => String, { nullable: true })
-    @UndefinedAsNull()
-    @IsOptional()
-    @IsString()
-    @MaxLength(8)
-    @IsIn(ACCESS_LEVELS)
-    access!: Access | null
+    /** True binds the agent to the connection, false removes the binding (a binding has no level: rights live in attachments). */
+    @Field(() => Boolean)
+    @IsBoolean()
+    bound!: boolean
 }

@@ -6,13 +6,13 @@
 #
 # Topology: this stack publishes NO port. The VPS has ONE shared ingress (its own stack, `starci app stack ingress create`) that owns 80/443 and the
 # certificates, serves every tenant and routes nivo's hosts to the aliases below over the external overlay nivo-edge-swarm; nivo's routes are published
-# into the shared dynamic directory by `starci app stack ingress publish` (infra/swarm/edge/routes.yml). TLS covers nivo.vn, www.nivo.vn, app.nivo.vn, api.nivo.vn.
+# into the shared dynamic directory by `starci app stack ingress publish` (infra/swarm/edge/routes.yml). TLS covers nivo.vn, www.nivo.vn, app.nivo.vn, admin.nivo.vn, api.nivo.vn.
 #   nivo-landing   the Next.js landing on nivo.vn / www.nivo.vn, reached as nivo-landing:3000 on the edge network
+#   nivo-admin     the Next.js platform-admin app on admin.nivo.vn (the NIVO team only), reached as nivo-admin:3000 on the edge network
 #   nivo-web-app   the Next.js console on app.nivo.vn, reached as nivo-web-swarm:3000 on the edge network (its own alias: nivo-web still names the old compose container until it is retired)
 #   nivo-api       the Nest api: GraphQL, webhooks, the BullMQ workers and outbox relay, the job alert monitor; reached as nivo-api:8787 on the edge network
 #                  The api process also serves the AI gateway (AiRouterGatewayModule) on 8788 (api port + offset 1), reachable as nivo-api:8788 on `agents` only
 #   nivo-mcp       the NIVO MCP gateway (be/apps/mcp), internal only: reached as nivo-mcp:8790 on the private `agents` network, no public route
-#   nivo-openclaw  the agent gateway; the api reaches it by service DNS (nivo-openclaw:18790) on the private `agents` network
 #   nivo-n8n       private automation editor on the `automation` network (no published port); SQLite database on the persisted volume n8n-data
 #   nivo-redis     the BullMQ broker of the queue outbox relay and workers, on the private `agents` network (nivo-redis:6379, no published port);
 #                  AOF with appendfsync everysec on the persisted volume redis-data. PostgreSQL stays the durable record: the relay republishes any
@@ -95,6 +95,9 @@ services:
       rollback_config: { parallelism: 1, order: start-first, monitor: 30s }
       restart_policy: { condition: any, delay: 5s }
 
+  # nivo-admin (admin.nivo.vn) is left out of release 0.7.0 (coordinator 2026-11-15): its Next build fails (server/client boundary); it ran no
+  # service in production before either. Its source is unchanged; put the service back with its image once the admin app builds.
+
   nivo-api:
     image: ghcr.io/starci183/nivo-lite-api@sha256:0000000000000000000000000000000000000000000000000000000000000000
     # environment, `<KEY>_FILE` pointers and the versioned secret grants are added by the generated override (starci app stack render).
@@ -104,7 +107,6 @@ services:
       agents:
       automation:
     volumes:
-      - openclaw-data:/openclaw-state
       - ai-router-data:/var/lib/ai-router # the AI gateway's SQLite key store (virtual keys survive a restart); the gateway listens on 8788 of the private agents network only
       - video-cache:/var/cache/nivo-video # voiceover clips by text hash: re-rendering the same script costs no TTS call
     healthcheck:
@@ -125,7 +127,7 @@ services:
       options: { max-size: "10m", max-file: "5" }
     deploy:
       replicas: 1
-      # openclaw-data and video-cache are single-host volumes: the placement is explicit, a replica is not high availability.
+      # video-cache is a single-host volume: the placement is explicit, a replica is not high availability.
       placement: { constraints: [node.role == manager] }
       update_config:
         { parallelism: 1, order: stop-first, failure_action: rollback, monitor: 45s, max_failure_ratio: 0, delay: 5s }
@@ -136,7 +138,7 @@ services:
     image: ghcr.io/starci183/nivo-lite-mcp@sha256:0000000000000000000000000000000000000000000000000000000000000000
     # The NIVO MCP gateway (be/apps/mcp): POST /mcp/<workspaceId> (Streamable HTTP) in front of every connector, with the grants, approvals,
     # limits, breakers and audit of the gateway modules the api shares. INTERNAL ONLY: it is on the private `agents` network under the alias
-    # nivo-mcp (the api and the openclaw gateway reach it as http://nivo-mcp:8790), never on `edge`, and no route of infra/swarm/edge/routes.yml
+    # nivo-mcp (the api reaches it as http://nivo-mcp:8790), never on `edge`, and no route of infra/swarm/edge/routes.yml
     # names it. Environment, `<KEY>_FILE` pointers and the versioned secret grants are added by the generated override, exactly like nivo-api.
     networks:
       agents:
@@ -163,42 +165,6 @@ services:
       update_config:
         { parallelism: 1, order: start-first, failure_action: rollback, monitor: 30s, max_failure_ratio: 0, delay: 5s }
       rollback_config: { parallelism: 1, order: start-first, monitor: 30s }
-      restart_policy: { condition: any, delay: 5s }
-
-  nivo-openclaw:
-    # The NIVO OpenClaw image (.starcistacks/images/openclaw/Dockerfile): the StarCi OpenClaw fork with the wrapper and the nivo-bridge plugin
-    # baked in (entrypoint, modes and the relay port are the image's). The wrapper exports the gateway token and provider keys from
-    # /run/secrets into the gateway process only, merges the gateway settings into openclaw.json and starts the relay that lets the api
-    # reach the loopback-only gateway. The digest is written by the deploy like the other own images (the images workflow publishes it).
-    image: ghcr.io/starci183/nivo-lite-openclaw@sha256:0000000000000000000000000000000000000000000000000000000000000000
-    environment:
-      # Where the nivo-bridge plugin posts a tool call: the api on the private `agents` network. OPENCLAW_BRIDGE_SECRET comes from /run/secrets
-      # (the image's STARCI_SECRETS names it for the runtime wrapper).
-      OPENCLAW_BRIDGE_URL: http://nivo-api:8787/agent-tools
-    volumes:
-      - openclaw-data:/home/node/.openclaw
-    networks: [agents]
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:18790/health',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 60s
-    stop_grace_period: 30s
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "5" }
-    deploy:
-      replicas: 1
-      placement: { constraints: [node.role == manager] }
-      update_config: { parallelism: 1, order: stop-first, failure_action: rollback, monitor: 45s, max_failure_ratio: 0 }
-      rollback_config: { parallelism: 1, order: stop-first, monitor: 45s }
       restart_policy: { condition: any, delay: 5s }
 
   nivo-n8n:
@@ -265,6 +231,34 @@ services:
     deploy:
       replicas: 1
       placement: { constraints: [node.role == manager] }
+      update_config: { parallelism: 1, order: stop-first, failure_action: rollback, monitor: 30s, max_failure_ratio: 0 }
+      rollback_config: { parallelism: 1, order: stop-first, monitor: 30s }
+      restart_policy: { condition: any, delay: 5s }
+
+  # The vector index (owner ruling 2026-11-11): one point per Postgres row, the point id is the row id; Postgres stays the system of record and
+  # the reconcile job rebuilds the index from it, so this volume has no backup. Private `agents` network only (nivo-qdrant:6333), no published
+  # port. The API key is the sealed QDRANT_API_KEY, granted to this service as a Swarm secret file (deploy.secrets.grants). Stateful: stop-first,
+  # one replica pinned to the manager with its single-host volume.
+  nivo-qdrant:
+    image: qdrant/qdrant:v1.19.2@sha256:b7b0444c4c351c970b98e90a6f89c2ee4287c65b44e52b4cb503fa5b2aa927ad
+    command: ["sh", "-c", "QDRANT__SERVICE__API_KEY=\"`cat /run/secrets/QDRANT_API_KEY`\" exec ./entrypoint.sh"]
+    volumes:
+      - qdrant-data:/qdrant/storage
+    networks: [agents]
+    healthcheck:
+      # The image ships no HTTP client: liveness is that the REST port accepts a connection; readiness is the api's /readyz `vectors` member.
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333'"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    deploy:
+      replicas: 1
+      placement: { constraints: [node.role == manager] }
+      resources: { limits: { memory: 1G } }
       update_config: { parallelism: 1, order: stop-first, failure_action: rollback, monitor: 30s, max_failure_ratio: 0 }
       rollback_config: { parallelism: 1, order: stop-first, monitor: 30s }
       restart_policy: { condition: any, delay: 5s }
@@ -348,12 +342,14 @@ networks:
 # The volumes keep the names the compose projects gave them (nivo-engine_*, nivo-edge_acme): the data and the certificates survive the move to
 # Swarm. `starci app stack prepare` creates any that is missing on a fresh host.
 volumes:
-  openclaw-data: { external: true, name: nivo-engine_openclaw-data }
   video-cache: { external: true, name: nivo-engine_video-cache }
   n8n-data: { external: true, name: nivo-engine_n8n-data }
   redis-data: { external: true, name: nivo-engine_redis-data }
+  qdrant-data: { external: true, name: nivo-engine_qdrant-data }
   ai-router-data: { external: true, name: nivo-engine_ai-router-data }
-  postgres-data: { external: true, name: nivo-engine_postgres-data }
+  # 2026-11-15 owner ruling "xoa sach db prod": the new baseline chain starts on a NEW empty volume; the old cluster stays untouched and
+  # unreferenced in nivo-engine_postgres-data (plus an age tarball in /srv/nivo/backups) until the owner orders its deletion.
+  postgres-data: { external: true, name: nivo-engine_postgres-data-20261115 }
   postgres-backups: { external: true, name: nivo-engine_postgres-backups }
 
 # Config objects are immutable and versioned by content: the provision step of `starci app stack deploy` creates `nivo-<name>-c<digest>` and the render passes the names in.
@@ -370,9 +366,9 @@ secrets:
   seeds-nivo-workspace: { external: true, name: nivo-custody-seeds-nivo-workspace-v1 }
   sepay: { external: true, name: nivo-custody-sepay-v1 }
   n8n: { external: true, name: nivo-custody-n8n-v1 }
-  openclaw: { external: true, name: nivo-custody-openclaw-v1 }
   postgres: { external: true, name: nivo-custody-postgres-v1 }
   redis: { external: true, name: nivo-custody-redis-v1 }
+  qdrant: { external: true, name: nivo-custody-qdrant-v1 }
   auth: { external: true, name: nivo-custody-auth-v1 }
   google: { external: true, name: nivo-custody-google-v1 }
   storage: { external: true, name: nivo-custody-storage-v1 }

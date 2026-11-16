@@ -15,93 +15,78 @@ const buildSubject = async () => {
 const parse = async (values: Readonly<Record<string, string>>): Promise<AiGatewayOptions> =>
     (await buildSubject()).aiGatewayOf(new EnvSource(values))
 
-describe("aiGatewayOf", () => {
-    describe("no upstream key", () => {
-        it("parses an empty pool with no gateway, so the app boots without AI", async () => {
-            const options = await parse({})
+describe("aiGatewayOf: two providers, Anthropic (chat) and OpenAI (embeddings)", () => {
+    it("parses an empty pool with no gateway without a key, so the app boots without AI", async () => {
+        const options = await parse({})
 
-            expect(options.providers).toEqual([])
-            expect(options.gateway).toBeNull()
-            expect(options.models).toEqual({
-                work: "deepseek/deepseek-v4.1-flash",
-                embed: "qwen/qwen3-embedding-8b",
-            })
-        })
+        expect(options.providers).toEqual([])
+        expect(options.gateway).toBeNull()
+        expect(options.models).toEqual({ work: "claude-haiku-5-5", strong: "claude-sonnet-5-5" })
     })
 
-    describe("an upstream key", () => {
-        it("keeps OPENROUTER_API_KEY as the upstream key on the public OpenRouter endpoint", async () => {
-            const options = await parse({ OPENROUTER_API_KEY: "sk-or" })
-
-            expect(options.providers).toHaveLength(1)
-            expect(options.providers[0]).toMatchObject({ id: "upstream", baseUrl: "https://openrouter.ai/api/v1" })
-            expect(options.providers[0]?.keys.map((key) => [key.alias, key.secret.reveal()])).toEqual([
-                ["OPENROUTER_API_KEY", "sk-or"],
-            ])
+    it("pools ANTHROPIC_API_KEY and OPENAI_API_KEY with their numbered siblings, each on its own API, skipping a gap", async () => {
+        const options = await parse({
+            ANTHROPIC_API_KEY: "a",
+            ANTHROPIC_API_KEY_2: "b",
+            OPENAI_API_KEY: "o",
+            OPENAI_API_KEY_3: "o3",
         })
 
-        it("pools the numbered siblings of the upstream key, in order, and skips a gap", async () => {
-            const options = await parse({
-                OPENROUTER_API_KEY: "a",
-                OPENROUTER_API_KEY_2: "b",
-                OPENROUTER_API_KEY_4: "d",
-            })
+        expect(options.providers.map((provider) => [provider.id, provider.kind, provider.baseUrl])).toEqual([
+            ["anthropic", "anthropic", "https://api.anthropic.com/v1"],
+            ["openai", "openai", "https://api.openai.com/v1"],
+        ])
+        expect(options.providers[0]?.keys.map((key) => [key.alias, key.secret.reveal()])).toEqual([
+            ["ANTHROPIC_API_KEY", "a"],
+            ["ANTHROPIC_API_KEY_2", "b"],
+        ])
+        expect(options.providers[1]?.keys.map((key) => key.alias)).toEqual(["OPENAI_API_KEY", "OPENAI_API_KEY_3"])
+    })
 
-            expect(options.providers[0]?.keys.map((key) => [key.alias, key.secret.reveal()])).toEqual([
-                ["OPENROUTER_API_KEY", "a"],
-                ["OPENROUTER_API_KEY_2", "b"],
-                ["OPENROUTER_API_KEY_4", "d"],
-            ])
+    it("reads no OpenRouter key and no LLM_* / EMBEDDING_* variable any more: no OpenRouter provider in the pool", async () => {
+        const options = await parse({
+            OPENROUTER_API_KEY: "k",
+            LLM_API_KEY: "l",
+            LLM_BASE_URL: "https://llm.test/v1",
+            EMBEDDING_BASE_URL: "http://ollama.test/v1",
+            EMBEDDING_API_KEY: "e",
+            ANTHROPIC_API_KEY: "a",
         })
 
-        it("lets LLM_* move the endpoint, the key and the work model", async () => {
-            const options = await parse({
-                LLM_API_KEY: "sk-x",
-                LLM_BASE_URL: "https://llm.test/v1///",
-                LLM_MODEL: "m-work",
-                EMBEDDING_MODEL: "m-embed",
-            })
-
-            expect(options.providers[0]).toMatchObject({ baseUrl: "https://llm.test/v1" })
-            expect(options.models).toEqual({ work: "m-work", embed: "m-embed" })
-        })
-
-        it("falls back to OpenRouter for a base URL that is not http(s)", async () => {
-            const options = await parse({ OPENROUTER_API_KEY: "k", LLM_BASE_URL: "ftp://x" })
-
-            expect(options.providers[0]?.baseUrl).toBe("https://openrouter.ai/api/v1")
-        })
-
-        it("gives embeddings their own provider when EMBEDDING_BASE_URL is declared, with the upstream key by default", async () => {
-            const options = await parse({
-                OPENROUTER_API_KEY: "k",
-                EMBEDDING_BASE_URL: "http://ollama.test/v1",
-            })
-
-            expect(options.providers.map((provider) => provider.id)).toEqual(["upstream", "embeddings"])
-            expect(options.providers[1]).toMatchObject({ baseUrl: "http://ollama.test/v1" })
-            expect(options.providers[1]?.keys[0]?.alias).toBe("OPENROUTER_API_KEY")
-        })
+        expect(options.providers.map((provider) => provider.id)).toEqual(["anthropic"])
+        expect((await parse({ OPENROUTER_API_KEY: "k" })).providers).toEqual([])
     })
 })
 
 describe("aiGatewayOf, the gateway", () => {
+    it("binds the key to every profile the pool serves with both keys", async () => {
+        const options = await parse({ ANTHROPIC_API_KEY: "a", OPENAI_API_KEY: "o", STARCI_AI_KEY: "starci" })
+
+        expect(options.gateway?.mountedKeys.map((key) => ({ ...key, secret: key.secret.reveal() }))).toEqual([
+            { label: "nivo", secret: "starci", profiles: ["work", "embed-oa", "sonnet", "haiku", "auto-light", "auto-heavy"] },
+        ])
+    })
+
+    it("Anthropic alone: chat profiles only (embeddings are not served)", async () => {
+        const options = await parse({ ANTHROPIC_API_KEY: "a", STARCI_AI_KEY: "starci" })
+
+        expect(options.gateway?.mountedKeys[0]?.profiles).toEqual(["work", "sonnet", "haiku", "auto-light", "auto-heavy"])
+    })
+
+    it("OpenAI alone: the pinned embeddings profile only (no chat profile, nothing switches vendor)", async () => {
+        const options = await parse({ OPENAI_API_KEY: "o", STARCI_AI_KEY: "starci" })
+
+        expect(options.gateway?.mountedKeys[0]?.profiles).toEqual(["embed-oa"])
+    })
+
     it("keeps the default key file and reads no port (it is the app port plus one)", async () => {
-        const options = await parse({ OPENROUTER_API_KEY: "k" })
+        const options = await parse({ OPENAI_API_KEY: "o" })
 
         expect(options.gateway).toEqual({ keysPath: "ai-router-keys.sqlite", mountedKeys: [] })
     })
 
-    it("mounts the one StarCi virtual key when it is declared, with its label and profiles", async () => {
-        const options = await parse({ OPENROUTER_API_KEY: "k", STARCI_AI_KEY: "starci" })
-
-        expect(options.gateway?.mountedKeys.map((key) => ({ ...key, secret: key.secret.reveal() }))).toEqual([
-            { label: "nivo", secret: "starci", profiles: ["work", "embed"] },
-        ])
-    })
-
     it("takes the key file from the environment", async () => {
-        const options = await parse({ OPENROUTER_API_KEY: "k", AI_ROUTER_KEYS_PATH: "/data/keys.sqlite" })
+        const options = await parse({ ANTHROPIC_API_KEY: "a", AI_ROUTER_KEYS_PATH: "/data/keys.sqlite" })
 
         expect(options.gateway?.keysPath).toBe("/data/keys.sqlite")
     })

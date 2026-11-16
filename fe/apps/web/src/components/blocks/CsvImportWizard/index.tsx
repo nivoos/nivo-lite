@@ -3,7 +3,7 @@
 import { type SlotRead, useSlotLabels, slotOfReads } from "@/hooks/slot"
 
 import { useFormatter, useTranslations } from "next-intl"
-import { agentChoicesOf } from "@/hooks/connection-wizard"
+import { agentChoicesOf, useWizardPhases } from "@/hooks/connection-wizard"
 import {
     MAX_GRID_ROWS,
     NO_COLUMN,
@@ -11,14 +11,14 @@ import {
     useCsvImportCopy,
     useCsvImportWizard,
 } from "@/hooks/csv-import-wizard"
-import type { AgentOption, SlotLabels } from "@/modules/types"
+import type { AgentOption, SlotLabels, WizardPhases } from "@/modules/types"
 import { CsvImportWizardBase } from "./component"
 
 /** What the board hands the import wizard. */
 interface CsvImportWizardProps {
     /** The actual workspace reads shared with this selected wizard. */
     readonly dependencyReads: ReadonlyArray<SlotRead<unknown>>
-    /** Workspace agents (any module): every agent may be given read access to a data source. */
+    /** Workspace agents (any module): every agent may be bound to a data source. */
     readonly agents: ReadonlyArray<AgentOption>
     /** Add more data to this existing import instead of creating a new one. */
     readonly resumeId?: string
@@ -35,6 +35,7 @@ interface CsvImportContext {
     readonly props: CsvImportWizardProps
     readonly format: ReturnType<typeof useFormatter>
     readonly slotLabelsOf: (empty: string) => SlotLabels
+    readonly phases: WizardPhases
 }
 
 /**
@@ -57,12 +58,15 @@ const buildCsvImportWizardState = (context: CsvImportContext) => {
 export const CsvImportWizard = (props: CsvImportWizardProps) => {
     const t = useTranslations("connectorCsv")
     const tw = useTranslations("connectionWizard")
+    const tablePhases = useWizardPhases("csv")
+    const docPhases = useWizardPhases("csvDocs")
     const format = useFormatter()
     const copy = useCsvImportCopy()
     const slotLabelsOf = useSlotLabels()
     const wizard = useCsvImportWizard(props)
 
-    const connected = buildCsvImportWizardState({ wizard, copy, t, tw, props, format, slotLabelsOf })
+    const phases = wizard.source === "document" ? docPhases : tablePhases
+    const connected = buildCsvImportWizardState({ wizard, copy, t, tw, props, format, slotLabelsOf, phases })
 
     return <CsvImportWizardBase props={csvImportWizardProps(connected)} on={wizard.on} />
 }
@@ -71,7 +75,8 @@ export const CsvImportWizard = (props: CsvImportWizardProps) => {
 const csvImportWizardProps = (
     connected: NonNullable<ReturnType<typeof buildCsvImportWizardState>>,
 ): Parameters<typeof CsvImportWizardBase>[0]["props"] => {
-    const { wizard, t, tw, copy, saved, props, form, linkCount, format, preview, result, slotLabelsOf } = connected
+    const { wizard, t, tw, copy, saved, props, form, linkCount, format, preview, result, slotLabelsOf, phases } =
+        connected
     return {
         resume: slotOfReads([...props.dependencyReads, ...wizard.reads], () => ({
             isResumed: props.resumeId !== undefined,
@@ -79,6 +84,7 @@ const csvImportWizardProps = (
         slotLabels: { ...slotLabelsOf(""), ...(wizard.loadError === null ? {} : { error: wizard.loadError }) },
         title: t("title"),
         stepLabel: tw("stepOf", { n: wizard.index + 1, total: wizard.steps.length }),
+        phases,
         steps: wizard.steps.map((step) => copy.steps[step]),
         index: wizard.index,
         step: wizard.step,
@@ -120,7 +126,7 @@ const csvImportWizardProps = (
         agentStep: {
             title: t("agentTitle"),
             notice: null,
-            agents: agentChoicesOf(props.agents, "csv_import", tw),
+            agents: agentChoicesOf(props.agents, tw),
             value: wizard.agentIds,
             hint: tw("agentHint"),
             none: tw("agentNone"),

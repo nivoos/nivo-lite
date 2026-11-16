@@ -3,6 +3,9 @@ import { isRecord } from "@modules/platform/primitives"
 /** The queue name: the contract between the database functions the wizard calls and the processor of the run-zalo-wizard job (the durable queue name). */
 export const ZALO_WIZARD_QUEUE = "zalo_wizard"
 
+/** The job name of one wizard step. */
+export const ZALO_WIZARD_JOB = "run-zalo-wizard"
+
 /** What a wizard job does: seal the app keys of a new connection, seal the OA Secret Key, or build the Zalo permission URL. */
 export type ZaloWizardCommand = "app" | "oa" | "begin"
 
@@ -29,3 +32,6 @@ export const isZaloWizardPayload = (value: unknown): value is ZaloWizardPayload 
         typeof ticket === "string"
     )
 }
+
+/** The once key of one wizard step: the connection and the ticket the owner's request wrote on its row (one step per request). */
+export const zaloWizardKey = (payload: ZaloWizardPayload): string => `zalo-wizard:${payload.connectionId}:${payload.ticket}`

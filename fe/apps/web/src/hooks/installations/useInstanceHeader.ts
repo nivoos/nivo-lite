@@ -4,7 +4,7 @@ import { useLocale, useTranslations } from "next-intl"
 import { useModuleCatalog } from "@/hooks/moduleCatalog"
 import { loadingSlot, slotOfReads } from "@/hooks/slot"
 import { useWorkspaceId } from "@/hooks/workspaces"
-import { MODULE_REGISTRY, pickCopy, type ModuleKey } from "@/modules/catalog"
+import { pickCopy } from "@/modules/catalog"
 import {
     agentLifecycleOf,
     agentLifecycleTone,
@@ -14,10 +14,16 @@ import {
     type InstallationConnectionNeed,
 } from "@/modules/installations"
 import { agentProfileHref, workspaceHref } from "@/modules/routes"
-import { useInstanceChannels } from "./useInstanceChannels"
+import { useInstanceCounts, type InstanceCounts } from "./useInstanceCounts"
 import { useInstanceGuard } from "./useInstanceGuard"
 import { useInstallations } from "./useInstallations"
 import type { DataSlot } from "@/modules/types"
+
+/** The attached accounts in the header line: nothing while they load, a soft "none yet" at 0, else "3 accounts". */
+const accountsOf = (count: number | undefined, none: string, some: (count: number) => string): ReadonlyArray<string> => {
+    if (count === undefined) return []
+    return count === 0 ? [none] : [some(count)]
+}
 
 /** The view `useInstanceHeader` returns. */
 export interface InstanceHeaderViewShape {
@@ -32,7 +38,7 @@ export interface InstanceHeaderViewShape {
         isEarly: boolean
         lifecycle: AgentLifecycle
         statusTone: "success" | "neutral" | "warning" | "accent"
-        channels: readonly string[]
+        counts: InstanceCounts
         connectionNeeds: readonly InstallationConnectionNeed[]
         profileHref: string | null
     }>
@@ -45,16 +51,18 @@ export interface InstanceHeaderViewShape {
     isEarly: boolean
     lifecycle: AgentLifecycle
     statusTone: "success" | "neutral" | "warning" | "accent"
-    channels: readonly string[]
+    counts: InstanceCounts
     connectionNeeds: readonly InstallationConnectionNeed[]
     profileHref: string | null
+    /** The glyph the module template declares (the mark of a kind with no emblem file); empty until the catalogue is read. */
+    glyph: string
 }
 
 /**
- * The header of one agent instance: the person (name, handle, avatar seed), the role, the lifecycle and the channels; skeleton
+ * The header of one agent instance: the person (name, handle), the role, the lifecycle, the accounts it was granted and the counts of the tabs; skeleton
  * data until the instance is known. If the installed agents cannot be read the header stops waiting and names the role.
  */
-export const useInstanceHeader = (module: ModuleKey, installationId: string): InstanceHeaderViewShape => {
+export const useInstanceHeader = (module: string, installationId: string): InstanceHeaderViewShape => {
     const t = useTranslations("modulesCore")
     const locale = useLocale() === "en" ? "en" : "vi"
     const guard = useInstanceGuard(module, installationId)
@@ -62,13 +70,11 @@ export const useInstanceHeader = (module: ModuleKey, installationId: string): In
     const { read } = useInstallations()
     const isFailed = read.data === undefined && read.error !== undefined
     const installation = guard.installation
-    const def = MODULE_REGISTRY[module]
     const catalog = useModuleCatalog()
     const copy = catalog.modules[module]
-    const channelsOf = useInstanceChannels()
+    const counts = useInstanceCounts(installation?.agentId ?? null)
     const fallbackName = catalog.read.data === undefined && catalog.read.error !== undefined ? module : ""
     const lifecycle = agentLifecycleOf(installation)
-    const channels = channelsOf(installation?.agentId ?? null)
     const typeName = copy === undefined ? fallbackName : pickCopy(copy.name, locale)
     const unknownName = isFailed ? typeName : ""
     const view = {
@@ -80,12 +86,13 @@ export const useInstanceHeader = (module: ModuleKey, installationId: string): In
         subtitle: agentSubtitleOf({
             handle: installation?.agentHandle ?? "",
             roleName: typeName,
-            channels: channels.length === 0 ? [t("headerNoChannels")] : channels,
+            channels: accountsOf(counts.grants, t("headerNoGrants"), (count) => t("headerAccounts", { count })),
         }),
-        isEarly: def.status === "early",
+        isEarly: copy?.status === "early",
+        glyph: copy?.glyph ?? "",
         lifecycle,
         statusTone: agentLifecycleTone(lifecycle),
-        channels,
+        counts,
         connectionNeeds: installation?.connectionNeeds ?? [],
         profileHref:
             installation?.agentId == null ? null : workspaceHref(workspaceId, agentProfileHref(installation.agentId)),

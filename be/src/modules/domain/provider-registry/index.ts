@@ -1,14 +1,16 @@
 export { ProviderRegistryModule } from "./provider-registry.module"
+export { ProviderRegistryService } from "./provider-registry.service"
+export type { PortAccount, ProviderImplementations } from "./provider-registry.service"
 export {
-    BankFeedPollerRegistryService,
     BankTransactionsRegistryService,
+    ChannelProfileRegistryService,
+    DomainRegistrarRegistryService,
     FeedWebhookRegistryService,
     LedgerRegistryService,
-    MessageInboxPollerRegistryService,
-    PaymentInstructionRegistryService,
+    PollReceiverRegistryService,
 } from "./provider-registries.service"
+export { PAYMENT_REQUEST_REFUSALS, PAYMENT_TOOL_BUSINESS_REFUSALS, PAYMENT_TOOL_REFUSALS } from "./provider-ports.contracts"
 export type {
-    BankFeedPoller,
     BankTransaction,
     BankTransactionsPort,
     BankTransactionsQuery,
@@ -17,10 +19,13 @@ export type {
     InstructionAccount,
     BusinessLedgerEntry,
     LedgerPort,
-    MessageInboxPoller,
     PaymentInstructionPort,
     PaymentInstructionRequest,
-    PolledCredit,
+    PolledRow,
+    PollCadence,
+    PollReceiver,
+    TransferInstruction,
+    TransferInstructionRequest,
 } from "./provider-ports.contracts"
 export {
     PROVIDER_REGISTRY_ERROR_KINDS,
@@ -28,3 +33,84 @@ export {
     ProviderRegistryErrorCode,
 } from "./errors/provider-registry.error"
 export { PROVIDER_REGISTRY_MESSAGES } from "./messages/provider-registry.messages"
+export {
+    providerCallCause,
+    providerCallFailure,
+    providerRefusal,
+    providerRefusalDetail,
+    providerRefusalReason,
+    registrarRefusal,
+    registrarRefusalReason,
+} from "./errors/provider-refusals"
+export { proofOf, withProof, type ProviderCallProof } from "./provider-call-failure"
+export {
+    DubbingRegistryService,
+    InvoiceIssueRegistryService,
+    ProviderFileRegistryService,
+    SpeechRegistryService,
+    VideoGenerationRegistryService,
+} from "./media-registries.service"
+export { MEDIA_TOOL_BUSINESS_REFUSALS, MEDIA_TOOL_REFUSALS } from "./media-ports.contracts"
+export type {
+    MediaToolRefusal,
+    DubbingJob,
+    DubbingPort,
+    DubbingRequest,
+    DubbingStarted,
+    ProviderFile,
+    ProviderFileReader,
+    ProviderFileRef,
+    ProviderFileSink,
+    ProviderRefusalReason,
+    SpeechPort,
+    SpeechRequest,
+    SpeechVoice,
+    SpeechVoicePage,
+    SpeechVoiceQuery,
+    VideoGenerationPort,
+    VideoJob,
+    VideoRequest,
+    VideoStarted,
+} from "./media-ports.contracts"
+export { INVOICE_TOOL_BUSINESS_REFUSALS, INVOICE_TOOL_REFUSALS } from "./invoice-ports.contracts"
+export type { InvoiceIssuePort, InvoiceIssueRequest, InvoiceToolRefusal, IssuedInvoice } from "./invoice-ports.contracts"
+export { DOMAIN_TOOL_BUSINESS_REFUSALS, DOMAIN_TOOL_REFUSALS } from "./domain-ports.contracts"
+export type {
+    DomainRefusalReason,
+    DomainToolRefusal,
+    DnsRecord,
+    DnsRecordInput,
+    DnsRecordList,
+    DomainAvailability,
+    DomainChange,
+    DomainContact,
+    DomainListQuery,
+    DomainOrderReceipt,
+    DomainPage,
+    DomainPeriodPrice,
+    DomainRecord,
+    DomainRegistrarPort,
+    DomainRegistrationRequest,
+    DomainRenewalRequest,
+    DomainService,
+    DomainTransferRequest,
+    RenewableService,
+    ServiceRenewalReceipt,
+    ServiceRenewalRequest,
+} from "./domain-ports.contracts"
+export { CalendarRegistryService } from "./calendar-registry.service"
+export { PaymentRequestRegistryService } from "./payment-request-registry.service"
+export { FacebookPublishRegistryService } from "./facebook-publish-registry.service"
+export { InstagramPublishRegistryService } from "./instagram-publish-registry.service"
+export { YoutubePublishRegistryService } from "./youtube-publish-registry.service"
+export { TiktokPublishRegistryService } from "./tiktok-publish-registry.service"
+export { TemplateMessageRegistryService } from "./template-message-registry.service"
+export * from "./calendar-ports.contracts"
+export * from "./payment-link-ports.contracts"
+export * from "./payment-request-ports.contracts"
+export * from "./facebook-publish-ports.contracts"
+export * from "./instagram-publish-ports.contracts"
+export * from "./youtube-publish-ports.contracts"
+export * from "./tiktok-publish-ports.contracts"
+export * from "./template-message-ports.contracts"
+export type { ChannelProfilePort, OptionalChannelProfile } from "./channel-profile-ports.contracts"

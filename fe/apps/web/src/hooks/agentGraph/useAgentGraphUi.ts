@@ -2,7 +2,7 @@
 
 import { useState, useSyncExternalStore } from "react"
 import type { AgentGraphUi } from "@/modules/agent-graph"
-import type { AgentGraphDecideForm, AgentGraphPhoneView, AgentGraphSideTab } from "@/modules/types"
+import type { AgentGraphPhoneView, AgentGraphSideTab } from "@/modules/types"
 import { PHONE_VIEWS, SIDE_TABS } from "./agentGraph.shared"
 
 /** From this width the pane beside the graph shows next to it; under it the detail of a node opens in a drawer. */
@@ -24,21 +24,9 @@ interface Tabs {
     readonly phoneView: AgentGraphPhoneView
 }
 
-/** The decision point being edited and how it started, to tell whether the owner changed anything. */
-interface Editing {
-    readonly form: AgentGraphDecideForm | null
-    readonly start: AgentGraphDecideForm | null
-}
-
 /** The view `useAgentGraphUi` returns. */
 export interface AgentGraphUiView {
     ui: AgentGraphUi
-    /** Changes the form being edited with a function of it; nothing when none is open. */
-    changeForm: (change: (form: AgentGraphDecideForm) => AgentGraphDecideForm) => void
-    /** Opens the editor on a decision point and remembers how it started. */
-    openForm: (value: AgentGraphDecideForm) => void
-    closeForm: () => void
-    pickAdder: (field: "action" | "fact", value: string) => void
     select: (key: string) => void
     openNode: (key: string) => void
     closeDrawer: () => void
@@ -48,13 +36,11 @@ export interface AgentGraphUiView {
     untrace: () => void
 }
 
-/** The choices a person makes on the graph panes that are not data: what is selected, which tab shows, what is edited or traced. */
+/** The choices a person makes on the graph panes that are not data: what is selected, which tab shows, what is traced. */
 export const useAgentGraphUi = (initialRunId: string): AgentGraphUiView => {
     const [selectedKey, setSelectedKey] = useState("")
     const [tabs, setTabs] = useState<Tabs>({ sideTab: "chat", phoneView: "checklist" })
     const [isDrawerOpen, setIsDrawerOpen] = useState(false)
-    const [editing, setEditing] = useState<Editing>({ form: null, start: null })
-    const [adder, setAdder] = useState({ action: "", fact: "" })
     const [runId, setRunId] = useState(initialRunId)
     const isSideBySide = useSyncExternalStore(subscribeSideBySide, readSideBySide, readSideBySideOnServer)
     const ui: AgentGraphUi = {
@@ -62,31 +48,15 @@ export const useAgentGraphUi = (initialRunId: string): AgentGraphUiView => {
         sideTab: tabs.sideTab,
         phoneView: tabs.phoneView,
         isDrawerOpen,
-        form: editing.form,
-        formStart: editing.start,
-        adder,
         runId,
-        isPublishing: false,
     }
     const showSideTab = (sideTab: AgentGraphSideTab) => setTabs((current) => ({ ...current, sideTab }))
     const select = (key: string) => {
         setSelectedKey(key)
-        setEditing({ form: null, start: null })
         if (key !== "") showSideTab("detail")
     }
     return {
         ui,
-        /** Changes the form being edited with a function of it; nothing when none is open. */
-        changeForm: (change: (form: AgentGraphDecideForm) => AgentGraphDecideForm) =>
-            setEditing((current) => ({ ...current, form: current.form === null ? null : change(current.form) })),
-        /** Opens the editor on a decision point and remembers how it started. */
-        openForm: (value: AgentGraphDecideForm) => {
-            setSelectedKey(value.nodeKey)
-            setEditing({ form: value, start: value })
-            showSideTab("detail")
-        },
-        closeForm: () => setEditing({ form: null, start: null }),
-        pickAdder: (field: "action" | "fact", value: string) => setAdder((pick) => ({ ...pick, [field]: value })),
         select,
         openNode: (key: string) => {
             select(key)
@@ -96,8 +66,7 @@ export const useAgentGraphUi = (initialRunId: string): AgentGraphUiView => {
         sideTab: (value: string) => showSideTab(SIDE_TABS.find((tab) => tab === value) ?? "chat"),
         phoneView: (value: string) => {
             const view = PHONE_VIEWS.find((entry) => entry === value) ?? "checklist"
-            const isSide = view === "chat" || view === "proposals" || view === "versions"
-            setTabs((current) => ({ phoneView: view, sideTab: isSide ? view : current.sideTab }))
+            setTabs((current) => ({ phoneView: view, sideTab: view === "chat" ? view : current.sideTab }))
         },
         trace: (id: string) => {
             setRunId(id)

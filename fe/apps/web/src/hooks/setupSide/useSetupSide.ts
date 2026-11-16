@@ -1,23 +1,18 @@
 "use client"
 
-import { LOADING_SESSION, useSetupGates, useSetupKnowledge, useSetupState, useSetupVersions } from "@/hooks/agentSetup"
+import { LOADING_SESSION, useSetupGates, useSetupState, useSetupVersions } from "@/hooks/agentSetup"
 import { setupProgressOf } from "@/modules/setup-view"
 import { slotOfReads } from "@/hooks/slot"
 import { useModuleCatalog } from "@/hooks/moduleCatalog"
-import { useWorkspaceId } from "@/hooks/workspaces"
 import { useSetupRequirements } from "@/hooks/setupRequirements"
-import { MODULE_KEYS, isModuleKey } from "@/modules/catalog"
 import type { ContextVersion } from "@/modules/installations"
 import type { DataSlot, SetupSideView } from "@/modules/types"
-import { useFormatter, useLocale, useTranslations } from "next-intl"
+import { useLocale, useTranslations } from "next-intl"
 import {
     PLACEHOLDER_GATES,
     commandsOf,
     gateViewMapper,
-    knowledgeOf,
     setupRequirementsNoticeOf,
-    versionsOf,
-    versionsViewOf,
 } from "./setupSide.shared"
 
 import type { Dispatch, SetStateAction } from "react"
@@ -45,23 +40,19 @@ type UseSetupSideResult = {
 }
 
 /**
- * The side column of the Setup tab: the draft, the gate checklist, the knowledge the module runs on and the versions applied, as one
- * view with the commands of the checklist. The module is the type of the url; it reads as the first one if it is unknown.
+ * The side column of the Setup tab: the gate checklist (what the agent understood), as one view with the commands of the
+ * checklist (the versions come from the graph read). The module is the type of the url; one the catalogue does not serve has no gates.
  */
 export const useSetupSide = (module: string, installationId: string): UseSetupSideResult => {
     const t = useTranslations("moduleSetup")
     const locale = useLocale() === "en" ? "en" : "vi"
-    const format = useFormatter()
-    const workspaceId = useWorkspaceId()
-    const moduleKey = isModuleKey(module) ? module : MODULE_KEYS[0]
     const catalog = useModuleCatalog()
+    const copy = catalog.modules[module]
     const state = useSetupState(installationId)
     const { slot, reload } = state
     const versionsSlot = useSetupVersions(installationId)
-    const unmet = useSetupRequirements(moduleKey)
-    const knowledgeSlot = useSetupKnowledge(moduleKey, installationId)
-    const counts = ("items" in knowledgeSlot ? knowledgeSlot.items : undefined) ?? null
-    const reads = [state.read, catalog.read, knowledgeSlot.read, versionsSlot.read]
+    const unmet = useSetupRequirements(module)
+    const reads = [state.read, catalog.read, versionsSlot.read]
     const isLoading = reads.some((read) => read.data === undefined && read.isLoading)
     const session = ("items" in slot ? slot.items : undefined)?.session ?? LOADING_SESSION
     const gatesState = useSetupGates(session.id, installationId)
@@ -71,24 +62,17 @@ export const useSetupSide = (module: string, installationId: string): UseSetupSi
         ("items" in slot ? slot.items : undefined)?.instance.activeVersionId ??
         null
     const progress = setupProgressOf(
-        moduleKey,
+        copy,
         session,
         versions.find((version) => version.id === activeVersionId) ?? null,
     )
-    const catalogGates = catalog.modules[moduleKey]?.gates ?? []
+    const catalogGates = copy?.gates ?? []
     const gateRows =
         isLoading && catalogGates.length === 0
             ? PLACEHOLDER_GATES
             : catalogGates.map(gateViewMapper(session, locale, t))
     const view: SetupSideView = {
         unmet: setupRequirementsNoticeOf(t, unmet),
-        draft: {
-            title: t("draftTitle"),
-            summary: session.draft.summary,
-            emptyText: t("draftEmpty"),
-            factsTitle: t("factsTitle"),
-            facts: session.draft.facts,
-        },
         gates: {
             title: t("gatesTitle"),
             progressLabel: t("gatesProgress", { done: progress.confirmed, total: progress.total }),
@@ -107,8 +91,6 @@ export const useSetupSide = (module: string, installationId: string): UseSetupSi
             applyText:
                 gatesState.applyNote.tone === "applied" ? t("applied", { version: gatesState.applyNote.version }) : "",
         },
-        knowledge: knowledgeOf(t, counts, moduleKey, workspaceId),
-        versions: versionsViewOf(versionsOf(t, versions, format, activeVersionId), isLoading),
     }
     const sideSlot = slotOfReads(reads, () => view)
     return {
@@ -117,7 +99,6 @@ export const useSetupSide = (module: string, installationId: string): UseSetupSi
         reload: (): void => {
             reload()
             catalog.reload()
-            knowledgeSlot.reload()
             versionsSlot.reload()
         },
         on: commandsOf(gatesState),
@@ -144,4 +125,5 @@ const gatesLabelsOf = (t: ReturnType<typeof useTranslations<"moduleSetup">>) => 
     editLabel: t("edit"),
     editSaveLabel: t("editSave"),
     editCancelLabel: t("editCancel"),
+    understoodLabel: t("understood"),
 })

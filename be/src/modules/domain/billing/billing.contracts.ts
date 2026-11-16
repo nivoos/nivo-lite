@@ -1,4 +1,5 @@
 import type { PaymentOrder } from "@modules/domain/payment-orders"
+import type { WorkspaceMembership } from "@modules/domain/workspaces"
 import type { BankAccountOptions } from "./billing.options"
 import type { JsonObject } from "./webhook-body.policy"
 
@@ -161,6 +162,8 @@ export interface BillingWorkspace extends WorkspaceBilling {
 export interface RenewalParams {
     /** The workspace to renew. */
     readonly workspaceId: string
+    /** The payment-order request this order answers (a request makes one order, whatever number of runs); absent outside a request. */
+    readonly requestId?: string | undefined
 }
 
 /** The first payment a workspace asks for. */
@@ -171,6 +174,8 @@ export interface PlanOrderParams {
     readonly planCode: string
     /** What was picked on the plan; the plan's monthly base for whatever is left out. */
     readonly selection?: PlanSelectionInput
+    /** The payment-order request this order answers (a request makes one order, whatever number of runs); absent outside a request. */
+    readonly requestId?: string | undefined
 }
 
 /** An order together with what the customer needs to pay it. */
@@ -279,29 +284,25 @@ export interface BillingPaymentOrder extends Omit<PaymentOrder, "detail"> {
 /** A normalized payment order, or null when the scoped order does not exist. */
 export type BillingPaymentOrderLookup = BillingPaymentOrder | null
 
-/** Money an owner or manager knows arrived, entered by hand. */
-export interface ManualCredit {
-    /** Whole dong, greater than zero. */
-    readonly amount: number
-    /** The day the money arrived, yyyy-mm-dd. */
-    readonly date: string
-    /** What the transfer said. */
-    readonly content: string
-    /** A note, when the person added one. */
-    readonly note?: string | undefined
-    /** The payer, when the person named one. */
-    readonly payer?: string | undefined
-}
-
-/**
- * What the bank feed answered for one move of a committed receipt: `booked` recorded a live payment event and queued its
- * reconcile job, `debited` recorded money that left the account as a debit transaction, `duplicate` counted a repeat, `unbound`
- * remembered the move on the connection because no accounting agent is bound, and `refused` with `test_environment` kept a
- * move of a provider test connection out of every business table.
- */
-export type FeedCreditAnswer =
-    | { readonly status: "booked" | "debited" | "duplicate" | "unbound" }
-    | { readonly status: "refused"; readonly code: "test_environment" }
-
 /** The workspace providers admitted by the bank-feed receipt job. */
 export type BankFeedProvider = "casso" | "payos" | "sepay-feed"
+
+/** What the workspaces lobby shows of one workspace: the workspaces facts, with the plan by name and the seats it may fill. */
+export interface LobbyFacts extends Omit<WorkspaceMembership["lobby"], "seatCount"> {
+    /** The Vietnamese plan name, or null when there is no active plan. */
+    readonly planNameVi: string | null
+    /** The English plan name, or null when there is no active plan. */
+    readonly planNameEn: string | null
+    /** The seats the workspace may fill (the paid seats, else the plan's), or null when there is no plan. */
+    readonly seatLimit: number | null
+}
+
+/** One workspace of the person as the lobby lists it: the workspace, their seat, and the lobby facts. */
+export interface LobbyMembership {
+    /** The workspace. */
+    readonly workspace: WorkspaceMembership["workspace"]
+    /** The person's seat. */
+    readonly member: WorkspaceMembership["member"]
+    /** What the lobby shows beside it. */
+    readonly lobby: LobbyFacts
+}

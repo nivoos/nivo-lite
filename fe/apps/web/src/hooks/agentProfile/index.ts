@@ -1,6 +1,7 @@
 export { AGENT_NAME_LIMITS, profileChipsOf } from "./agentProfile.shared"
-export type { AuthorityMode } from "@/modules/authority"
+export { groupRecent, personNameOf } from "@/modules/agentProfile"
 export { useAgentIdentity } from "./useAgentIdentity"
 export { useAgentProfile } from "./useAgentProfile"
 export { useProfileRegion } from "./useProfileRegion"
 export { useProfileModuleName } from "./useProfileModuleName"
+export { useAgentPages } from "./useAgentPages"

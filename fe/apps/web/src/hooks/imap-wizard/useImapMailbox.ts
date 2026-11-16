@@ -32,7 +32,6 @@ export const useImapMailbox = (resumeId: string | undefined): ImapMailboxView =>
                       user: data.user,
                       folders: data.folders,
                       sinceDays: data.sinceDays,
-                      syncEveryMinutes: data.syncEveryMinutes ?? null,
                       agentIds: data.agentIds,
                   },
         [data],

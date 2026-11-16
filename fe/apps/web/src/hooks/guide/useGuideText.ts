@@ -3,9 +3,7 @@
 import { useTranslations } from "next-intl"
 import { useMemo } from "react"
 import { GUIDE_PAGES, guideKeyOf, type GuideText } from "@/modules/guide"
-
-const stringsOf = (value: unknown): ReadonlyArray<string> =>
-    Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []
+import { stringsOf } from "./guide.shared"
 
 /** The guide's words in the reader's language, from the `guideMap` and `guide` catalogs. */
 export const useGuideText = (): GuideText => {

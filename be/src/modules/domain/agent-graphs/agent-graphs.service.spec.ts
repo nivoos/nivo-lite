@@ -1,6 +1,5 @@
 import { Test } from "@nestjs/testing"
 import { FakeClock, mock } from "@starci/jest-preset"
-import type { GraphSpec } from "@nivo-lite/agent-sdk/graph"
 import {
     OWNER_EXAMPLE,
     ROW_TIME,
@@ -15,7 +14,6 @@ import { EntityEngineService } from "@modules/domain/entity-engine"
 import { AgentGraphRecordsService } from "./agent-graph-records.service"
 import { AgentGraphsError, AgentGraphsErrorCode } from "./errors/agent-graphs.error"
 import { AgentGraphsService } from "./agent-graphs.service"
-import type { GraphSourceRecord } from "./agent-graphs-records.contracts"
 
 const { DocumentInvalid, DraftConflict, GraphNotFound, VersionNotFound } = AgentGraphsErrorCode
 
@@ -146,29 +144,6 @@ describe("AgentGraphsService versions", () => {
     })
 })
 
-describe("AgentGraphsService.approverOf", () => {
-    const decision = {
-        id: "decision-1",
-        workspaceId: "ws-1",
-        agentId: "agent-1",
-        workItemId: "item-9",
-        versionId: "version-1",
-        action: "pay_supplier",
-        branchKey: "middle",
-        path: ["decide", "middle"],
-        amount: 7_200_000,
-        approvalRequestId: null,
-        closed: false,
-    }
-
-    it("names the approver the branch of a decision had in the version that decided, or nobody", async () => {
-        const { service } = await liveAt(versionRow())
-
-        await expect(service.approverOf(decision)).resolves.toMatchObject({ policy: "any", timeoutMinutes: 240 })
-        await expect(service.approverOf({ ...decision, branchKey: "small" })).resolves.toBeNull()
-    })
-})
-
 describe("AgentGraphsService for a job that walks the agents of a workspace", () => {
     it("names, of some agents, the ones with no graph, and reads nothing for an empty list", async () => {
         const { service, engine, records } = await build()
@@ -187,43 +162,6 @@ describe("AgentGraphsService for a job that walks the agents of a workspace", ()
 
         await expect(service.missingGraph("ws-1", agents)).resolves.toHaveLength(250)
         expect(records.agentsWithGraph.mock.calls.map((call) => call[1].length)).toEqual([100, 100, 50])
-    })
-
-    it("reads the Brain rules behind the versions that decide in a workspace", async () => {
-        const { service, records } = await build()
-        const source: GraphSourceRecord = {
-            workspaceId: "ws-1",
-            versionId: "version-1",
-            agentId: "agent-1",
-            nodeKey: "decide",
-            branchKey: "middle",
-            kind: "brain",
-            ref: "fact-1",
-            valueHash: "hash-1",
-        }
-        records.graphsOfWorkspace.mockResolvedValue([graphRow("enforced", "version-1"), graphRow("enforced", null)])
-        records.sourcesOf.mockResolvedValue([source])
-
-        await expect(service.brainSourcesInForce("ws-1", 500)).resolves.toEqual([
-            {
-                workspaceId: "ws-1",
-                agentId: "agent-1",
-                versionId: "version-1",
-                nodeKey: "decide",
-                branchKey: "middle",
-                factId: "fact-1",
-                valueHash: "hash-1",
-            },
-        ])
-        expect(records.sourcesOf).toHaveBeenCalledWith(SCOPE, "brain", ["version-1"], 500)
-    })
-
-    it("reads no source when no graph of the workspace has a version in force", async () => {
-        const { service, records } = await build()
-        records.graphsOfWorkspace.mockResolvedValue([graphRow("enforced", null)])
-
-        await expect(service.brainSourcesInForce("ws-1", 500)).resolves.toEqual([])
-        expect(records.sourcesOf).not.toHaveBeenCalled()
     })
 })
 
@@ -244,78 +182,6 @@ describe("AgentGraphsService.versionAt", () => {
     })
 })
 
-describe("AgentGraphsService.saveDraft", () => {
-    it("saves the draft under the revision it read and moves the revision on", async () => {
-        const { service, records } = await build()
-        const before = graphRow("shadow", null, DOCUMENT, 3)
-        const after = graphRow("shadow", null, DOCUMENT, 4)
-        records.graphOf.mockResolvedValue(before)
-        records.patchGraph.mockResolvedValue(after)
-
-        await expect(service.saveDraft("ws-1", "agent-1", 3, DOCUMENT)).resolves.toMatchObject({ draftRev: 4 })
-
-        expect(records.patchGraph).toHaveBeenCalledWith(SCOPE, before, { draft: DOCUMENT, draftRev: 4 })
-    })
-
-    it("refuses a save when someone saved after the draft was read, or the graph moved meanwhile, and a draft the product cannot read before it touches the store", async () => {
-        const stale = await build()
-        stale.records.graphOf.mockResolvedValue(graphRow("shadow", null, DOCUMENT, 5))
-        const raced = await build()
-        raced.records.graphOf.mockResolvedValue(graphRow("shadow", null, DOCUMENT, 3))
-        raced.records.patchGraph.mockResolvedValue(null)
-        const gone = await build()
-        gone.records.graphOf.mockResolvedValue(null)
-        const reading = await build()
-
-        expect(await codeOf(stale.service.saveDraft("ws-1", "agent-1", 3, DOCUMENT))).toBe(DraftConflict)
-        expect(await codeOf(raced.service.saveDraft("ws-1", "agent-1", 3, DOCUMENT))).toBe(DraftConflict)
-        expect(await codeOf(gone.service.saveDraft("ws-1", "agent-1", 3, DOCUMENT))).toBe(DraftConflict)
-        expect(await codeOf(reading.service.saveDraft("ws-1", "agent-1", 3, UNREADABLE_DOCUMENT))).toBe(DocumentInvalid)
-        expect(reading.engine.scoped).not.toHaveBeenCalled()
-    })
-
-    it("refuses when the saved graph cannot be read back", async () => {
-        const { service, records } = await build()
-        records.graphOf.mockResolvedValue(graphRow("shadow", null, DOCUMENT, 3))
-        records.patchGraph.mockResolvedValue(graphRow("shadow", null, UNREADABLE_DOCUMENT, 4))
-
-        expect(await codeOf(service.saveDraft("ws-1", "agent-1", 3, DOCUMENT))).toBe(GraphNotFound)
-    })
-})
-
-describe("AgentGraphsService.setMode", () => {
-    it("sets whether the graph decides or only records, and keeps who set it and when", async () => {
-        const { service, records } = await build()
-        const before = graphRow("shadow", null)
-        records.graphOf.mockResolvedValue(before)
-        records.patchGraph.mockResolvedValue(graphRow("enforced", null))
-
-        await expect(service.setMode("ws-1", "agent-1", "enforced", "member-1")).resolves.toMatchObject({
-            mode: "enforced",
-        })
-        expect(records.patchGraph).toHaveBeenCalledWith(SCOPE, before, {
-            mode: "enforced",
-            modeSetBy: "member-1",
-            modeSetAt: "2026-11-01T02:00:00.000Z",
-        })
-    })
-
-    it("refuses an agent with no graph, one whose graph moved meanwhile and one that cannot be read after the change", async () => {
-        const none = await build()
-        none.records.graphOf.mockResolvedValue(null)
-        const raced = await build()
-        raced.records.graphOf.mockResolvedValue(graphRow())
-        raced.records.patchGraph.mockResolvedValue(null)
-        const gone = await build()
-        gone.records.graphOf.mockResolvedValue(graphRow())
-        gone.records.patchGraph.mockResolvedValue(graphRow("shadow", null, UNREADABLE_DOCUMENT))
-
-        expect(await codeOf(none.service.setMode("ws-1", "agent-1", "shadow", "member-1"))).toBe(GraphNotFound)
-        expect(await codeOf(raced.service.setMode("ws-1", "agent-1", "shadow", "member-1"))).toBe(DraftConflict)
-        expect(await codeOf(gone.service.setMode("ws-1", "agent-1", "shadow", "member-1"))).toBe(GraphNotFound)
-    })
-})
-
 const input = {
     workspaceId: "ws-1",
     agentId: "agent-1",
@@ -327,7 +193,7 @@ const input = {
 } as const
 
 describe("AgentGraphsService.publish", () => {
-    it("freezes the next version, indexes its sources, makes it the one that decides and keeps the draft in step", async () => {
+    it("freezes the next version, makes it the one that decides and keeps the draft in step", async () => {
         const { service, records } = await build()
         const graph = graphRow()
         records.graphOf.mockResolvedValue(graph)
@@ -341,10 +207,6 @@ describe("AgentGraphsService.publish", () => {
             SCOPE,
             expect.objectContaining({ agentId: "agent-1", number: 3, changeKind: "edit", publishedBy: "member-1" }),
         )
-        expect(records.insertSource).toHaveBeenCalledWith(
-            SCOPE,
-            expect.objectContaining({ versionId: "version-3", kind: "rule", ref: "pay_supplier" }),
-        )
         expect(records.patchGraph).toHaveBeenCalledWith(SCOPE, graph, {
             activeVersionId: "version-3",
             draft: DOCUMENT,
@@ -352,16 +214,15 @@ describe("AgentGraphsService.publish", () => {
         })
     })
 
-    it("indexes nothing for a graph that cites no source", async () => {
+    it("numbers the first version of a graph 1", async () => {
         const { service, records } = await build()
         records.graphOf.mockResolvedValue(graphRow())
         records.latestVersion.mockResolvedValue(null)
         records.insertVersion.mockResolvedValue(versionRow(1))
         records.patchGraph.mockResolvedValue(graphRow())
 
-        await service.publish({ ...input, document: { nodes: [], rights: [] } })
+        await service.publish({ ...input, document: { nodes: [] } })
 
-        expect(records.insertSource).not.toHaveBeenCalled()
         expect(records.insertVersion).toHaveBeenCalledWith(SCOPE, expect.objectContaining({ number: 1 }))
     })
 
@@ -462,26 +323,5 @@ describe("AgentGraphsService.activeVersionIdOf", () => {
         await expect(service.activeVersionIdOf("ws-1", "agent-1")).resolves.toBeNull()
         await expect(service.activeVersionIdOf("ws-1", "agent-1")).resolves.toBeNull()
         expect(records.version).not.toHaveBeenCalled()
-    })
-})
-
-const FLOW: GraphSpec = {
-    schema: "nivo/agent-graph@1",
-    moduleKey: "chatbot",
-    trigger: { kind: "tag", sources: ["channel"] },
-    grant: { rights: [], tools: [], effects: [] },
-    nodes: [{ key: "end", kind: "output", step: "stop" }],
-}
-
-describe("AgentGraphsService.hasLiveFlow", () => {
-    it("is true when the live version carries a flow of nodes, false with none or with no graph", async () => {
-        const withFlow = await liveAt(versionRow(2, { ...DOCUMENT, flow: FLOW }))
-        const rulesOnly = await liveAt(versionRow())
-        const noGraph = await build()
-        noGraph.records.graphOf.mockResolvedValue(null)
-
-        await expect(withFlow.service.hasLiveFlow("ws-1", "agent-1")).resolves.toBe(true)
-        await expect(rulesOnly.service.hasLiveFlow("ws-1", "agent-1")).resolves.toBe(false)
-        await expect(noGraph.service.hasLiveFlow("ws-1", "agent-1")).resolves.toBe(false)
     })
 })

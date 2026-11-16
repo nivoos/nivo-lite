@@ -1,7 +1,7 @@
 import { Test } from "@nestjs/testing"
 import { FakeClock, mock, mockEntityManager } from "@starci/jest-preset"
 import type { MockEntityManager } from "@starci/jest-preset"
-import { In } from "typeorm"
+import { In, IsNull, Not } from "typeorm"
 import { agentTaskRowOf } from "@tests/fixtures/builders/agent-work.builder"
 import { CLOCK } from "@modules/platform/clock"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
@@ -9,6 +9,19 @@ import { AgentTasksService } from "./agent-tasks.service"
 import { AgentWorkAccessService } from "./agent-work-access.service"
 import { AgentWorkErrorCode } from "./errors/agent-work.error"
 import { AgentTaskEntity } from "./persistence/entities"
+
+
+/** A query builder that records its update: the table, the values set, the where text and its params; it answers `affected`. */
+const updateBuilderOf = (affected: number) => {
+    const seen: { entity?: unknown; set?: Record<string, unknown>; where?: string; params?: Record<string, unknown> } = {}
+    const builder = {
+        update: (entity: unknown) => ((seen.entity = entity), builder),
+        set: (values: Record<string, unknown>) => ((seen.set = values), builder),
+        where: (text: string, params: Record<string, unknown>) => ((seen.where = text), (seen.params = params), builder),
+        execute: () => Promise.resolve({ affected, raw: [], generatedMaps: [] }),
+    }
+    return { builder, seen }
+}
 
 const NOW = "2026-11-10T03:00:00.000Z"
 const AT = (minutes: number): Date => new Date(new Date(NOW).getTime() + minutes * 60_000)
@@ -54,6 +67,20 @@ describe("AgentTasksService.alive", () => {
     })
 })
 
+describe("AgentTasksService.byId", () => {
+    it("answers the task with its key and title, or null when there is none", async () => {
+        const { service, em } = await build(
+            mockEntityManager({ findOne: [AgentTaskEntity, agentTaskRowOf({ dedupeKey: "care:payment-reminder:o1" })] }),
+        )
+
+        await expect(service.byId("task-1")).resolves.toMatchObject({ id: "task-1", dedupeKey: "care:payment-reminder:o1" })
+        expect(em.findOne).toHaveBeenCalledWith(AgentTaskEntity, { where: { id: "task-1" } })
+
+        const none = await build(mockEntityManager({ findOne: [AgentTaskEntity, null] }))
+        await expect(none.service.byId("ghost")).resolves.toBeNull()
+    })
+})
+
 describe("AgentTasksService.apply, opening a task", () => {
     it("opens a task under its key, so the same proposal applied twice is one task", async () => {
         const { service, em } = await build(mockEntityManager({ upsert: [AgentTaskEntity, {}] }))
@@ -80,7 +107,6 @@ describe("AgentTasksService.apply, opening a task", () => {
                 status: "open",
                 waitingOn: null,
                 nextActionAt: AT(60),
-                goalId: null,
                 originWakeId: "wake-1",
                 workItemId: null,
                 doneAt: null,
@@ -124,7 +150,7 @@ describe("AgentTasksService.apply, parking and closing a task", () => {
         const { service, em } = await build(mockEntityManager({ upsert: [AgentTaskEntity, {}] }))
 
         await service.apply("ws-1", "agent-1", [
-            { op: "wait", key: "approval", waitingOn: "approval", goalId: "goal-1", workItemId: "item-1" },
+            { op: "wait", key: "approval", waitingOn: "approval", workItemId: "item-1" },
             { op: "wait", key: "unnamed" },
         ])
 
@@ -133,7 +159,6 @@ describe("AgentTasksService.apply, parking and closing a task", () => {
                 status: "waiting",
                 waitingOn: "approval",
                 nextActionAt: null,
-                goalId: "goal-1",
                 workItemId: "item-1",
             }),
             expect.objectContaining({ status: "waiting", waitingOn: "event" }),
@@ -223,5 +248,82 @@ describe("AgentTasksService.markWoken", () => {
             { id: "task-1", nextActionAt: AT(-3) },
             { nextActionAt: null },
         )
+    })
+})
+
+describe("AgentTasksService, the generic timer's task", () => {
+    it("arms a timer as one open task under its key, the wake time NOT bounded to five minutes, the data kept (null clears it)", async () => {
+        const { service, em } = await build(mockEntityManager({ upsert: [AgentTaskEntity, {}] }))
+        const wakeAt = AT(1)
+
+        await service.armTimer("ws-1", "agent-1", { key: "timer:contact:c-1:r", title: "timer due x", wakeAt, data: { tries: 1 } })
+
+        expect(em.upsert).toHaveBeenCalledWith(
+            AgentTaskEntity,
+            {
+                workspaceId: "ws-1",
+                agentId: "agent-1",
+                dedupeKey: "timer:contact:c-1:r",
+                title: "timer due x",
+                status: "open",
+                waitingOn: null,
+                nextActionAt: wakeAt,
+                doneAt: null,
+                data: { tries: 1 },
+            },
+            ["agentId", "dedupeKey"],
+        )
+    })
+
+    it("cancels the open, armed timer of the agent by its key and says whether there was one", async () => {
+        const hit = await build(mockEntityManager({ update: [AgentTaskEntity, { affected: 1 }] }))
+        await expect(hit.service.cancelTimer("agent-1", "timer:contact:c-1:r")).resolves.toBe(true)
+        expect(hit.em.update).toHaveBeenCalledWith(
+            AgentTaskEntity,
+            { agentId: "agent-1", dedupeKey: "timer:contact:c-1:r", status: "open", nextActionAt: Not(IsNull()) },
+            { status: "done", doneAt: new Date(NOW), nextActionAt: null },
+        )
+        const miss = await build(mockEntityManager({ update: [AgentTaskEntity, { affected: 0 }] }))
+        await expect(miss.service.cancelTimer("agent-1", "timer:contact:c-1:r")).resolves.toBe(false)
+    })
+
+    it("closes a fired timer's task only when its time is still the one that woke, and moves a wake time only from the time it was read at", async () => {
+        const { service, em } = await build(mockEntityManager({ update: [AgentTaskEntity, { affected: 1 }] }))
+        const tx = mockEntityManager({ update: [AgentTaskEntity, { affected: 1 }] })
+        const at = AT(-2)
+
+        await service.markFired(tx, "task-1", at)
+        await service.moveWake("task-1", at, AT(60))
+
+        expect(tx.update).toHaveBeenCalledWith(
+            AgentTaskEntity,
+            { id: "task-1", nextActionAt: at },
+            { nextActionAt: null, status: "done", doneAt: new Date(NOW) },
+        )
+        expect(em.update).toHaveBeenCalledWith(AgentTaskEntity, { id: "task-1", nextActionAt: at }, { nextActionAt: AT(60) })
+    })
+})
+
+describe("AgentTasksService.dropOfKeyStarts (R72 Q1: erasing a person ends the timers armed for them)", () => {
+    it("drops every live task of the workspace whose key starts with one of the subject starts, literally (LIKE wildcards escaped)", async () => {
+        const { service } = await build()
+        const { builder, seen } = updateBuilderOf(2)
+        const tx = mockEntityManager()
+        tx.createQueryBuilder.mockReturnValue(builder as never)
+
+        await expect(service.dropOfKeyStarts(tx, "ws-1", ["timer:contact:c-1:", "timer:conversation:r_1%:"])).resolves.toBe(2)
+
+        expect(seen.entity).toBe(AgentTaskEntity)
+        expect(seen.set).toEqual({ status: "dropped", nextActionAt: null, doneAt: new Date(NOW) })
+        expect(seen.where).toBe("workspace_id = :workspaceId AND status IN ('open', 'waiting') AND (dedupe_key LIKE :start0 OR dedupe_key LIKE :start1)")
+        expect(seen.params).toEqual({ workspaceId: "ws-1", start0: "timer:contact:c-1:%", start1: "timer:conversation:r\\_1\\%:%" })
+    })
+
+    it("writes nothing for no start", async () => {
+        const { service } = await build()
+        const tx = mockEntityManager()
+
+        await expect(service.dropOfKeyStarts(tx, "ws-1", [])).resolves.toBe(0)
+        expect(tx.createQueryBuilder).not.toHaveBeenCalled()
     })
 })

@@ -1,5 +1,5 @@
 import { isKnowledgeCommandPayload, type KnowledgeCommandPayload } from "@modules/queues/knowledge"
 
-/** The payload of a brain command job, or null when it has another shape (such a job cannot get better by waiting). */
+/** The payload of a brain command job that carries a command row, or null for the shape of the upkeep jobs. */
 export const commandPayloadOf = (payload: object): KnowledgeCommandPayload | null =>
     isKnowledgeCommandPayload(payload) ? payload : null

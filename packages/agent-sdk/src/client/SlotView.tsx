@@ -45,7 +45,7 @@ const forbiddenNotice = (
     message: string,
     description: string | undefined,
     action: ReactNode,
-) => {
+): ReactNode => {
     if (mode === "hide") return null
     return (
         <>
@@ -62,14 +62,26 @@ const errorNotice = (
     retryLabel: string,
     retry: (() => void) | undefined,
     layout: "auto" | "band" | undefined,
-) => {
-    const detail = description === undefined ? {} : { description }
+): ReactNode => {
     if (layout === "band") {
-        const action = retry === undefined ? {} : { action: { label: retryLabel, onAction: retry } }
-        return <Alert tone="negative" title={message} {...detail} {...action} />
+        return (
+            <Alert
+                tone="negative"
+                title={message}
+                {...(description === undefined ? {} : { description })}
+                {...(retry === undefined ? {} : { action: { label: retryLabel, onAction: retry } })}
+            />
+        )
     }
-    const onAction = retry === undefined ? {} : { onAction: retry }
-    return <EmptyNotice isError message={message} {...detail} actionLabel={retryLabel} {...onAction} />
+    return (
+        <EmptyNotice
+            isError
+            message={message}
+            {...(description === undefined ? {} : { description })}
+            actionLabel={retryLabel}
+            {...(retry === undefined ? {} : { onAction: retry })}
+        />
+    )
 }
 
 /**
@@ -80,12 +92,16 @@ export const SlotView = <T,>(props: SlotViewProps<T>): ReactNode => {
     const { slot, labels } = props
     const framed = (notice: ReactNode): ReactNode => (props.frame === undefined ? notice : props.frame(notice))
     if ("isLoading" in slot) return props.render(props.placeholder, true)
-    if ("isForbidden" in slot)
+    if ("isForbidden" in slot) {
         return framed(
             forbiddenNotice(props.forbidden, labels.forbidden, props.forbiddenDescription, props.forbiddenAction),
         )
-    if ("isError" in slot)
-        return framed(errorNotice(labels.error, props.errorDescription, labels.retry, props.onRetry, props.errorLayout))
+    }
+    if ("isError" in slot) {
+        return framed(
+            errorNotice(labels.error, props.errorDescription, labels.retry, props.onRetry, props.errorLayout),
+        )
+    }
     if ("isEmpty" in slot) {
         if (props.empty === "collapse") return null
         return framed(

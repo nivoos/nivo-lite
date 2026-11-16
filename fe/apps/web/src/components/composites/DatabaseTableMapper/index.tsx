@@ -1,14 +1,7 @@
-import {
-    Alert,
-    Button,
-    CheckboxGroup,
-    EmptyNotice,
-    Section,
-    Select,
-    Text,
-    Stack,
-    Cluster,
-} from "@starci/grammar/common"
+import { Alert, Button, CheckboxGroup, EmptyNotice, Section, Select, Text, Stack, Cluster } from "@starci/grammar/common"
+
+/** The `isLoading` prop, spread only when the caller states it (an absent flag stays absent). */
+const loadingOf = (isLoading: boolean | undefined) => (isLoading === undefined ? {} : { isLoading })
 
 /** One option of a column or entity select. */
 interface DatabaseSelectOption {
@@ -87,13 +80,16 @@ interface DatabaseTablePreviewProps {
 /** One picked table: what its rows are, the id / title / updated-at columns, the columns to bring, and a 5-row preview. */
 export const DatabaseTableMapper = (props: DatabaseTableMapperProps) => {
     const { props: view, on } = props
-    const loading = view.isLoading === undefined ? {} : { isLoading: view.isLoading }
     return (
-        <Section {...loading} title={view.title} headingLevel={4}>
-            <Stack gap="section">
+        <Section
+            {...loadingOf(view.isLoading)}
+            title={view.title}
+            headingLevel={4}
+        >
+            <Stack gap="inline">
                 <DatabaseMappingColumns {...props} />
                 <CheckboxGroup
-                    {...loading}
+                    {...loadingOf(view.isLoading)}
                     label={view.text.columns}
                     isDisabled={view.isDisabled}
                     options={view.names.map((name) => ({ value: name.id, label: name.label }))}
@@ -105,9 +101,9 @@ export const DatabaseTableMapper = (props: DatabaseTableMapperProps) => {
                         {view.cap}
                     </Text>
                 )}
-                <Cluster gap="inline">
+                <Cluster gap="identity">
                     <Button
-                        {...loading}
+                        {...loadingOf(view.isLoading)}
                         intent="neutral"
                         isPending={view.isPreviewing}
                         isDisabled={!view.canPreview}
@@ -116,10 +112,16 @@ export const DatabaseTableMapper = (props: DatabaseTableMapperProps) => {
                         {view.text.preview}
                     </Button>
                 </Cluster>
-                {view.error === null ? null : <Alert {...loading} tone="negative" title={view.error} />}
+                {view.error === null ? null : (
+                    <Alert
+                        {...loadingOf(view.isLoading)}
+                        tone="negative"
+                        title={view.error}
+                    />
+                )}
                 {view.lines === null ? null : (
                     <DatabaseTablePreviewView
-                        {...loading}
+                        {...loadingOf(view.isLoading)}
                         id={view.id}
                         title={view.previewTitle}
                         empty={view.text.previewEmpty}
@@ -135,7 +137,7 @@ export const DatabaseTableMapper = (props: DatabaseTableMapperProps) => {
 const DatabaseTablePreviewView = (props: DatabaseTablePreviewProps) => (
     <div id={props.id} aria-live="polite">
         <Section
-            {...(props.isLoading === undefined ? {} : { isLoading: props.isLoading })}
+            {...loadingOf(props.isLoading)}
             kind="list"
             title={props.title}
             headingLevel={3}
@@ -152,7 +154,7 @@ const DatabaseMappingColumns = (props: DatabaseTableMapperProps) => {
         <>
             {" "}
             <Select
-                {...(view.isLoading === undefined ? {} : { isLoading: view.isLoading })}
+                {...loadingOf(view.isLoading)}
                 label={view.text.entity}
                 isDisabled={view.isDisabled}
                 value={view.entity}
@@ -160,7 +162,7 @@ const DatabaseMappingColumns = (props: DatabaseTableMapperProps) => {
                 onValueChange={on.entity}
             />
             <Select
-                {...(view.isLoading === undefined ? {} : { isLoading: view.isLoading })}
+                {...loadingOf(view.isLoading)}
                 label={view.text.id}
                 description={view.text.idHint}
                 isDisabled={view.isDisabled}
@@ -169,7 +171,7 @@ const DatabaseMappingColumns = (props: DatabaseTableMapperProps) => {
                 onValueChange={on.id}
             />
             <Select
-                {...(view.isLoading === undefined ? {} : { isLoading: view.isLoading })}
+                {...loadingOf(view.isLoading)}
                 label={view.text.titleColumn}
                 isDisabled={view.isDisabled}
                 value={view.titleColumn}
@@ -177,7 +179,7 @@ const DatabaseMappingColumns = (props: DatabaseTableMapperProps) => {
                 onValueChange={on.title}
             />
             <Select
-                {...(view.isLoading === undefined ? {} : { isLoading: view.isLoading })}
+                {...loadingOf(view.isLoading)}
                 label={view.text.updated}
                 description={view.text.updatedHint}
                 isDisabled={view.isDisabled}

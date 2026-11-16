@@ -20,6 +20,11 @@ export interface RunRecord {
     readonly planning: boolean
     /** Where it stands. */
     readonly status: AgentRunStatus
+    /**
+     * The engine the run started on: `legacy` (the old step engine) or `langgraph` (a thread whose progress is projected into the rows).
+     * Absent reads as `legacy` (a record built by hand). Only the old engine's own paths may advance, resume or sweep a `legacy` run.
+     */
+    readonly engine?: "legacy" | "langgraph"
     /** The trigger, intact. */
     readonly context: StepJson
     /** Why it stopped, or null. */
@@ -32,10 +37,20 @@ export interface RunRecord {
     readonly resumeAttempts: number
     /** The earliest the machine may resume it again, or null. */
     readonly resumeNotBefore: Date | null
+    /** When the run parked on a `wait` (an event: a customer's message, a payment, a record), or null while it waits on none. */
+    readonly waitSince?: Date | null
+    /** The work item (a person's decision) the run waits on, or null. */
+    readonly waitWorkItemId?: string | null
     /** When the run ended or parked, or null. */
     readonly endedAt: Date | null
+    /** When the run started, or null for a record that holds none. */
+    readonly startedAt: Date | null
     /** The steps written so far: the next ordinal. */
     readonly stepSeq: number
+    /** When an owner or manager cancelled the run, or null. */
+    readonly cancelledAt: Date | null
+    /** The member who cancelled the run, or null. */
+    readonly cancelledBy: string | null
 }
 
 /** A step record as the engine returns it, its declared fields read. */
@@ -76,8 +91,12 @@ export interface StepRecord {
     readonly waitItemId: string | null
     /** The work item it is about, kept after the wait, or null. */
     readonly workItemId: string | null
-    /** The compensation tries made. */
-    readonly compAttempts: number
     /** Why it last failed, or null. */
     readonly errorCode: string | null
 }
+
+/** A run record, or null when there is none (or, under a fence, when the row moved on). */
+export type OptionalRunRecord = RunRecord | null
+
+/** A step record, or null when there is none (or, under a fence, when the row moved on). */
+export type OptionalStepRecord = StepRecord | null

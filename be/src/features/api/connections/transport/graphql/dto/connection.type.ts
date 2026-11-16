@@ -46,6 +46,10 @@ export class ConnectionType {
     @Field(() => String)
     environment!: string
 
+    /** True for a sandbox account (dev only, no credential): its provider's sandbox answers it, never a real host. */
+    @Field(() => Boolean)
+    sandbox!: boolean
+
     /** SMTP only: the workspace default sender. */
     @Field(() => Boolean)
     isDefault!: boolean
@@ -70,7 +74,7 @@ export class ConnectionType {
     @Field(() => [ID])
     agentIds!: ReadonlyArray<string>
 
-    /** Each agent access level through it. */
+    /** Each agent bound to it. */
     @Field(() => [ConnectionGrantType])
     grants!: ReadonlyArray<ConnectionGrantType>
 }

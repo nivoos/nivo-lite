@@ -1,12 +1,15 @@
+import { timingSafeEqual } from "node:crypto"
 import { Injectable } from "@nestjs/common"
-import { Not, Raw, type EntityManager, type SelectQueryBuilder } from "typeorm"
+import { IsNull, Not, Raw, type EntityManager, type SelectQueryBuilder } from "typeorm"
 import { ConnectionSecretsService, type OptionalStoredSecret } from "@modules/domain/connection-secrets"
 import { ConnectorInterestService } from "@modules/domain/connector-interest"
 import { WorkspaceMemberSeatsService } from "@modules/domain/workspace-members"
-import { InjectPrimaryEntityManager, returnedRows, rowShape } from "@modules/platform/database"
+import { InjectPrimaryEntityManager, callDbFunction, returnedRows, rowShape } from "@modules/platform/database"
+import type { Secret } from "@modules/platform/config"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { ok, refused, type Outcome } from "@modules/platform/primitives"
 import { cleanConnectionName } from "./connection-name.policy"
+import { sandboxKeyFor } from "./connection-sandbox-key.policy"
 import { isPlannedConnector } from "./connector-catalog.policy"
 import { publicSiteUrl, webhookUrlFor } from "./connection-url.policy"
 import type {
@@ -48,6 +51,9 @@ import { returnedIds, projectConnections, type ConnectionProjection } from "./pe
 /** The most rows any list of connections returns. */
 const LIST_MAX = 500
 
+/** The longest OA display name kept among the public facts of a Zalo connection. */
+const OA_NAME_MAX = 120
+
 /** A pending or failing connection that received something works now. */
 const RECOVERED_STATUS = "CASE WHEN status IN ('pending', 'error') THEN 'connected' ELSE status END"
 
@@ -56,6 +62,7 @@ const RECOVERED_STATUS = "CASE WHEN status IN ('pending', 'error') THEN 'connect
 export class ConnectionsService {
     private readonly siteUrl: string
     private readonly providerUrl: string | undefined
+    private readonly channelKey: Secret
 
     constructor(
         @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
@@ -69,6 +76,7 @@ export class ConnectionsService {
     ) {
         this.siteUrl = options.publicSiteUrl ?? options.siteUrl
         this.providerUrl = options.publicApiUrl ?? options.publicSiteUrl
+        this.channelKey = options.channelTokenKey
     }
 
     /**
@@ -203,6 +211,23 @@ export class ConnectionsService {
         return rows.map((row) => toConnectionRecord(row))
     }
 
+    /**
+     * The sandbox key of a SANDBOX account of the workspace (rulings R58 + R60: what its webhook calls present), or null for a live,
+     * removed or unknown one. Derived, stored nowhere.
+     */
+    async sandboxKeyOf(workspaceId: string, id: string): Promise<string | null> {
+        const found = await this.find(workspaceId, id)
+        return found?.sandbox === true ? sandboxKeyFor(this.channelKey.reveal(), found.id) : null
+    }
+
+    /** Whether a key is the sandbox key of the account (constant time); false for a live account or any other key. */
+    isSandboxKey(connectionId: string, presented: string | undefined): boolean {
+        if (presented === undefined || presented.length === 0) return false
+        const wanted = Buffer.from(sandboxKeyFor(this.channelKey.reveal(), connectionId), "utf8")
+        const given = Buffer.from(presented, "utf8")
+        return wanted.length === given.length && timingSafeEqual(wanted, given)
+    }
+
     /** Creates a connection and its sealed secret in one transaction (the caller's when handed in); answers the id. */
     create(input: CreateConnectionInput, manager?: EntityManager): Promise<string> {
         const name = cleanConnectionName(input.name)
@@ -220,16 +245,32 @@ export class ConnectionsService {
                     environment: input.environment,
                     createdBy: input.createdBy,
                     publicMeta: () => ":meta::jsonb",
+                    ...(input.sandbox === true ? { sandbox: true } : {}),
                 })
                 .setParameter("meta", JSON.stringify(input.meta))
                 .returning("id")
                 .execute()
             const [id] = returnedIds(inserted.raw)
             if (id === undefined) throw new ConnectionsError({ code: ConnectionsErrorCode.NotFound })
-            await this.secrets.create(id, input.secret.plain, input.secret.webhookSecret, tx)
+            // A sandbox account holds NO secret (ruling R56): its provider's sandbox implementation needs none, its webhook proves its key.
+            if (input.sandbox !== true) await this.secrets.create(id, input.secret.plain, input.secret.webhookSecret, tx)
             return id
         }
         return manager === undefined ? this.entityManager.transaction(write) : write(manager)
+    }
+
+    /**
+     * Creates a mailbox account and, when the workspace holds the inbound half of the same address standing alone (`inbound`: an `imap`
+     * account), JOINS it in the same transaction (MAIL-IN rule MI-2, the migration's own `public.mail_halves_join`: the half's sealed
+     * credential copied unopened into the new account's read slot, every reference re-pointed, the half's account removed): one mailbox =
+     * one account. The function refuses anything that is no pair (another address, a sandbox and a live account).
+     */
+    createMailbox(input: CreateConnectionInput, inbound: string | null): Promise<string> {
+        return this.entityManager.transaction(async (tx) => {
+            const id = await this.create(input, tx)
+            if (inbound !== null) await callDbFunction(tx, "public.mail_halves_join", [inbound, id])
+            return id
+        })
     }
 
     /** Changes the given fields of a connection; a missing one is a typed not-found. */
@@ -250,13 +291,19 @@ export class ConnectionsService {
             .update()
             // An empty patch still needs one assignment: the self-assignment lets the update trigger stamp updated_at and the row check run.
             .set(Object.keys(fields).length === 0 ? { workspaceId: () => "workspace_id" } : fields)
-            .where({ workspaceId, id })
+            .where({ workspaceId, id, deletedAt: IsNull() })
             .setParameter("meta", patch.meta === undefined ? null : JSON.stringify(patch.meta))
             .returning("id")
             .execute()
         if (returnedIds(updated.raw).length === 0) {
             throw new ConnectionsError({ code: ConnectionsErrorCode.NotFound, params: { id } })
         }
+    }
+
+    /** Renames a connection of the workspace (owner or manager); a blank or unusable name is refused `NameInvalid`. */
+    async rename(actor: ConnectionActor, id: string, name: string): Promise<void> {
+        await this.authorize(actor, ["owner", "manager"])
+        await this.patch(actor.workspaceId, id, { name })
     }
 
     /** Opens the stored secret of a connection; null when there is none or it cannot be opened with the current key. */
@@ -269,6 +316,11 @@ export class ConnectionsService {
         }
     }
 
+    /** True when the connection has a sealed secret; it is never opened. */
+    hasSecret(connectionId: string): Promise<boolean> {
+        return this.secrets.has(connectionId)
+    }
+
     /** Seals and stores the credential; the webhook secret changes only when one is given (a new row gets a random one). */
     writeSecret(connectionId: string, plain: string, webhookSecret?: string): Promise<void> {
         return this.secrets.write(connectionId, plain, webhookSecret)
@@ -279,17 +331,29 @@ export class ConnectionsService {
         return this.secrets.wipe(connectionId)
     }
 
-    /** Deletes a connection of the workspace (its secret and bindings go with it); a missing one is a typed not-found. */
+    /**
+     * Removes a connection of the workspace SOFTLY (owner ruling R36) and wipes its secret material in the same transaction (R38): the row gets
+     * its deleted mark, and its sealed credential (connection_secrets: tokens, refresh state, webhook secret) and any Zalo wizard keys
+     * (zalo_wizard_drafts) are deleted, so a removed connection can never be used again and reconnecting means authorising anew. The
+     * non-secret facts (provider, public facts, name, deleted mark), bindings, synced data, routes and customer lines stay and every read
+     * leaves them out (the entity's delete-date column hides the row from every find and select; its poll, webhook intake and tools find no
+     * connection and refuse as a missing one). A missing or already removed one is a typed not-found and nothing is wiped.
+     */
     async remove(workspaceId: string, id: string): Promise<void> {
-        const deleted = await this.entityManager
-            .createQueryBuilder(ConnectionEntity, "co")
-            .delete()
-            .where({ workspaceId, id })
-            .returning("id")
-            .execute()
-        if (returnedIds(deleted.raw).length === 0) {
-            throw new ConnectionsError({ code: ConnectionsErrorCode.NotFound, params: { id } })
-        }
+        await this.entityManager.transaction(async (tx) => {
+            const removed = await tx
+                .createQueryBuilder(ConnectionEntity, "co")
+                .update()
+                .set({ deletedAt: () => "now()" })
+                .where({ workspaceId, id, deletedAt: IsNull() })
+                .returning("id")
+                .execute()
+            if (returnedIds(removed.raw).length === 0) {
+                throw new ConnectionsError({ code: ConnectionsErrorCode.NotFound, params: { id } })
+            }
+            await this.secrets.wipe(id, tx)
+            await tx.createQueryBuilder().delete().from("zalo_wizard_drafts").where("connection_id = :id", { id }).execute()
+        })
     }
 
     /**
@@ -318,7 +382,7 @@ export class ConnectionsService {
                 status: () => RECOVERED_STATUS,
                 firstEvent: () => "COALESCE(first_event, :first::jsonb)",
             })
-            .where({ id: connectionId })
+            .where({ id: connectionId, deletedAt: IsNull() })
             .setParameters({ at: event.at, first: JSON.stringify(first) })
             .returning("name, environment")
             .execute()
@@ -359,7 +423,12 @@ export class ConnectionsService {
 
     /** Marks the connection as failing with the reason the owner reads on Connections. */
     async markFailing(connectionId: string, reason: string): Promise<void> {
-        await this.entityManager.update(ConnectionEntity, { id: connectionId }, { status: "error", lastError: reason })
+        await this.entityManager.update(ConnectionEntity, { id: connectionId, deletedAt: IsNull() }, { status: "error", lastError: reason })
+    }
+
+    /** A poll ended well after the connection was marked failing: it works again, and the error the owner read clears. Only an `error` status changes. */
+    async markRecovered(connectionId: string): Promise<void> {
+        await this.entityManager.update(ConnectionEntity, { id: connectionId, status: "error", deletedAt: IsNull() }, { status: "connected", lastError: null })
     }
 
     /**
@@ -375,14 +444,18 @@ export class ConnectionsService {
                 lastError: () => "CASE WHEN status IN ('pending', 'error') THEN NULL ELSE last_error END",
                 firstEvent: () => "COALESCE(first_event, :first::jsonb)",
             })
-            .where({ id: connectionId })
+            .where({ id: connectionId, deletedAt: IsNull() })
             .setParameter("first", JSON.stringify(firstEvent))
             .execute()
     }
 
-    /** The owner authorized the Zalo OA: its id joins the public facts and an error status clears. */
-    async applyZaloAuthorization(connectionId: string, oaId?: string): Promise<void> {
-        await this.entityManager
+    /** The owner authorized the Zalo OA: its id joins the public facts and an error status clears. Inside the caller's transaction when one is handed in. */
+    async applyZaloAuthorization(
+        connectionId: string,
+        oaId?: string,
+        manager: EntityManager = this.entityManager,
+    ): Promise<void> {
+        await manager
             .createQueryBuilder(ConnectionEntity, "co")
             .update()
             .set({
@@ -390,11 +463,27 @@ export class ConnectionsService {
                 status: () => "CASE WHEN status = 'error' THEN 'connected' ELSE status END",
                 lastError: null,
             })
-            .where({ id: connectionId })
+            .where({ id: connectionId, deletedAt: IsNull() })
             .setParameter(
                 "meta",
                 JSON.stringify(oaId === undefined ? { authorized: true } : { authorized: true, oa_id: oaId }),
             )
+            .execute()
+    }
+
+    /**
+     * Keeps the display name Zalo reported for the OA (`oa_name`) among the public facts of the connection, so the account reads by its
+     * name ("NIVO Flower Shop"). Blank is never written; a long name is cut to 120 characters.
+     */
+    async applyZaloOaName(connectionId: string, oaName: string): Promise<void> {
+        const name = oaName.trim().slice(0, OA_NAME_MAX)
+        if (name === "") return
+        await this.entityManager
+            .createQueryBuilder(ConnectionEntity, "co")
+            .update()
+            .set({ publicMeta: () => "jsonb_concat(public_meta, CAST(:meta AS jsonb))" })
+            .where({ id: connectionId, deletedAt: IsNull() })
+            .setParameter("meta", JSON.stringify({ oa_name: name }))
             .execute()
     }
 
@@ -415,7 +504,7 @@ export class ConnectionsService {
             .createQueryBuilder(ConnectionEntity, "co")
             .update()
             .set({ publicMeta: () => "jsonb_concat(public_meta, CAST(:facts AS jsonb))" })
-            .where({ id: connectionId })
+            .where({ id: connectionId, deletedAt: IsNull() })
             .andWhere("public_meta -> 'wizard' ->> 'ticket' = :ticket", { ticket })
             .setParameter("facts", JSON.stringify(facts))
             .execute()
@@ -442,18 +531,18 @@ export class ConnectionsService {
     }
 
     /** A sync finished: the connection works and the given public facts join the old ones. */
-    markSynced(connectionId: string, facts: SyncFacts): Promise<void> {
-        return this.upkeep.markSynced(connectionId, facts)
+    markSynced(connectionId: string, facts: SyncFacts, within?: EntityManager): Promise<void> {
+        return this.upkeep.markSynced(connectionId, facts, within)
     }
 
     /** A sync failed: the owner reads the reason. */
-    markSyncFailed(connectionId: string, reason: string): Promise<void> {
-        return this.upkeep.markSyncFailed(connectionId, reason)
+    markSyncFailed(connectionId: string, reason: string, within?: EntityManager): Promise<void> {
+        return this.upkeep.markSyncFailed(connectionId, reason, within)
     }
 
     /** Claims the connections of these providers whose scheduled sync is due, soonest first. */
-    claimDueSyncs(providers: ReadonlyArray<Provider>, size: number): Promise<ReadonlyArray<ConnectionOwner>> {
-        return this.upkeep.claimDueSyncs(providers, size)
+    claimDueSyncs(providers: ReadonlyArray<Provider>, size: number, within?: EntityManager): Promise<ReadonlyArray<ConnectionOwner>> {
+        return this.upkeep.claimDueSyncs(providers, size, within)
     }
 
     /** Makes one SMTP connection the workspace default; every other one becomes a spare. */

@@ -69,6 +69,8 @@ export interface CreditPackParams {
     readonly workspaceId: string
     /** The credits of the pack, as listed on the workspace's plan. */
     readonly credits: number
+    /** The payment-order request this order answers (a request makes one order, whatever number of runs); absent outside a request. */
+    readonly requestId?: string | undefined
 }
 
 /** The pack a workspace asks to buy. */
@@ -77,6 +79,8 @@ export interface TopupParams {
     readonly workspaceId: string
     /** The pack code. */
     readonly packCode: string
+    /** The payment-order request this order answers (a request makes one order, whatever number of runs); absent outside a request. */
+    readonly requestId?: string | undefined
 }
 
 /** The plan a workspace asks to upgrade to. */
@@ -85,18 +89,6 @@ export interface UpgradeParams {
     readonly workspaceId: string
     /** The target plan code. */
     readonly planCode: string
-}
-
-/** What an order for a paid listing of the template marketplace takes. */
-export interface AgentTemplateOrderParams {
-    /** The workspace that pays. */
-    readonly workspaceId: string
-    /** The listing bought. */
-    readonly listingId: string
-    /** The template of the listing. */
-    readonly templateKey: string
-    /** The version of the listing. */
-    readonly version: number
-    /** The price in VND. */
-    readonly amountVnd: number
+    /** The payment-order request this order answers (a request makes one order, whatever number of runs); absent outside a request. */
+    readonly requestId?: string | undefined
 }

@@ -1,5 +1,5 @@
 import { UuidAbstractEntity } from "@modules/platform/database"
-import { Column, Entity } from "typeorm"
+import { Column, DeleteDateColumn, Entity } from "typeorm"
 
 @Entity({ schema: "public", name: "connections" })
 /** One row of public.connections: a workspace's link to one outside provider. */
@@ -36,6 +36,13 @@ export class ConnectionEntity extends UuidAbstractEntity {
     @Column({ name: "environment", type: "text", default: () => "'live'::text" })
     environment!: string
 
+    /**
+     * A SANDBOX account (lane concept provider-sandbox, ruling R56): answered by its provider's sandbox implementation from fixtures and
+     * scripts, never a real host; it holds no secret. Set at creation, never changed (no writer changes it; a trigger refuses it).
+     */
+    @Column({ name: "sandbox", type: "boolean", default: () => "false", update: false })
+    sandbox!: boolean
+
     /** When the provider last delivered an event; null when it never has. */
     @Column({ name: "last_event_at", type: "timestamptz", nullable: true })
     lastEventAt!: Date | null
@@ -59,4 +66,11 @@ export class ConnectionEntity extends UuidAbstractEntity {
     /** When the next scheduled sync is due. */
     @Column({ name: "next_sync_at", type: "timestamptz", nullable: true })
     nextSyncAt!: Date | null
+
+    /**
+     * When the workspace removed the connection (SOFT delete, owner ruling R36); null while it stands. A removed connection keeps every row
+     * that hangs off it and is left out of every find and select by this column; nothing cascades from it.
+     */
+    @DeleteDateColumn({ name: "deleted_at", type: "timestamptz" })
+    deletedAt!: Date | null
 }

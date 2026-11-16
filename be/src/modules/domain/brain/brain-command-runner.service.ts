@@ -1,15 +1,20 @@
 import { Injectable } from "@nestjs/common"
-import { BrainCommandsService, type BrainCommandResult } from "@modules/domain/brain-commands"
-import { KnowledgeDriveService, KnowledgeReembedService, KnowledgeSearchService } from "@modules/domain/knowledge"
+import { BRAIN_COMMAND_FAILED, BrainCommandsService, type BrainCommandResult } from "@modules/domain/brain-commands"
+import { KnowledgeDriveService, KnowledgeSearchService } from "@modules/domain/knowledge"
 import { KnowledgeSourcesService } from "@modules/domain/knowledge-sources"
 import { isDomainError } from "@modules/platform/errors"
+import type { ClaimedJob } from "@modules/platform/jobs"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
+import { classifyFailure } from "@modules/platform/queue"
+import { isBrainUpkeepTickPayload, isBrainWorkspaceUpkeepPayload } from "@modules/queues/knowledge"
 import { BrainLearningService } from "./brain-learning.service"
 import { BrainService } from "./brain.service"
+import { DocumentAreaService } from "./document-area.service"
 import { commandPayloadOf } from "./command-job.policy"
 import { commandOf, type BrainCommand } from "./command-payload.policy"
 import { BrainLogEvent } from "./brain.log-events"
 import type { CommandOutcome } from "./brain.contracts"
+import { BrainError, BrainErrorCode } from "./errors/brain.error"
 
 /** The stored code of a command whose kind or fields are not valid. */
 const INVALID = "BRAIN_COMMAND_INVALID"
@@ -29,16 +34,27 @@ export class BrainCommandRunnerService {
         private readonly sources: KnowledgeSourcesService,
         private readonly search: KnowledgeSearchService,
         private readonly drive: KnowledgeDriveService,
-        private readonly reembed: KnowledgeReembedService,
+        private readonly areas: DocumentAreaService,
     ) {}
 
-    /** Runs the command a job names. A refusal of the services is a normal end (the row says why); any other failure is thrown for the queue to retry. */
-    async run(payload: object): Promise<CommandOutcome> {
-        const ref = commandPayloadOf(payload)
-        if (ref === null) {
-            this.logger.warn(BrainLogEvent.PayloadRefused, { job: "command" })
-            return "skipped"
+    /**
+     * Runs the job: the timed upkeep tick (asks the upkeep of every workspace where it is due), the upkeep of one workspace, or the command a
+     * job names. A refusal of the services that no retry changes is a normal end (the row says why, with the stored code); a failure that
+     * heals, and anything else, is thrown for the runner to judge. A job a person handed back after its dead letter opens its command again.
+     */
+    async run(job: ClaimedJob): Promise<CommandOutcome> {
+        const payload = job.payload
+        if (isBrainUpkeepTickPayload(payload)) {
+            await this.brain.upkeep()
+            return "done"
         }
+        if (isBrainWorkspaceUpkeepPayload(payload)) {
+            await this.brain.upkeepWorkspace(payload.workspaceId)
+            return "done"
+        }
+        const ref = commandPayloadOf(payload)
+        if (ref === null) throw new BrainError({ code: BrainErrorCode.PayloadInvalid })
+        if ((job.resumeCount ?? 0) > 0) await this.commands.reopen(ref.workspaceId, ref.commandId)
         const command = await this.commands.get(ref.workspaceId, ref.commandId)
         if (command === null || command.status === "done" || command.status === "failed") return "skipped"
         if (!(await this.commands.begin(ref.workspaceId, ref.commandId))) return "skipped"
@@ -48,25 +64,27 @@ export class BrainCommandRunnerService {
             return "failed"
         }
         try {
-            const result = await this.execute(command.requestedBy, ref.workspaceId, parsed)
+            const result = await this.execute(command.requestedBy, ref.workspaceId, parsed, job)
             await this.commands.finish(ref.workspaceId, ref.commandId, result)
             return "done"
         } catch (cause) {
-            if (!isDomainError(cause)) throw cause
+            // The services' answer is the command's own typed refusal (the row says why) when it is a capability error the runner's
+            // classifier does not call transient; a failure that heals is not an answer: it is thrown and the job's ladder decides.
+            if (!isDomainError(cause) || classifyFailure(cause) === "transient") throw cause
             this.logger.warn(BrainLogEvent.CommandRefused, { code: cause.code, commandId: ref.commandId })
             await this.commands.fail(ref.workspaceId, ref.commandId, cause.code)
             return "failed"
         }
     }
 
-    /** The job ended as failed (the retries ran out): the command row says so. */
+    /** The job was dead-lettered (one item for a person): the command row says it did not run; a resume of the job opens it again. */
     async giveUp(payload: object): Promise<void> {
         const ref = commandPayloadOf(payload)
-        if (ref !== null) await this.commands.fail(ref.workspaceId, ref.commandId, "BRAIN_COMMAND_FAILED")
+        if (ref !== null) await this.commands.fail(ref.workspaceId, ref.commandId, BRAIN_COMMAND_FAILED)
     }
 
     /** Does what the command asks, for the person who asked; answers what the page shows. */
-    private async execute(userId: string, workspaceId: string, command: BrainCommand): Promise<BrainCommandResult> {
+    private async execute(userId: string, workspaceId: string, command: BrainCommand, job: ClaimedJob): Promise<BrainCommandResult> {
         switch (command.kind) {
             case "fact.save": {
                 const saved = await this.brain.saveFact(userId, workspaceId, command.form)
@@ -95,17 +113,16 @@ export class BrainCommandRunnerService {
                 await this.brain.maintain(userId, workspaceId)
                 return null
             case "lessons.mine":
-                return this.learning.mine(userId, workspaceId, command.module)
+                // The model call of the lessons is a generation keyed by the job: a command run again never asks (or bills) twice.
+                return this.learning.mine(userId, workspaceId, command.module, `${job.jobId}:lessons`)
             case "source.delete":
                 await this.brain.removeSource(userId, workspaceId, command.sourceId)
                 return null
             case "source.reindex":
                 return this.sources.reindexSource(userId, workspaceId, command.reindex)
             case "source.update":
-                await this.sources.updateSource(userId, workspaceId, command.update)
-                return null
-            case "knowledge.reembed":
-                await this.reembed.request(userId, workspaceId)
+                // One door for a change of metadata: a change of area moves the document's truths too (`DocumentAreaService`).
+                await this.areas.update(userId, workspaceId, command.update)
                 return null
             case "knowledge.ask":
                 return { passages: await this.search.ask(userId, workspaceId, command.ask) }

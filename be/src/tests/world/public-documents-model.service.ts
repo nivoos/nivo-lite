@@ -37,7 +37,6 @@ export const usePublicDocumentsModel = (): UsePublicDocumentsModelResultShape =>
         modules.push(
             ...apiAppModules({
                 aiTasks: {
-                    jsonRetries: 1,
                     timeoutMs: 1000,
                     endpoint: {
                         gatewayUrl: baseUrl,

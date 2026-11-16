@@ -1,0 +1,13 @@
+{"findings":[],"hash":"5aef40cc469daa5f1ffbb2cbe3e87eeb47ad49dd0c1a971b9c9c621b919d9bcb","path":"ext/docs/checks/account-data.md","step":"prettier"}
+{"findings":[],"hash":"42f3b779093dafdab084e9cc5a645fc842e87d26596f834e8e39809f795a365c","path":"ext/docs/checks/crm-names.md","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"ext/docs/checks/engine-business-contracts.md is not formatted by prettier; run `npm run format`","path":"ext/docs/checks/engine-business-contracts.md","rule":"HFS_FORMAT"}],"hash":"4eed564eaecdd5f76948b7e6ab59479af0ad337eaf1d2bb9281f75459f0454ad","path":"ext/docs/checks/engine-business-contracts.md","step":"prettier"}
+{"findings":[],"hash":"85f122eb42b92bbd7cef837e970d35a009f0b3c983fc7678e941a42fd595a78d","path":"ext/docs/checks/engine-imports.md","step":"prettier"}
+{"findings":[],"hash":"34effb3bf16e92a8fc86189d67307d22855e2fa20d503041067cb5452586f739","path":"ext/docs/checks/mcp-tools.md","step":"prettier"}
+{"findings":[],"hash":"5dc4cd38cd41304e245749d6b3e2fa788c4de96746885dfb0f052f88fe67ba33","path":"ext/docs/checks/nivo-api-graphql.md","step":"prettier"}
+{"findings":[],"hash":"832f4fc98ffb9c88ae70fde197981b1f9bb504b6aa0b791dd61f973ed7ab923e","path":"ext/docs/checks/record-ddl.md","step":"prettier"}
+{"findings":[],"hash":"01348813153c54bbeacd08e10a39f29a041228a36ab7d4d5119c3b8fae7a41c4","path":"ext/docs/checks/record-names.md","step":"prettier"}
+{"findings":[],"hash":"fa0b82609dfcd630283d4af1eb829593ff836f330bef687c9891248b64fcd287","path":"ext/docs/checks/registry.md","step":"prettier"}
+{"findings":[],"hash":"5f5a874ac363c9bd8ec92a8b25ee8ce821b464840d53fa3b45d10ef6bf42a657","path":"ext/docs/checks/seed-graphs.md","step":"prettier"}
+{"findings":[],"hash":"87fe1e32c684e38fe275c6cde6d6ceea8f2e8c4f3710d9700c5cb3da40e20a2a","path":"ext/docs/checks/seed-standards.md","step":"prettier"}
+{"findings":[],"hash":"87f201b2d6f9a65aa93d9c03894504e0ea2b1033952783df63ec5a6bca04e0a9","path":"ext/docs/checks/template-tools.md","step":"prettier"}
+{"findings":[],"hash":"adfc1ba270fdd96542c21d94dacd20d2a546ce5dd69d6b3e6062d5217179cfdf","path":"ext/docs/checks/tool-names.md","step":"prettier"}

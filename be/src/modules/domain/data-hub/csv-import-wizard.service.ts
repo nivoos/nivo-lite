@@ -1,3 +1,4 @@
+import { WorkspaceTimeZoneService } from "@modules/domain/workspace-settings"
 import { Injectable } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
 import { ConnectionsService, type ConnectionActor } from "@modules/domain/connections"
@@ -11,7 +12,6 @@ import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import {
     CSV_MAX_DOCUMENT_FILES,
     type CsvConfig,
-    type CsvEntity,
     type CsvImportRequest,
     type CsvImportResult,
     type CsvMapping,
@@ -31,7 +31,7 @@ import {
     summaryOf,
     tableEntityOf,
 } from "./csv-import-config.policy"
-import { carryMapping, suggestMapping } from "./csv-import-mapping.policy"
+import { carryMapping, blankMapping } from "./csv-import-mapping.policy"
 import { buildRecords, recordFromDocument, recordFromGoogleDoc } from "./csv-import-records.policy"
 import { decodeUpload, gridOf, pastedText } from "./csv-import-source.policy"
 
@@ -67,6 +67,7 @@ export class CsvImportWizardService {
         private readonly records: DataRecordsService,
         private readonly runs: DataSyncRunsService,
         @InjectTable() private readonly table: TableClient,
+        private readonly zones: WorkspaceTimeZoneService,
     ) {}
 
     /** The saved setup of one import (to upload again into it). */
@@ -85,13 +86,13 @@ export class CsvImportWizardService {
         }
     }
 
-    /** Reads the chosen source and answers its headers, the first rows, the row count and a suggested mapping (the saved one for a re-upload). */
+    /** Reads the chosen source and answers its headers, the first rows, the row count and a blank mapping the person fills in (the saved one for a re-upload). */
     async preview(actor: ConnectionActor, request: CsvSourceRequest): Promise<CsvPreview> {
         await this.hub.owner(actor)
         const saved = await this.savedOf(actor.workspaceId, request.connectionId ?? null)
-        const entity: CsvEntity = saved === null ? tableEntityOf(request.entity) : saved.entity
+        if (saved === null) tableEntityOf(request.entity)
         const { table } = await this.readSource(request)
-        let mapping: CsvMapping = suggestMapping(table, entity)
+        let mapping: CsvMapping = blankMapping(table)
         let missing: ReadonlyArray<string> = []
         if (saved !== null) {
             missing = missingColumns(saved, table.headers)
@@ -132,7 +133,7 @@ export class CsvImportWizardService {
         if (saved !== null && saved.source !== config.source) {
             throw invalid(CSV_COPY.otherSource)
         }
-        const built = buildRecords(table, mappingOf(config))
+        const built = buildRecords(await this.zones.timeZoneOf(actor.workspaceId), table, mappingOf(config))
         if (built.records.length === 0) throw invalid(CSV_COPY.noRows)
         return this.commit(actor, {
             connectionId: existing,

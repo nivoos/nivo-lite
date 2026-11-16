@@ -36,14 +36,12 @@ export const createLocaleLayout =
     (parts: LocaleLayoutParts): ((props: LocaleLayoutProps) => Promise<ReactElement>) =>
     async (props: LocaleLayoutProps): Promise<ReactElement> => {
         const { locale, messages, timeZone } = await readLocaleSegment(props.params)
-        return (
-            <parts.chrome
-                locale={locale}
-                content={
-                    <parts.providers locale={locale} messages={messages} timeZone={timeZone}>
-                        {props.children}
-                    </parts.providers>
-                }
-            />
+        const Chrome = parts.chrome
+        const Providers = parts.providers
+        const content = (
+            <Providers locale={locale} messages={messages} timeZone={timeZone}>
+                {props.children}
+            </Providers>
         )
+        return <Chrome locale={locale} content={content} />
     }

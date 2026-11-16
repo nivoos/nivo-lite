@@ -3,20 +3,44 @@
 import { useMemo, useState } from "react"
 import { partiesOf } from "./teamChat.shared"
 import { useTeamChatCards, type TeamChatCardsView } from "./useTeamChatCards"
+import { createPendingTaps } from "@/modules/teamChat"
 import { useTeamChatComposer, type TeamChatComposerView } from "./useTeamChatComposer"
 import { useTeamChatRooms, type TeamChatRoomsView, type TeamChatTarget } from "./useTeamChatRooms"
-import { useTeamChatThread, type TeamChatTab, type TeamChatThreadView } from "./useTeamChatThread"
+import { useTeamChatPinned, type TeamChatPinnedView } from "./useTeamChatPinned"
+import { useTeamChatForward, type TeamChatForwardState } from "./useTeamChatForward"
+import { useTeamChatReactions, type TeamChatReactionsView } from "./useTeamChatReactions"
+import { useTeamChatBrainChanges, type TeamChatBrainChangesView } from "./useTeamChatBrainChanges"
+import { useTeamChatJobs, type TeamChatJobsView } from "./useTeamChatJobs"
+import { useTeamChatStops, type TeamChatStopsView } from "./useTeamChatStops"
+import { useTeamChatThread, type TeamChatThreadView } from "./useTeamChatThread"
+import type { TeamChatMessageRow, TeamChatPanel } from "@/modules/types"
 
 /** The whole state of one open room: the room, its thread and cards, and the composer. */
 export interface TeamChatRoomState {
     readonly rooms: TeamChatRoomsView
     readonly thread: TeamChatThreadView
     readonly cards: TeamChatCardsView
+    /** The typed stop cards of runs: who may approve, the card in flight, and their actions. */
+    readonly stops: TeamChatStopsView
+    /** The truth-change cards: the change in flight and the decision. */
+    readonly changes: TeamChatBrainChangesView
+    readonly jobs: TeamChatJobsView
     readonly composer: TeamChatComposerView
-    readonly tab: TeamChatTab
+    /** The reactions: one tap of an emoji on a message. */
+    readonly reactions: TeamChatReactionsView
+    /** The message the draft answers, or null. */
+    readonly replying: TeamChatMessageRow | null
+    /** The dialog that forwards a message into another room. */
+    readonly forward: TeamChatForwardState
+    /** The pinned messages, read while their panel is open. */
+    readonly pinned: TeamChatPinnedView
+    /** The panel the head opened over the thread, or null. */
+    readonly panel: TeamChatPanel | null
     /** The people and agents of the open room, the viewer left out: who the composer may mention. */
     readonly parties: ReturnType<typeof partiesOf>
-    readonly setTab: (tab: TeamChatTab) => void
+    readonly setPanel: (panel: TeamChatPanel | null) => void
+    /** Makes the draft an answer to a message of the thread; null clears it. */
+    readonly setReplying: (messageId: string | null) => void
     /** Reads the rooms, the unread counts and the thread again. */
     readonly refresh: () => void
 }
@@ -27,25 +51,74 @@ export interface TeamChatRoomState {
  */
 export const useTeamChatRoomState = (target: TeamChatTarget): TeamChatRoomState => {
     const rooms = useTeamChatRooms(target)
-    const [tab, setTab] = useState<TeamChatTab>("all")
+    const [panel, setPanel] = useState<TeamChatPanel | null>(null)
+    const pending = useMemo(() => createPendingTaps(), [])
+    const [replyId, setReplyId] = useState<string | null>(null)
     const thread = useTeamChatThread({
         roomId: rooms.roomId,
         viewerId: rooms.viewerId,
-        tab,
         unreadCount: rooms.room?.unreadCount ?? 0,
         onRead: rooms.refresh,
+        pending,
     })
     const refresh = (): void => {
         rooms.refresh()
         thread.refresh()
     }
-    const cards = useTeamChatCards(rooms.roomId, thread.refresh)
+    const pinned = useTeamChatPinned(rooms.roomId, rooms.viewerId, panel === "pinned", pending)
+    const reactions = useTeamChatReactions({
+        pending,
+        onConfirmed: thread.setReactions,
+        onSettled: () => {
+            thread.refresh()
+            pinned.refresh()
+        },
+    })
+    const forward = useTeamChatForward({ roomId: rooms.roomId, viewerId: rooms.viewerId, onForwarded: rooms.refresh })
+    const replying = [...thread.rows, ...pinned.rows].find((row) => row.id === replyId) ?? null
+    const cards = useTeamChatCards(rooms.roomId, () => {
+        thread.refresh()
+        pinned.refresh()
+    })
+    const stops = useTeamChatStops(() => {
+        thread.refresh()
+        pinned.refresh()
+    })
+    const changes = useTeamChatBrainChanges(() => {
+        thread.refresh()
+        pinned.refresh()
+    })
+    const jobs = useTeamChatJobs(() => {
+        thread.refresh()
+        pinned.refresh()
+    })
     const parties = useMemo(() => partiesOf(rooms.room, rooms.viewerId), [rooms.room, rooms.viewerId])
     const composer = useTeamChatComposer({
         roomId: rooms.roomId,
         agentId: target.withAgentId,
         parties,
-        onSent: refresh,
+        replyTo: replyId,
+        onSent: () => {
+            setReplyId(null)
+            refresh()
+        },
     })
-    return { rooms, thread, cards, composer, tab, parties, setTab, refresh }
+    return {
+        rooms,
+        thread,
+        cards,
+        stops,
+        changes,
+        jobs,
+        composer,
+        reactions,
+        replying,
+        forward,
+        pinned,
+        panel,
+        parties,
+        setPanel,
+        setReplying: setReplyId,
+        refresh,
+    }
 }

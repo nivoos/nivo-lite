@@ -1,15 +1,15 @@
 import { Injectable } from "@nestjs/common"
 import { BrainCommandRunnerService } from "@modules/domain/brain"
-import { FencedProcessor, type ClaimedJob } from "@modules/platform/jobs"
+import { FencedProcessor, type ClaimedJob, type JobDefinition } from "@modules/platform/jobs"
 import type { QueueDelivery } from "@modules/platform/queue"
-import { KNOWLEDGE_QUEUE, KnowledgeJob } from "@modules/queues/knowledge"
+import { KNOWLEDGE_QUEUE, RUN_BRAIN_COMMAND_JOB, type BrainJobPayload } from "@modules/queues/knowledge"
 import { RunCommandStep } from "../../steps/run-command.step"
 
 @Injectable()
-/** The processor of the run-brain-command job: the runner claims and settles it; `process` delegates to the one step. */
+/** The processor of the run-brain-command job (`RUN_BRAIN_COMMAND_JOB`): the runner claims and settles it; `process` delegates to the one step. */
 export class RunBrainCommandProcessor extends FencedProcessor {
     override readonly queue: "knowledge" = KNOWLEDGE_QUEUE
-    override readonly job: KnowledgeJob.BrainCommand = KnowledgeJob.BrainCommand
+    override readonly definition: JobDefinition<BrainJobPayload> = RUN_BRAIN_COMMAND_JOB
 
     constructor(
         private readonly runCommand: RunCommandStep,
@@ -23,7 +23,7 @@ export class RunBrainCommandProcessor extends FencedProcessor {
         await this.runCommand.run(job)
     }
 
-    /** The job ended as failed: the command row says so. */
+    /** The job was dead-lettered (one item for a person): the command row says it did not run; a resume opens it again. */
     override async onFailed(delivery: QueueDelivery): Promise<void> {
         await this.runner.giveUp(delivery.payload)
     }

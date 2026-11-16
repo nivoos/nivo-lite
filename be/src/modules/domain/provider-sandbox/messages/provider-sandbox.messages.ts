@@ -1,0 +1,31 @@
+import type { MessageBundle } from "@modules/platform/i18n"
+
+/** Display text of the provider-sandbox codes, Vietnamese and English. */
+export const PROVIDER_SANDBOX_MESSAGES: MessageBundle = {
+    vi: {
+        "errors.PROVIDER_SANDBOX_LIVE_ACCOUNT": "Tài khoản này là tài khoản thật, không phải Sandbox.",
+        "errors.PROVIDER_SANDBOX_ACCOUNT_NOT_FOUND": "Không tìm thấy tài khoản Sandbox này.",
+        "errors.PROVIDER_SANDBOX_WEBHOOK_KEY_REFUSED": "Khóa Sandbox của tài khoản không đúng.",
+        "errors.PROVIDER_SANDBOX_CASE_UNKNOWN": "Sandbox của nhà cung cấp không có tình huống {{caseId}}.",
+        "errors.PROVIDER_SANDBOX_OFF": "Sandbox đang tắt trên môi trường này.",
+        "errors.PROVIDER_SANDBOX_INPUT_INVALID": "Thiếu hoặc sai giá trị {{field}} của tình huống Sandbox.",
+        "errors.PROVIDER_SANDBOX_RUN_NOT_WAITING": "Run này không còn đang chờ, không thể cho hết hạn chờ.",
+        "errors.PROVIDER_SANDBOX_PROVIDER_UNKNOWN": "Nhà cung cấp {{provider}} chưa có Sandbox.",
+        "errors.PROVIDER_SANDBOX_PAY_LINK_UNKNOWN": "Không tìm thấy yêu cầu thanh toán {{linkId}} trong Sandbox của không gian làm việc này.",
+        "errors.PROVIDER_SANDBOX_MODE_UNAVAILABLE": "Cách gửi {{mode}} không áp dụng cho tình huống {{caseId}}: nhà cung cấp không có poll trả lại sự kiện này.",
+        "errors.PROVIDER_SANDBOX_OUTCOME_UNAVAILABLE": "Thao tác {{operation}} không có tình huống kết quả {{outcome}}.",
+    },
+    en: {
+        "errors.PROVIDER_SANDBOX_LIVE_ACCOUNT": "This account is a live account, not a Sandbox one.",
+        "errors.PROVIDER_SANDBOX_ACCOUNT_NOT_FOUND": "This Sandbox account was not found.",
+        "errors.PROVIDER_SANDBOX_WEBHOOK_KEY_REFUSED": "The Sandbox key of the account does not match.",
+        "errors.PROVIDER_SANDBOX_CASE_UNKNOWN": "The provider's Sandbox has no case {{caseId}}.",
+        "errors.PROVIDER_SANDBOX_OFF": "The Sandbox is switched off in this environment.",
+        "errors.PROVIDER_SANDBOX_INPUT_INVALID": "The Sandbox case's input {{field}} is missing or of the wrong kind.",
+        "errors.PROVIDER_SANDBOX_RUN_NOT_WAITING": "This run is no longer waiting: its wait cannot be expired.",
+        "errors.PROVIDER_SANDBOX_PROVIDER_UNKNOWN": "The provider {{provider}} has no Sandbox.",
+        "errors.PROVIDER_SANDBOX_PAY_LINK_UNKNOWN": "No payment request {{linkId}} was found in this workspace's Sandbox.",
+        "errors.PROVIDER_SANDBOX_MODE_UNAVAILABLE": "The delivery {{mode}} does not apply to case {{caseId}}: the provider has no poll that returns this event.",
+        "errors.PROVIDER_SANDBOX_OUTCOME_UNAVAILABLE": "The operation {{operation}} has no case of outcome {{outcome}}.",
+    },
+}

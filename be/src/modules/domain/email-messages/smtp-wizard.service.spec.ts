@@ -1,7 +1,7 @@
 import { Test } from "@nestjs/testing"
 import { builder, mock } from "@starci/jest-preset"
 import { ConnectionsService } from "@modules/domain/connections"
-import type { ConnectionActor, ConnectionRecord } from "@modules/domain/connections"
+import type { ConnectionActor, ConnectionRecord, CreateConnectionInput } from "@modules/domain/connections"
 import { WorkspacesService } from "@modules/domain/workspaces"
 import { MAIL_ERROR_KINDS, MAIL_RELAY, MailError, renderEmail } from "@modules/integrations/mail"
 import type { MailRelayService } from "@modules/integrations/mail"
@@ -14,6 +14,13 @@ import { EmailMessagesService } from "./email-messages.service"
 import { EmailMessagesErrorCode } from "./errors/email-messages.error"
 import { SmtpWizardService } from "./smtp-wizard.service"
 import type { SmtpFormInput } from "./smtp-wizard.contracts"
+
+/** A create call that must be a live connection: only a live one carries a credential. */
+type LiveConnectionInput = Extract<CreateConnectionInput, { readonly secret: unknown }>
+const liveOf = (input: CreateConnectionInput): LiveConnectionInput => {
+    if (input.sandbox === true) throw new Error("expected a live connection input")
+    return input
+}
 
 const actor: ConnectionActor = { principalId: "owner-1", workspaceId: "ws-1" }
 
@@ -47,6 +54,7 @@ const connectionOf = builder<ConnectionRecord>({
     status: "pending",
     lastError: null,
     environment: "live",
+    sandbox: false,
     isDefault: false,
     lastEventAt: null,
     firstEvent: null,
@@ -76,7 +84,8 @@ const build = async (found: ConnectionRecord | null = connectionOf()) => {
     const logger = mock<Logger>()
     const connections = mock<ConnectionsService>({
         authorize: jest.fn(() => Promise.resolve({ role: "owner", displayName: "Lan" })),
-        create: jest.fn(() => Promise.resolve("smtp-1")),
+        createMailbox: jest.fn(() => Promise.resolve("smtp-1")),
+        listByProvider: jest.fn(() => Promise.resolve([])),
         find: jest.fn(() => Promise.resolve(found)),
         readSecret: jest.fn(() =>
             Promise.resolve({ plain: JSON.stringify({ password: "abcdefghijklmnop" }), webhookSecret: "w" }),
@@ -116,7 +125,8 @@ describe("SmtpWizardService", () => {
 
             expect(connections.authorize).toHaveBeenCalledWith(actor, ["owner"])
             expect(mail.assertSmtpTarget).toHaveBeenCalledWith("smtp.gmail.com", 465)
-            const [input] = connections.create.mock.calls[0] ?? []
+            const [call] = connections.createMailbox.mock.calls[0] ?? []
+            const input = call === undefined ? undefined : liveOf(call)
             expect(input).toMatchObject({
                 workspaceId: "ws-1",
                 createdBy: "owner-1",
@@ -128,6 +138,30 @@ describe("SmtpWizardService", () => {
             })
             expect(input?.secret?.plain).toBe(JSON.stringify({ password: "abcdefghijklmnop" }))
             expect(input?.secret?.webhookSecret).not.toBe("")
+            // No inbound half of the address stands alone: nothing to join.
+            expect(connections.createMailbox.mock.calls[0]?.[1]).toBeNull()
+        })
+
+        it("rule MI-2: joins the ONE live inbound half of the same address standing alone into the new mailbox account", async () => {
+            const { service, connections } = await build()
+            const alone = { ...connectionOf(), id: "imap-1", provider: "imap" as const, sandbox: false, meta: { email: " Shop@Gmail.com " } }
+            connections.listByProvider.mockResolvedValue([alone, { ...alone, id: "imap-2", meta: { email: "other@gmail.com" } }])
+
+            await service.start(actor, formOf())
+
+            expect(connections.listByProvider).toHaveBeenCalledWith("ws-1", "imap", { includeDisconnected: false })
+            expect(connections.createMailbox.mock.calls[0]?.[1]).toBe("imap-1")
+        })
+
+        it("rule MI-2: never guesses a pair: two inbound halves of the address, or a sandbox one, join nothing", async () => {
+            const { service, connections } = await build()
+            const alone = { ...connectionOf(), id: "imap-1", provider: "imap" as const, sandbox: false, meta: { email: "shop@gmail.com" } }
+            connections.listByProvider.mockResolvedValue([alone, { ...alone, id: "imap-2" }])
+            await service.start(actor, formOf())
+            connections.listByProvider.mockResolvedValue([{ ...alone, sandbox: true }])
+            await service.start(actor, formOf())
+
+            expect(connections.createMailbox.mock.calls.map((call) => call[1])).toEqual([null, null])
         })
 
         it("refuses an invalid form before touching the mail server", async () => {
@@ -137,7 +171,7 @@ describe("SmtpWizardService", () => {
                 code: EmailMessagesErrorCode.SmtpPort,
             })
             expect(mail.assertSmtpTarget).not.toHaveBeenCalled()
-            expect(connections.create).not.toHaveBeenCalled()
+            expect(connections.createMailbox).not.toHaveBeenCalled()
         })
     })
 })

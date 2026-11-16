@@ -26,14 +26,24 @@ export enum KnowledgeSourcesErrorCode {
     FileTypeUnsupported = "KNOWLEDGE_SOURCES_FILE_TYPE_UNSUPPORTED",
     /** The uploaded file is larger than one document may be. */
     FileTooLarge = "KNOWLEDGE_SOURCES_FILE_TOO_LARGE",
+    /** The uploaded file is an old binary Word, Excel or PowerPoint file (.doc, .xls, .ppt). */
+    LegacyOffice = "KNOWLEDGE_SOURCES_LEGACY_OFFICE",
+    /** A new upload was given for a source that is not a file. */
+    NotAFile = "KNOWLEDGE_SOURCES_NOT_A_FILE",
     /** The new source would take the workspace past its raw document allowance. */
     QuotaExceeded = "KNOWLEDGE_SOURCES_QUOTA_EXCEEDED",
     /** The file source names a storage object that was never uploaded. */
     UploadMissing = "KNOWLEDGE_SOURCES_UPLOAD_MISSING",
-    /** A document was asked to be public: only an approved public document is. */
+    /** An approved public document (origin `public_document`) was changed through the generic door: only its own approval flow changes it. */
     PublicByApproval = "KNOWLEDGE_SOURCES_PUBLIC_BY_APPROVAL",
     /** The public source is being read now, so its text cannot be replaced yet. */
     PublishBusy = "KNOWLEDGE_SOURCES_PUBLISH_BUSY",
+    /** The document would take the PUBLIC area past its limit (`BRAIN_AREA_BYTES`); params name the area and its used / left / limit. */
+    PublicAreaFull = "KNOWLEDGE_SOURCES_PUBLIC_AREA_FULL",
+    /** A visibility other than the two areas, `public` and `internal`. */
+    VisibilityUnknown = "KNOWLEDGE_SOURCES_VISIBILITY_UNKNOWN",
+    /** The document would take the INTERNAL area past its limit (`BRAIN_AREA_BYTES`); params name the area and its used / left / limit. */
+    InternalAreaFull = "KNOWLEDGE_SOURCES_INTERNAL_AREA_FULL",
 }
 
 /** How each knowledge-sources code travels. */
@@ -50,10 +60,15 @@ export const KNOWLEDGE_SOURCES_ERROR_KINDS: Record<KnowledgeSourcesErrorCode, Er
     [KnowledgeSourcesErrorCode.FileNameRequired]: "invalid",
     [KnowledgeSourcesErrorCode.FileTypeUnsupported]: "invalid",
     [KnowledgeSourcesErrorCode.FileTooLarge]: "invalid",
+    [KnowledgeSourcesErrorCode.LegacyOffice]: "invalid",
+    [KnowledgeSourcesErrorCode.NotAFile]: "invalid",
     [KnowledgeSourcesErrorCode.QuotaExceeded]: "invalid",
     [KnowledgeSourcesErrorCode.UploadMissing]: "invalid",
     [KnowledgeSourcesErrorCode.PublicByApproval]: "invalid",
     [KnowledgeSourcesErrorCode.PublishBusy]: "unavailable",
+    [KnowledgeSourcesErrorCode.PublicAreaFull]: "invalid",
+    [KnowledgeSourcesErrorCode.VisibilityUnknown]: "invalid",
+    [KnowledgeSourcesErrorCode.InternalAreaFull]: "invalid",
 }
 
 /** The one error class of the knowledge-sources capability. */

@@ -2,10 +2,14 @@ import { Test } from "@nestjs/testing"
 import { fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
 import type { MockEntityManager } from "@starci/jest-preset"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
+import { AI } from "@modules/integrations/ai"
+import { VECTOR_INDEX } from "@modules/integrations/qdrant"
+import type { AiService } from "@modules/integrations/ai"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
 import { TIMER } from "@modules/platform/retry"
 import type { Timer } from "@modules/platform/retry"
+import { FakeVectorIndex } from "@tests/fixtures/builders/vector-sync.builder"
 import { LivenessError, LivenessErrorCode } from "./errors/liveness.error"
 import { ReadinessLogEvent } from "./readiness.log-events"
 import { ReadinessService } from "./readiness.service"
@@ -15,7 +19,7 @@ const CHECK_READINESS_JOBS = 'SELECT * FROM "public"."job_stats"()'
 
 const JOB_ROWS = [{ job_stats: { checkedAt: "2026-10-14T00:00:00.000Z" } }]
 
-const READY_REPORT = { status: "ready", checks: { database: "ok", jobs: "ok" } }
+const READY_REPORT = { status: "ready", checks: { database: "ok", jobs: "ok", ai: "ok", vectors: "ok" } }
 
 const deferred = <T>() => {
     let resolve: (value: T) => void = () => undefined
@@ -27,18 +31,21 @@ const deferred = <T>() => {
     return { promise, resolve, reject }
 }
 
-const build = async (supplied?: MockEntityManager) => {
+const build = async (supplied?: MockEntityManager, aiConfigured = true) => {
     const entityManager = fakeTransaction(supplied ?? mockEntityManager({ query: [CHECK_READINESS_JOBS, JOB_ROWS] })).em
     const logger = mock<Logger>({ error: jest.fn() })
+    const vectors = new FakeVectorIndex()
     const moduleRef = await Test.createTestingModule({
         providers: [
             ReadinessService,
             { provide: PRIMARY_ENTITY_MANAGER, useValue: entityManager },
             { provide: LOGGER, useValue: logger },
             { provide: TIMER, useValue: timeout },
+            { provide: AI, useValue: mock<AiService>({ available: jest.fn(() => aiConfigured) }) },
+            { provide: VECTOR_INDEX, useValue: vectors },
         ],
     }).compile()
-    return { readiness: moduleRef.get(ReadinessService), entityManager, logger }
+    return { readiness: moduleRef.get(ReadinessService), entityManager, logger, vectors }
 }
 
 const timeout = mock<Timer>()
@@ -75,10 +82,33 @@ afterEach(() => {
 })
 
 describe("ReadinessService / check", () => {
-    it("reports readiness after the primary database and job statistics answer", async () => {
-        const { readiness, entityManager, logger } = await build()
+    it("is not ready without the AI endpoint, although the database answers", async () => {
+        const { readiness, logger } = await build(undefined, false)
+
+        await expect(readiness.check()).rejects.toMatchObject({ code: LivenessErrorCode.ReadinessUnavailable })
+        expect(logger.error).toHaveBeenCalledWith(ReadinessLogEvent.AiUnconfigured, null)
+    })
+
+    it("is not ready while the vector index does not answer its probe, with the typed reason (no fallback store exists)", async () => {
+        const { readiness, logger, vectors } = await build()
+        vectors.down = true
+
+        const check = readiness.check()
+        await expect(check).rejects.toBeInstanceOf(LivenessError)
+        await expect(check).rejects.toMatchObject({ code: LivenessErrorCode.VectorIndexDown })
+        expect(logger.error).toHaveBeenCalledWith(ReadinessLogEvent.VectorIndexDown, null)
+        expect(vectors.calls.probe).toBe(1)
+        expect(logger.error).toHaveBeenCalledWith(
+            ReadinessLogEvent.CheckFailed,
+            expect.objectContaining({ code: LivenessErrorCode.VectorIndexDown }),
+        )
+    })
+
+    it("reports readiness after the primary database, the job statistics and the vector index answer", async () => {
+        const { readiness, entityManager, logger, vectors } = await build()
 
         await expect(readiness.check()).resolves.toEqual(READY_REPORT)
+        expect(vectors.calls.probe).toBe(1)
 
         expect(entityManager.query).toHaveBeenCalledTimes(1)
         expect(entityManager.query).toHaveBeenCalledWith(CHECK_READINESS_JOBS, [])

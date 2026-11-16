@@ -3,9 +3,8 @@
 #
 #   docker build -f be/apps/api/Dockerfile -t nivo-lite/api:<tag> .
 #
-# It follows the image canon and diverges from it in one place: the runtime installs ffmpeg and fontconfig (apk) because the video
-# render job shells out to ffmpeg (libx264, libass, libfreetype, sidechaincompress, loudnorm) and writes its TTS cache and scratch files under
-# /var/cache/nivo-video and /tmp/nivo-video, which the unprivileged node user must own. Credentials are mounted at run time and never enter the image.
+# It follows the image canon with no divergence: the runtime holds no media tool (NIVO processes no video, audio or image with a native
+# program; the providers do it). Credentials are mounted at run time and never enter the image.
 
 FROM node:22.14.0-alpine3.21 AS manifests
 WORKDIR /app
@@ -15,12 +14,7 @@ COPY packages packages
 # The install stages hold manifests only, so a workspace `prepare` (it builds dist from sources) has nothing to compile; npm runs it for workspace
 # links even under --ignore-scripts. Drop it from these throwaway manifest copies; the build stages copy the sources and manifests back.
 RUN find fe packages -type f ! -name package.json -delete \
- && find fe packages -name package.json -exec node -e \
- "const fs=require('fs');\
-const f=process.argv[1];\
-const p=JSON.parse(fs.readFileSync(f,'utf8'));\
-if(p.scripts&&p.scripts.prepare){delete p.scripts.prepare;fs.writeFileSync(f,JSON.stringify(p,null,2))}" \
- {} \;
+ && find fe packages -name package.json -exec node -e "const fs=require('fs');const f=process.argv[1];const p=JSON.parse(fs.readFileSync(f,'utf8'));if(p.scripts&&p.scripts.prepare){delete p.scripts.prepare;fs.writeFileSync(f,JSON.stringify(p,null,2))}" {} \;
 
 FROM node:22.14.0-alpine3.21 AS build
 WORKDIR /app
@@ -42,10 +36,6 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-RUN apk add --no-cache ffmpeg fontconfig \
- && mkdir -p /var/cache/nivo-video /tmp/nivo-video \
- && chown node:node /var/cache/nivo-video /tmp/nivo-video
-
 COPY --from=manifests /app ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
@@ -53,10 +43,6 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY --from=build /app/packages packages
 
 COPY --from=build /app/be/dist be/dist
-# be/src/assets ships as it sits in the repo: the fonts the video render burns captions with (VIDEO_FONTS_DIR). The music beds are not read from
-# here: they live in the media bucket, and their source files are outside the repository and this image (`cli seed-media upload --dir <dir>` writes them).
-COPY be/src/assets be/src/assets
-ENV VIDEO_FONTS_DIR=/app/be/src/assets/fonts
 
 # The AI gateway's SQLite key store volume (AI_ROUTER_KEYS_PATH) mounts here: an empty volume takes this owner, so the node user can write it.
 RUN mkdir -p /var/lib/ai-router && chown node:node /var/lib/ai-router

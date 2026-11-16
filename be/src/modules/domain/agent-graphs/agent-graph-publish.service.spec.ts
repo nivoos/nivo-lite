@@ -1,9 +1,7 @@
 import { Test } from "@nestjs/testing"
 import { mock } from "@starci/jest-preset"
-import { nodeIndexOf } from "@nivo-lite/agent-sdk/node"
-import { coreDataKinds, coreEffects, coreNodes, coreTools } from "@nivo-lite/blocks-core"
 import type { GraphSpec } from "@nivo-lite/agent-sdk/graph"
-import { GraphNodeRegistryService } from "@modules/domain/graph-nodes"
+import { coreTemplates } from "@modules/domain/installed-plugins/installed-plugins.testing"
 import { InstallationRecordsService } from "@modules/domain/module-installations"
 import {
     OWNER_EXAMPLE,
@@ -35,19 +33,17 @@ const VERSION = {
 }
 const INSTALLATION = { id: "inst-1", moduleKey: "accounting" }
 
-const FLOW: GraphSpec = {
-    schema: "nivo/agent-graph@1",
-    moduleKey: "accounting",
-    trigger: { kind: "tag", sources: ["agent"] },
-    grant: { rights: [], tools: [], effects: [] },
-    nodes: [{ key: "echo", kind: "execute", step: "intent.classify" }],
-}
+/** An installed core template version's graph: the one format a flow takes. */
+const FLOW: GraphSpec = (() => {
+    const graph = coreTemplates()[0]?.versions[0]?.graph
+    if (graph === undefined) throw new Error("the core package ships no template")
+    return graph
+})()
 
 const build = async (state: OptionalGraphState, options: { context?: GraphContext; installation?: boolean } = {}) => {
     const graphs = mock<AgentGraphsService>({
         stateOfAgent: jest.fn().mockResolvedValue(state),
         publish: jest.fn().mockResolvedValue(VERSION),
-        setMode: jest.fn().mockResolvedValue(state),
         documentOf: jest.fn().mockResolvedValue(graphOf(OWNER_EXAMPLE)),
     })
     const context = mock<AgentGraphContextService>({
@@ -62,19 +58,6 @@ const build = async (state: OptionalGraphState, options: { context?: GraphContex
             { provide: AgentGraphsService, useValue: graphs },
             { provide: AgentGraphContextService, useValue: context },
             { provide: InstallationRecordsService, useValue: installations },
-            {
-                provide: GraphNodeRegistryService,
-                useValue: mock<GraphNodeRegistryService>({
-                    installed: jest.fn().mockReturnValue(
-                        nodeIndexOf({
-                            nodes: coreNodes,
-                            effects: coreEffects,
-                            tools: coreTools,
-                            dataKinds: coreDataKinds,
-                        }),
-                    ),
-                }),
-            },
         ],
     }).compile()
     return { service: moduleRef.get(AgentGraphPublishService), graphs, context }
@@ -103,7 +86,7 @@ const raised = (state: GraphState): GraphDocument => ({
                           branchOf({
                               key: "middle",
                               when: { all: [amountIs("gte", 6_000_000), amountIs("lt", 20_000_000)] },
-                              outcome: "ask",
+                              mode: "ask",
                               next: "ask",
                               approver: approverOf(),
                           }),
@@ -123,7 +106,6 @@ describe("AgentGraphPublishService.publishDraft", () => {
 
         expect(context.contextOf).toHaveBeenCalledWith(
             expect.objectContaining({ agentId: "agent-1", moduleKey: "accounting" }),
-            state.draft,
         )
         expect(graphs.publish).toHaveBeenCalledWith({
             workspaceId: "ws-1",
@@ -134,7 +116,6 @@ describe("AgentGraphPublishService.publishDraft", () => {
             memberId: "boss",
             contextVersionId: null,
         })
-        expect(graphs.setMode).not.toHaveBeenCalled()
     })
 
     it("lets a manager publish what does not widen, without changing the mode", async () => {
@@ -143,7 +124,6 @@ describe("AgentGraphPublishService.publishDraft", () => {
         await service.publishDraft("ws-1", "agent-1", MANAGER, "")
 
         expect(graphs.publish).toHaveBeenCalledWith(expect.objectContaining({ kind: "edit", memberId: "dinh" }))
-        expect(graphs.setMode).not.toHaveBeenCalled()
     })
 
     it("refuses a manager a change that widens the reach of the agent, and lets the owner make it", async () => {
@@ -210,17 +190,8 @@ describe("AgentGraphPublishService.publishDraft from the setup chat", () => {
             contextVersionId: "cv-7",
             version: 7,
         })
-        expect(graphs.setMode).not.toHaveBeenCalled()
     })
 
-    it("leaves the mode as it was when a manager publishes from the setup chat, and when the owner restores", async () => {
-        const { service, graphs } = await build(stateOf())
-
-        await service.publishDraft("ws-1", "agent-1", MANAGER, "", "chat", "cv-7", 7)
-        await service.restore("ws-1", "agent-1", "version-1", OWNER)
-
-        expect(graphs.setMode).not.toHaveBeenCalled()
-    })
 })
 
 describe("AgentGraphPublishService.requirePublishable", () => {
@@ -230,7 +201,6 @@ describe("AgentGraphPublishService.requirePublishable", () => {
         await expect(service.requirePublishable("ws-1", "agent-1", MANAGER)).resolves.toBeUndefined()
 
         expect(graphs.publish).not.toHaveBeenCalled()
-        expect(graphs.setMode).not.toHaveBeenCalled()
     })
 
     it("refuses a manager a widening with its own code, lets the owner through, and refuses an agent with no graph", async () => {
@@ -251,7 +221,7 @@ describe("AgentGraphPublishService.requirePublishable", () => {
 
 describe("AgentGraphPublishService.publishDraft without a fact counted in dong", () => {
     it("compares a graph with no amount in it when the module has no fact counted in dong", async () => {
-        const draft: GraphDocument = { nodes: [], rights: [] }
+        const draft: GraphDocument = { nodes: [] }
         const { service, graphs } = await build(stateOf({ draft }), { context: { ...contextOf(), facts: {} } })
 
         await expect(service.publishDraft("ws-1", "agent-1", OWNER, "Bare")).resolves.toBe(VERSION)
@@ -260,142 +230,37 @@ describe("AgentGraphPublishService.publishDraft without a fact counted in dong",
     })
 })
 
-describe("AgentGraphPublishService.publishLearned", () => {
-    it("publishes the graph a confirmed proposal made as a learned version, under the same checks", async () => {
-        const { service, graphs } = await build(stateOf())
-        const document = raised(stateOf())
-
-        await expect(service.publishLearned("ws-1", "agent-1", document, OWNER)).resolves.toBe(VERSION)
-
-        expect(graphs.publish).toHaveBeenCalledWith(
-            expect.objectContaining({ kind: "learned", document, memberId: "boss" }),
-        )
-    })
-
-    it("leaves a widening to the owner even when a streak proposed it", async () => {
-        const { service, graphs } = await build(stateOf())
-
-        expect(await codeOf(service.publishLearned("ws-1", "agent-1", raised(stateOf()), MANAGER))).toBe(
-            AgentGraphsErrorCode.WidensNeedsOwner,
-        )
-        expect(graphs.publish).not.toHaveBeenCalled()
-    })
-})
-
 describe("AgentGraphPublishService, a node graph", () => {
-    it("publishes a version whose node graph the installed nodes take, by the owner", async () => {
+    it("publishes a version whose flow is an installed template version's copy, by the owner", async () => {
         const { service, graphs } = await build(stateOf())
         const document = { ...stateOf().draft, flow: FLOW }
 
-        await expect(service.publishLearned("ws-1", "agent-1", document, OWNER)).resolves.toBe(VERSION)
+        await expect(service.publishCopy("ws-1", "agent-1", document, OWNER)).resolves.toBe(VERSION)
 
         expect(graphs.publish).toHaveBeenCalledWith(expect.objectContaining({ document }))
     })
 
-    it("refuses a node graph that names a node the app did not install, and a change of it by anyone but the owner", async () => {
+    it("refuses a flow that is no installed template version's copy, and a change of it by anyone but the owner", async () => {
         const { service, graphs } = await build(stateOf())
         const ghost = { ...FLOW, nodes: [{ key: "x", kind: "output" as const, step: "core.ghost" }] }
 
         expect(
-            await codeOf(service.publishLearned("ws-1", "agent-1", { ...stateOf().draft, flow: ghost }, OWNER)),
+            await codeOf(service.publishCopy("ws-1", "agent-1", { ...stateOf().draft, flow: ghost }, OWNER)),
         ).toBe(AgentGraphsErrorCode.PublishRefused)
         expect(
-            await codeOf(service.publishLearned("ws-1", "agent-1", { ...stateOf().draft, flow: FLOW }, MANAGER)),
+            await codeOf(service.publishCopy("ws-1", "agent-1", { ...stateOf().draft, flow: FLOW }, MANAGER)),
         ).toBe(AgentGraphsErrorCode.WidensNeedsOwner)
         expect(graphs.publish).not.toHaveBeenCalled()
     })
 })
 
-describe("AgentGraphPublishService.publishConflict", () => {
-    it("publishes the replacement graph as a conflict version and retains the approver identity", async () => {
-        const document = stateOf().draft
-        const { service, graphs } = await build(stateOf())
-
-        await expect(service.publishConflict("ws-1", "agent-1", document, OWNER)).resolves.toBe(VERSION)
-        expect(graphs.publish).toHaveBeenCalledWith(
-            expect.objectContaining({
-                kind: "conflict",
-                document,
-                memberId: "boss",
-                note: "",
-            }),
-        )
-        expect(graphs.setMode).not.toHaveBeenCalled()
-    })
-})
-
-describe("AgentGraphPublishService.restore", () => {
-    it("publishes an older version again as a new one, under the same checks", async () => {
-        const { service, graphs } = await build(stateOf())
-
-        await expect(service.restore("ws-1", "agent-1", "version-1", MANAGER)).resolves.toBe(VERSION)
-
-        expect(graphs.documentOf).toHaveBeenCalledWith("ws-1", "agent-1", "version-1")
-        expect(graphs.publish).toHaveBeenCalledWith(expect.objectContaining({ kind: "rollback", memberId: "dinh" }))
-    })
-})
-
-describe("AgentGraphPublishService.setMode", () => {
-    it("lets the owner set the mode either way, and keeps who did", async () => {
-        const { service, graphs } = await build(stateOf())
-
-        await service.setMode("ws-1", "agent-1", "enforced", OWNER)
-        await service.setMode("ws-1", "agent-1", "shadow", OWNER)
-
-        expect(graphs.setMode.mock.calls).toEqual([
-            ["ws-1", "agent-1", "enforced", "boss"],
-            ["ws-1", "agent-1", "shadow", "boss"],
-        ])
-    })
-
-    it("refuses a manager either way, because turning a graph off widens the agent", async () => {
-        const { service, graphs } = await build(stateOf())
-
-        expect(await codeOf(service.setMode("ws-1", "agent-1", "enforced", MANAGER))).toBe(
-            AgentGraphsErrorCode.WidensNeedsOwner,
-        )
-        expect(await codeOf(service.setMode("ws-1", "agent-1", "shadow", MANAGER))).toBe(
-            AgentGraphsErrorCode.WidensNeedsOwner,
-        )
-        expect(graphs.setMode).not.toHaveBeenCalled()
-    })
-})
-
-describe("AgentGraphPublishService.publishContract", () => {
-    it("publishes the graph a confirmed contract made as a chat version, under the same checks", async () => {
-        const { service, graphs } = await build(stateOf())
-        const document = {
-            ...stateOf().draft,
-            contracts: [{ intent: "pay_supplier", task: "Pay.", limits: [], sources: [] }],
-        }
-
-        await expect(service.publishContract("ws-1", "agent-1", document, MANAGER)).resolves.toBe(VERSION)
-
-        expect(graphs.publish).toHaveBeenCalledWith(
-            expect.objectContaining({ kind: "chat", document, memberId: "dinh" }),
-        )
-    })
-})
-
 describe("AgentGraphPublishService the contracts of a graph", () => {
-    const FRAMED = (intent: string): boolean => intent === "pay_supplier"
-
-    it("refuses a graph whose intent has no frame in the catalogue of the module", async () => {
-        const context = { ...contextOf(), hasFrame: (intent: string) => intent === "send_quote" }
-        const { service, graphs } = await build(stateOf(), { context })
-
-        expect(await codeOf(service.publishDraft("ws-1", "agent-1", OWNER, "Edit"))).toBe(
-            AgentGraphsErrorCode.PublishRefused,
-        )
-        expect(graphs.publish).not.toHaveBeenCalled()
-    })
-
     it("publishes a graph with no contracts block, and a contract that only warns", async () => {
         const warned = {
             ...stateOf().draft,
             contracts: [{ intent: "give_discount", task: "", limits: [], sources: [] }],
         }
-        const context = { ...contextOf(), hasFrame: FRAMED }
+        const context = contextOf()
         const shipped = await build(stateOf(), { context })
         const warning = await build(stateOf({ draft: warned }), { context })
 
@@ -404,44 +269,22 @@ describe("AgentGraphPublishService the contracts of a graph", () => {
     })
 })
 
-describe("AgentGraphPublishService.publishTemplate", () => {
-    it("publishes the graph a template made as a version of kind template, by the owner", async () => {
+describe("AgentGraphPublishService.publishCopy", () => {
+    it("publishes the graph of a sibling agent as a version of kind copy", async () => {
         const state = stateOf({ activeKind: "seed" })
         const { service, graphs } = await build(state)
 
-        await expect(service.publishTemplate("ws-1", "agent-1", state.draft, OWNER)).resolves.toBe(VERSION)
+        await expect(service.publishCopy("ws-1", "agent-1", state.draft, OWNER)).resolves.toBe(VERSION)
 
-        expect(graphs.publish).toHaveBeenCalledWith(expect.objectContaining({ kind: "template", memberId: "boss" }))
+        expect(graphs.publish).toHaveBeenCalledWith(expect.objectContaining({ kind: "copy", memberId: "boss" }))
     })
 
-    it("refuses a manager the first version a template gives an agent, even one that widens nothing", async () => {
+    it("still refuses a manager a copy that widens what the agent may do", async () => {
         const state = stateOf({ activeKind: "seed" })
         const { service, graphs } = await build(state)
 
-        expect(await codeOf(service.publishTemplate("ws-1", "agent-1", state.draft, MANAGER))).toBe(
+        expect(await codeOf(service.publishCopy("ws-1", "agent-1", raised(state), MANAGER))).toBe(
             AgentGraphsErrorCode.WidensNeedsOwner,
-        )
-        expect(graphs.publish).not.toHaveBeenCalled()
-    })
-
-    it("lets a manager publish a later version that widens nothing, and still refuses a widening", async () => {
-        const state = stateOf({ activeKind: "template" })
-        const { service } = await build(state)
-
-        await expect(service.publishTemplate("ws-1", "agent-1", state.draft, MANAGER)).resolves.toBe(VERSION)
-        expect(await codeOf(service.publishTemplate("ws-1", "agent-1", raised(state), MANAGER))).toBe(
-            AgentGraphsErrorCode.WidensNeedsOwner,
-        )
-    })
-
-    it("holds a template graph to the rules of the buyer, so a graph with a problem is refused and nothing is written", async () => {
-        const blank = graphOf(OWNER_EXAMPLE)
-        const state = stateOf({ activeKind: "seed" })
-        const { service, graphs } = await build(state)
-        const broken = { ...blank, nodes: [...blank.nodes, nodeOf({ key: "blank", does: "", next: ["end"] })] }
-
-        expect(await codeOf(service.publishTemplate("ws-1", "agent-1", broken, OWNER))).toBe(
-            AgentGraphsErrorCode.PublishRefused,
         )
         expect(graphs.publish).not.toHaveBeenCalled()
     })

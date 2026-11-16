@@ -16,6 +16,7 @@ const record: ConnectionRecord = {
     meta: { host: "db" },
     lastError: null,
     environment: "live",
+    sandbox: false,
     isDefault: false,
     lastEventAt: null,
     firstEvent: null,
@@ -99,8 +100,26 @@ describe("DataHubService", () => {
     ])("refuses missing, disconnected, non-data and differently filtered connections", async (found) => {
         const { service, connections } = await build()
         connections.find.mockResolvedValue(found)
-        await expect(service.own("w-1", "c-1", "imap")).rejects.toMatchObject({ code: DataHubErrorCode.NotFound })
+        await expect(service.own("w-1", "c-1", "telegram_user")).rejects.toMatchObject({ code: DataHubErrorCode.NotFound })
         expect(connections.scheduleOf).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        null,
+        { ...record, status: "disconnected" as const },
+        { ...record, provider: "telegram" as const },
+    ])("find answers null for a missing, disconnected or non-data connection (no refusal): %#", async (found) => {
+        const { service, connections } = await build()
+        connections.find.mockResolvedValue(found)
+        await expect(service.find("w-1", "c-1")).resolves.toBeNull()
+        expect(connections.scheduleOf).not.toHaveBeenCalled()
+    })
+
+    it("find answers the live connection, the same one own answers", async () => {
+        const { service, connections } = await build()
+        connections.find.mockResolvedValue(record)
+        connections.scheduleOf.mockResolvedValue({ everyMinutes: 15, lastSyncAt: null })
+        await expect(service.find("w-1", "c-1")).resolves.toMatchObject({ id: "c-1", provider: "database" })
     })
 
     it("creates a manual connection using connected as the default status", async () => {

@@ -1,94 +1,42 @@
-import type { StepSpec } from "../agent-runs.contracts"
-
-/** The tries a step gets when its spec names none. */
-export const DEFAULT_MAX_ATTEMPTS = 3
-
-/** The most tries a step may be given. */
-export const MAX_ATTEMPTS_CEILING = 10
-
-/** How long one try may run when the spec names none, milliseconds. */
+/** How long one try of a step may run when its row names none, milliseconds: what a thread's step row is written and read with. */
 export const DEFAULT_DEADLINE_MS = 120_000
-
-/** The shortest deadline a try may be given, milliseconds. */
-export const DEADLINE_MIN_MS = 1000
-
-/** The longest deadline a try may be given, milliseconds. */
-export const DEADLINE_MAX_MS = 3_600_000
-
-/** The pause after the first failed try, milliseconds; it doubles with each try. */
-export const BACKOFF_BASE_MS = 2000
-
-/** The longest pause between two tries, milliseconds: the backoff is bounded. */
-export const BACKOFF_MAX_MS = 60_000
-
-/** The tries a compensation gets before the run goes to a person. */
-export const COMPENSATION_ATTEMPTS = 3
-
-/** The pause after a failed compensation, seconds. */
-export const COMPENSATION_RETRY_SECONDS = 30
-
-/** How long a compensation claim lasts, seconds. */
-export const COMPENSATION_LEASE_SECONDS = 120
-
-/** The most steps one advance drives before it leaves the rest to a job, so a long run never holds a worker for ever. */
-export const ADVANCE_MAX_STEPS = 50
-
-/** How long a shutdown waits for the steps in flight before it gives their claims back, milliseconds. */
-export const SHUTDOWN_WAIT_MS = 10_000
-
-/** The most items one sweep pass reads of each kind. */
-export const SWEEP_LIMIT = 50
 
 /** The failure code of a tool whose result was never stored: the tool may have acted, so it is never called again. */
 export const TOOL_OUTCOME_UNKNOWN = "tool_outcome_unknown"
 
-/** The failure code of a step whose handler threw. */
-export const HANDLER_THREW = "handler_threw"
-
-/** The failure code of a step kind nobody handles. */
-export const NO_HANDLER = "no_handler"
-
-/** The failure code of a wait whose time ran out with no answer. */
-export const WAIT_TIMEOUT = "wait_timeout"
-
-/** The failure code of a step whose claim ran out on its last try. */
-export const STEP_TIMEOUT = "step_timeout"
-
-/** The pause before the try that follows `attempt` failed tries, milliseconds: doubling, never above the ceiling. */
-export const backoffMs = (attempt: number): number =>
-    Math.min(BACKOFF_MAX_MS, BACKOFF_BASE_MS * 2 ** Math.max(0, attempt - 1))
-
-/** A pause in whole seconds, rounded up, for a database function. */
-export const secondsOf = (ms: number): number => Math.ceil(ms / 1000)
-
-const clamp = (value: number, low: number, high: number): number => Math.min(high, Math.max(low, Math.trunc(value)))
-
-/** A step spec with its budget filled and bounded, as the database function writes it. */
-export interface FilledSpec extends StepSpec {
-    /** The tries it gets. */
-    readonly maxAttempts: number
-    /** How long one try may run, milliseconds. */
-    readonly deadlineMs: number
-}
-
-/** Fills the tries and the deadline a spec leaves out and bounds both. */
-export const filled = (spec: StepSpec): FilledSpec => ({
-    ...spec,
-    maxAttempts: clamp(spec.maxAttempts ?? DEFAULT_MAX_ATTEMPTS, 1, MAX_ATTEMPTS_CEILING),
-    deadlineMs: clamp(spec.deadlineMs ?? DEFAULT_DEADLINE_MS, DEADLINE_MIN_MS, DEADLINE_MAX_MS),
-})
-
 /** A closed approval has no recorded principal, so execution waits for a person to reconcile its authority. */
 export const DECISION_ACTOR_UNKNOWN = "decision_actor_unknown"
 
-/** How long a run stays parked before the sweep runs it again, minutes, when the app says nothing. */
-export const PARK_SWEEP_MINUTES = 30
+/**
+ * The end reason a run and its open steps carry when a PERSON ended it (an owner or manager, through the one end door, in any state of
+ * the run in flight); the member is the run's `cancelled_by`, the moment its `cancelled_at`.
+ */
+export const RUN_ENDED_BY_PERSON = "ended_by_person"
 
-/** The most times the machine resumes one parked run when the app says nothing. */
-export const PARK_MAX_RESUMES = 5
+/**
+ * The park reason of a run a PERSON paused (`park_reason`, status `parked`): it takes no further step and runs no wake until a person
+ * resumes it; it keeps its subject (a parked run is in flight). Its error member keeps who paused it, when, and where it stood before.
+ */
+export const RUN_PAUSED_BY_PERSON = "paused_by_person"
 
-/** The most parked runs one pass resumes. */
-export const PARK_PASS_LIMIT = 25
+/** The code a step left open carries when its run ended `done` (a done run has no terminal error of its own to give it). */
+export const RUN_ENDED = "run_ended"
+
+/**
+ * The statuses of a step row that is still open: what `tools reseed` counts as not drained, and what every road that ends a run closes
+ * in the same transaction (`AgentRunRecordsService.closeOpenSteps`).
+ */
+export const OPEN_STEP_STATUSES: ReadonlyArray<string> = ["pending", "running"]
+
+/**
+ * How many runs execute at once when the app says nothing (`AGENT_RUNS_CONCURRENCY`): the drains the api, the one consumer of the
+ * agent-turn queue, runs at once. A run parked at a wait or a stop holds none: its turn ended (only a drain in flight holds a slot).
+ */
+export const RUNS_CONCURRENCY = 100
+
+/** The most runs the app may be told to execute at once: a bound against a typo, far above what one api process carries. */
+export const RUNS_CONCURRENCY_MAX = 1000
+
 
 /** The most steps one run holds and reads: a run is a short chain, and one page of the engine holds them all. */
 export const STEPS_MAX = 100
@@ -96,8 +44,16 @@ export const STEPS_MAX = 100
 /** The tries of a run write that lost its version to another writer, before the caller is told to try again. */
 export const SETTLE_TRIES = 5
 
-/** The most workspaces one pass of the sweep or of the parked resume visits. */
-export const WORKSPACE_SLICE = 100
+/** The stored status of a run in flight between steps or in one; a run parked at a `wait` keeps it, with its wait mark. */
+const RUNNING = "running"
 
-/** The statuses of a run that was given to a person or ended and may still be untold. */
-export const TELL_STATUSES: ReadonlyArray<string> = ["parked", "dead", "compensated"]
+/** The status a reader that SHOWS runs reports for a run parked at a `wait` (stored `running` WITH a wait mark): it waits. */
+export const WAIT_PARKED_STATUS = "waiting"
+
+/**
+ * The status a run is REPORTED in by the readers that show runs (the desk, the runs list): the stored status, except that a `running`
+ * run carrying a wait mark (parked at a `wait`, its turn ended) reads `waiting`. Derived from the mark the engine already keeps; no second
+ * stored status.
+ */
+export const reportedStatusOf = (status: string, waitMarked: boolean): string =>
+    status === RUNNING && waitMarked ? WAIT_PARKED_STATUS : status

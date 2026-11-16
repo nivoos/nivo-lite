@@ -9,11 +9,16 @@ import { navigation } from "@/modules/i18n"
 import { workspaceHref } from "@/modules/routes"
 import { toast } from "@/modules/toast"
 import { addressWithQuery, mergedQuery, reportDefect, specLocaleOf, spokenText } from "@/modules/workbench-host"
+import { useBlockFiles } from "./useBlockFiles"
+
+/** The page next to the open one: `./work` beside `/a/b/workbench` is `/a/b/work`. */
+const siblingPath = (current: string, relative: string): string => `${current.replace(/\/[^/]*$/u, "")}/${relative.slice(2)}`
 
 /**
  * The ports a block reaches, over the app: words through next-intl (a key reads the namespace, inline words pick the locale),
  * navigation through the locale-aware router and the search params (a path a block names is a page of the workspace that is open), toasts through the app toast, defects to the page error
- * handlers. The object changes only when the language or the query does, which re-draws the blocks that read them.
+ * handlers, files through the back end door (a block's calls carry the read or action its spec bound; see `useBlockFiles`). The object changes
+ * only when the language or the query does, which re-draws the blocks that read them.
  */
 export const useWorkbenchBlockHost = (): BlockHost => {
     const appLocale = useLocale()
@@ -23,6 +28,7 @@ export const useWorkbenchBlockHost = (): BlockHost => {
     const workspaceId = useOpenWorkspaceId()
     const query = useSearchParams()
     const search = query.toString()
+    const files = useBlockFiles()
     return useMemo<BlockHost>(() => {
         const locale = specLocaleOf(appLocale)
         const setQueryValues = (entries: Readonly<Record<string, string | null>>): void => {
@@ -36,11 +42,14 @@ export const useWorkbenchBlockHost = (): BlockHost => {
             },
             locale: () => locale,
             navigation: {
-                href: (path) =>
-                    navigation.getPathname({
+                href: (path) => {
+                    if (path.startsWith("./"))
+                        return navigation.getPathname({ href: siblingPath(pathname, path), locale: appLocale })
+                    return navigation.getPathname({
                         href: workspaceId === undefined ? path : workspaceHref(workspaceId, path),
                         locale: appLocale,
-                    }),
+                    })
+                },
                 queryValue: (key) => new URLSearchParams(search).get(key),
                 setQueryValue: (key, value) => setQueryValues({ [key]: value }),
                 setQueryValues,
@@ -51,6 +60,7 @@ export const useWorkbenchBlockHost = (): BlockHost => {
                 else toast.info(message)
             },
             report: reportDefect,
+            files,
         }
-    }, [appLocale, messages, pathname, router, search, workspaceId])
+    }, [appLocale, files, messages, pathname, router, search, workspaceId])
 }

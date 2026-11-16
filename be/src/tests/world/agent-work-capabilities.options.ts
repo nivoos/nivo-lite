@@ -36,7 +36,7 @@ const whenAborted = (signal: AbortSignal): Promise<void> =>
  * `script` before it drains and reads what ran from `ran` and `settled`.
  */
 export class ScriptedAgentWork implements AgentWorkHandler, AgentTurnExecutor {
-    readonly sources: ReadonlyArray<AgentWakeSource> = ["customer", "tag", "internal", "schedule"]
+    readonly sources: ReadonlyArray<AgentWakeSource> = ["trigger", "tag", "internal", "schedule"]
 
     /** The script of the proof now running. */
     script: AgentWorkScript = {}

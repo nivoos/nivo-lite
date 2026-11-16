@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Alert, Badge, Button, Cluster, Input, Link, PaneSection, Section, Stack, Text } from "@starci/grammar/common"
+import { Alert, Badge, Button, Cluster, Input, Link, Section, Stack, Text } from "@starci/grammar/common"
 import { SlotView } from "@nivo-lite/agent-sdk/client"
 import type { DataSlot, SlotLabels } from "@/modules/types"
 
@@ -105,8 +105,8 @@ const ReadySheet = (props: LedgerBodyProps) => {
             <Text size="xs" tone="muted">
                 {props.view.sheetLine}
             </Text>
-            <Cluster gap="inline" justify="between">
-                <Link kind="external" href={props.view.sheetUrl}>
+            <Cluster gap="inline" justify="between" align="center">
+                <Link kind="external" variant="plain" href={props.view.sheetUrl}>
                     {props.base.props.copy.open}
                 </Link>
                 <Button intent="neutral" onPress={() => setIsChanging(true)}>
@@ -157,30 +157,28 @@ const StateBody = (props: LedgerBodyProps) => {
  * sheet, writing, access withdrawn) and the one command that moves it on.
  */
 export const DriveLedgerBase = (props: DriveLedgerBaseProps) => (
-    <PaneSection>
-        <SlotView
-            slot={props.props.slot}
-            placeholder={PLACEHOLDER}
-            labels={props.props.labels}
-            onRetry={props.on.retry}
-            render={(view, isLoading) => (
-                <Section
-                    title={props.props.copy.title}
-                    isLoading={isLoading}
-                    action={<Badge tone={view.chip.tone}>{view.chip.label}</Badge>}
-                >
-                    <Stack gap="row">
-                        <Text size="sm" tone="muted">
-                            {props.props.copy.body}
-                        </Text>
-                        <Text size="sm" tone="muted">
-                            {view.note ?? view.status}
-                        </Text>
-                        {view.error === null ? null : <Alert tone="negative" title={view.error} />}
-                        <StateBody base={props} view={view} />
-                    </Stack>
-                </Section>
-            )}
-        />
-    </PaneSection>
+    <SlotView
+        slot={props.props.slot}
+        placeholder={PLACEHOLDER}
+        labels={props.props.labels}
+        onRetry={props.on.retry}
+        render={(view, isLoading) => (
+            <Section
+                title={props.props.copy.title}
+                isLoading={isLoading}
+                action={<Badge tone={view.chip.tone}>{view.chip.label}</Badge>}
+            >
+                <Stack gap="inline">
+                    <Text size="sm" tone="muted">
+                        {props.props.copy.body}
+                    </Text>
+                    <Text size="sm" tone="muted">
+                        {view.note ?? view.status}
+                    </Text>
+                    {view.error === null ? null : <Alert tone="negative" title={view.error} />}
+                    <StateBody base={props} view={view} />
+                </Stack>
+            </Section>
+        )}
+    />
 )

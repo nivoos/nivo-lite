@@ -10,12 +10,14 @@ export enum PublicDocumentsErrorCode {
     BodyRequired = "PUBLIC_DOCUMENTS_BODY_REQUIRED",
     /** The text is longer than a public document may be. */
     BodyTooLong = "PUBLIC_DOCUMENTS_BODY_TOO_LONG",
-    /** A draft needs at least one internal document to be written from. */
+    /** A draft needs at least one public-area document to be written from. */
     SourcesRequired = "PUBLIC_DOCUMENTS_SOURCES_REQUIRED",
-    /** A draft is written from a few internal documents at most. */
+    /** A draft is written from a few public-area documents at most. */
     TooManySources = "PUBLIC_DOCUMENTS_TOO_MANY_SOURCES",
-    /** An internal document chosen for a draft is missing, public already, or not ready. */
+    /** A document chosen for a draft is missing or not fully read yet. */
     SourceNotReady = "PUBLIC_DOCUMENTS_SOURCE_NOT_READY",
+    /** A document chosen for a draft is in the INTERNAL area (or its area cannot be read): it must be moved to the public area first. */
+    SourceInternal = "PUBLIC_DOCUMENTS_SOURCE_INTERNAL",
     /** The document is being drafted or archived, so its text cannot change now. */
     NotEditable = "PUBLIC_DOCUMENTS_NOT_EDITABLE",
     /** An internal source changed since the owner approved: the owner reviews the change first. */
@@ -26,8 +28,14 @@ export enum PublicDocumentsErrorCode {
     NoInternalRight = "PUBLIC_DOCUMENTS_NO_INTERNAL_RIGHT",
     /** The model could not draft the text. */
     DraftUnavailable = "PUBLIC_DOCUMENTS_DRAFT_UNAVAILABLE",
-    /** Every part of the internal text hit a hard exclusion, so there is nothing to draft from. */
+    /** The chosen documents hold nothing to write the text from. */
     NothingLeft = "PUBLIC_DOCUMENTS_NOTHING_LEFT",
+    /** The model wrote nothing, or something that is not the answer asked for: the same prompt gets the same answer, so no retry helps. */
+    DraftRefused = "PUBLIC_DOCUMENTS_DRAFT_REFUSED",
+    /** No model endpoint is configured: nothing can be drafted until a setting is made. */
+    DraftUnconfigured = "PUBLIC_DOCUMENTS_CONFIG_DRAFT_UNCONFIGURED",
+    /** A draft job reached its domain method with a payload its declaration refuses: a bug of the producer. */
+    PayloadInvalid = "PUBLIC_DOCUMENTS_PAYLOAD_INVALID",
 }
 
 /** How each public-documents code travels. */
@@ -39,12 +47,16 @@ export const PUBLIC_DOCUMENTS_ERROR_KINDS: Record<PublicDocumentsErrorCode, Erro
     [PublicDocumentsErrorCode.SourcesRequired]: "invalid",
     [PublicDocumentsErrorCode.TooManySources]: "invalid",
     [PublicDocumentsErrorCode.SourceNotReady]: "invalid",
+    [PublicDocumentsErrorCode.SourceInternal]: "invalid",
     [PublicDocumentsErrorCode.NotEditable]: "conflict",
     [PublicDocumentsErrorCode.SourcesChanged]: "conflict",
     [PublicDocumentsErrorCode.StaleReview]: "conflict",
     [PublicDocumentsErrorCode.NoInternalRight]: "forbidden",
     [PublicDocumentsErrorCode.DraftUnavailable]: "unavailable",
     [PublicDocumentsErrorCode.NothingLeft]: "invalid",
+    [PublicDocumentsErrorCode.DraftRefused]: "invalid",
+    [PublicDocumentsErrorCode.DraftUnconfigured]: "internal",
+    [PublicDocumentsErrorCode.PayloadInvalid]: "invalid",
 }
 
 /** The one error class of the public-documents capability. */

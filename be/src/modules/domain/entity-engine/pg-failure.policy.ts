@@ -1,3 +1,4 @@
+import { isTransientDatabaseFailure } from "@modules/platform/database"
 import { fieldTextOrNullOf, isRecord } from "@modules/platform/primitives"
 import { partitionNameOf, type EntityDefinition } from "@nivo-lite/agent-sdk/entity"
 
@@ -43,15 +44,6 @@ interface PgErrorFacts {
 
 const UNIQUE_CODES: ReadonlySet<string> = new Set(["23505", "23P01"])
 const INVALID_CODES: ReadonlySet<string> = new Set(["23514", "23502", "22P02", "23503"])
-const TRANSIENT_CODES: ReadonlySet<string> = new Set([
-    "40001",
-    "40P01",
-    "53300",
-    "ECONNRESET",
-    "ECONNREFUSED",
-    "ETIMEDOUT",
-    "EPIPE",
-])
 const SCOPE_CODE = "42501"
 
 /** The declared constraints of an entity that answer `taken`: its unique constraints and no-overlap constraints. */
@@ -82,8 +74,6 @@ const factsOf = (cause: unknown): PgErrorFacts | null => {
           }
 }
 
-const isConnectionClass = (code: string): boolean => code.startsWith("08") || code.startsWith("57P")
-
 /**
  * What a failed statement means: a unique or exclusion violation is `taken` when its constraint is declared (with the declared refusal)
  * and `undeclared` otherwise; a check, not-null, malformed-value or foreign-key failure is `invalid`; 42501 (row-level security) is
@@ -91,6 +81,8 @@ const isConnectionClass = (code: string): boolean => code.startsWith("08") || co
  * The facts are read through guards, never a cast.
  */
 export const pgFailureOf = (cause: unknown, declared: ReadonlyArray<DeclaredConstraint>): PgFailure => {
+    // The database's transient failures are known in one place, which also reads a failure that carries no code (an ended connection).
+    if (isTransientDatabaseFailure(cause)) return { kind: "transient" }
     const facts = factsOf(cause)
     if (facts === null) return { kind: "unknown" }
     const { code, constraint, column } = facts
@@ -102,6 +94,5 @@ export const pgFailureOf = (cause: unknown, declared: ReadonlyArray<DeclaredCons
     }
     if (INVALID_CODES.has(code)) return { kind: "invalid", sqlstate: code, constraint, column }
     if (code === SCOPE_CODE) return { kind: "scope" }
-    if (TRANSIENT_CODES.has(code) || isConnectionClass(code)) return { kind: "transient" }
     return { kind: "unknown" }
 }

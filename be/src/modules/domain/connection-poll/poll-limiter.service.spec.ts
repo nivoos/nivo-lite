@@ -1,11 +1,11 @@
 import { Test } from "@nestjs/testing"
 import { FakeClock, mock } from "@starci/jest-preset"
 import { CLOCK } from "@modules/platform/clock"
-import { TIMER } from "@modules/platform/retry"
-import type { Timer } from "@modules/platform/retry"
+import { TIMER, type Timer } from "@modules/platform/retry"
 import { CONNECTION_POLL_OPTIONS, POLL_LIMITER_STORE } from "./connection-poll.decorators"
 import { ConnectionPollError, ConnectionPollErrorCode } from "./errors/connection-poll.error"
 import type { PollLimiterStore } from "./poll-limiter.contracts"
+import { MAX_TOKEN_WAIT_MS, TOKEN_WAIT_ATTEMPTS } from "./poll-bucket.policy"
 import { PollLimiterService } from "./poll-limiter.service"
 import { DEFAULT_POLL_SCHEDULE } from "./poll-schedule.policy"
 
@@ -22,8 +22,8 @@ const build = async () => {
         providers: [
             PollLimiterService,
             { provide: CLOCK, useValue: new FakeClock("2026-11-04T10:00:00.000Z") },
-            { provide: TIMER, useValue: timer },
             { provide: POLL_LIMITER_STORE, useValue: store },
+            { provide: TIMER, useValue: timer },
             { provide: CONNECTION_POLL_OPTIONS, useValue: { schedule: DEFAULT_POLL_SCHEDULE, redis: undefined } },
         ],
     }).compile()
@@ -58,47 +58,47 @@ describe("PollLimiterService enter", () => {
 
 describe("PollLimiterService pass", () => {
     it("lets a call through at once when the bucket holds a token", async () => {
-        const { service, store, timer } = await build()
+        const { service, store } = await build()
         store.take.mockResolvedValue({ allowed: true, waitMs: 0 })
 
         await expect(service.pass("sepay", "c-1", limits)).resolves.toBeUndefined()
 
         expect(store.take).toHaveBeenCalledWith("sepay:c-1", limits, Date.parse("2026-11-04T10:00:00.000Z"))
-        expect(timer.schedule).not.toHaveBeenCalled()
     })
 
-    it("waits for a token that comes within the inline wait and then goes on", async () => {
+    it("waits for the refill the limit names and then takes: a read of several calls is paced, never thrown away", async () => {
         const { service, store, timer } = await build()
         store.take
             .mockResolvedValueOnce({ allowed: false, waitMs: 400 })
             .mockResolvedValueOnce({ allowed: true, waitMs: 0 })
 
-        await service.pass("sepay", "c-1", limits)
+        await expect(service.pass("sepay", "c-1", limits)).resolves.toBeUndefined()
 
+        expect(timer.schedule).toHaveBeenCalledTimes(1)
         expect(timer.schedule).toHaveBeenCalledWith(expect.any(Function), 400)
         expect(store.take).toHaveBeenCalledTimes(2)
     })
 
-    it("ends the poll with the wait named when the token is further away than the inline wait", async () => {
-        const { service, store } = await build()
-        store.take.mockResolvedValue({ allowed: false, waitMs: DEFAULT_POLL_SCHEDULE.maxInlineWaitMs + 1 })
+    it("ends the poll with the wait the limit names when it is longer than the call may wait: it is planned again, nothing sleeps", async () => {
+        const { service, store, timer } = await build()
+        store.take.mockResolvedValue({ allowed: false, waitMs: MAX_TOKEN_WAIT_MS + 1 })
 
         const failure = await service.pass("sepay", "c-1", limits).catch((cause: unknown) => cause)
 
         expect(failure).toBeInstanceOf(ConnectionPollError)
-        expect(failure).toMatchObject({
-            code: ConnectionPollErrorCode.Deferred,
-            params: { waitMs: DEFAULT_POLL_SCHEDULE.maxInlineWaitMs + 1 },
-        })
+        expect(failure).toMatchObject({ code: ConnectionPollErrorCode.Deferred, params: { waitMs: MAX_TOKEN_WAIT_MS + 1 } })
+        expect(store.take).toHaveBeenCalledTimes(1)
+        expect(timer.schedule).not.toHaveBeenCalled()
     })
 
-    it("gives up after waiting three times for a bucket that stays empty", async () => {
+    it("ends the poll after the declared number of waits when another replica keeps taking the refilled token", async () => {
         const { service, store, timer } = await build()
-        store.take.mockResolvedValue({ allowed: false, waitMs: 100 })
+        store.take.mockResolvedValue({ allowed: false, waitMs: 250 })
 
-        await expect(service.pass("sepay", "c-1", limits)).rejects.toBeInstanceOf(ConnectionPollError)
+        const failure = await service.pass("sepay", "c-1", limits).catch((cause: unknown) => cause)
 
-        expect(timer.schedule).toHaveBeenCalledTimes(3)
-        expect(store.take).toHaveBeenCalledTimes(4)
+        expect(failure).toMatchObject({ code: ConnectionPollErrorCode.Deferred, params: { waitMs: 250 } })
+        expect(store.take).toHaveBeenCalledTimes(TOKEN_WAIT_ATTEMPTS)
+        expect(timer.schedule).toHaveBeenCalledTimes(TOKEN_WAIT_ATTEMPTS - 1)
     })
 })

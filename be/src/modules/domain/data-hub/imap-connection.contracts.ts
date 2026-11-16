@@ -45,8 +45,6 @@ export interface ImapInput {
     readonly folders?: ReadonlyArray<string> | null | undefined
     /** How many days back a first read goes. */
     readonly sinceDays?: number | null | undefined
-    /** Minutes between scheduled syncs; null is manual only. */
-    readonly syncEveryMinutes?: number | null | undefined
 }
 
 /** What the wizard may know about a saved mailbox: never the password. */
@@ -69,8 +67,8 @@ export interface ImapView {
     readonly folders: ReadonlyArray<string>
     /** How many days back a first read goes. */
     readonly sinceDays: number
-    /** Minutes between scheduled syncs; null is manual only. */
-    readonly syncEveryMinutes: number | null
+    /** The provider of the account: `imap` (an inbound half standing alone) or `smtp` (a mailbox that also sends, MAIL-IN rule MI-1). */
+    readonly provider: string
     /** Agents that hold a grant on this mailbox. */
     readonly agentIds: ReadonlyArray<string>
 }
@@ -93,6 +91,4 @@ export interface ImapSettings {
     readonly folders: ReadonlyArray<string>
     /** How many days back a first read goes. */
     readonly sinceDays: number
-    /** Minutes between scheduled syncs; null is manual only. */
-    readonly every: number | null
 }

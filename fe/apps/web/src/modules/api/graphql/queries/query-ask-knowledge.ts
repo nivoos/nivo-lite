@@ -1,6 +1,6 @@
 import { gql, type ApolloClient, type TypedDocumentNode } from "@apollo/client"
-import { createAuthApolloClient } from "../clients"
-import type { InputVariables, QueryParams, WireInput } from "../types"
+import { createAuthApolloClient, type InputVariables, type QueryParams, type WireInput } from "@nivo-lite/api"
+import { webApiTransport } from "@/modules/api-transport"
 import type { AskKnowledgeQuery, AskKnowledgeQueryVariables } from "../__generated__/graphql"
 
 /** The response of the `askKnowledge` query: the typed payload straight from the back end contract. */
@@ -52,7 +52,7 @@ export const queryAskKnowledge = async ({
     request,
     signal,
 }: QueryAskKnowledgeParams): Promise<ApolloClient.QueryResult<QueryAskKnowledgeResponse>> => {
-    const apollo = createAuthApolloClient({ signal })
+    const apollo = createAuthApolloClient(webApiTransport, { signal })
     return apollo.query({
         query: queryMap[query],
         variables: { input: request },

@@ -20,19 +20,21 @@ import { MESSAGE_CATALOG } from "@modules/platform/i18n"
 import type { MessageCatalog } from "@modules/platform/i18n"
 import { AGENTS_QUEUE_PRODUCER } from "@modules/queues/agents"
 import type { AgentsQueue } from "@modules/queues/agents"
-import { ACCOUNTING_MODULE } from "./accounting.contracts"
 import { ModulesError, ModulesErrorCode } from "./errors/modules.error"
 import { ModuleReadinessService } from "./module-readiness.service"
 import { ModulesService } from "./modules.service"
 import { SetupCardsService } from "./setup-cards.service"
 import { SetupGraphService } from "./setup-graph.service"
 import { SetupChatService } from "./setup-chat.service"
+import { catalogModuleOf } from "./modules.testing"
+
+const SALES_MODULE = catalogModuleOf("sales")
 
 const NOW = "2026-10-13T02:00:00.000Z"
 
-/** Every gate of the accounting module, confirmed by Lan. */
+/** Every gate of the sales module, confirmed by Lan. */
 const CONFIRMED: GateEvidence = Object.fromEntries(
-    ACCOUNTING_MODULE.gates.map((gate): [string, GateEntry] => [
+    SALES_MODULE.gates.map((gate): [string, GateEntry] => [
         gate.key,
         { status: "confirmed", evidence: `About ${gate.key}` },
     ]),
@@ -52,6 +54,7 @@ const VIEWED_AGENT = {
     agentName: "Chatbot",
     agentHandle: "chatbot",
     agentAvatarUrl: null,
+    agentAvatarPreset: null,
     activeVersion: 1,
     setupProgress: { confirmed: 0, total: 8 },
 } as const
@@ -78,16 +81,14 @@ const build = async () => {
         status: "active",
     })
     const modules = mock<ModulesService>()
-    modules.findByKey.mockResolvedValue(ACCOUNTING_MODULE)
+    modules.find.mockResolvedValue(SALES_MODULE)
     const agents = mock<AgentsService>()
     const events = mock<EventsService>()
     const sync = mock<InstallationChangesService>()
     const cards = mock<SetupCardsService>()
     const graph = mock<SetupGraphService>({
-        requireWhole: jest.fn().mockResolvedValue(undefined),
         checkPublish: jest.fn().mockResolvedValue(0),
         publish: jest.fn().mockResolvedValue(undefined),
-        proposeContracts: jest.fn().mockResolvedValue(0),
     })
     const readiness = mock<ModuleReadinessService>()
     readiness.settle.mockResolvedValue("ready")
@@ -329,7 +330,7 @@ describe("SetupChatService > apply", () => {
             workspaceId: "ws-1",
             kind: "module.context_applied",
             actor: "Lan",
-            summary: `${ACCOUNTING_MODULE.name.en} v2`,
+            summary: `${SALES_MODULE.name.en} v2`,
         })
         expect(sync.announceNow).toHaveBeenCalledWith({
             workspaceId: "ws-1",
@@ -388,7 +389,7 @@ describe("SetupChatService", () => {
         await expect(service.openDraft(installationOf({ isMulti }), "vi")).resolves.toEqual(sessionOf())
         expect(catalog.get).toHaveBeenCalledWith(
             "setup.welcome",
-            { module: isMulti ? `${ACCOUNTING_MODULE.name.vi} - Books` : ACCOUNTING_MODULE.name.vi },
+            { module: isMulti ? `${SALES_MODULE.name.vi} - Books` : SALES_MODULE.name.vi },
             "vi",
         )
     })
@@ -432,23 +433,16 @@ describe("SetupChatService", () => {
             id: "agent-1",
             name: "Books",
             handle: "books",
-            role: "Accounting",
+            role: "Sales",
             approval_rule: "",
             module: "chatbot",
             instructions: "Keep these rules.\n\n### NIVO setup v1\nOld rules\n### end NIVO setup",
             knowledge: "Keep these notes.\n\n### NIVO setup v1\nOld notes\n### end NIVO setup",
         })
-        const rules = ACCOUNTING_MODULE.gates.map((gate) => `- ${gate.label_en}: About ${gate.key}`).join("\n")
+        const rules = SALES_MODULE.gates.map((gate) => `- ${gate.label_en}: About ${gate.key}`).join("\n")
         await expect(service.apply("u1", "ws-1", "inst-1", "en")).resolves.toBe(8)
         expect(installations.activateVersion).toHaveBeenCalledWith("ws-1", "inst-1", "v-8", "ready")
         expect(graph.publish).toHaveBeenCalledWith({
-            workspaceId: "ws-1",
-            principalId: "u1",
-            installationId: "inst-1",
-            version: 8,
-            contextVersionId: "v-8",
-        })
-        expect(graph.proposeContracts).toHaveBeenCalledWith({
             workspaceId: "ws-1",
             principalId: "u1",
             installationId: "inst-1",
@@ -467,23 +461,12 @@ describe("SetupChatService", () => {
     })
 })
 
-describe("SetupChatService > apply with a vague flow", () => {
-    it("refuses to apply while the flow of the agent is still vague", async () => {
-        const { service, sessions, graph, versions } = await build()
-        sessions.latest.mockResolvedValue(sessionOf({ gateEvidence: CONFIRMED }))
-        graph.requireWhole.mockRejectedValue(new ModulesError({ code: ModulesErrorCode.GraphGapsOpen }))
-
-        await expect(service.apply("u1", "ws-1", "inst-1", "en")).rejects.toMatchObject({
-            code: ModulesErrorCode.GraphGapsOpen,
-        })
-        expect(versions.insert).not.toHaveBeenCalled()
-    })
-
+describe("SetupChatService > apply refused by the graph", () => {
     it("writes nothing when the graph refuses the publish", async () => {
         const { service, sessions, versions, graph } = await build()
         sessions.latest.mockResolvedValue(sessionOf({ gateEvidence: CONFIRMED }))
         versions.latest.mockResolvedValue(null)
-        graph.checkPublish.mockRejectedValue(new ModulesError({ code: ModulesErrorCode.GraphGapsOpen }))
+        graph.checkPublish.mockRejectedValue(new ModulesError({ code: ModulesErrorCode.NotFound }))
         await expect(service.apply("u1", "ws-1", "inst-1", "en")).rejects.toBeInstanceOf(ModulesError)
         expect(versions.insert).not.toHaveBeenCalled()
     })

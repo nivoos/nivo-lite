@@ -6,7 +6,7 @@ import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { CreateWorkspaceCommand } from "./create-workspace.command"
 
 @CommandHandler(CreateWorkspaceCommand)
-/** Creates a free workspace for the caller with its starting governance (authority sheet and default rules). */
+/** Creates a free workspace for the caller. */
 export class CreateWorkspaceHandler extends ICQRSHandler<CreateWorkspaceCommand, CreatedWorkspace> {
     constructor(
         @InjectLogger() logger: Logger,

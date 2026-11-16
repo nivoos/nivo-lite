@@ -5,7 +5,7 @@ import { Heading, Stack, SurfaceCard, Text } from "@starci/grammar/common"
 interface AuthPanelProps {
     readonly label: string
     readonly title: string
-    /** The heading level: 2 under a page heading (default), 1 when the card holds the page subject. */
+    /** The heading level: 1 when the card holds the page subject (default, the centred entry page has no other heading), 2 under a page heading. */
     readonly level?: 1 | 2
     readonly text?: string
     readonly children: ReactNode
@@ -13,24 +13,17 @@ interface AuthPanelProps {
     readonly isLoading?: boolean
 }
 
-/** The auth card: a heading, an optional line of text and the form or message below them. */
-export const AuthPanel = (props: AuthPanelProps) => {
-    const loading = props.isLoading === true ? { isLoading: true } : {}
-    return (
-        <SurfaceCard ariaLabel={props.label}>
-            <Stack gap="region">
-                <Stack gap="inline">
-                    <Heading level={props.level ?? 2} {...loading}>
-                        {props.title}
-                    </Heading>
-                    {props.text === undefined ? null : (
-                        <Text tone="muted" {...loading}>
-                            {props.text}
-                        </Text>
-                    )}
-                </Stack>
-                {props.children}
-            </Stack>
-        </SurfaceCard>
-    )
-}
+/** The auth card: a heading over the form or message; the line of text sits under the card as its note. */
+export const AuthPanel = (props: AuthPanelProps) => (
+    <SurfaceCard
+        ariaLabel={props.label}
+        {...(props.text === undefined ? {} : { note: props.isLoading === true ? <Text isLoading>{props.text}</Text> : props.text })}
+    >
+        <Stack gap="region">
+            <Heading level={props.level ?? 1} {...(props.isLoading === true ? { isLoading: true } : {})}>
+                {props.title}
+            </Heading>
+            {props.children}
+        </Stack>
+    </SurfaceCard>
+)

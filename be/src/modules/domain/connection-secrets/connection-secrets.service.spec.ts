@@ -13,7 +13,7 @@ import { CONNECTION_SECRETS_OPTIONS } from "./connection-secrets.decorators"
 import { ConnectionSecretsService } from "./connection-secrets.service"
 import { ConnectionSecretsErrorCode } from "./errors/connection-secrets.error"
 import { ConnectionSecretEntity } from "./persistence/entities"
-import { openSecret, sealSecret } from "./secret-cipher.policy"
+import { openSecret, sealSecret } from "@modules/platform/sealing"
 
 const KEY = randomBytes(32)
 const options = { tokenKey: new Secret(KEY.toString("base64")) }
@@ -249,13 +249,23 @@ const registerLease = () => {
         ])
     })
 
-    it("answers the ids of the connections whose token ends before the horizon", async () => {
+    it("answers the connections whose token ends before the horizon, with the end of that token", async () => {
         const em = mockEntityManager({
-            find: [ConnectionSecretEntity, [storedOf(), storedOf({ connectionId: "c-2" })]],
+            find: [
+                ConnectionSecretEntity,
+                [
+                    storedOf({ tokenExpiresAt: new Date("2026-10-12T10:00:00.000Z") }),
+                    storedOf({ connectionId: "c-2", tokenExpiresAt: new Date("2026-10-12T11:00:00.000Z") }),
+                    storedOf({ connectionId: "c-3" }),
+                ],
+            ],
         })
         const horizon = new Date("2026-10-12T17:00:00.000Z")
 
-        await expect((await build(em)).expiringBefore(horizon, 500)).resolves.toEqual(["c-1", "c-2"])
+        await expect((await build(em)).expiringBefore(horizon, 500)).resolves.toEqual([
+            { connectionId: "c-1", expiresAt: Date.parse("2026-10-12T10:00:00.000Z") },
+            { connectionId: "c-2", expiresAt: Date.parse("2026-10-12T11:00:00.000Z") },
+        ])
         expect(em.find).toHaveBeenCalledTimes(1)
     })
 }
@@ -358,6 +368,16 @@ const registerWrite = () => {
         await expect((await build(em)).wipe("c-1")).resolves.toBeUndefined()
 
         expect(evaluatedCalls(em.delete.mock.calls)).toEqual([["ConnectionSecretEntity", { connectionId: "c-1" }]])
+    })
+
+    it("deletes on the caller transaction when one is supplied, never on its own manager", async () => {
+        const em = mockEntityManager({ delete: [ConnectionSecretEntity, { affected: 1 }] })
+        const tx = mockEntityManager({ delete: [ConnectionSecretEntity, { affected: 1 }] })
+
+        await (await build(em)).wipe("c-1", tx)
+
+        expect(evaluatedCalls(tx.delete.mock.calls)).toEqual([["ConnectionSecretEntity", { connectionId: "c-1" }]])
+        expect(em.delete).not.toHaveBeenCalled()
     })
 }
 

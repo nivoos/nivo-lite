@@ -15,27 +15,28 @@ import {
 } from "@modules/integrations/webhook-delivery"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectIds, type Ids } from "@modules/platform/ids"
-import { parseJsonText } from "@modules/platform/primitives"
 import { WebhookConnectionsError, WebhookConnectionsErrorCode } from "./errors/webhook-connections.error"
+import { WebhookSendRegistryService } from "./webhook-send-registry.service"
 import type {
     CreatedWebhook,
     StartWebhookInput,
-    WebhookEvent,
     WebhookTestResult,
     WebhookView,
 } from "./webhook-connections.contracts"
 import { InjectWebhookConnectionsOptions } from "./webhook-connections.decorators"
 import type { WebhookConnectionsOptions } from "./webhook-connections.options"
+import { installedWebhookEvents, type WebhookEventOption } from "./webhook-events.catalogue"
 import { eventsOf, pickEvents, signDelivery, workspaceSigningSecret } from "./webhook-signing.policy"
 import { maskedWebhookUrl } from "./webhook-url-mask.policy"
 
 const OWNER = ["owner"] as const
 const MANAGER = ["owner", "manager"] as const
-const SAMPLE_LEAD = "00000000-0000-0000-0000-000000000000"
 
 const LAST_FOUR = 4
 
 const lastFour = (secret: string): string => secret.slice(-LAST_FOUR)
+
+const idsOf = (options: ReadonlyArray<WebhookEventOption>): Array<string> => options.map((option) => option.id)
 
 @Injectable()
 /**
@@ -50,6 +51,7 @@ export class WebhookConnectionsService {
         @InjectClock() private readonly clock: Clock,
         @InjectIds() private readonly ids: Ids,
         @InjectWebhookConnectionsOptions() private readonly options: WebhookConnectionsOptions,
+        private readonly sends: WebhookSendRegistryService,
     ) {}
 
     /** Creates the connection as PENDING and returns the signing secret to copy: this answer is the only place it is shown whole. */
@@ -73,6 +75,12 @@ export class WebhookConnectionsService {
         return { id, name, host: target.host, events, signingSecret, signingSecretLast4: lastFour(signingSecret) }
     }
 
+    /** The events a webhook receiver may pick now: the ones the installed plugins declare and the engine's own, each with its name. */
+    async availableEvents(actor: ConnectionActor): Promise<ReadonlyArray<WebhookEventOption>> {
+        await this.connections.authorize(actor, OWNER)
+        return installedWebhookEvents()
+    }
+
     /** Shows the host and the chosen events again, with the signing secret masked to its last four characters. */
     async view(actor: ConnectionActor, connectionId: string): Promise<WebhookView> {
         await this.connections.authorize(actor, OWNER)
@@ -81,7 +89,7 @@ export class WebhookConnectionsService {
             id: connection.id,
             name: connection.name,
             host: connection.meta.host ?? "",
-            events: eventsOf(connection.meta),
+            events: eventsOf(connection.meta, idsOf(installedWebhookEvents())),
             signingSecretLast4: lastFour(this.requireSigning(actor.workspaceId)),
         }
     }
@@ -91,7 +99,7 @@ export class WebhookConnectionsService {
         actor: ConnectionActor,
         connectionId: string,
         events: ReadonlyArray<string>,
-    ): Promise<ReadonlyArray<WebhookEvent>> {
+    ): Promise<ReadonlyArray<string>> {
         await this.connections.authorize(actor, OWNER)
         const connection = await this.ownWebhook(actor, connectionId)
         const picked = this.requireEvents(events)
@@ -105,30 +113,24 @@ export class WebhookConnectionsService {
     async test(actor: ConnectionActor, connectionId: string): Promise<WebhookTestResult> {
         await this.connections.authorize(actor, MANAGER)
         const connection = await this.ownWebhook(actor, connectionId)
-        const url = await this.urlOf(connection.id)
-        const target = await this.target(url)
         const key = this.requireSigning(actor.workspaceId)
+        const sample = this.sampleOf(connection)
         const now = this.clock.now()
         const id = this.ids.next()
         const body = JSON.stringify({
             id,
-            event: "lead.created",
+            event: sample.id,
             workspace_id: actor.workspaceId,
             occurred_at: now.toISOString(),
-            data: {
-                test: true,
-                lead_id: SAMPLE_LEAD,
-                name: "NIVO test",
-                phone: "0900000000",
-                need: "NIVO sample event",
-            },
+            data: { test: true, ...sample.sample },
         })
         const timestamp = String(now.getTime())
-        const result = await this.delivery.post({
-            url: target,
+        const port = this.sends.portFor(connection)
+        if (port === undefined) throw new WebhookConnectionsError({ code: WebhookConnectionsErrorCode.NoUrl })
+        const result = await port.post(connection, {
             body,
             headers: {
-                "x-nivo-event": "lead.created",
+                "x-nivo-event": sample.id,
                 "x-nivo-delivery": id,
                 "x-nivo-timestamp": timestamp,
                 "x-nivo-signature": signDelivery(key, timestamp, body),
@@ -157,8 +159,17 @@ export class WebhookConnectionsService {
         await this.connections.patch(actor.workspaceId, connection.id, { status: "connected", lastError: null })
     }
 
-    private requireEvents(events: ReadonlyArray<string>): Array<WebhookEvent> {
-        const picked = pickEvents(events)
+    /** The event a test delivery sends: the first available event the connection picked (its declared sample data), else the first available one. */
+    private sampleOf(connection: ConnectionRecord): WebhookEventOption {
+        const available = installedWebhookEvents()
+        const picked = eventsOf(connection.meta, idsOf(available))
+        const first = available.find((option) => option.id === picked[0]) ?? available[0]
+        if (first === undefined) throw new WebhookConnectionsError({ code: WebhookConnectionsErrorCode.EventsEmpty })
+        return first
+    }
+
+    private requireEvents(events: ReadonlyArray<string>): Array<string> {
+        const picked = pickEvents(events, idsOf(installedWebhookEvents()))
         if (picked.length === 0) throw new WebhookConnectionsError({ code: WebhookConnectionsErrorCode.EventsEmpty })
         return picked
     }
@@ -188,16 +199,5 @@ export class WebhookConnectionsService {
             throw new ConnectionsError({ code: ConnectionsErrorCode.NotFound, params: { id } })
         }
         return connection
-    }
-
-    private async urlOf(connectionId: string): Promise<string> {
-        const secret = await this.connections.readSecret(connectionId)
-        const read = secret === null ? null : parseJsonText(secret.plain)
-        const parsed = read?.ok ? read.value : null
-        const url = typeof parsed === "object" && parsed !== null && "url" in parsed ? parsed.url : null
-        if (typeof url !== "string" || url === "") {
-            throw new WebhookConnectionsError({ code: WebhookConnectionsErrorCode.NoUrl })
-        }
-        return url
     }
 }

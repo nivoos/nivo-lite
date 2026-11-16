@@ -1,11 +1,6 @@
 import { Alert, Page, Stack } from "@starci/grammar/common"
-import { LandingFooter } from "@/components/blocks/LandingFooter"
-import { LandingNavActions } from "@/components/blocks/LandingNavActions"
-import { LandingNavDrawer } from "@/components/blocks/LandingNavDrawer"
-import { LandingNavBrand } from "@/components/blocks/LandingNavBrand"
-import { LandingNavLinks } from "@/components/blocks/LandingNavLinks"
 import { LegalSectionView } from "@/components/composites/LegalSectionView"
-import { SiteShell } from "@/components/composites/SiteShell"
+import { HomeChrome } from "@/components/home/HomeChrome"
 
 /** One block of the document, as plain words. */
 interface LegalPageSection {
@@ -39,34 +34,24 @@ interface LegalPageBaseProps {
 
 /** A public legal document on the landing chrome. The wording is a draft until the owner and a lawyer approve it. */
 export const LegalPageBase = (props: LegalPageBaseProps) => (
-    <SiteShell
-        mainLabel={props.props.mainLabel}
-        brand={<LandingNavBrand />}
-        navigation={<LandingNavLinks anchorBase="/" />}
-        actions={
-            <>
-                <LandingNavActions />
-                <LandingNavDrawer anchorBase="/" />
-            </>
-        }
-        body={
+    <HomeChrome onHome={false} mainLabel={props.props.mainLabel}>
+        <div className="nv-legal-main">
             <Page measure="reading" header={{ title: props.props.title, description: props.props.intro }}>
-                <Stack gap="section">
-                    <Alert tone="cautionary" title={props.props.draft} />
-                    {props.props.sections.map((section) => (
-                        <LegalSectionView
-                            key={section.id}
-                            id={section.id}
-                            title={section.title}
-                            paragraphs={section.paragraphs}
-                            items={section.items}
-                            afterItems={section.afterItems}
-                            limitedUse={section.hasLimitedUse ? props.props.limitedUse : null}
-                        />
-                    ))}
-                </Stack>
-                <LandingFooter anchorBase="/" />
-            </Page>
-        }
-    />
+                    <Stack gap="section">
+                        <Alert tone="cautionary" title={props.props.draft} />
+                        {props.props.sections.map((section) => (
+                            <LegalSectionView
+                                key={section.id}
+                                id={section.id}
+                                title={section.title}
+                                paragraphs={section.paragraphs}
+                                items={section.items}
+                                afterItems={section.afterItems}
+                                limitedUse={section.hasLimitedUse ? props.props.limitedUse : null}
+                            />
+                        ))}
+                    </Stack>
+                </Page>
+        </div>
+    </HomeChrome>
 )

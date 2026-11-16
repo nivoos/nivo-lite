@@ -21,7 +21,7 @@ export const useAgentLenses = (): AgentLensesView => {
     const swrRead = useQueryAgentKnowledgeLensesSwr()
     const { data, isLoading } = swrRead
     const error = readError(swrRead)
-    const lenses = useMemo<ReadonlyArray<AgentLens> | undefined>(() => data?.map((item) => toAgentLens(item)), [data])
+    const lenses = useMemo<ReadonlyArray<AgentLens> | undefined>(() => data?.map((entry) => toAgentLens(entry)), [data])
     const slot = slotOfSwr({ data: lenses, error: swrRead.error, isLoading })
     const reload = () => void swrRead.mutate()
     return { lenses, error, isLoading, slot, reload }

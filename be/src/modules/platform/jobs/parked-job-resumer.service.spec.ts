@@ -1,7 +1,8 @@
 import { Test } from "@nestjs/testing"
-import { Not } from "typeorm"
+import { LessThan, Not } from "typeorm"
 import {
     builder,
+    FakeClock,
     fakeTransaction,
     mock,
     mockEntityManager,
@@ -9,6 +10,7 @@ import {
     recordingQueueOutbox,
 } from "@starci/jest-preset"
 import type { MockEntityManager } from "@starci/jest-preset"
+import { CLOCK } from "@modules/platform/clock"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
 import { QUEUE_OUTBOX } from "@modules/platform/queue"
@@ -16,7 +18,9 @@ import { JobsErrorCode } from "./errors/jobs.error"
 import { JOBS_MANAGERS, JOBS_OPTIONS } from "./jobs.decorators"
 import { JobsLogEvent } from "./jobs.log-events"
 import type { JobsOptions } from "./jobs.options"
-import { ParkedJobResumerService } from "./parked-job-resumer.service"
+import { ParkedJobCloseService } from "./parked-job-close.service"
+import { AUTO_RESUMES, ParkedJobResumerService } from "./parked-job-resumer.service"
+import { JobProgressService } from "./job-progress.service"
 import { JobEntity } from "./persistence/entities"
 
 const WS = "11111111-1111-4111-8111-111111111111"
@@ -37,6 +41,8 @@ const parkedJob = (id: string, payload: object, extra: Partial<JobEntity> = {}):
 const build = async (em: MockEntityManager, buildId?: string) => {
     const logger = mock<Logger>()
     const outbox = recordingQueueOutbox()
+    const progress = mock<JobProgressService>()
+    progress.publishTo.mockResolvedValue(undefined)
     const moduleRef = await Test.createTestingModule({
         providers: [
             ParkedJobResumerService,
@@ -52,13 +58,16 @@ const build = async (em: MockEntityManager, buildId?: string) => {
             },
             { provide: QUEUE_OUTBOX, useValue: outbox },
             { provide: LOGGER, useValue: logger },
+            { provide: CLOCK, useValue: new FakeClock(new Date("2026-11-15T10:00:00.000Z")) },
+            { provide: JobProgressService, useValue: progress },
+            ParkedJobCloseService,
         ],
     }).compile()
-    return { resumer: moduleRef.get(ParkedJobResumerService), logger, outbox }
+    return { resumer: moduleRef.get(ParkedJobResumerService), logger, outbox, progress }
 }
 
 describe("ParkedJobResumerService resume", () => {
-    it("hands every parked job back to its queue under the next resume key and gives the row the new delivery's key", async () => {
+    it("hands every parked job the tick may retry back to its queue under the next resume key and gives the row the new delivery's key", async () => {
         const em = mockEntityManager({
             find: [JobEntity, [parkedJob("j-1", {}), parkedJob("j-2", {})]],
             update: [JobEntity, {}],
@@ -84,13 +93,46 @@ describe("ParkedJobResumerService resume", () => {
                     "module_jobs",
                     "module-jobs.run",
                     JSON.stringify({ workspaceId: WS, job: "sales.notice" }),
-                    "key-j-1-r2",
+                    "key-j-1:r2",
                 ],
             ],
-            [ENQUEUE_SQL, [null, "module_jobs", "module-jobs.run", "{}", "key-j-2-r2"]],
+            [ENQUEUE_SQL, [null, "module_jobs", "module-jobs.run", "{}", "key-j-2:r2"]],
         ])
         expect(em.update).toHaveBeenNthCalledWith(
             1,
+            JobEntity,
+            { id: "j-1" },
+            {
+                jobKey: "d-1",
+                status: "failed",
+                resumeCount: 2,
+                failureClass: null,
+                parkedBuild: null,
+                parkedAt: null,
+                error: null,
+            },
+        )
+        expect(em.update).toHaveBeenNthCalledWith(
+            2,
+            JobEntity,
+            { id: "j-2" },
+            expect.objectContaining({ jobKey: "d-2" }),
+        )
+        expect(transaction.outcomes).toEqual(["commit", "commit"])
+        expect(logger.info).toHaveBeenCalledWith(JobsLogEvent.Resumed, { jobId: "j-1", resumeCount: 2 })
+    })
+})
+
+describe("ParkedJobResumerService a person's resume", () => {
+    it("hands the job back and opens a new park episode: the alert of the last one is forgotten so the next park raises a new item", async () => {
+        const em = mockEntityManager({ find: [JobEntity, [parkedJob("j-1", {})]], update: [JobEntity, {}], query: [ENQUEUE_SQL, [{ job_enqueue: "d-1" }]] })
+        fakeTransaction(em)
+        queueQueryBuilders(em, [{ getOne: parkedJob("j-1", {}) }])
+        const { resumer } = await build(em)
+
+        await expect(resumer.resume("j-1")).resolves.toBe(1)
+
+        expect(em.update).toHaveBeenCalledWith(
             JobEntity,
             { id: "j-1" },
             {
@@ -104,14 +146,101 @@ describe("ParkedJobResumerService resume", () => {
                 error: null,
             },
         )
-        expect(em.update).toHaveBeenNthCalledWith(
-            2,
+    })
+
+    it("treats a sweep delivery that names a job as the person's resume of that job, whatever its class", async () => {
+        const em = mockEntityManager({ find: [JobEntity, []] })
+        const { resumer } = await build(em)
+
+        await expect(resumer.sweep({ jobId: "j-7" })).resolves.toBe(0)
+
+        expect(em.find).toHaveBeenCalledWith(JobEntity, {
+            select: { id: true },
+            where: { id: "j-7", status: "failed_awaiting_fix" },
+            order: { parkedAt: "ASC" },
+            take: 100,
+        })
+    })
+})
+
+describe("ParkedJobResumerService close", () => {
+    it("closes one parked job on the jobs connection with the reason, and a closed job is no longer among those a sweep hands back", async () => {
+        const em = mockEntityManager({ find: [JobEntity, []] })
+        em.update.mockResolvedValue({ affected: 1, raw: [], generatedMaps: [] })
+        const { resumer, outbox } = await build(em)
+
+        await expect(resumer.close("j-1", "old test payment")).resolves.toBe(true)
+
+        expect(em.update).toHaveBeenCalledWith(
             JobEntity,
-            { id: "j-2" },
-            expect.objectContaining({ jobKey: "d-2" }),
+            { id: "j-1", status: "failed_awaiting_fix" },
+            { status: "failed", error: "closed: old test payment", parkedBuild: null, parkedAt: null },
         )
-        expect(transaction.outcomes).toEqual(["commit", "commit"])
-        expect(logger.info).toHaveBeenCalledWith(JobsLogEvent.Resumed, { jobId: "j-1", resumeCount: 2 })
+        await expect(resumer.resumeAll()).resolves.toBe(0)
+        expect(em.find.mock.calls[0]?.[1]).toMatchObject({ where: { status: "failed_awaiting_fix" } })
+        expect(outbox.jobs).toEqual([])
+    })
+
+    it("refuses a job that is not parked, and tells the chain nothing", async () => {
+        const em = mockEntityManager({})
+        em.update.mockResolvedValue({ affected: 0, raw: [], generatedMaps: [] })
+        const { resumer, progress } = await build(em)
+
+        await expect(resumer.close("j-9", "why")).resolves.toBe(false)
+        expect(progress.publishTo).not.toHaveBeenCalled()
+    })
+
+    it("tells the chain's progress stream that the job is closed: the last frame must not stay `retry` or `dead_letter`", async () => {
+        const em = mockEntityManager({})
+        em.update.mockResolvedValue({ affected: 1, raw: [], generatedMaps: [] })
+        em.findOne.mockResolvedValue(Object.assign(new JobEntity(), { id: "j-1", kind: "knowledge.facts", progressTopic: "job-progress:ws-1:knowledge-source:s1" }))
+        const { resumer, progress } = await build(em)
+
+        await expect(resumer.close("j-1", "source deleted")).resolves.toBe(true)
+
+        expect(progress.publishTo).toHaveBeenCalledWith({
+            topicName: "job-progress:ws-1:knowledge-source:s1",
+            job: { jobId: "j-1" },
+            jobName: "knowledge.facts",
+            state: "closed",
+            change: {},
+            at: new Date("2026-11-15T10:00:00.000Z"),
+        })
+    })
+
+    it("a job that never recorded a chain tells nothing, and a failing frame never undoes the close", async () => {
+        const em = mockEntityManager({})
+        em.update.mockResolvedValue({ affected: 1, raw: [], generatedMaps: [] })
+        em.findOne.mockResolvedValue(Object.assign(new JobEntity(), { id: "j-1", kind: "x.y", progressTopic: null }))
+        const { resumer, progress } = await build(em)
+        await expect(resumer.close("j-1", "why")).resolves.toBe(true)
+        expect(progress.publishTo).not.toHaveBeenCalled()
+
+        em.findOne.mockRejectedValue(new Error("read failed"))
+        await expect(resumer.close("j-2", "why")).resolves.toBe(true)
+    })
+})
+
+describe("ParkedJobResumerService stateOf", () => {
+    it.each([
+        ["parked", { id: "j-1", status: "failed_awaiting_fix", error: "boom" }, "parked"],
+        ["closed by a person", { id: "j-1", status: "failed", error: "closed: old payment" }, "closed"],
+        ["handed back to its queue", { id: "j-1", status: "failed", error: null }, "other"],
+        ["done", { id: "j-1", status: "done", error: null }, "other"],
+    ])("a job %s in the workspace is %s", async (_name, row, expected) => {
+        const em = mockEntityManager({})
+        queueQueryBuilders(em, [{ getOne: Object.assign(new JobEntity(), row) }])
+        const { resumer } = await build(em)
+
+        await expect(resumer.stateOf(WS, "j-1")).resolves.toBe(expected)
+    })
+
+    it("no row of this workspace under the id is missing", async () => {
+        const em = mockEntityManager({})
+        queueQueryBuilders(em, [{ getOne: null }])
+        const { resumer } = await build(em)
+
+        await expect(resumer.stateOf(WS, "j-9")).resolves.toBe("missing")
     })
 })
 
@@ -173,6 +302,9 @@ describe("ParkedJobResumerService without a connection", () => {
                 },
                 { provide: QUEUE_OUTBOX, useValue: recordingQueueOutbox() },
                 { provide: LOGGER, useValue: mock<Logger>() },
+                { provide: CLOCK, useValue: new FakeClock(new Date("2026-11-15T10:00:00.000Z")) },
+                { provide: JobProgressService, useValue: mock<JobProgressService>() },
+                ParkedJobCloseService,
             ],
         }).compile()
 
@@ -203,29 +335,47 @@ describe("ParkedJobResumerService boot and sweep", () => {
         expect(outbox.jobs).toEqual([])
     })
 
-    it("hands back the jobs parked under any other build when the sweep names one", async () => {
-        const em = mockEntityManager({ find: [JobEntity, []] })
+    it("hands back every class of dead letter parked under any other build when the sweep names one, and the machine keeps the episode's alert", async () => {
+        const em = mockEntityManager({
+            find: [JobEntity, [parkedJob("j-1", {})]],
+            update: [JobEntity, {}],
+            query: [ENQUEUE_SQL, [{ job_enqueue: "d-1" }]],
+        })
+        fakeTransaction(em)
+        queueQueryBuilders(em, [{ getOne: parkedJob("j-1", {}) }])
         const { resumer } = await build(em)
 
-        await expect(resumer.sweep({ build: "build-2" })).resolves.toBe(0)
+        await expect(resumer.sweep({ build: "build-2" })).resolves.toBe(1)
+
         expect(em.find).toHaveBeenCalledWith(JobEntity, {
             select: { id: true },
             where: { parkedBuild: Not("build-2"), status: "failed_awaiting_fix" },
             order: { parkedAt: "ASC" },
             take: 100,
         })
+        expect(em.update.mock.calls[0]?.[2]).not.toHaveProperty("alertedAt")
     })
 
-    it("hands back every parked job when the sweep names no build", async () => {
+    it("hands back by the tick only transient dead letters, each at most three times", async () => {
         const em = mockEntityManager({ find: [JobEntity, []] })
         const { resumer } = await build(em)
 
         await expect(resumer.sweep({})).resolves.toBe(0)
         expect(em.find).toHaveBeenCalledWith(JobEntity, {
             select: { id: true },
-            where: { status: "failed_awaiting_fix" },
+            where: { failureClass: "transient", resumeCount: LessThan(AUTO_RESUMES), status: "failed_awaiting_fix" },
             order: { parkedAt: "ASC" },
             take: 100,
         })
+        expect(AUTO_RESUMES).toBe(3)
+    })
+
+    it("answers the same pass from resumeAll as from a tick", async () => {
+        const em = mockEntityManager({ find: [JobEntity, []] })
+        const { resumer } = await build(em)
+
+        await resumer.resumeAll()
+
+        expect(em.find.mock.calls[0]?.[1]).toMatchObject({ where: { failureClass: "transient" } })
     })
 })

@@ -2,14 +2,9 @@
 
 import { useFormatter, useTranslations } from "next-intl"
 import { useSearchParams } from "next/navigation"
-import { useGoogleLedger } from "@/hooks/googleLedger"
+import { useAccountPageAddress, useGoogleLedger } from "@/hooks/googleLedger"
 import { mapSlot, slotOfSwr, useSlotLabels } from "@/hooks/slot"
 import { DriveLedgerBase } from "./component"
-import { workspaceHref } from "@/modules/routes"
-import { useWorkspaceId } from "@/hooks/workspaces"
-
-/** The page that Google sends the owner back to after the consent. */
-const RETURN_TO = "/connections/drive"
 
 /** The chip of each state of the ledger. */
 const CHIP_TONES = { none: "neutral", granted: "warning", ready: "success", lost: "danger" } as const
@@ -24,12 +19,12 @@ const ledgerNoteOf = (
     return accessGiven ? t("ledgerAccessOk") : null
 }
 
-/** The ledger kept in a Google spreadsheet, read from the workspace Google state: a band of the Drive page. */
+/** The ledger kept in a Google spreadsheet, read from the workspace Google state: a region of the Google account's configuration tab. */
 export const DriveLedger = () => {
-    const workspaceId = useWorkspaceId()
     const t = useTranslations("googleWizard")
     const labels = useSlotLabels()
     const params = useSearchParams()
+    const returnTo = useAccountPageAddress()
     const ledger = useGoogleLedger()
     const format = useFormatter()
     const lastRow =
@@ -76,7 +71,7 @@ export const DriveLedger = () => {
                 },
             }}
             on={{
-                allow: () => ledger.allow("sheets", workspaceHref(workspaceId, RETURN_TO)),
+                allow: () => ledger.allow("sheets", returnTo),
                 sheet: ledger.setSheet,
                 save: () => ledger.save(t("failGeneric")),
                 retry: () => void ledger.read.mutate(),

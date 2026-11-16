@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common"
 import { bankDisplayNameOf } from "./bank-name.policy"
 import {
+    AccountConnectService,
     ConnectionsError,
     ConnectionsErrorCode,
     ConnectionsService,
@@ -68,6 +69,7 @@ const codeOf = (error: unknown): string => {
 export class ChannelConnectionsService {
     constructor(
         private readonly connections: ConnectionsService,
+        private readonly door: AccountConnectService,
         @InjectChannelSetupClient() private readonly setup: ChannelSetupClient,
         @InjectClock() private readonly clock: Clock,
         @InjectLogger() private readonly logger: Logger,
@@ -103,24 +105,14 @@ export class ChannelConnectionsService {
                       secret: { plain: token, webhookSecret: secret },
                   })
                 : await this.reconnectTelegram(actor, held.id, { name, meta, token, secret })
-        // setWebhook only works on a public https address; on localhost the connection is stored and registered later on the real domain.
-        const origin = this.connections.publicOrigin()
-        if (origin !== null) {
-            try {
-                await this.setup.telegramSetWebhook(token, this.connections.webhookUrl("telegram", id, origin), secret)
-            } catch (error) {
-                await this.connections.patch(actor.workspaceId, id, {
-                    status: "error",
-                    lastError: ChannelConnectionsErrorCode.WebhookRefused,
-                })
-                throw new ChannelConnectionsError({ code: ChannelConnectionsErrorCode.WebhookRefused, cause: error })
-            }
-        }
+        // The provider's one connect step (the seed runs the same): on localhost it waits for the real domain (`local_only`).
+        const outcome = await this.door.connect(actor.workspaceId, id, { force: true, dry: false })
+        if (outcome.kind === "connect_refused") throw outcome.cause
         return {
             connection: await this.connections.get(actor.workspaceId, id),
             botUsername: me.username.trim() === "" ? null : me.username,
             accountMasked: null,
-            webhookRegistered: origin !== null,
+            webhookRegistered: outcome.kind === "connected",
         }
     }
 
@@ -265,28 +257,10 @@ export class ChannelConnectionsService {
             stored[field] = value
         }
         await this.connections.writeSecret(connection.id, JSON.stringify(stored))
-        const origin = this.connections.publicOrigin()
-        let confirmed = false
-        if (connection.provider === "payos" && origin !== null) {
-            const clientId = stored.clientId
-            const apiKey = stored.apiKey
-            if (clientId === undefined || apiKey === undefined) {
-                throw new ChannelConnectionsError({ code: ChannelConnectionsErrorCode.KeysInvalid })
-            }
-            try {
-                await this.setup.payosConfirmWebhook(
-                    { clientId, apiKey },
-                    this.connections.webhookUrl("payos", connection.id, origin),
-                )
-            } catch (error) {
-                throw new ChannelConnectionsError({
-                    code: ChannelConnectionsErrorCode.PayosConfirmRefused,
-                    cause: error,
-                })
-            }
-            confirmed = true
-        }
-        return { confirmed, localOnly: origin === null }
+        // The provider's one connect step, if it declares one (payOS: confirm-webhook); the seed runs the same.
+        const outcome = await this.door.connect(actor.workspaceId, connection.id, { force: true, dry: false })
+        if (outcome.kind === "connect_refused") throw outcome.cause
+        return { confirmed: outcome.kind === "connected", localOnly: this.connections.publicOrigin() === null }
     }
 
     /** Asks what the provider knows (Telegram: getMe + getWebhookInfo; Zalo: the stored tokens), and records the verdict on the connection. */

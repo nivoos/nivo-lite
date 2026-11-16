@@ -1,7 +1,13 @@
+import { wakeSources } from "./agent-wake-source.policy"
 import { Test } from "@nestjs/testing"
 import { fakeIds, fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
 import { agentTurnViewOf as turn, agentWakeViewOf as endedWake } from "@tests/fixtures/builders/agent-work.builder"
-import { AGENT_TURN_QUEUE_PRODUCER, AgentTurnQueue } from "@modules/queues/agent-turn"
+import {
+    AGENT_TURN_QUEUE_PRODUCER,
+    AgentTurnQueue,
+    isAgentTurnDrainPayload,
+    type AgentTurnDrainPayload,
+} from "@modules/queues/agent-turn"
 import { jobRecordingOutbox } from "@tests/fixtures/builders/queue-job-outbox.builder"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { IDS } from "@modules/platform/ids"
@@ -10,14 +16,20 @@ import type { Logger } from "@modules/platform/logging"
 import { AgentDrainService } from "./agent-drain.service"
 import { AgentTurnsService } from "./agent-turns.service"
 import { AgentEndedWakesService } from "./agent-ended-wakes.service"
-import { AgentWakeInterruptionService } from "./agent-wake-interruption.service"
 import { AgentWorkHandlersService } from "./agent-work-handlers.service"
 import { AgentWorkLogEvent } from "./agent-work.log-events"
+import { HEARTBEAT_MS, LEASE_SECONDS } from "./agent-work.policy"
 import { AgentWorkError, AgentWorkErrorCode } from "./errors/agent-work.error"
-import type { AgentTurnUsage } from "./agent-work.contracts"
+import type { AgentTurnUsage, AgentTurnView } from "./agent-work.contracts"
 import type { AgentTurnExecutor, AgentTurnPlan, AgentWorkFlow, AgentWorkHandler } from "./agent-work.port"
 
-const PAYLOAD = { workspaceId: "ws-1", agentId: "agent-1", scopeKey: "conversation:conv-1" }
+const PAYLOAD: AgentTurnDrainPayload = { workspaceId: "ws-1", agentId: "agent-1", scopeKey: "conversation:conv-1" }
+
+/** The drain payload of a follow-up job: the payload with the hop it carries beside the fields a drain reads. */
+const rearmed = (rearm: number): AgentTurnDrainPayload => {
+    const payload = { ...PAYLOAD, rearm }
+    return payload
+}
 
 const PLAN: AgentTurnPlan = {
     module: "chatbot",
@@ -49,7 +61,7 @@ const build = async ({ handler = true }: Options = {}) => {
         finish: jest.fn().mockResolvedValue({ fenced: false, more: false }),
     })
     const registered = mock<AgentWorkHandler>({
-        sources: ["customer"],
+        sources: ["trigger"],
         prepare: jest.fn().mockResolvedValue({ kind: "run", plan: PLAN }),
         settle: jest.fn().mockResolvedValue(DONE),
         holdOver: jest.fn().mockResolvedValue({ status: "done", reason: "holding_line", outcome: null }),
@@ -63,7 +75,10 @@ const build = async ({ handler = true }: Options = {}) => {
     })
     const outbox = jobRecordingOutbox()
     const real = new AgentTurnQueue(outbox)
-    const queue = mock<AgentTurnQueue>({ enqueueNextDrain: jest.fn(real.enqueueNextDrain.bind(real)) })
+    const queue = mock<AgentTurnQueue>({
+        enqueueNextDrain: jest.fn(real.enqueueNextDrain.bind(real)),
+        enqueueDrain: jest.fn(real.enqueueDrain.bind(real)),
+    })
     const endedWakes = mock<AgentEndedWakesService>({ tell: jest.fn().mockResolvedValue(undefined) })
     const logger = mock<Logger>()
     const tx = fakeTransaction(mockEntityManager())
@@ -77,7 +92,6 @@ const build = async ({ handler = true }: Options = {}) => {
             { provide: LOGGER, useValue: logger },
             { provide: AGENT_TURN_QUEUE_PRODUCER, useValue: queue },
             { provide: AgentEndedWakesService, useValue: endedWakes },
-            { provide: AgentWakeInterruptionService, useValue: mock<AgentWakeInterruptionService>() },
         ],
     }).compile()
     const service = container.get(AgentDrainService)
@@ -85,6 +99,25 @@ const build = async ({ handler = true }: Options = {}) => {
 }
 
 type Fixture = Awaited<ReturnType<typeof build>>
+
+describe("AgentDrainService.drain, rule RETIRED SOURCE", () => {
+    it("closes ONCE by name a wake of a source this process no longer serves: skipped source_retired, reported, nothing runs", async () => {
+        const { service, turns, handler, handlers, executor, endedWakes } = await build()
+        const retired = turn({ source: "retired_source_spec" })
+        turns.begin.mockResolvedValue({ result: "begun", turn: retired, ended: [] })
+        const flow = mock<AgentWorkFlow>({ takes: jest.fn().mockResolvedValue(true) })
+        handlers.flowOf.mockReturnValue(flow)
+
+        await service.drain(PAYLOAD)
+
+        expect(endedWakes.retired).toHaveBeenCalledWith(retired)
+        expect(turns.finish).toHaveBeenCalledTimes(1)
+        expect(turns.finish).toHaveBeenCalledWith(retired, finished({ status: "skipped", reason: "source_retired", outcome: null }))
+        expect(flow.takes).not.toHaveBeenCalled()
+        expect(handler.prepare).not.toHaveBeenCalled()
+        expect(executor.run).not.toHaveBeenCalled()
+    })
+})
 
 describe("AgentDrainService.drain, a wake its agent's graph runs", () => {
     it("lets the flow run a wake it takes, with no handler and no model turn", async () => {
@@ -104,6 +137,43 @@ describe("AgentDrainService.drain, a wake its agent's graph runs", () => {
             turn(),
             finished({ status: "done", reason: null, outcome: { ran: "graph" } }),
         )
+    })
+
+    it("gives up a wake of the flow through the flow, never through a handler: no hold-over, no reply item, the wake fails", async () => {
+        const { service, turns, handler, handlers } = await build()
+        const last = turn({ attempts: 3, maxAttempts: 3 })
+        turns.begin.mockResolvedValue({ result: "begun", turn: last, ended: [] })
+        const flow = mock<AgentWorkFlow>({
+            takes: jest.fn().mockResolvedValue(true),
+            run: jest.fn().mockRejectedValue(new Error("routing failed")),
+            stuck: jest.fn().mockResolvedValue(undefined),
+        })
+        handlers.flowOf.mockReturnValue(flow)
+
+        await service.drain(PAYLOAD)
+
+        expect(flow.stuck).toHaveBeenCalledWith(last, "AGENT_WORK_UNEXPECTED")
+        expect(handler.holdOver).not.toHaveBeenCalled()
+        expect(handler.prepare).not.toHaveBeenCalled()
+        expect(turns.finish).toHaveBeenCalledWith(
+            last,
+            expect.objectContaining({ status: "failed", errorCode: "AGENT_WORK_UNEXPECTED" }),
+        )
+    })
+
+    it("tells nobody while a failed wake of the flow still has tries left", async () => {
+        const { service, handler, handlers } = await build()
+        const flow = mock<AgentWorkFlow>({
+            takes: jest.fn().mockResolvedValue(true),
+            run: jest.fn().mockRejectedValue(new Error("routing failed")),
+            stuck: jest.fn().mockResolvedValue(undefined),
+        })
+        handlers.flowOf.mockReturnValue(flow)
+
+        await service.drain(PAYLOAD)
+
+        expect(flow.stuck).not.toHaveBeenCalled()
+        expect(handler.holdOver).not.toHaveBeenCalled()
     })
 
     it("leaves a wake the flow does not take to the handler of its source", async () => {
@@ -229,12 +299,265 @@ describe("AgentDrainService.drain, a scope that has nothing to run", () => {
 
         expect(logger.warn).toHaveBeenCalledWith(AgentWorkLogEvent.NoHandler, {
             agentId: "agent-1",
-            source: "customer",
+            source: "trigger",
         })
         expect(turns.finish).toHaveBeenCalledWith(
             turn(),
             expect.objectContaining({ status: "held", reason: "no_handler" }),
         )
+    })
+})
+
+describe("AgentDrainService.drain, a person's line to an agent nobody can answer yet (D-BR-14)", () => {
+    /** A flow that takes nothing (the agent is still in setup) and reports what it is told. */
+    const untakenFlow = () =>
+        mock<AgentWorkFlow>({
+            takes: jest.fn().mockResolvedValue(false),
+            stuck: jest.fn().mockResolvedValue(undefined),
+        })
+
+    it("tells the founder once through the common wake report, then holds the wake (walk: Sales in setup, wake held no_handler)", async () => {
+        const { service, turns, handlers } = await build({ handler: false })
+        const line = turn({ source: "tag" })
+        turns.begin.mockResolvedValue({ result: "begun", turn: line, ended: [] })
+        const flow = untakenFlow()
+        handlers.flowOf.mockReturnValue(flow)
+
+        await service.drain(PAYLOAD)
+
+        expect(flow.stuck).toHaveBeenCalledWith(line, "agent_not_ready")
+        expect(turns.finish).toHaveBeenCalledWith(line, expect.objectContaining({ status: "held", reason: "no_handler" }))
+    })
+
+    it("only logs a background wake, and a report that fails never fails the drain", async () => {
+        const background = await build({ handler: false })
+        background.turns.begin.mockResolvedValue({ result: "begun", turn: turn({ source: "schedule" }), ended: [] })
+        const quiet = untakenFlow()
+        background.handlers.flowOf.mockReturnValue(quiet)
+        await background.service.drain(PAYLOAD)
+        expect(quiet.stuck).not.toHaveBeenCalled()
+
+        const failing = await build({ handler: false })
+        failing.turns.begin.mockResolvedValue({ result: "begun", turn: turn({ source: "tag" }), ended: [] })
+        const broken = untakenFlow()
+        broken.stuck.mockRejectedValue(new Error("chat down"))
+        failing.handlers.flowOf.mockReturnValue(broken)
+        await failing.service.drain(PAYLOAD)
+        expect(failing.logger.error).toHaveBeenCalledWith(AgentWorkLogEvent.TurnFailed, expect.any(Error), {
+            agentId: "agent-1",
+            wakeId: "wake-1",
+        })
+        expect(failing.turns.finish).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ status: "held", reason: "no_handler" }),
+        )
+    })
+})
+
+describe("AgentDrainService.drain, a drain that came before the burst window ended", () => {
+    const WAIT = { ms: 1100, wakeId: "wake-9" }
+
+    it("schedules one follow-up drain for the time the database says is left, in a transaction, and runs nothing", async () => {
+        const { service, turns, handler, outbox, logger } = await build()
+        turns.begin.mockResolvedValue({ result: "idle", ended: [], wait: WAIT })
+
+        await service.drain(PAYLOAD)
+
+        expect(outbox.written).toEqual([
+            {
+                queue: "agent_turn",
+                payload: { ...PAYLOAD, rearm: 1 },
+                job: "agent-turn.drain",
+                dedupeKey: "agent-turn:agent-1:rearm:conversation:conv-1:wake-9:1",
+                delayMs: 1100,
+            },
+        ])
+        expect(outbox.inTransaction).toBe(true)
+        expect(handler.prepare).not.toHaveBeenCalled()
+        expect(turns.finish).not.toHaveBeenCalled()
+        expect(logger.info).toHaveBeenCalledWith(AgentWorkLogEvent.DrainRearmed, {
+            agentId: "agent-1",
+            scopeKey: "conversation:conv-1",
+            wakeId: "wake-9",
+            hop: 1,
+            waitMs: 1100,
+        })
+    })
+
+    it("asks for the same follow-up from every drain that waits for the same message, and for the next hop from a follow-up that came early", async () => {
+        const { service, turns, outbox } = await build()
+        turns.begin.mockResolvedValue({ result: "idle", ended: [], wait: WAIT })
+
+        await service.drain(PAYLOAD)
+        await service.drain(PAYLOAD)
+        await service.drain(rearmed(1))
+
+        expect(outbox.written.map((job) => job.dedupeKey)).toEqual([
+            "agent-turn:agent-1:rearm:conversation:conv-1:wake-9:1",
+            "agent-turn:agent-1:rearm:conversation:conv-1:wake-9:1",
+            "agent-turn:agent-1:rearm:conversation:conv-1:wake-9:2",
+        ])
+        expect(outbox.written[2]?.payload).toEqual({ ...PAYLOAD, rearm: 2 })
+    })
+
+    it("never schedules a follow-up that comes back at once: a wait of a few milliseconds waits the floor", async () => {
+        const { service, turns, outbox } = await build()
+        turns.begin.mockResolvedValue({ result: "idle", ended: [], wait: { ms: 3, wakeId: "wake-9" } })
+
+        await service.drain(PAYLOAD)
+
+        expect(outbox.written[0]?.delayMs).toBe(250)
+    })
+
+    it("stops after the last hop and leaves the wake to the minute sweep, so no chain of jobs lives on a clock that never settles", async () => {
+        const { service, turns, outbox, logger } = await build()
+        turns.begin.mockResolvedValue({ result: "idle", ended: [], wait: WAIT })
+
+        await service.drain(rearmed(5))
+
+        expect(outbox.written).toEqual([])
+        expect(logger.warn).toHaveBeenCalledWith(AgentWorkLogEvent.DrainRearmSpent, expect.objectContaining({ hop: 6 }))
+    })
+
+    it("schedules nothing for an idle scope that tells no wait", async () => {
+        const { service, turns, outbox } = await build()
+        turns.begin.mockResolvedValue({ result: "idle", ended: [] })
+
+        await service.drain(PAYLOAD)
+
+        expect(outbox.written).toEqual([])
+    })
+})
+
+/**
+ * A conversation under two clocks. The host's clock times the broker: a job comes `delayMs` host milliseconds after it was written.
+ * The database's clock stamps the wakes and judges the window, and reads the host's clock plus an offset that may change while a
+ * drain waits. The gate is the rule of `agent_turn_begin`: wait while the newest pending wake is inside the window (less half a
+ * second) and the oldest inside the longest wait, telling how long is left; else take the oldest wake and merge the others.
+ */
+const WINDOW_MS = 6000
+const MAX_MS = 20_000
+
+interface Wake {
+    readonly id: string
+    readonly createdAt: number
+    status: "pending" | "running" | "skipped"
+}
+
+const underTwoClocks = async (messagesAt: ReadonlyArray<number>, offsetAt: (hostMs: number) => number) => {
+    const fixture = await build()
+    let host = 0
+    const database = () => host + offsetAt(host)
+    const wakes: Array<Wake> = []
+    const begun: Array<{ readonly hostMs: number; readonly wakeId: string; readonly merged: ReadonlyArray<string> }> = []
+    const jobs: Array<{ readonly at: number; readonly payload: AgentTurnDrainPayload }> = []
+    const keys = new Set<string>()
+    let read = 0
+    fixture.turns.begin.mockImplementation(() => {
+        const pending = wakes.filter((wake) => wake.status === "pending")
+        const [oldest] = pending
+        const newest = pending.at(-1)
+        if (oldest === undefined || newest === undefined) return Promise.resolve({ result: "idle", ended: [] })
+        const open = Math.min(newest.createdAt + WINDOW_MS - 500, oldest.createdAt + MAX_MS)
+        if (open > database()) {
+            return Promise.resolve({ result: "idle", ended: [], wait: { ms: Math.ceil(open - database()), wakeId: newest.id } })
+        }
+        for (const wake of pending) wake.status = wake === oldest ? "running" : "skipped"
+        begun.push({ hostMs: host, wakeId: oldest.id, merged: pending.slice(1).map((wake) => wake.id) })
+        return Promise.resolve({ result: "begun", turn: turn({ wakeId: oldest.id }), ended: [] })
+    })
+    /** The jobs the drain wrote since the last look, each once per dedupe key, due `delayMs` host milliseconds from now. */
+    const collect = () => {
+        for (const job of fixture.outbox.written.slice(read)) {
+            const key = job.dedupeKey ?? ""
+            if (keys.has(key)) continue
+            keys.add(key)
+            const { payload } = job
+            expect(isAgentTurnDrainPayload(payload)).toBe(true)
+            if (!isAgentTurnDrainPayload(payload)) continue
+            jobs.push({ at: host + (job.delayMs ?? 0), payload })
+        }
+        read = fixture.outbox.written.length
+    }
+    // Each message writes its wake (stamped by the database) and its own drain, one window ahead.
+    const arrivals = messagesAt.map((at, index) => ({ at, id: `wake-${String(index + 1)}` }))
+    const next = (): { readonly at: number; readonly run: () => Promise<void> } | undefined => {
+        const arrival = arrivals[0]
+        const job = jobs.toSorted((a, b) => a.at - b.at)[0]
+        if (arrival !== undefined && (job === undefined || arrival.at <= job.at)) {
+            return {
+                at: arrival.at,
+                run: () => {
+                    arrivals.shift()
+                    wakes.push({ id: arrival.id, createdAt: database(), status: "pending" })
+                    jobs.push({ at: host + WINDOW_MS, payload: PAYLOAD })
+                    return Promise.resolve()
+                },
+            }
+        }
+        if (job === undefined) return undefined
+        return {
+            at: job.at,
+            run: async () => {
+                jobs.splice(jobs.indexOf(job), 1)
+                await fixture.service.drain(job.payload)
+                collect()
+            },
+        }
+    }
+    let drains = 0
+    for (let event = next(); event !== undefined; event = next()) {
+        host = event.at
+        await event.run()
+        drains += 1
+    }
+    return { begun, wakes, followUps: keys.size, events: drains, endedAt: host }
+}
+
+/** The database clock falls `ms` behind the host's one second after the first message (the host is then that far ahead). */
+const fallsBehind = (ms: number) => (hostMs: number) => (hostMs >= 1000 ? -ms : 0)
+
+describe("AgentDrainService.drain, a conversation whose database and host clocks disagree", () => {
+    it.each([
+        { ahead: 1500, startsBy: 7000 },
+        { ahead: 5000, startsBy: 10_500 },
+    ])("starts a lone message after the window and one follow-up when the host runs $ahead ms ahead", async ({ ahead, startsBy }) => {
+        const { begun, followUps, endedAt } = await underTwoClocks([0], fallsBehind(ahead))
+
+        expect(begun).toEqual([{ hostMs: startsBy, wakeId: "wake-1", merged: [] }])
+        expect(followUps).toBe(1)
+        // Nothing is left for the minute sweep, and no job outlives the turn.
+        expect(endedAt).toBe(startsBy)
+    })
+
+    it("starts a lone message at its own drain, with no follow-up, when the host runs 1500 ms behind or the clocks only differ by a constant", async () => {
+        const behind = await underTwoClocks([0], (hostMs) => (hostMs >= 1000 ? 1500 : 0))
+        const constant = await underTwoClocks([0], () => -1500)
+
+        for (const run of [behind, constant]) {
+            expect(run.begun).toEqual([{ hostMs: WINDOW_MS, wakeId: "wake-1", merged: [] }])
+            expect(run.followUps).toBe(0)
+        }
+    })
+
+    it.each([
+        { name: "the host 1500 ms ahead", offset: (hostMs: number) => (hostMs >= 5000 ? -1500 : 0), startsAt: 11_000, followUps: 1 },
+        { name: "the host 5000 ms ahead", offset: (hostMs: number) => (hostMs >= 5000 ? -5000 : 0), startsAt: 14_500, followUps: 1 },
+        { name: "the host 1500 ms behind", offset: (hostMs: number) => (hostMs >= 5000 ? 1500 : 0), startsAt: 8000, followUps: 1 },
+    ])("still makes one turn of a burst of three messages with $name, and runs no wake twice", async ({ offset, startsAt, followUps }) => {
+        const run = await underTwoClocks([0, 2000, 4000], offset)
+
+        expect(run.begun).toEqual([{ hostMs: startsAt, wakeId: "wake-1", merged: ["wake-2", "wake-3"] }])
+        expect(run.wakes.map((wake) => wake.status)).toEqual(["running", "skipped", "skipped"])
+        // The three drains that waited for the last message asked for one follow-up between them.
+        expect(run.followUps).toBe(followUps)
+    })
+
+    it("follows a clock that is stepped back twice with two follow-ups, one after the other, and still one turn", async () => {
+        const { begun, followUps } = await underTwoClocks([0], (hostMs) => (hostMs >= 6500 ? -3000 : hostMs >= 1000 ? -1500 : 0))
+
+        expect(begun).toEqual([{ hostMs: 8500, wakeId: "wake-1", merged: [] }])
+        expect(followUps).toBe(2)
     })
 })
 
@@ -335,16 +658,32 @@ describe("AgentDrainService.drain, a turn that fails or leaves more to do", () =
 })
 
 describe("AgentDrainService.drain, a runtime that is down", () => {
-    it("gives a customer the holding line at once when the runtime is down, ends the wake and still counts the failure", async () => {
+    // A source whose sender waits for an answer: only an inbound adapter declares one now (the old `customer` source is gone).
+    const ANSWERING = "answering_hook"
+    beforeAll(() => {
+        if (wakeSources.lookup(ANSWERING) === undefined)
+            wakeSources.add(ANSWERING, {
+                priority: 10,
+                maxAttempts: 2,
+                scopedToConversation: false,
+                background: false,
+                restoresHeld: true,
+                awaitsAnswer: true,
+            })
+    })
+
+    it("gives a sender who waits for an answer the holding line at once when the runtime is down, ends the wake and still counts the failure", async () => {
         const { service, turns, executor, handler } = await build()
+        const asking = turn({ source: ANSWERING })
+        turns.begin.mockResolvedValue({ result: "begun", turn: asking, ended: [] })
         executor.run.mockRejectedValue(new Error("socket closed"))
 
         await service.drain(PAYLOAD)
 
-        expect(handler.holdOver).toHaveBeenCalledWith(turn(), "error")
+        expect(handler.holdOver).toHaveBeenCalledWith(asking, "error")
         expect(turns.propose).not.toHaveBeenCalled()
         expect(turns.finish).toHaveBeenCalledWith(
-            turn(),
+            asking,
             finished({ status: "done", reason: "holding_line", outcome: null, errorCode: "AGENT_WORK_UNEXPECTED" }),
         )
     })
@@ -371,13 +710,15 @@ describe("AgentDrainService.drain, a runtime that is down", () => {
     it("fails the wake all the same when the hold-over line itself cannot be written, and logs why", async () => {
         const { service, turns, executor, handler, logger } = await build()
         const cause = new Error("channel down")
+        const asking = turn({ source: ANSWERING })
+        turns.begin.mockResolvedValue({ result: "begun", turn: asking, ended: [] })
         executor.run.mockRejectedValue(new Error("socket closed"))
         handler.holdOver.mockRejectedValue(cause)
 
         await service.drain(PAYLOAD)
 
         expect(logger.error).toHaveBeenCalledWith(AgentWorkLogEvent.TurnFailed, cause, WAKE_REF)
-        expect(turns.finish).toHaveBeenCalledWith(turn(), expect.objectContaining({ status: "failed" }))
+        expect(turns.finish).toHaveBeenCalledWith(asking, expect.objectContaining({ status: "failed" }))
     })
 
     it("fails the wake when it ran out of attempts and no handler is left to announce it", async () => {
@@ -439,6 +780,32 @@ describe("AgentDrainService.drain, the heartbeat and its budget", () => {
         expect(fixture.turns.touch).toHaveBeenCalledTimes(2)
     })
 
+    it("keeps the lease of a workflow wake whose model call and its one retry take ninety seconds: the lease never lapses under it", async () => {
+        const fixture = await build()
+        const gate = new AbortController()
+        const seen: SeenSignal = {}
+        const flow = mock<AgentWorkFlow>({
+            takes: jest.fn().mockResolvedValue(true),
+            run: jest.fn(async (_turn: AgentTurnView, given: AbortSignal) => {
+                seen.signal = given
+                await whenAborted(gate.signal)
+                return { status: "done" as const, reason: null, outcome: { ran: "graph" } }
+            }),
+        })
+        fixture.handlers.flowOf.mockReturnValue(flow)
+
+        const done = fixture.service.drain(PAYLOAD)
+        // A model call that times out (45 s) and its one retry (45 s): the lease is 90 s and each beat pushes it 90 s further.
+        await jest.advanceTimersByTimeAsync(LEASE_SECONDS * 1000)
+        expect(fixture.turns.touch).toHaveBeenCalledTimes(Math.floor((LEASE_SECONDS * 1000) / HEARTBEAT_MS))
+        expect(HEARTBEAT_MS * 2).toBeLessThan(LEASE_SECONDS * 1000)
+        expect(seen.signal?.aborted).toBe(false)
+
+        gate.abort()
+        await done
+        expect(fixture.turns.finish).toHaveBeenCalledWith(turn(), expect.objectContaining({ status: "done" }))
+    })
+
     it("aborts the signal the model call watches when the lease is lost", async () => {
         const fixture = await build()
         const { release, seen } = slowRun(fixture)
@@ -451,6 +818,10 @@ describe("AgentDrainService.drain, the heartbeat and its budget", () => {
         release()
         await done
     })
+})
+
+describe("AgentDrainService.drain, the heartbeat's failures and its spent budget", () => {
+    fakeTimers()
 
     it("logs a failed renewal and tries again at the next beat", async () => {
         const fixture = await build()

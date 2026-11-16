@@ -2,9 +2,9 @@ import { injector, type TypedParameterDecorator } from "@modules/platform/compos
 import type {
     AgentConnectionsDirectory,
     AgentRooms,
+    ConversationChannelOwners,
     InstallationDirectory,
     KnowledgeLens,
-    ModuleProfiles,
     WorkDashboardDirectory,
 } from "./agents.port"
 import type { AgentsRunOptions } from "./agents.options"
@@ -17,9 +17,6 @@ export const AGENTS_INSTALLATIONS: unique symbol = Symbol("domain.agents.install
 
 /** Token of the business knowledge port (knowledge lane). */
 export const AGENTS_KNOWLEDGE: unique symbol = Symbol("domain.agents.knowledge")
-
-/** Token of the module definitions port (modules lane). */
-export const AGENTS_MODULES: unique symbol = Symbol("domain.agents.modules")
 
 /** Token of the agent connections port (agent-connections lane). */
 export const AGENTS_CONNECTIONS: unique symbol = Symbol("domain.agents.connections")
@@ -34,10 +31,6 @@ export const InjectInstallations = (): TypedParameterDecorator<InstallationDirec
 
 /** Injects the business knowledge port. Parameter type: KnowledgeLens. */
 export const InjectKnowledge = (): TypedParameterDecorator<KnowledgeLens> => injector<KnowledgeLens>(AGENTS_KNOWLEDGE)
-
-/** Injects the module definitions port. Parameter type: ModuleProfiles. */
-export const InjectModuleProfiles = (): TypedParameterDecorator<ModuleProfiles> =>
-    injector<ModuleProfiles>(AGENTS_MODULES)
 
 /** Injects the agent connections port. Parameter type: AgentConnectionsDirectory. */
 export const InjectAgentConnections = (): TypedParameterDecorator<AgentConnectionsDirectory> =>
@@ -55,3 +48,10 @@ export const AGENTS_ROOMS: unique symbol = Symbol("domain.agents.rooms")
 
 /** Injects the team-chat room directory port. Parameter type: AgentRooms. */
 export const InjectAgentRooms = (): TypedParameterDecorator<AgentRooms> => injector<AgentRooms>(AGENTS_ROOMS)
+
+/** Token of the conversation channel owners port (the agent-instances capability). */
+export const AGENTS_CHANNEL_OWNERS: unique symbol = Symbol("domain.agents.channel-owners")
+
+/** Injects the conversation channel owners port. Parameter type: ConversationChannelOwners. */
+export const InjectChannelOwners = (): TypedParameterDecorator<ConversationChannelOwners> =>
+    injector<ConversationChannelOwners>(AGENTS_CHANNEL_OWNERS)

@@ -2,8 +2,7 @@
 
 import { useTranslations } from "next-intl"
 import { usePaneCopy } from "@/hooks/paneFrame"
-import { useWorkspaceId } from "@/hooks/workspaces"
-import { CONSOLE_ROUTES, workspaceHref } from "@/modules/routes"
+import { useConsoleCrumbs } from "@/hooks/pageCrumbs"
 import type { TeamPanesBaseProps } from "@/modules/types"
 
 /** Derived from the panes contract. */
@@ -18,18 +17,13 @@ interface TeamCounts {
 /** The words of the team panes: the page, the list, the filter, the states and the two detail panes. */
 export const useTeamPanesCopy = (counts: TeamCounts): TeamPanesCopy => {
     const t = useTranslations("team")
-    const p = useTranslations("permissions")
     const pane = usePaneCopy()
-    const workspaceId = useWorkspaceId()
+    const breadcrumbs = useConsoleCrumbs(t("title"))
     return {
         grid: t("gridLabel"),
+        breadcrumbs,
         title: t("title"),
         description: t("description"),
-        tabsLabel: p("tabsLabel"),
-        membersTab: p("tabMembers"),
-        membersHref: workspaceHref(workspaceId, CONSOLE_ROUTES.team),
-        permissionsTab: p("tabPermissions"),
-        permissionsHref: workspaceHref(workspaceId, CONSOLE_ROUTES.permissions),
         inviteAction: t("formTitle"),
         listTitle: t("membersTitle"),
         listLabel: t("listLabel"),

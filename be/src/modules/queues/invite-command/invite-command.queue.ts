@@ -13,3 +13,7 @@ export type OptionalInviteCommandPayload = InviteCommandPayload | null
 /** Reads a job payload as an invitation command; null when it names no command. */
 export const inviteCommandPayloadOf = (value: object): OptionalInviteCommandPayload =>
     "commandId" in value && typeof value.commandId === "string" ? { commandId: value.commandId } : null
+
+/** True when a job payload names an invitation command (the guard the job's declaration holds). */
+export const isInviteCommandPayload = (value: unknown): value is InviteCommandPayload =>
+    typeof value === "object" && value !== null && "commandId" in value && typeof value.commandId === "string" && value.commandId !== ""

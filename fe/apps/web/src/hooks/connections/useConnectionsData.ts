@@ -41,10 +41,6 @@ export interface ConnectionsDataView {
                       at: string
                       content: string
                   } | null
-                  grants: Array<{
-                      agentId: string
-                      access: string
-                  }>
               }[],
               Error
           >
@@ -70,9 +66,7 @@ export const useConnectionsData = (): ConnectionsDataView => {
     const items = useMemo(() => (connectionRows === undefined ? [] : connectionsOf(connectionRows)), [connectionRows])
     const active = useMemo(
         () =>
-            agentRows === undefined
-                ? []
-                : agentRows.filter((agent) => agent.status === "active").map((item) => agentOptionOf(item)),
+            agentRows === undefined ? [] : agentRows.filter((agent) => agent.status === "active").map((entry) => agentOptionOf(entry)),
         [agentRows],
     )
     const agentNames = useMemo(

@@ -7,6 +7,7 @@ import {
     IconButton,
     TopBar,
     Switch,
+    useTopBarOverflowEntries,
 } from "@starci/grammar/common"
 import { ACCOUNT_ITEM, SIGN_OUT_ITEM } from "@/modules/types"
 import { ConsoleWorkspaceMenu } from "../../composites/ConsoleWorkspaceMenu"
@@ -35,11 +36,18 @@ export interface ConsoleHeaderBaseProps {
         readonly isLocalePending: boolean
         readonly localeOptions: ReadonlyArray<{ readonly value: string; readonly label: string; readonly name: string }>
         readonly themeLabel: string
+        readonly guideBubbleLabel: string
+        readonly guideBubbleDescription: string
+        readonly isGuideBubbleShown: boolean
         readonly isDark: boolean
+        readonly bellLabel: string
+        readonly bellHref: string
+        readonly hasWaiting: boolean
     }
     readonly on: {
         readonly chooseLocale: (locale: string) => void
         readonly chooseDark: (isDark: boolean) => void
+        readonly chooseGuideBubble: (shown: boolean) => void
     }
 }
 
@@ -58,6 +66,8 @@ const Brand = ({ props }: BrandProps) => (
         </div>
     </Cluster>
 )
+
+const GUIDE_BUBBLE_ITEM = "guide-bubble-shown"
 
 /** The glyph and tone of the account menu's two commands, keyed by the ids `modules/types` shares with the entries builder. */
 const COMMAND_LOOKS: Record<
@@ -78,61 +88,88 @@ const withCommandLook = (item: DropdownMenuItem): DropdownMenuItem => {
 
 /** Gives the account page and sign-out items their leading glyph (sign out marked destructive). */
 const withLooks = (entries: ReadonlyArray<DropdownMenuEntry>): ReadonlyArray<DropdownMenuEntry> =>
-    entries.map((entry) =>
-        entry.kind === "section"
+    entries.map((entry) => {
+        if (entry.kind === "switch") return entry
+        return entry.kind === "section"
             ? { ...entry, items: entry.items.map((item) => withCommandLook(item)) }
-            : withCommandLook(entry),
-    )
+            : withCommandLook(entry)
+    })
 
-const Actions = ({ props, on }: ConsoleHeaderBaseProps) => (
-    <Cluster gap="inline" wrap={false} justify="end">
-        <div className={SWITCHES}>
-            <Cluster gap="inline" wrap={false}>
-                <DropdownMenu
-                    placement="bottom end"
-                    entries={languageMenuEntries({
-                        label: props.languageLabel,
-                        value: props.locale,
-                        options: props.localeOptions,
-                        isDisabled: props.isLocalePending,
-                        onChange: on.chooseLocale,
-                    })}
-                    trigger={
-                        <IconButton
-                            source={nivoIconSource("locale", "leading")}
-                            label={props.languageLabel}
-                            intent="dismiss"
-                            isDisabled={props.isLocalePending}
-                        />
-                    }
-                />
-                <Switch
-                    label={props.themeLabel}
-                    isLabelHidden
-                    size="control"
-                    isSelected={props.isDark}
-                    onSelectedChange={on.chooseDark}
-                    thumbIcon={nivoIconSource("light", "leading")}
-                    selectedThumbIcon={nivoIconSource("dark", "leading")}
-                />
-            </Cluster>
-        </div>
-        <DropdownMenu
-            placement="bottom end"
-            entries={withLooks(props.accountEntries)}
-            trigger={
-                <AvatarButton
-                    size="control"
-                    name={props.userName}
-                    seed={props.userId}
-                    {...(props.avatarUrl ? { src: props.avatarUrl } : {})}
-                />
-            }
-        />
-    </Cluster>
-)
+/** The assistant toggle: a menu switch entry, off until the member turns it on. */
+const guideBubbleSwitch = ({ props, on }: ConsoleHeaderBaseProps): DropdownMenuEntry => ({
+    kind: "switch",
+    id: GUIDE_BUBBLE_ITEM,
+    label: props.guideBubbleLabel,
+    description: props.guideBubbleDescription,
+    isSelected: props.isGuideBubbleShown,
+    onChange: on.chooseGuideBubble,
+})
+
+const Actions = ({ props, on }: ConsoleHeaderBaseProps) => {
+    const overflow = useTopBarOverflowEntries()
+    return (
+        <Cluster gap="inline" wrap={false} justify="end">
+            <div className={SWITCHES}>
+                <Cluster gap="inline" wrap={false}>
+                    <DropdownMenu
+                        placement="bottom end"
+                        entries={languageMenuEntries({
+                            label: props.languageLabel,
+                            value: props.locale,
+                            options: props.localeOptions,
+                            isDisabled: props.isLocalePending,
+                            onChange: on.chooseLocale,
+                        })}
+                        trigger={
+                            <IconButton
+                                source={nivoIconSource("locale", "leading")}
+                                label={props.languageLabel}
+                                intent="dismiss"
+                                isDisabled={props.isLocalePending}
+                            />
+                        }
+                    />
+                    <Switch
+                        label={props.themeLabel}
+                        isLabelHidden
+                        size="control"
+                        isSelected={props.isDark}
+                        onSelectedChange={on.chooseDark}
+                        thumbIcon={nivoIconSource("light", "leading")}
+                        selectedThumbIcon={nivoIconSource("dark", "leading")}
+                    />
+                </Cluster>
+            </div>
+            <DropdownMenu
+                placement="bottom end"
+                entries={[...withLooks(props.accountEntries), guideBubbleSwitch({ props, on }), ...overflow]}
+                trigger={
+                    <AvatarButton
+                        size="control"
+                        name={props.userName}
+                        seed={props.userId}
+                        {...(props.avatarUrl ? { src: props.avatarUrl } : {})}
+                    />
+                }
+            />
+        </Cluster>
+    )
+}
 
 /** Draws the console top bar: the workspace lockup on the left; language, appearance, bell and account on the right; the compact tab row under it. */
 export const ConsoleHeaderBase = (props: ConsoleHeaderBaseProps) => (
-    <TopBar position="sticky" brand={<Brand {...props} />} actions={<Actions {...props} />} />
+    <TopBar
+        position="sticky"
+        brand={<Brand {...props} />}
+        actions={<Actions {...props} />}
+        customButtons={[
+            {
+                id: "notifications",
+                glyph: "bell",
+                label: props.props.bellLabel,
+                href: props.props.bellHref,
+                badge: props.props.hasWaiting,
+            },
+        ]}
+    />
 )

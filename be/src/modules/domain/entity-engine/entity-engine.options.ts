@@ -1,7 +1,5 @@
-import type { Type } from "@nestjs/common"
 import type { Secret } from "@modules/platform/config"
 import type { EntityDefinition } from "@nivo-lite/agent-sdk/entity"
-import type { EngineFailureAlerts } from "./entity-engine.contracts"
 import type { JobDefinition } from "@nivo-lite/agent-sdk/mutation"
 
 /** What the app root tells the entity engine: the declarations it serves and the key that signs its cursors. */
@@ -17,17 +15,14 @@ export interface EntityEngineOptions {
 }
 
 /**
- * What the app root registers: the engine's options and the class that tells the owner of a job the engine parked (the root names it, so
- * the engine never imports its capability). An app that only reads and writes records (the gateway, the command line) sets `storeOnly`:
- * it gets the scoped transactions, the reads and the writes, and no queue, no ports and no job runner, so it names no alerts.
+ * What the app root registers: the engine's options. An app that only reads and writes records (the gateway, the command line) sets
+ * `storeOnly`: it gets the scoped transactions, the reads and the writes, and no queue, no ports and no job runner. A job the engine runs
+ * that fails is judged and parked by the jobs runner (`platform/jobs`); the engine tells no one.
  */
-export type EntityEngineRegistration =
-    | (EntityEngineOptions & {
-          /** The class that implements the alerts of a parked job. */
-          readonly alerts: Type<EngineFailureAlerts>
-          readonly storeOnly?: false | undefined
-      })
-    | (EntityEngineOptions & { readonly storeOnly: true })
+export interface EntityEngineRegistration extends EntityEngineOptions {
+    /** True for an app that only reads and writes records: the engine then registers no queue, no ports and no job runner. */
+    readonly storeOnly?: boolean | undefined
+}
 
 /** The part of the options the environment supplies. */
 export type EntityEngineConfig = Pick<EntityEngineOptions, "cursorKey" | "buildId">

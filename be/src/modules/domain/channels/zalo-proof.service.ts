@@ -3,6 +3,7 @@ import { isValidZaloMac, zaloEventNameOf } from "@modules/integrations/zalo"
 import {
     InjectWebhookProofRegistry,
     type WebhookProof,
+    type WebhookProofAnswer,
     type WebhookProofRegistry,
     type WebhookProofRequest,
 } from "@modules/platform/http-security"
@@ -40,9 +41,9 @@ export class ZaloProofService implements WebhookProof, OnModuleInit {
     /**
      * True when the mac matches the bytes received; a missing body or header, a route that is no connection id and a body that is not
      * JSON are false. A connection that cannot prove anything yet (none under that id, or no OA secret key: Zalo shows the key only after
-     * the address answered its check with 200) is let through and logged as unverified: the intake then acknowledges it and drops it.
+     * the address answered its check with 200) answers `unproven` and is logged as unverified: the intake keeps it and acts on nothing.
      */
-    async prove(request: WebhookProofRequest): Promise<boolean> {
+    async prove(request: WebhookProofRequest): Promise<WebhookProofAnswer> {
         if (request.rawBody === undefined || !UUID.test(request.scope)) return false
         const loaded = await this.credentials.load(request.scope)
         if (loaded.kind !== "ok") {
@@ -50,7 +51,7 @@ export class ZaloProofService implements WebhookProof, OnModuleInit {
                 connectionId: request.scope,
                 reason: loaded.code,
             })
-            return true
+            return "unproven"
         }
         const { appId, oaSecret } = loaded.value.secret
         const body = request.rawBody.toString("utf8")

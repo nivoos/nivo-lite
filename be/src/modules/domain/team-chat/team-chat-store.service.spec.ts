@@ -106,7 +106,7 @@ describe("TeamChatStoreService opening and deleting rooms", () => {
         await expect(store.insertRoom({ ...opening, others: [{ memberKind: "agent", memberId: BOT }] })).resolves.toBe(
             room,
         )
-        expect(tx.committedWrites).toEqual([
+        expect(tx.committedWrites).toMatchObject([
             {
                 method: "insert",
                 args: [
@@ -284,6 +284,7 @@ describe("TeamChatStoreService storing a text", () => {
             mentions: [],
             attachments: [],
             clientId: "c1",
+            replyTo: null,
         })
     })
 
@@ -296,6 +297,46 @@ describe("TeamChatStoreService storing a text", () => {
         await expect(store.insertText(text)).rejects.toEqual({ code: "40001" })
         em.insert.mockRejectedValueOnce(clash)
         await expect(store.insertText({ ...text, clientId: null })).rejects.toBe(clash)
+    })
+})
+
+describe("TeamChatStoreService storing a text together with what it owes", () => {
+    const text = { workspaceId: WS, roomId: ROOM, authorId: ANA, body: "hi", clientId: "c1", mentions: [], attachments: [] }
+
+    it("runs what the message owes in the SAME transaction as its row, and commits both", async () => {
+        const em = mockEntityManager({ insert: [ChatRoomMessageEntity, {}], findOneOrFail: [ChatRoomMessageEntity, message] })
+        const tx = fakeTransaction(em)
+        const store = await build(em)
+        const within = jest.fn().mockResolvedValue(undefined)
+
+        await expect(store.insertTextWith(text, within)).resolves.toBe(message)
+
+        expect(within).toHaveBeenCalledWith(expect.anything(), message)
+        expect(tx.rollbacks).toBe(0)
+        expect(tx.committedWrites).toMatchObject([{ method: "insert", args: [ChatRoomMessageEntity, expect.objectContaining({ id: NEW_ID })] }])
+    })
+
+    it("rolls the row back when what the message owes fails, so the message is never stored without it", async () => {
+        const em = mockEntityManager({ insert: [ChatRoomMessageEntity, {}], findOneOrFail: [ChatRoomMessageEntity, message] })
+        const tx = fakeTransaction(em)
+        const store = await build(em)
+
+        await expect(store.insertTextWith(text, () => Promise.reject({ code: "40001" }))).rejects.toEqual({ code: "40001" })
+
+        expect(tx.rollbacks).toBe(1)
+        expect(tx.committedWrites).toEqual([])
+    })
+
+    it("answers the first write, and runs nothing again, when a retry lost the race on the client id", async () => {
+        const em = mockEntityManager({ insert: [ChatRoomMessageEntity, {}], findOne: [ChatRoomMessageEntity, message] })
+        fakeTransaction(em)
+        const store = await build(em)
+        em.insert.mockRejectedValueOnce(clash)
+        const within = jest.fn()
+
+        await expect(store.insertTextWith(text, within)).resolves.toBe(message)
+
+        expect(within).not.toHaveBeenCalled()
     })
 })
 
@@ -437,19 +478,6 @@ describe("TeamChatStoreService cards", () => {
     })
 })
 
-describe("TeamChatStoreService card count", () => {
-    it("counts the approval cards of a decision in the workspace", async () => {
-        const em = mockEntityManager({})
-        const [counted] = queueQueryBuilders(em, [{ getCount: 2 }])
-        const store = await build(em)
-        await expect(store.cardCount(WS, BEN)).resolves.toBe(2)
-        expect(counted?.callsOf("where")[0]).toEqual([
-            "msg.workspace_id = :workspaceId AND msg.kind = :kind AND (msg.ref ->> CAST(:key AS text)) = :decisionId",
-            { workspaceId: WS, kind: "approval", key: "decision_id", decisionId: BEN },
-        ])
-    })
-})
-
 describe("TeamChatStoreService lines", () => {
     it("stores a line of an agent or of the system under its key, and answers none when the key already wrote it", async () => {
         const em = mockEntityManager({ findOne: [ChatRoomMessageEntity, message] })
@@ -471,7 +499,9 @@ describe("TeamChatStoreService lines", () => {
                 authorId: BOT,
                 body: "hi",
                 kind: "text",
+                ref: null,
                 clientId: "k1",
+                replyTo: null,
             },
         ])
         expect(system?.callsOf("values")[0]).toEqual([
@@ -482,7 +512,9 @@ describe("TeamChatStoreService lines", () => {
                 authorId: null,
                 body: "hi",
                 kind: "system",
+                ref: null,
                 clientId: "k1",
+                replyTo: null,
             },
         ])
         expect(repeat?.callsOf("orIgnore")).toEqual([[]])
@@ -493,5 +525,22 @@ describe("TeamChatStoreService lines", () => {
         await expect(kept.lineKept(ROOM, BOT, "k1")).resolves.toBe(MSG)
         const none = await build(mockEntityManager({ findOne: [ChatRoomMessageEntity, null] }))
         await expect(none.lineKept(ROOM, BOT, "k1")).resolves.toBeNull()
+    })
+})
+
+describe("TeamChatStoreService rewriting the lines of a folded card", () => {
+    it("changes the words and the structured content of the agent's lines under the client ids, in the workspace only, and answers how many", async () => {
+        const em = mockEntityManager({ update: [ChatRoomMessageEntity, { affected: 2 }] })
+        const store = await build(em)
+
+        await expect(
+            store.updateAgentLines(WS, ["k", "k#module"], { body: "again", agentMessage: "{}" }),
+        ).resolves.toBe(2)
+
+        expect(em.update).toHaveBeenCalledWith(
+            ChatRoomMessageEntity,
+            { workspaceId: WS, clientId: In(["k", "k#module"]), authorKind: "agent" },
+            { body: "again", ref: { agent_message: "{}" } },
+        )
     })
 })

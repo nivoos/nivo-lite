@@ -46,11 +46,11 @@ const build = async (settings: MailOptions, answer: Error | null = null) => {
     const options = mock<MailOptions>(settings)
     Reflect.set(options, "helloName", settings.helloName)
     const account = mock<ClosableMailer>({
-        send: answer === null ? jest.fn().mockResolvedValue(sentOf) : jest.fn().mockRejectedValue(answer),
+        send: jest.fn(() => (answer === null ? Promise.resolve(sentOf) : Promise.reject(answer))),
         onModuleDestroy: jest.fn(),
     })
     const platform = mock<Mailer>({
-        send: answer === null ? jest.fn().mockResolvedValue(sentOf) : jest.fn().mockRejectedValue(answer),
+        send: jest.fn(() => (answer === null ? Promise.resolve(sentOf) : Promise.reject(answer))),
     })
     const factory = mock<MailerFactory>({ create: jest.fn((_options: MailerOptions) => account) })
     const moduleRef = await Test.createTestingModule({
@@ -160,7 +160,7 @@ describe("MailRelayService / sendThroughPlatform", () => {
         expect(platform.send).toHaveBeenCalledWith(delivery)
     })
     it("answers a failure as the integration error", async () => {
-        const { relay } = await build(PUBLIC, new PackageMailError("MAIL_UNKNOWN", { detail: "socket closed" }))
+        const { relay } = await build(PUBLIC, new Error("socket closed"))
 
         await expect(relay.sendThroughPlatform(delivery)).rejects.toMatchObject({ code: MailErrorCode.Unknown })
     })

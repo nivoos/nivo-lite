@@ -1,7 +1,6 @@
 "use client"
 
 import { IMAP_PRESETS, defaultPort, securityOf, type ImapSecurity } from "./imap-wizard.shared"
-import { type AgentWish } from "@/hooks/connections"
 import { useImapAccountForm } from "@/hooks/rhf"
 import { useTransition } from "react"
 import type { Settled } from "../connection-wizard"
@@ -28,8 +27,7 @@ interface ImapWizardActionsInput {
     readonly stamp: string
     readonly state: ImapWizardState
     readonly onClose: (changed: boolean) => void
-    readonly setConnectionAgents: (connectionId: string, wanted: ReadonlyArray<AgentWish>) => Promise<Settled<true>>
-    readonly startSync: (connectionId: string) => Promise<void>
+    readonly setConnectionAgents: (connectionId: string, wanted: ReadonlyArray<string>) => Promise<Settled<true>>
 }
 
 /** The view `useImapWizardActions` returns. */
@@ -54,7 +52,6 @@ export const useImapWizardActions = ({
     state,
     onClose,
     setConnectionAgents,
-    startSync,
 }: ImapWizardActionsInput): ImapWizardActionsView => {
     const [isPending, startTransition] = useTransition()
     const setField = (key: TextField) => (value: string) => {
@@ -99,11 +96,10 @@ export const useImapWizardActions = ({
                 ...request(),
                 folders: [...state.folders],
                 sinceDays: state.sinceDays,
-                syncEveryMinutes: state.every,
             })
             if (answer.kind !== "ok") return patch({ error: answer.message })
             form.setValue("password", "")
-            patch({ savedId: answer.value, index: 3 })
+            patch({ savedId: answer.value, index: 2 })
         })
 
     const finish = () => {
@@ -112,7 +108,6 @@ export const useImapWizardActions = ({
         startTransition(async () => {
             const answer = await setConnectionAgents(id, state.agentIds)
             if (answer.kind !== "ok") return patch({ error: answer.message })
-            void startSync(id)
             onClose(true)
         })
     }

@@ -1,6 +1,6 @@
 import { gql, type ApolloClient, type TypedDocumentNode } from "@apollo/client"
-import { createAuthApolloClient } from "../clients"
-import type { InputVariables, QueryParams, WireInput } from "../types"
+import { createAuthApolloClient, type InputVariables, type QueryParams, type WireInput } from "@nivo-lite/api"
+import { webApiTransport } from "@/modules/api-transport"
 import type { AgentGraphQuery, AgentGraphQueryVariables } from "../__generated__/graphql"
 
 /** The input of the `getAgentGraph` query. */
@@ -22,7 +22,6 @@ const query1: TypedDocumentNode<QueryAgentGraphResponse, InputVariables<QueryAge
             isDraftChanged
             mode
             problemsJson
-            proposalsJson
         }
     }
 `
@@ -46,6 +45,6 @@ export const queryAgentGraph = async ({
     request,
     signal,
 }: QueryAgentGraphParams): Promise<ApolloClient.QueryResult<QueryAgentGraphResponse>> => {
-    const apollo = createAuthApolloClient({ signal })
+    const apollo = createAuthApolloClient(webApiTransport, { signal })
     return apollo.query({ query: queryMap[query], variables: { input: request } })
 }

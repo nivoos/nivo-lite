@@ -16,15 +16,17 @@ export const ROLE_LABELS = { owner: "roleOwner", manager: "roleManager", staff: 
 export type ConsoleDestination = {
     readonly key: string
     readonly label:
-        | "navAuthority"
-        | "navInbox"
+        | "navOverview"
+        | "navContacts"
         | "navChat"
         | "navBrain"
         | "navModules"
         | "navTeam"
-        | "navPermissions"
         | "navConnections"
         | "navCredits"
+        | "navSettings"
+        | "navDevelopers"
+        | "navSandbox"
     readonly route: string
     readonly icon: ConsoleIconName
     /** Rail section: the daily work, running the business, setting it up. */
@@ -33,24 +35,25 @@ export type ConsoleDestination = {
     readonly also?: ReadonlyArray<string>
     /** Only owner and manager see this destination. */
     readonly managerOnly?: boolean
+    /** Only where the dev switch of the sandbox is on: the rail asks the back end and leaves it out in production. */
+    readonly sandboxOnly?: boolean
 }
 
 /** The Brain owns the business memory, so its documents are no separate destination. */
 export const DESTINATIONS: ReadonlyArray<ConsoleDestination> = [
-    { key: "inbox", label: "navInbox", route: "/inbox", icon: "email", group: "work" },
-    { key: "chat", label: "navChat", route: "/chat", icon: "chat", group: "work" },
-    { key: "brain", label: "navBrain", route: "/brain", icon: "brain", group: "operate", also: ["/knowledge"] },
-    { key: "authority", label: "navAuthority", route: "/authority", icon: "password", group: "operate" },
-    { key: "modules", label: "navModules", route: "/agents", icon: "apps", group: "setup" },
-    { key: "team", label: "navTeam", route: "/team", icon: "talents", group: "setup", managerOnly: true },
+    { key: "overview", label: "navOverview", route: "/overview", icon: "overview", group: "work", managerOnly: true },
     {
-        key: "permissions",
-        label: "navPermissions",
-        route: "/permissions",
-        icon: "review",
-        group: "setup",
+        key: "contacts",
+        label: "navContacts",
+        route: "/contacts",
+        icon: "community",
+        group: "work",
         managerOnly: true,
     },
+    { key: "chat", label: "navChat", route: "/chat", icon: "chat", group: "work" },
+    { key: "brain", label: "navBrain", route: "/brain", icon: "brain", group: "operate", also: ["/knowledge"] },
+    { key: "modules", label: "navModules", route: "/agents", icon: "apps", group: "setup" },
+    { key: "team", label: "navTeam", route: "/team", icon: "talents", group: "setup", managerOnly: true },
     {
         key: "connections",
         label: "navConnections",
@@ -60,6 +63,24 @@ export const DESTINATIONS: ReadonlyArray<ConsoleDestination> = [
         managerOnly: true,
     },
     { key: "credits", label: "navCredits", route: "/billing", icon: "wallet", group: "setup", managerOnly: true },
+    { key: "settings", label: "navSettings", route: "/settings", icon: "settings", group: "setup", managerOnly: true },
+    {
+        key: "developers",
+        label: "navDevelopers",
+        route: "/developers",
+        icon: "developers",
+        group: "setup",
+        managerOnly: true,
+    },
+    {
+        key: "sandbox",
+        label: "navSandbox",
+        route: "/sandbox",
+        icon: "agentos",
+        group: "setup",
+        managerOnly: true,
+        sandboxOnly: true,
+    },
 ]
 
 /** The destination a path inside the workspace belongs to; a path outside the rail to none. */

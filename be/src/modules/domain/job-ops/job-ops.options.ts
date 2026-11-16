@@ -14,4 +14,6 @@ export interface JobsAlertOptions {
 export interface JobOpsOptions {
     /** Omitted in the CLI, which must not start a background monitor. */
     readonly alerts?: JobsAlertOptions
+    /** Only an app that runs jobs and has the founder's chat: tells the founder (one card) when a job parks for a fix, and opens the owner's door to stopped work. */
+    readonly parkedCards?: boolean
 }

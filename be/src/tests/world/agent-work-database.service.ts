@@ -1,19 +1,16 @@
 import { In, type EntityManager } from "typeorm"
 import { jobsEntities } from "@modules/platform/jobs"
-import { messagesEntities } from "@modules/domain/messages"
 import { agentWorkEntities } from "../../modules/domain/agent-work"
 import type { AgentWakeSource } from "../../modules/domain/agent-work/agent-work.contracts"
 
 const AgentWorkStateEntity: (typeof agentWorkEntities)[1] = agentWorkEntities[1]
 const AgentWorkLeaseEntity: (typeof agentWorkEntities)[2] = agentWorkEntities[2]
-const AgentWakeEntity: (typeof agentWorkEntities)[6] = agentWorkEntities[6]
+const AgentWakeEntity: (typeof agentWorkEntities)[5] = agentWorkEntities[5]
 type AgentWakeEntity = InstanceType<typeof AgentWakeEntity>
-const AgentTurnEntity: (typeof agentWorkEntities)[7] = agentWorkEntities[7]
+const AgentTurnEntity: (typeof agentWorkEntities)[6] = agentWorkEntities[6]
 type AgentTurnEntity = InstanceType<typeof AgentTurnEntity>
 const JobOutboxEntity: (typeof jobsEntities)[1] = jobsEntities[1]
 type JobOutboxEntity = InstanceType<typeof JobOutboxEntity>
-const MessageEntity: (typeof messagesEntities)[0] = messagesEntities[0]
-type MessageEntity = InstanceType<typeof MessageEntity>
 
 /** The most rows one read of the proofs takes. */
 const ROWS_MAX = 20
@@ -34,12 +31,12 @@ export const wakesOfFact = (manager: EntityManager, agentId: string, eventKey: s
     manager.countBy(AgentWakeEntity, { agentId, eventKey })
 
 /** The drain jobs the outbox holds under one dedupe key. */
-export const drainJobsOf = async (manager: EntityManager, dedupeKey: string): Promise<Array<JobOutboxEntity>> =>
-    await manager.find(JobOutboxEntity, { where: { queue: "agent_turn", dedupeKey }, take: ROWS_MAX })
+export const drainJobsOf = (manager: EntityManager, dedupeKey: string): Promise<Array<JobOutboxEntity>> =>
+    manager.find(JobOutboxEntity, { where: { queue: "agent_turn", dedupeKey }, take: ROWS_MAX })
 
 /** The turns a wake has been run as, newest fence last. */
-export const turnsOfWake = async (manager: EntityManager, wakeId: string): Promise<Array<AgentTurnEntity>> =>
-    await manager.find(AgentTurnEntity, { where: { wakeId }, order: { fence: "ASC" }, take: ROWS_MAX })
+export const turnsOfWake = (manager: EntityManager, wakeId: string): Promise<Array<AgentTurnEntity>> =>
+    manager.find(AgentTurnEntity, { where: { wakeId }, order: { fence: "ASC" }, take: ROWS_MAX })
 
 /** Lets the lease of a scope lapse, the way a worker that died would. */
 export const lapseLease = async (manager: EntityManager, agentId: string, scopeKey: string): Promise<void> => {
@@ -67,7 +64,3 @@ export const settleAgentWork = async (manager: EntityManager, workspaceId: strin
 export const removeDrainJobs = async (manager: EntityManager, workspaceId: string): Promise<void> => {
     await manager.delete(JobOutboxEntity, { queue: "agent_turn", workspaceId })
 }
-
-/** The lines of the workspace's chat, oldest first. */
-export const linesOfWorkspace = async (manager: EntityManager, workspaceId: string): Promise<Array<MessageEntity>> =>
-    await manager.find(MessageEntity, { where: { workspaceId }, order: { createdAt: "ASC" }, take: ROWS_MAX })

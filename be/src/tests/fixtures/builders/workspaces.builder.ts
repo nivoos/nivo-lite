@@ -1,3 +1,4 @@
+import type { WorkspaceEntity } from "@modules/domain/workspaces"
 import { entityRowBuilder } from "./entity-row.builder"
 
 /** A stored workspace as the workspaces table holds it. */
@@ -17,6 +18,9 @@ export interface WorkspaceRow {
     readonly billedMonthlyVnd: string | null
     readonly displayName: string | null
     readonly logoUrl: string | null
+    readonly timeZone: string
+    readonly theme: WorkspaceEntity["theme"]
+    readonly deletedAt: Date | null
 }
 
 type WorkspaceRowShape = {
@@ -35,6 +39,9 @@ type WorkspaceRowShape = {
     readonly billedMonthlyVnd?: string | null
     readonly displayName?: string | null
     readonly logoUrl?: string | null
+    readonly timeZone?: string
+    readonly theme?: WorkspaceEntity["theme"]
+    readonly deletedAt?: Date | null
 }
 
 /** Workspace `ws-1`, the cafe Quan Ca Phe owned by `owner-1`; the arguments of a case change what it needs. */
@@ -54,6 +61,9 @@ export const workspaceRow: (changes?: WorkspaceRowShape) => WorkspaceRow = entit
     billedMonthlyVnd: null,
     displayName: null,
     logoUrl: null,
+    timeZone: "Asia/Ho_Chi_Minh",
+    theme: null,
+    deletedAt: null,
 })
 
 /** A workspace the person owns, by id and status. */

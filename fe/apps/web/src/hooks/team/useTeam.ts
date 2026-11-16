@@ -1,7 +1,12 @@
 "use client"
 
-import { useMemo, useReducer } from "react"
-import { useQueryWorkspaceInvitesSwr, useQueryWorkspaceMembersSwr, useQueryWorkspaceStaffSwr } from "@/hooks/swr"
+import { useMemo, useState } from "react"
+import {
+    useQueryWorkspaceDeclinedInvitesSwr,
+    useQueryWorkspaceInvitesSwr,
+    useQueryWorkspaceMembersSwr,
+    useQueryWorkspaceStaffSwr,
+} from "@/hooks/swr"
 import { teamViews, type TeamViews } from "./team.shared"
 
 /** The team of a workspace as the page draws it. */
@@ -15,7 +20,7 @@ export interface TeamState {
     readonly reload: () => void
 }
 
-const EMPTY: TeamViews = { members: [], invites: [], staffChoices: [] }
+const EMPTY: TeamViews = { members: [], invites: [], declined: [], staffChoices: [] }
 
 /** Reads the members, the open invitations and the staff rows of a workspace (`enabled` is false for a person who may not see them). */
 export const useTeam = (workspaceId: string, enabled: boolean): TeamState => {
@@ -23,23 +28,28 @@ export const useTeam = (workspaceId: string, enabled: boolean): TeamState => {
     const members = useQueryWorkspaceMembersSwr(id)
     const invites = useQueryWorkspaceInvitesSwr(id)
     const staff = useQueryWorkspaceStaffSwr(id)
-    const [now] = useReducer((current: number) => current, undefined, Date.now)
+    const declined = useQueryWorkspaceDeclinedInvitesSwr(id)
+    const [now] = useState(() => Date.now())
     const failure = [members.error, invites.error, staff.error].find((error): error is Error => error instanceof Error)
     const views = useMemo(
         () =>
             members.data === undefined || invites.data === undefined || staff.data === undefined
                 ? EMPTY
-                : teamViews(members.data, invites.data, staff.data, now),
-        [members.data, invites.data, staff.data, now],
+                : teamViews(members.data, invites.data, staff.data, now, declined.data ?? []),
+        [members.data, invites.data, staff.data, now, declined.data],
     )
     return {
         views,
-        isLoading: enabled && failure === undefined && (members.isLoading || invites.isLoading || staff.isLoading),
+        isLoading:
+            enabled &&
+            failure === undefined &&
+            (members.isLoading || invites.isLoading || staff.isLoading || declined.isLoading),
         error: failure?.message,
         reload: () => {
             void members.mutate()
             void invites.mutate()
             void staff.mutate()
+            void declined.mutate()
         },
     }
 }

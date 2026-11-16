@@ -25,6 +25,10 @@ const TONES: Readonly<Record<KnowledgeDocument["status"], ConnectionTone>> = {
 export interface DriveProgressView {
     lines: DataSlot<readonly ConnectionLineView[]>
     count: number
+    /** Whether the sources have been read (a count of zero is then a fact, not a wait). */
+    isLoaded: boolean
+    /** When the newest source from Drive was added; null before any. */
+    lastAt: string | null
     reload: () => undefined
 }
 
@@ -39,7 +43,7 @@ export const useDriveProgress = (enabled = true): DriveProgressView => {
     const format = useFormatter()
     const read = useQueryKnowledgeSourcesSwr({ origin: DRIVE_ORIGIN }, DRIVE_PROGRESS_POLL_MS, enabled)
     const commands = useLibraryCommands()
-    const documents = useMemo(() => read.data?.map((item) => toKnowledgeDocument(item)), [read.data])
+    const documents = useMemo(() => read.data?.map((entry) => toKnowledgeDocument(entry)), [read.data])
     const { retry } = commands
 
     const lineOf = useCallback(
@@ -73,11 +77,17 @@ export const useDriveProgress = (enabled = true): DriveProgressView => {
 
     const lines: DataSlot<ReadonlyArray<ConnectionLineView>> = mapSlot(
         slotOfSwr({ data: documents, error: read.error, isLoading: read.isLoading }),
-        (sources) => sources.toSorted((a, b) => b.createdAt.localeCompare(a.createdAt)).map((item) => lineOf(item)),
+        (sources) => sources.toSorted((a, b) => b.createdAt.localeCompare(a.createdAt)).map((entry) => lineOf(entry)),
     )
     return {
         lines,
         count: documents?.length ?? 0,
+        isLoaded: documents !== undefined,
+        lastAt:
+            documents?.reduce<string | null>(
+                (last, source) => (last === null || source.createdAt > last ? source.createdAt : last),
+                null,
+            ) ?? null,
         reload: () => void read.mutate(),
     }
 }

@@ -27,7 +27,7 @@ export class ConnectionHealthService {
 
     /** Judges every connection that is set up and records the verdicts that changed; answers how many it saw in each state. */
     async checkAll(silentAfterHours: number = DEFAULT_SILENT_AFTER_HOURS): Promise<HealthSummary> {
-        const tally: HealthTally = { checked: 0, ok: 0, silent: 0, failing: 0, changed: 0 }
+        const tally: HealthTally = { checked: 0, ok: 0, silent: 0, failing: 0, degraded: 0, changed: 0 }
         await this.page("", silentAfterHours, tally)
         return { ...tally }
     }
@@ -50,7 +50,7 @@ export class ConnectionHealthService {
         if (connection.status === "pending") return
         counts.checked += 1
         const verdict = judgeConnection(connection, this.clock.now().getTime(), silentAfterHours)
-        counts[verdict.state] += 1
+        counts[verdict.state === "needs_reauth" ? "failing" : verdict.state] += 1
         if (connection.health === verdict.state || (verdict.state === "ok" && connection.health === "")) return
         await this.connections.markHealth(connection.id, { ...verdict, checkedAt: this.clock.now().toISOString() })
         counts.changed += 1

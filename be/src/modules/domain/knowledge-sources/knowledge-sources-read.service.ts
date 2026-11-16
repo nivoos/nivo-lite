@@ -4,6 +4,7 @@ import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import type { SourceBrief } from "./knowledge-sources.contracts"
 import type {
     ChangedPublicSource,
+    InstanceDocument,
     OriginSource,
     PublicSourceExcerpt,
     PublicSourceText,
@@ -11,6 +12,9 @@ import type {
     SourceState,
 } from "./knowledge-sources-read.contracts"
 import { KnowledgeSourceEntity } from "./persistence/entities"
+
+/** The most documents one copy of an instance reads. */
+const INSTANCE_DOCUMENTS_MAX = 500
 
 const isChangedPublicSource = (value: unknown): value is ChangedPublicSource =>
     typeof value === "object" &&
@@ -28,6 +32,21 @@ const isChangedPublicSource = (value: unknown): value is ChangedPublicSource =>
 /** Request-time reads of the shared public documents of a workspace for the capabilities that quote them, always bounded by the caller. */
 export class KnowledgeSourcesReadService {
     constructor(@InjectPrimaryEntityManager() private readonly entityManager: EntityManager) {}
+
+    /**
+     * Holds the document row against its deletion until the transaction `tx` ends and says whether it is still there. JOB-FRAME RULE
+     * (origin in force): a step that writes data derived from a deletable origin checks it in the transaction of the write; a delete
+     * then waits for the write to commit and withdraws what it left, or the write finds the origin gone and writes nothing.
+     */
+    async holds(tx: EntityManager, workspaceId: string, sourceId: string): Promise<boolean> {
+        const row = await tx
+            .createQueryBuilder(KnowledgeSourceEntity, "s")
+            .select("s.id")
+            .where("s.id = :sourceId AND s.workspaceId = :workspaceId", { sourceId, workspaceId })
+            .setLock("pessimistic_read")
+            .getOne()
+        return row !== null
+    }
 
     /** The text of the given public documents a module may quote, oldest first, at most `limit`; none when no id is given. */
     publicTexts(
@@ -112,6 +131,15 @@ export class KnowledgeSourcesReadService {
         return rows.map((row) => ({ id: row.id, kind: row.kind, title: row.title, topic: row.topic }))
     }
 
+    /** Where one source of a workspace came from (its `origin`, e.g. the first part of a long file); null when it has none or is gone. */
+    async originOf(workspaceId: string, sourceId: string): Promise<string | null> {
+        const row = await this.entityManager.findOne(KnowledgeSourceEntity, {
+            select: { id: true, origin: true },
+            where: { workspaceId, id: sourceId },
+        })
+        return row?.origin ?? null
+    }
+
     /** The sources a workspace added from one origin (for example `google_drive`), newest change first, at most `limit`. */
     async ofOrigin(workspaceId: string, origin: string, limit: number): Promise<ReadonlyArray<OriginSource>> {
         const rows = await this.entityManager.find(KnowledgeSourceEntity, {
@@ -191,5 +219,24 @@ export class KnowledgeSourcesReadService {
                 module,
             })
             .andWhere("s.installation_id IS NULL")
+    }
+
+    /** The ready documents kept for one agent instance alone (never the shared ones), with their text, oldest first: what a copy of the instance takes. */
+    async readyOfInstance(workspaceId: string, installationId: string): Promise<ReadonlyArray<InstanceDocument>> {
+        const rows = await this.entityManager.find(KnowledgeSourceEntity, {
+            select: { id: true, kind: true, title: true, content: true, topic: true, tags: true, visibility: true },
+            where: { workspaceId, installationId, status: "ready" },
+            order: { createdAt: "ASC", id: "ASC" },
+            take: INSTANCE_DOCUMENTS_MAX,
+        })
+        return rows.map((row) => ({
+            id: row.id,
+            kind: row.kind,
+            title: row.title,
+            content: row.content,
+            topic: row.topic,
+            tags: row.tags,
+            visibility: row.visibility,
+        }))
     }
 }

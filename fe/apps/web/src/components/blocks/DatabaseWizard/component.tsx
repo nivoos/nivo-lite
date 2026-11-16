@@ -7,11 +7,12 @@ import {
     WizardFooter,
     backAction,
     closeAction,
+    forwardAction,
     nextAction,
     type WizardAction,
 } from "@/components/branches/WizardFooter"
 import { frameOf, WizardFrame } from "@/components/frames/WizardFrame"
-import type { AgentStepView, DataSlot, SlotLabels, WizardNote, WizardResume } from "@/modules/types"
+import type { AgentStepView, DataSlot, SlotLabels, WizardNote, WizardResume, WizardPhases } from "@/modules/types"
 
 /** One option of a radio or checkbox list. */
 interface DatabaseChoice {
@@ -62,6 +63,7 @@ export interface DatabaseWizardBaseProps {
         readonly title: string
         readonly stepLabel: string
         readonly steps: ReadonlyArray<string>
+        readonly phases: WizardPhases
         readonly index: number
         readonly step: "connect" | "tables" | "schedule" | "agent"
         readonly connect: DatabaseConnectFieldsProps
@@ -105,7 +107,7 @@ const connectActions = ({ props, on }: DatabaseWizardBaseProps): ReadonlyArray<W
     const flags = { isPending: props.isPending, isDisabled: !props.canTest }
     if (props.tables === null) return [nextAction(text.test, on.test, flags), closeAction(text.close, on.close)]
     const retest: WizardAction = { id: "test", label: text.test, intent: "alternative", ...flags, onPress: on.test }
-    return [nextAction(text.next, () => on.go(1), flags), retest, closeAction(text.close, on.close)]
+    return [forwardAction(text.next, () => on.go(1), flags), retest, closeAction(text.close, on.close)]
 }
 
 const actionsOf = (base: DatabaseWizardBaseProps): ReadonlyArray<WizardAction> => {
@@ -114,7 +116,7 @@ const actionsOf = (base: DatabaseWizardBaseProps): ReadonlyArray<WizardAction> =
     const back = backAction(text.back, props.isPending, () => on.go(props.index - 1))
     if (props.step === "connect") return connectActions(base)
     if (props.step === "tables")
-        return [nextAction(text.next, () => on.go(2), { isDisabled: !props.tablesReady }), back]
+        return [forwardAction(text.next, () => on.go(2), { isDisabled: !props.tablesReady }), back]
     if (props.step === "schedule") return [nextAction(text.save, on.save, { isPending: props.isPending }), back]
     const leave: WizardAction = { ...back, intent: "dismiss", onPress: () => on.go(2) }
     return [nextAction(text.done, on.finish, { isPending: props.isPending }), leave]
@@ -210,6 +212,7 @@ export const DatabaseWizardBase = (props: DatabaseWizardBaseProps) => {
             render={(_resume, isLoading) => (
                 <WizardFrame
                     {...frameOf(view)}
+                    phases={view.phases}
                     footer={<WizardFooter actions={actionsOf(props)} isLoading={isLoading} />}
                 >
                     {view.step === "connect" ? (

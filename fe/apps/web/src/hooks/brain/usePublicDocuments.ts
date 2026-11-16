@@ -30,7 +30,7 @@ export const usePublicDocuments = (): PublicDocumentsView => {
     const swrRead = useQueryPublicDocumentsSwr(member.canWrite)
     const { data, isLoading } = swrRead
     const error = readError(swrRead)
-    const documents = useMemo(() => (data === undefined ? NONE : data.map((item) => toPublicDocument(item))), [data])
+    const documents = useMemo(() => (data === undefined ? NONE : data.map((entry) => toPublicDocument(entry))), [data])
     const slot = slotOfSwr({ data: data === undefined ? undefined : documents, error: swrRead.error, isLoading })
     const reload = () => void swrRead.mutate()
     return { documents, error, isLoading, slot, reload, canWrite: member.canWrite }

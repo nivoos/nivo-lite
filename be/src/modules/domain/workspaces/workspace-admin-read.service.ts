@@ -64,7 +64,7 @@ export class WorkspaceAdminReadService {
             order: { createdAt: "DESC" },
             take: limit,
         })
-        return rows.map((row) => toRow(row))
+        return rows.map((item) => toRow(item))
     }
 
     /** One workspace by id; undefined when it does not exist. */

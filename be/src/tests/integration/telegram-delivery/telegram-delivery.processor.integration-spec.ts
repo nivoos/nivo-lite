@@ -31,15 +31,15 @@ const registerValidation = (world: LiteWorld, build: BuildDelivery): void => {
             expectedFencingToken: 3,
             step: "telegram-delivery",
         })
-        expect(inbox.processRecordedDelivery).toHaveBeenCalledWith(job.payload)
+        expect(inbox.processRecordedDelivery).toHaveBeenCalledWith(job.payload, job)
         expect((await state()).receipts[0]?.processed_at).toBeInstanceOf(Date)
     })
 
     it.each([{}, { deliveryId: "" }, { deliveryId: "   " }, { deliveryId: 1 }])(
-        "discards invalid references before any claim or effect: %p",
+        "refuses an invalid reference as an input failure before any claim or effect: %p",
         async (payload) => {
             const { processor, inbox, progress, job, state, delivery } = await build()
-            await processor.process({ ...job, payload })
+            await expect(processor.process({ ...job, payload })).rejects.toMatchObject({ params: { failureClass: "input" } })
             expect(progress.advance).not.toHaveBeenCalled()
             expect(inbox.processRecordedDelivery).not.toHaveBeenCalled()
             expect(await jobSnapshot(world.db.primary, delivery.id)).toMatchObject({

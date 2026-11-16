@@ -1,12 +1,9 @@
-import { Injectable } from "@nestjs/common"
+import { Injectable, Optional } from "@nestjs/common"
 import type { EntityManager } from "typeorm"
 import { AgentIdentityService, AgentsService } from "@modules/domain/agents"
-import { AuthorityRulesService } from "@modules/domain/authority-rules"
 import { EventsService } from "@modules/domain/events"
 import {
     InstallationRecordsService,
-    type AgentSyncStatus,
-    type InstallationMode,
     type InstallationRecord,
     type InstallationWrite,
     type RecordInstallation,
@@ -14,12 +11,13 @@ import {
 } from "@modules/domain/module-installations"
 import { InstallationChangesService } from "./installation-changes.service"
 import { InstallationFactsService } from "./installation-facts.service"
+import { INSTALLED } from "@modules/domain/installed-plugins"
+import { WorkspaceEnterpriseService } from "@modules/domain/workspaces"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { WorkspaceMembersService, type WorkspaceMember, type WorkspaceRole } from "@modules/domain/workspace-members"
 import { ModulesError, ModulesErrorCode } from "./errors/modules.error"
 import type { InstallRequest, InstallResult } from "./module-installs.contracts"
 import { ModuleReadinessService } from "./module-readiness.service"
-import { ModuleTagGrantsService } from "./module-tag-grants.service"
 import type { InstallationView, ModuleDefinition } from "./modules.contracts"
 import { ModulesService } from "./modules.service"
 import { RecordInstallationService } from "./record-installation.service"
@@ -27,7 +25,6 @@ import {
     AGENT_NAME_LIMITS,
     agentNameOf,
     cleanInstanceName,
-    defaultRulesOf,
     freeHandle,
     instanceNameKey,
     nextInstanceName,
@@ -35,6 +32,7 @@ import {
     withSetting,
     type SettingValue,
 } from "./policies/instance.policy"
+import { handleBaseOf } from "./policies/agent-handle.policy"
 
 const GOVERNORS: ReadonlyArray<WorkspaceRole> = ["owner", "manager"]
 
@@ -45,7 +43,7 @@ const expectWritten = (written: InstallationWrite): void => {
 
 @Injectable()
 /**
- * The lifecycle of the installed agents of a workspace: installing a module (its agent, its default authority rules, its OpenClaw copy),
+ * The lifecycle of the installed agents of a workspace: installing a module (its agent),
  * adding an instance of a multi-instance type, renaming, the operating mode, the live switch and the settings. Reads are open to every
  * member; every change is for owners and managers.
  */
@@ -57,13 +55,12 @@ export class ModuleInstallService {
         private readonly catalog: ModulesService,
         private readonly agents: AgentsService,
         private readonly identity: AgentIdentityService,
-        private readonly rules: AuthorityRulesService,
         private readonly events: EventsService,
         private readonly changes: InstallationChangesService,
         private readonly facts: InstallationFactsService,
         private readonly recordOwners: RecordInstallationService,
         private readonly readiness: ModuleReadinessService,
-        private readonly tagGrants: ModuleTagGrantsService,
+        @Optional() private readonly enterprise?: WorkspaceEnterpriseService,
     ) {}
 
     /** Every installation of the workspace, oldest first; any member may read. */
@@ -90,13 +87,14 @@ export class ModuleInstallService {
     }
 
     /**
-     * Installs a module: its agent (reused when the workspace already has an unbound one, except for an added instance), the installation,
-     * its default authority rules (never overwriting what the owner already set) and the sync of its OpenClaw copy. Without `newInstance`
-     * the call is idempotent and answers the first installation of the type.
+     * Installs a module: its agent (reused when the workspace already has an unbound one, except for an added instance), the installation
+     * and the `installation_changed` event. Without
+     * `newInstance` the call is idempotent and answers the first installation of the type.
      */
     async install(principalId: string, request: InstallRequest): Promise<InstallResult> {
         const member = await this.members.require(principalId, request.workspaceId, GOVERNORS)
-        const module = await this.catalog.findByKey(request.moduleKey)
+        const module = await this.catalog.find(request.moduleKey)
+        await this.requireOpen(request.workspaceId, module.key)
         const wanted = request.name === null ? null : cleanInstanceName(request.name)
         if (request.name !== null && wanted === null) {
             throw new ModulesError({ code: ModulesErrorCode.InstanceNameInvalid })
@@ -107,18 +105,31 @@ export class ModuleInstallService {
         const existing = request.newInstance
             ? null
             : await this.installations.firstOfModule(request.workspaceId, module.key)
+        // Adding is what `available` governs: an installation the workspace already has is only answered.
+        if (existing === null && !module.available && request.platform !== true) {
+            throw new ModulesError({ code: ModulesErrorCode.NotAvailable, params: { key: module.key } })
+        }
         const made =
             existing === null
                 ? await this.create(principalId, member, module, request, wanted)
                 : { installationId: existing.id, agentId: existing.agentId, created: false }
-        await this.rules.seedDefaults(request.workspaceId, module.key, defaultRulesOf(module))
-        if (made.agentId !== null) await this.tagGrants.grantFor(request.workspaceId, module.key, made.agentId)
         await this.changes.announceNow({
             workspaceId: request.workspaceId,
             installationId: made.installationId,
             force: true,
         })
         return made
+    }
+
+    /**
+     * Refuses a module the workspace may not install: a module of a private plugin is open only to the enterprise workspaces the
+     * plugin names (and to none where the app holds no workspaces capability). The refusal is the not-found of an unknown key, so
+     * nothing tells a private module from no module. A module of a public plugin costs no read.
+     */
+    private async requireOpen(workspaceId: string, key: string): Promise<void> {
+        if (INSTALLED.isOpenTo(key, null)) return
+        if ((await this.enterprise?.opens(workspaceId, key)) === true) return
+        throw new ModulesError({ code: ModulesErrorCode.NotFound, params: { key } })
     }
 
     /** Renames an instance: its label in lists, the chrome and Office; unique per type in the workspace, case-insensitive. */
@@ -140,17 +151,13 @@ export class ModuleInstallService {
         return this.viewOf(workspaceId, installationId)
     }
 
-    /** Sets how an agent runs: autopilot applies the authority rules as configured, assist downgrades every automatic action to a question. */
-    async setOperatingMode(
-        principalId: string,
-        workspaceId: string,
-        installationId: string,
-        mode: InstallationMode,
-    ): Promise<InstallationView> {
+    /**
+     * The old switch of how an agent runs (assist / autopilot) is gone: a node's declared mode alone decides (rights rule 9, 2026-11-13).
+     * The door the web still calls answers a typed refusal to an owner or a manager; nothing is written.
+     */
+    async setOperatingMode(principalId: string, workspaceId: string): Promise<InstallationView> {
         await this.members.require(principalId, workspaceId, GOVERNORS)
-        await this.requireActive(workspaceId, installationId)
-        expectWritten(await this.installations.setOperatingMode(workspaceId, installationId, mode))
-        return this.viewOf(workspaceId, installationId)
+        throw new ModulesError({ code: ModulesErrorCode.OperatingModeRemoved })
     }
 
     /**
@@ -168,7 +175,7 @@ export class ModuleInstallService {
         if (live && current.activeContextVersionId === null) {
             throw new ModulesError({ code: ModulesErrorCode.NeedsVersion })
         }
-        const waiting = live && (await this.readiness.needsOf(workspaceId, current.moduleKey)).length > 0
+        const waiting = live && (await this.readiness.needsOf(current.moduleKey)).length > 0
         // One transaction: the installation and its agent are switched together or not at all.
         await this.entityManager.transaction(async (tx) => {
             expectWritten(await this.installations.setLive(workspaceId, installationId, live, waiting, tx))
@@ -198,10 +205,7 @@ export class ModuleInstallService {
         return this.viewOf(workspaceId, installationId)
     }
 
-    /**
-     * Merges one setting into the settings of an installation: the longest a customer waits before the app answers directly
-     * (`openclawTimeoutSec`) or the holding message (`holdingMessage`, empty removes it).
-     */
+    /** Merges one setting into the settings of an installation: the holding message (`holdingMessage`, empty removes it) or the working hours. */
     async saveSetting(
         principalId: string,
         workspaceId: string,
@@ -223,14 +227,6 @@ export class ModuleInstallService {
     async requirementFacts(principalId: string, workspaceId: string): Promise<RequirementFacts> {
         await this.members.require(principalId, workspaceId)
         return this.facts.requirementFacts(workspaceId)
-    }
-
-    /** Where the OpenClaw copy of the agent of an installation stands; any member may look. */
-    async syncStatus(principalId: string, workspaceId: string, installationId: string): Promise<AgentSyncStatus> {
-        await this.members.require(principalId, workspaceId)
-        const status = await this.facts.syncStatus(workspaceId, installationId)
-        if (status === null) throw new ModulesError({ code: ModulesErrorCode.InstallationNotFound })
-        return status
     }
 
     /** The installation of the workspace with what it still needs connected. */
@@ -262,7 +258,7 @@ export class ModuleInstallService {
         const siblings = await this.installations.instanceNames(workspaceId, module.key, null)
         const taken = siblings.map((sibling) => sibling.name)
         const typeName = module.name[locale]
-        const name = wanted ?? nextInstanceName(typeName, taken)
+        const name = wanted ?? request.agent?.name ?? nextInstanceName(typeName, taken)
         if (taken.some((other) => instanceNameKey(other) === instanceNameKey(name))) {
             throw new ModulesError({ code: ModulesErrorCode.InstanceNameTaken })
         }
@@ -308,11 +304,14 @@ export class ModuleInstallService {
     ): Promise<string> {
         const { workspaceId, locale } = request
         const used = new Set((await this.agents.list(principalId, workspaceId)).map((agent) => agent.handle))
+        const chosen = request.agent
+        const named = chosen?.name ?? wanted
+        const handle = chosen?.handle ?? freeHandle(handleBaseOf(chosen?.name, module.agent.handle), used)
         const created = await this.agents.create(principalId, {
             workspaceId,
             module: module.key,
-            name: wanted === null ? { label: module.agent.label[locale] } : agentNameOf(wanted),
-            handle: freeHandle(module.agent.handle, used),
+            name: named === null ? { label: module.agent.label[locale] } : agentNameOf(named),
+            handle,
             role: module.agent.role[locale],
             instructions: module.agent.instructions[locale],
         })

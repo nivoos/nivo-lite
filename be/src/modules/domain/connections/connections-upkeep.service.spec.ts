@@ -1,7 +1,7 @@
 import { Test } from "@nestjs/testing"
 import { fakeTransaction, mockEntityManager } from "@starci/jest-preset"
 import type { MockEntityManager } from "@starci/jest-preset"
-import { In, Not } from "typeorm"
+import { In, IsNull, Not } from "typeorm"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { connectionsCase } from "@tests/fixtures/builders/connections.builder"
 import { queueQueryBuilders } from "@tests/fixtures/builders/entity-query-builder.builder"
@@ -58,7 +58,7 @@ describe("ConnectionsUpkeepService > health", () => {
         expect(fakes[0]?.callsOf("setParameter")).toEqual([
             ["verdict", '{"state":"silent","reason":"no event for 80h","checked_at":"2026-10-12T10:00:00.000Z"}'],
         ])
-        expect(fakes[0]?.callsOf("where")).toEqual([[{ id: "c-1" }]])
+        expect(fakes[0]?.callsOf("where")).toEqual([[{ id: "c-1", deletedAt: IsNull() }]])
         expect(evaluatedValues(fakes[0]?.callsOf("set")[0]?.[0])).toEqual({
             publicMeta: "jsonb_set(public_meta, '{health}', :verdict::jsonb)",
         })
@@ -85,7 +85,7 @@ describe("ConnectionsUpkeepService > sync scheduling and default SMTP", () => {
         const { em, fakes } = withBuilders([{ execute: { raw: [{ id: "c1" }] } }])
         await expect((await build(em)).setSchedule("ws-1", "c1", everyMinutes)).resolves.toBeUndefined()
         expect(fakes[0]?.callsOf("setParameter")).toEqual([["minutes", everyMinutes]])
-        expect(fakes[0]?.callsOf("where")).toEqual([[{ workspaceId: "ws-1", id: "c1" }]])
+        expect(fakes[0]?.callsOf("where")).toEqual([[{ workspaceId: "ws-1", id: "c1", deletedAt: IsNull() }]])
         expect(setOf(fakes[0])).toEqual({
             syncEveryMinutes: ":minutes::int",
             nextSyncAt: "CASE WHEN :minutes::int IS NULL THEN NULL ELSE now() END",
@@ -112,7 +112,7 @@ describe("ConnectionsUpkeepService > sync scheduling and default SMTP", () => {
         expect(evaluatedCalls(em.update.mock.calls, 2)).toEqual([
             [
                 "ConnectionEntity",
-                { id: "c2" },
+                { id: "c2", deletedAt: IsNull() },
                 {
                     status: "error",
                     lastError: "Expired token",
@@ -124,7 +124,7 @@ describe("ConnectionsUpkeepService > sync scheduling and default SMTP", () => {
         expect(setOf(fakes[1])).toEqual({ isDefault: "(id = :id)" })
         expect(fakes[1]?.callsOf("where")).toEqual([
             [
-                "workspace_id = :workspaceId AND provider = 'smtp' AND (is_default OR id = :id)",
+                "workspace_id = :workspaceId AND provider = 'smtp' AND deleted_at IS NULL AND (is_default OR id = :id)",
                 { workspaceId: "ws-1", id: "c3" },
             ],
         ])
@@ -161,6 +161,27 @@ describe("ConnectionsUpkeepService > sync scheduling and default SMTP", () => {
             nextSyncAt: "now() + interval '30 minutes'",
         })
         expect(tx.commits).toBe(1)
+    })
+
+    it("claims inside the caller's transaction when one is given, opening none of its own", async () => {
+        const own = mockEntityManager()
+        const caller = fakeTransaction(mockEntityManager())
+        withBuilders([{ getRawMany: [{ id: "c1" }] }, { execute: { raw: [{ id: "c1", workspace_id: "ws-1" }] } }], caller.em)
+        await expect((await build(own)).claimDueSyncs(["telegram"], 1, caller.em)).resolves.toEqual([{ id: "c1", workspaceId: "ws-1" }])
+        expect(own.transaction).not.toHaveBeenCalled()
+        expect(caller.em.transaction).not.toHaveBeenCalled()
+    })
+
+    it("writes a sync's end and its failure on the caller's manager when one is given", async () => {
+        const own = mockEntityManager()
+        const caller = mockEntityManager({ update: [ConnectionEntity, { affected: 1 }] })
+        withBuilders([{ execute: {} }], caller)
+        const service = await build(own)
+        await expect(service.markSynced("c1", { items: "3" }, caller)).resolves.toBeUndefined()
+        await expect(service.markSyncFailed("c1", "Expired token", caller)).resolves.toBeUndefined()
+        expect(caller.update).toHaveBeenCalledTimes(1)
+        expect(own.update).not.toHaveBeenCalled()
+        expect(own.createQueryBuilder).not.toHaveBeenCalled()
     })
 
     it("claims nothing and writes nothing when no sync is due", async () => {

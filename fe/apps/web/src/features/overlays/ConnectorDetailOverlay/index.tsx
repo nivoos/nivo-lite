@@ -1,10 +1,10 @@
 "use client"
 
-import { useTranslations } from "next-intl"
+import { useLocale, useTranslations } from "next-intl"
+import { useModuleCatalog } from "@/hooks/moduleCatalog"
 import { useSearchParams } from "next/navigation"
 import type { ReactNode } from "react"
-import { useQueryAuthUserSwr } from "@/hooks/auth"
-import { catalogKey, entryById } from "@/hooks/connection-catalog"
+import { audienceNamesOf, catalogKey, entryById } from "@/hooks/connection-catalog"
 import { PROVIDER_LOGO } from "@/hooks/connection-providers"
 import {
     isLocalOnly,
@@ -17,7 +17,7 @@ import {
 } from "@/hooks/connections"
 import { webSiteOrigin } from "@/modules/config"
 import { slotOfReads } from "@/hooks/slot"
-import type { AgentOption, Connection } from "@/modules/types"
+import type { Connection } from "@/modules/types"
 import { ConnectorDetailOverlayBase, OverlayHost, detailRowsOf, type DetailEntry } from "./component"
 
 /** Workspace inputs supplied by a caller, or read by the drawer when its server page registers it without inputs. */
@@ -25,9 +25,7 @@ type ConnectorDetailOverlayProps = {
     readonly items?: ReadonlyArray<Connection>
     /** Agent id -> name, for the "used by" line of each row. */
     readonly agentNames?: Readonly<Record<string, string>>
-    readonly agents?: ReadonlyArray<AgentOption>
     readonly localOnly?: boolean
-    readonly ownerEmail?: string
     /** The workspace owner adds, changes and removes connections; others read. */
     readonly canManage?: boolean
 }
@@ -51,10 +49,11 @@ export const ConnectionsOverlayHost = (props: ConnectionsOverlayHostProps) => {
 /** The connector detail drawer; the URL says which connector is open. */
 export const ConnectorDetailOverlay = (props: ConnectorDetailOverlayProps) => {
     const t = useTranslations("connections")
+    const { list: modules } = useModuleCatalog()
+    const locale = useLocale() === "en" ? "en" : "vi"
     const params = useSearchParams()
     const overlays = useConnectionOverlays()
     const data = useConnectionsData()
-    const user = useQueryAuthUserSwr()
     const { role } = useConnectionsRole()
     const items = props.items ?? data.items
     const agentNames = props.agentNames ?? data.agentNames
@@ -73,7 +72,7 @@ export const ConnectorDetailOverlay = (props: ConnectorDetailOverlayProps) => {
                   blurb: t(catalogKey(found, "blurb")),
                   brings: t(catalogKey(found, "brings")),
                   needs: provider === undefined ? "" : t(catalogKey(found, "needs")),
-                  audience: found.audience.map((audience) => t(`aud_${audience}`)).join(", "),
+                  audience: audienceNamesOf(found, modules, locale).join(", ") || t("aud_any"),
                   statusLabel: t(STATUS_KEYS[found.status]),
                   isOfficial: found.status === "official",
                   glyph: found.glyph,
@@ -97,9 +96,7 @@ export const ConnectorDetailOverlay = (props: ConnectorDetailOverlayProps) => {
                     ownerOnly: t("ownerOnly"),
                 },
                 rows: detailRowsOf(rows, agentNames),
-                agents: props.agents ?? data.activeAgents,
                 localOnly: props.localOnly ?? isLocalOnly(webSiteOrigin()),
-                ownerEmail: props.ownerEmail ?? user.data?.email ?? "",
                 canManage: props.canManage ?? role === "owner",
                 canConnect: provider !== undefined && mayConnect(role, provider),
             }}

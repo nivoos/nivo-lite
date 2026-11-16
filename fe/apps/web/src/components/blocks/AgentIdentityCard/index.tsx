@@ -1,78 +1,60 @@
 "use client"
 
-import type { ModuleIconName } from "@/modules/types"
+import { useAgentRoute } from "@/hooks/installations"
 import { useTranslations } from "next-intl"
-import { useState } from "react"
-import {
-    AGENT_NAME_MAX,
-    AGENT_NAME_MIN,
-    useAgentInstallation,
-    useAgentRights,
-    useSaveAgentName,
-} from "@/hooks/agentSettings"
+import { useAgentInstallation, useAgentPictureEdit, useAgentRights } from "@/hooks/agentSettings"
 import { mapSlot, useSlotLabels } from "@/hooks/slot"
 import { AgentIdentityCardBase, type IdentityView } from "./component"
 
-/** The agent the card names: the instance of the url, and the glyph of its type. */
+/** The agent the card dresses: the instance of the url. */
 type AgentIdentityCardProps = {
-    readonly installationId: string
-    readonly module: string
-    readonly glyph: ModuleIconName
+    readonly installationId?: string | undefined
+    readonly module?: string | undefined
 }
 
 const PLACEHOLDER: IdentityView = {
     markLabel: "-",
     markSeed: "-",
     avatarUrl: null,
-    nameLabel: "-",
-    nameHint: "-",
-    name: "-",
-    maxLength: 1,
-    line: "-",
-    saveLabel: "-",
-    canSave: false,
 }
 
-/** The connected name card: the one display name of the agent, the name every screen shows, saved on its own. */
+/**
+ * The connected picture card: the picture of the agent (an upload, or a preset: the NIVO AI mark, its role mark, its initials, a shop
+ * mark), each change saved at once. The display name is part of the general form beside it.
+ */
 export const AgentIdentityCard = (props: AgentIdentityCardProps) => {
+    const route = useAgentRoute(props)
     const t = useTranslations("modulesCore")
+    const tc = useTranslations("agentCreate")
+    const tg = useTranslations("agentGeneral")
     const slotLabels = useSlotLabels()
     const { canEdit } = useAgentRights()
-    const { slot, reload } = useAgentInstallation(props.installationId, props.module)
+    const { slot, reload } = useAgentInstallation(route.installationId, route.module)
     const agent = "items" in slot ? slot.items : undefined
-    const saved = agent?.name ?? ""
-    const [draft, setDraft] = useState<string | null>(null)
-    const name = draft ?? saved
-    const { save, isSaving } = useSaveAgentName(props.installationId)
-    const saveName = async () => {
-        if (await save(name)) setDraft(null)
-    }
+    const hasUpload = agent !== undefined && agent.agentAvatarUrl !== null && agent.agentAvatarPreset === null
+    const picture = useAgentPictureEdit(agent?.agentId ?? null, route.module, hasUpload)
     return (
         <AgentIdentityCardBase
             props={{
-                title: t("agentTitle"),
-                glyph: props.glyph,
-                module: props.module,
-                isDisabled: !canEdit || isSaving,
-                isPending: isSaving,
+                title: tg("sublabelPicture"),
+                module: route.module,
+                isDisabled: !canEdit || picture.isBusy,
+                editor: { ...picture.editor, pickLabel: tc("pictureUpload"), removeLabel: tg("useSprout"), isRemoveCompact: true },
                 read: {
                     slot: mapSlot(slot, (installation): IdentityView => ({
                         markLabel: installation.name,
                         markSeed: installation.agentId ?? installation.id,
-                        avatarUrl: installation.agentAvatarUrl,
-                        nameLabel: t("displayName"),
-                        nameHint: t("displayNameHint"),
-                        name,
-                        maxLength: AGENT_NAME_MAX,
-                        line: t("agentLine", { handle: installation.agentHandle }),
-                        saveLabel: t("saveName"),
-                        canSave: canEdit && name.trim().length >= AGENT_NAME_MIN && name.trim() !== saved,
+                        avatarUrl: picture.preview ?? installation.agentAvatarUrl,
                     })),
                     placeholder: PLACEHOLDER,
                     labels: slotLabels(t("agentTitle")),
                 },
             }}
-            on={{ name: setDraft, save: () => void saveName(), retry: reload }}
+            on={{
+                retry: reload,
+                upload: (files) => void picture.upload(files),
+                remove: () => void picture.remove(),
+            }}
         />
     )
 }

@@ -74,9 +74,15 @@ export class DatabaseSyncService implements DataConnector {
                     )
                     .then((rows): TableOutcome => ({ ok: true, rows, cursor: page.cursor })),
             )
-            .catch((cause: unknown): TableOutcome => {
-                if (!isDomainError(cause)) throw cause
-                return { ok: false, reason: this.catalog.get(`errors.${cause.code}`, cause.params, "vi") }
-            })
+            .then(
+                (outcome) => outcome,
+                (cause: unknown): Promise<TableOutcome> =>
+                    isDomainError(cause)
+                        ? Promise.resolve({
+                              ok: false,
+                              reason: this.catalog.get(`errors.${cause.code}`, cause.params, "vi"),
+                          })
+                        : Promise.reject(cause),
+            )
     }
 }

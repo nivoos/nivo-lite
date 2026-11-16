@@ -1,7 +1,14 @@
+import { pickCopy, type ModuleCopy } from "@/modules/catalog"
 import { PROVIDERS, providerKey } from "@/hooks/connection-providers"
+import {
+    CONNECTION_GROUPS,
+    groupOfConnector,
+    unitOfProvider,
+    type ConnectionGroup,
+    type ProviderUnit,
+} from "@/modules/connection-groups"
 import type {
     Connection,
-    ConnectorAudience,
     ConnectorCategory,
     ConnectorGlyph,
     ConnectorStatus,
@@ -13,7 +20,6 @@ export interface CatalogEntry {
     readonly id: string
     readonly category: ConnectorCategory
     readonly status: ConnectorStatus
-    readonly audience: ReadonlyArray<ConnectorAudience>
     /** Higher first in "Popular". */
     readonly popularity: number
     /** Set when the app can set it up today. */
@@ -23,29 +29,15 @@ export interface CatalogEntry {
     readonly logo?: string
 }
 
-/** The categories, in display order. */
-export const CATEGORIES: ReadonlyArray<ConnectorCategory> = [
-    "payments",
-    "chat",
-    "commerce",
-    "accounting",
-    "data",
-    "email",
-    "productivity",
-    "automation",
-]
-
 const real = (
     provider: Provider,
     category: ConnectorCategory,
-    audience: ReadonlyArray<ConnectorAudience>,
     popularity: number,
     glyph: ConnectorGlyph,
 ): CatalogEntry => ({
     id: provider,
     category,
     status: PROVIDERS[provider].earlyAccess === true ? "early" : "official",
-    audience,
     popularity,
     provider,
     glyph,
@@ -54,7 +46,6 @@ const real = (
 const soon = (
     id: string,
     category: ConnectorCategory,
-    audience: ReadonlyArray<ConnectorAudience>,
     popularity: number,
     glyph: ConnectorGlyph,
     logo?: string,
@@ -62,7 +53,6 @@ const soon = (
     id,
     category,
     status: "soon",
-    audience,
     popularity,
     glyph,
     ...(logo === undefined ? {} : { logo }),
@@ -70,41 +60,41 @@ const soon = (
 
 /** Every connector of the library. Adding the next one is one line here and its words in the catalog. */
 export const CATALOG: ReadonlyArray<CatalogEntry> = [
-    real("sepay", "payments", ["accounting"], 100, "wallet"),
-    real("payos", "payments", ["accounting"], 70, "wallet"),
-    real("casso", "payments", ["accounting"], 60, "wallet"),
-    real("telegram", "chat", ["chatbot", "sales"], 95, "community"),
-    real("zalo_oa", "chat", ["chatbot", "sales"], 98, "community"),
-    real("meta", "chat", ["chatbot", "sales"], 97, "community"),
-    real("telegram_user", "chat", ["any"], 55, "community"),
-    real("database", "data", ["any"], 65, "servers"),
-    real("openapi", "data", ["any"], 62, "code"),
-    real("csv_import", "data", ["any"], 90, "apps"),
-    real("imap", "email", ["any"], 75, "email"),
-    real("smtp", "email", ["accounting", "sales"], 58, "email"),
-    real("google", "productivity", ["sales"], 80, "apps"),
-    real("google_drive", "productivity", ["any"], 61, "apps"),
-    real("webhook", "automation", ["any"], 50, "trigger"),
-    soon("tiktok_chat", "chat", ["chatbot"], 60, "community"),
-    soon("shopee", "commerce", ["sales", "accounting"], 96, "cart"),
-    soon("tiktok_shop", "commerce", ["sales", "accounting"], 88, "cart"),
-    soon("lazada", "commerce", ["sales", "accounting"], 70, "cart"),
-    soon("kiotviet", "commerce", ["sales", "accounting"], 85, "cart"),
-    soon("sapo", "commerce", ["sales", "accounting"], 78, "cart"),
-    soon("haravan", "commerce", ["sales", "accounting"], 66, "cart"),
-    soon("shopify", "commerce", ["sales", "accounting"], 55, "cart"),
-    soon("woocommerce", "commerce", ["sales", "accounting"], 45, "cart"),
-    soon("misa_amis", "accounting", ["accounting"], 84, "wallet"),
-    soon("misa_meinvoice", "accounting", ["accounting"], 80, "wallet"),
-    soon("viettel_sinvoice", "accounting", ["accounting"], 62, "wallet"),
-    soon("vnpay", "payments", ["accounting"], 64, "wallet"),
-    soon("momo", "payments", ["accounting"], 63, "wallet"),
-    soon("ghn", "commerce", ["sales"], 58, "cart"),
-    soon("ghtk", "commerce", ["sales"], 57, "cart"),
-    soon("google_calendar", "productivity", ["any"], 52, "apps", "/logos/connectors/calendar.svg"),
-    soon("notion", "productivity", ["any"], 50, "apps", "/logos/connectors/notion_generic.svg"),
-    soon("slack", "productivity", ["any"], 40, "apps", "/logos/connectors/slack_generic.svg"),
-    soon("airtable", "data", ["any"], 38, "servers", "/logos/connectors/airtable_generic.svg"),
+    real("sepay", "payments", 100, "wallet"),
+    real("payos", "payments", 70, "wallet"),
+    real("casso", "payments", 60, "wallet"),
+    real("telegram", "chat", 95, "community"),
+    real("zalo_oa", "chat", 98, "community"),
+    real("meta", "chat", 97, "community"),
+    real("telegram_user", "chat", 55, "community"),
+    real("database", "data", 65, "servers"),
+    real("openapi", "data", 62, "code"),
+    real("csv_import", "data", 90, "apps"),
+    real("imap", "email", 75, "email"),
+    real("smtp", "email", 58, "email"),
+    real("google", "productivity", 80, "apps"),
+    real("google_drive", "productivity", 61, "apps"),
+    real("webhook", "automation", 50, "trigger"),
+    soon("tiktok_chat", "chat", 60, "community"),
+    soon("shopee", "commerce", 96, "cart"),
+    soon("tiktok_shop", "commerce", 88, "cart"),
+    soon("lazada", "commerce", 70, "cart"),
+    soon("kiotviet", "commerce", 85, "cart"),
+    soon("sapo", "commerce", 78, "cart"),
+    soon("haravan", "commerce", 66, "cart"),
+    soon("shopify", "commerce", 55, "cart"),
+    soon("woocommerce", "commerce", 45, "cart"),
+    soon("misa_amis", "accounting", 84, "wallet"),
+    soon("misa_meinvoice", "accounting", 80, "wallet"),
+    soon("viettel_sinvoice", "accounting", 62, "wallet"),
+    soon("vnpay", "payments", 64, "wallet"),
+    soon("momo", "payments", 63, "wallet"),
+    soon("ghn", "commerce", 58, "cart"),
+    soon("ghtk", "commerce", 57, "cart"),
+    soon("google_calendar", "productivity", 52, "apps", "/logos/connectors/calendar.svg"),
+    soon("notion", "productivity", 50, "apps", "/logos/connectors/notion_generic.svg"),
+    soon("slack", "productivity", 40, "apps", "/logos/connectors/slack_generic.svg"),
+    soon("airtable", "data", 38, "servers", "/logos/connectors/airtable_generic.svg"),
 ]
 
 /** The four connectors the workspace can use today, in the order the library shows them; every other connector sits in a later section. */
@@ -142,9 +132,27 @@ export const matchesWords = (haystack: string, words: ReadonlyArray<string>): bo
 
 type Translate = (key: string, values?: Record<string, string | number>) => string
 
-/** Resolves a supported category from a control value. */
-export const asCategory = (id: string): ConnectorCategory | "all" =>
-    CATEGORIES.find((category) => category === id) ?? "all"
+/** The groups of the library, in the order they head it, for the sub tabs of the Connections page. */
+export { CONNECTION_GROUPS }
+
+/** The group a chip id names; "all" for any other id. */
+export const asGroup = (id: string): ConnectionGroup | "all" => CONNECTION_GROUPS.find((group) => group === id) ?? "all"
+
+/** The group a connector heads under in the library. */
+export const groupOfEntry = (entry: CatalogEntry): ConnectionGroup => groupOfConnector(entry.id, entry.category)
+
+/** The unit a connector counts its connections in ("bot", "account"…); a planned connector counts plain connections. */
+export const unitOfEntry = (entry: CatalogEntry): ProviderUnit =>
+    entry.provider === undefined ? "connection" : unitOfProvider(entry.provider)
+
+/** The connectors the library folds into another tile: Google Drive is a service of the one Google tile. */
+export const FOLDED_CONNECTORS: ReadonlySet<string> = new Set(["google_drive"])
+
+/** The providers a tile counts: the Google tile counts its Drive grant too. */
+export const providersOfEntry = (entry: CatalogEntry): ReadonlyArray<string> => {
+    if (entry.provider === undefined) return []
+    return entry.provider === "google" ? ["google", "google_drive"] : [entry.provider]
+}
 
 /** The connector's own availability beside its name: planned or early access; nothing for an official one. */
 export const catalogTagOf = (
@@ -155,24 +163,13 @@ export const catalogTagOf = (
     return entry.status === "early" ? { tone: "accent", label: t("statusEarly") } : null
 }
 
-/** What the workspace runs of a connector, at the foot of its tile: the count in use, a check it needs, or not connected yet. */
-export const catalogStatusOf = (
-    count: number,
-    t: Translate,
-    needsCheck = false,
-): { readonly tone: "success" | "danger" | "muted"; readonly label: string; readonly isDot: boolean } => {
-    if (needsCheck) return { tone: "danger", label: t("libNeedsCheck"), isDot: true }
-    if (count > 0) return { tone: "success", label: t("libInUse", { count }), isDot: true }
-    return { tone: "muted", label: t("libNotConnected"), isDot: false }
-}
+/** The agent types that work through a connector: the modules the catalogue of the workspace names it among their connection providers. */
+export const audienceNamesOf = (entry: CatalogEntry, modules: ReadonlyArray<ModuleCopy>, locale: "vi" | "en"): ReadonlyArray<string> =>
+    modules.filter((copy) => copy.connectionProviders.includes(entry.id)).map((copy) => pickCopy(copy.shortName, locale))
 
-/** The "Cho: ..." line of a connector: the agents it serves, or every agent. */
-export const audienceLineOf = (entry: CatalogEntry, t: Translate): string =>
-    t("libFor", {
-        names: entry.audience.includes("any")
-            ? t("aud_any")
-            : entry.audience.map((audience) => t(`aud_${audience}`)).join(", "),
-    })
+/** The "Cho: ..." line of a connector: the agents it serves, or every agent when no served module names it. */
+export const audienceLineOf = (names: ReadonlyArray<string>, t: Translate): string =>
+    t("libFor", { names: names.length === 0 ? t("aud_any") : names.join(", ") })
 
 /** Counts active workspace connections for each provider in the catalog. */
 export const connectionCountsOf = (items: ReadonlyArray<Connection>): Map<string, number> => {
@@ -183,11 +180,3 @@ export const connectionCountsOf = (items: ReadonlyArray<Connection>): Map<string
     }
     return counts
 }
-
-/** The providers where the workspace has a connection that needs a check (unfinished or broken). */
-export const checkProvidersOf = (items: ReadonlyArray<Connection>): ReadonlySet<string> =>
-    new Set(
-        items
-            .filter((connection) => connection.status === "pending" || connection.status === "error")
-            .map((connection) => connection.provider),
-    )

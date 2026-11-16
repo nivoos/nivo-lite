@@ -1,15 +1,15 @@
 import { Injectable } from "@nestjs/common"
 import { PublicDraftRunService } from "@modules/domain/public-documents"
-import { FencedProcessor, type ClaimedJob } from "@modules/platform/jobs"
+import { FencedProcessor, type ClaimedJob, type JobDefinition } from "@modules/platform/jobs"
 import type { QueueDelivery } from "@modules/platform/queue"
-import { KNOWLEDGE_QUEUE, KnowledgeJob } from "@modules/queues/knowledge"
+import { DRAFT_PUBLIC_DOCUMENT_JOB, KNOWLEDGE_QUEUE, type PublicDraftPayload } from "@modules/queues/knowledge"
 import { DraftPublicDocumentStep } from "../../steps/draft-public-document.step"
 
 @Injectable()
-/** The processor of the draft-public-document job: the runner claims and settles it; `process` delegates to the one step. */
+/** The processor of the draft-public-document job (`DRAFT_PUBLIC_DOCUMENT_JOB`): the runner claims and settles it; `process` delegates to the one step. */
 export class DraftPublicDocumentProcessor extends FencedProcessor {
     override readonly queue: "knowledge" = KNOWLEDGE_QUEUE
-    override readonly job: KnowledgeJob.PublicDraft = KnowledgeJob.PublicDraft
+    override readonly definition: JobDefinition<PublicDraftPayload> = DRAFT_PUBLIC_DOCUMENT_JOB
 
     constructor(
         private readonly draftDocument: DraftPublicDocumentStep,
@@ -23,7 +23,7 @@ export class DraftPublicDocumentProcessor extends FencedProcessor {
         await this.draftDocument.run(job)
     }
 
-    /** The job ended as failed: an owner's draft says so and can be asked again; a proposal nobody asked for is dropped. */
+    /** The job was dead-lettered (one item for a person): the document says the draft could not be made, whoever asked; a resume drafts it again. */
     override async onFailed(delivery: QueueDelivery): Promise<void> {
         await this.drafts.fail(delivery.payload)
     }

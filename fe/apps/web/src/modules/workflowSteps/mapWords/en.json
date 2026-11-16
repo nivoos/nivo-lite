@@ -1,0 +1,10 @@
+{
+  "customerMessages": "Customer writes",
+  "waitLine": "{events} · {limit}",
+  "limitMinute": "up to {amount} min",
+  "limitHour": "up to {amount} h",
+  "limitDay": "up to {amount} d",
+  "rounds": "repeats up to {max} rounds",
+  "repeat": "Starts again at the first step until a way out holds",
+  "legendLoop": "Loop"
+}

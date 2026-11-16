@@ -8,7 +8,7 @@ import { I18nModule } from "@modules/platform/i18n"
 import { ErrorsModule } from "@modules/platform/errors"
 import { CqrsModule } from "@modules/platform/cqrs"
 import { HttpSecurityModule } from "@modules/platform/http-security"
-import { DatabaseModule, PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
+import { DatabaseModule, PRIMARY_ENTITY_MANAGER, typedDatabaseFailure } from "@modules/platform/database"
 import { PRIMARY_ENTITIES } from "@modules/platform/database/entities"
 import { EventBusModule } from "@modules/platform/event-bus"
 import { QueueModule } from "@modules/platform/queue"
@@ -17,28 +17,27 @@ import { REALTIME_ERROR_KINDS, RealtimeModule, withConnection } from "@modules/p
 import { API_SCHEDULERS } from "./schedulers"
 import { platformErrorKinds, platformMessages } from "./platform-catalog"
 import { JobsModule } from "@modules/platform/jobs"
+import { DataCopiesModule } from "@modules/domain/data-copies"
+import { DataStoresModule } from "@modules/domain/data-stores"
+import { DataSeedModule } from "@modules/integrations/seed"
+import { EffectsModule } from "@modules/platform/effects"
 import { JobOpsModule } from "@modules/domain/job-ops"
+import { OBJECT_STORAGE_ERROR_KINDS, ObjectStorageModule } from "@modules/integrations/object-storage"
 import type { ApiOptions } from "../api.options"
-import { accountingErrorKinds, accountingMessages } from "./accounting"
 import { adminErrorKinds, adminMessages } from "./admin"
 import { agentApiErrorKinds, agentApiMessages } from "./agent-api"
 import { agentsErrorKinds, agentsMessages } from "./agents"
 import { agentWorkErrorKinds, agentWorkMessages } from "./agent-work"
-import { apiErrorKinds, apiMessages } from "./api"
 import { authenticationErrorKinds, authenticationMessages } from "./authentication"
 import { automationsErrorKinds, automationsMessages } from "./automations"
 import { billingErrorKinds, billingMessages } from "./billing"
 import { bindingsErrorKinds, bindingsMessages } from "./bindings"
-import { bookingsErrorKinds, bookingsMessages } from "./bookings"
-import { businessErrorKinds, businessMessages } from "./business"
 import { connectionsErrorKinds, connectionsMessages } from "./connections"
-import { contentErrorKinds, contentMessages } from "./content"
 import { identityErrorKinds, identityMessages } from "./identity"
 import { knowledgeErrorKinds, knowledgeMessages } from "./knowledge"
 import { messagingErrorKinds, messagingMessages } from "./messaging"
 import { agentGraphsErrorKinds, agentGraphsMessages } from "./agent-graphs"
 import { modulesErrorKinds, modulesMessages } from "./modules"
-import { videoErrorKinds, videoMessages } from "./video"
 
 /** Registers the shared platform services before the API's domain capabilities. */
 export const platformModules = (options: ApiOptions): Array<DynamicModule> => [
@@ -49,54 +48,44 @@ export const platformModules = (options: ApiOptions): Array<DynamicModule> => [
         isGlobal: true,
         bundles: [
             ...platformMessages,
-            ...accountingMessages,
             ...adminMessages,
             ...agentApiMessages,
             ...agentsMessages,
             ...agentWorkMessages,
-            ...apiMessages,
             ...authenticationMessages,
             ...automationsMessages,
             ...billingMessages,
             ...bindingsMessages,
-            ...bookingsMessages,
-            ...businessMessages,
             ...connectionsMessages,
-            ...contentMessages,
             ...identityMessages,
             ...knowledgeMessages,
             ...messagingMessages,
             ...modulesMessages,
             ...agentGraphsMessages,
-            ...videoMessages,
         ],
     }),
     ErrorsModule.register({
         isGlobal: true,
         kinds: [
             ...platformErrorKinds,
-            ...accountingErrorKinds,
             ...adminErrorKinds,
             ...agentApiErrorKinds,
             ...agentsErrorKinds,
             ...agentWorkErrorKinds,
-            ...apiErrorKinds,
             ...authenticationErrorKinds,
             ...automationsErrorKinds,
             ...billingErrorKinds,
             ...bindingsErrorKinds,
-            ...bookingsErrorKinds,
-            ...businessErrorKinds,
             ...connectionsErrorKinds,
-            ...contentErrorKinds,
             ...identityErrorKinds,
             ...knowledgeErrorKinds,
             ...messagingErrorKinds,
             ...modulesErrorKinds,
             ...agentGraphsErrorKinds,
-            ...videoErrorKinds,
             REALTIME_ERROR_KINDS,
+            OBJECT_STORAGE_ERROR_KINDS,
         ],
+        typers: [typedDatabaseFailure],
     }),
     CqrsModule.register({ isGlobal: true }),
     HttpSecurityModule.register({ isGlobal: true, ...options.httpSecurity }),
@@ -112,8 +101,18 @@ export const platformModules = (options: ApiOptions): Array<DynamicModule> => [
         ...withConnection(options.realtime, PRIMARY_ENTITY_MANAGER, options.database.url),
     }),
     AppErrorsModule.register({ isGlobal: true }),
+    ObjectStorageModule.register({ isGlobal: true, ...options.storage }),
     QueueModule.register({ isGlobal: true, schedulers: API_SCHEDULERS, ...options.queue }),
-    EventBusModule.register({ isGlobal: true, consumersEnabled: true }),
+    EventBusModule.register({ isGlobal: true, consumersEnabled: true, buildId: options.jobs.buildId }),
     JobsModule.register({ isGlobal: true, connection: PRIMARY_ENTITY_MANAGER, ...options.jobs }),
-    JobOpsModule.register({ isGlobal: true, alerts: options.jobsAlert }),
+    EffectsModule.register({
+        isGlobal: true,
+        connection: PRIMARY_ENTITY_MANAGER,
+        sealingKey: options.connectionSecrets.tokenKey,
+    }),
+    JobOpsModule.register({ isGlobal: true, alerts: options.jobsAlert, parkedCards: true }),
+    // The data standard: the git layer, the stores of the workspace's rows and files, and the scheduled backup of this environment (disabled with its reason when undeclared).
+    DataSeedModule.register({ isGlobal: true, ...options.seed }),
+    DataStoresModule.register({ isGlobal: true }),
+    DataCopiesModule.register({ isGlobal: true, backup: options.dataBackup }),
 ]

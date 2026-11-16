@@ -1,13 +1,11 @@
 import { Module, type DynamicModule } from "@nestjs/common"
-import { ChatMessageProposeExecutorService } from "./chat-message-propose-executor.service"
 import { ChannelSendExecutorService } from "./channel-send-executor.service"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./chat-node-ports.module-definition"
 import { KnowledgeNodePortService } from "./knowledge-node-port.service"
 
 @Module({})
 /**
- * What the chat serves to the graph nodes: the data port of the knowledge-document kind and the executors of `channel.send` and `chat-message.propose`, each
- * registered with the graph-nodes registry. The conversation and message kinds are served by the entity engine.
+ * What the chat serves to the graphs: for the nodes the data port of the knowledge-document kind and the one customer send (`nivo.tool.customer.message.send`) registered with the graph-nodes registry. Whether the owner approves a send first is the tool door's generic approval, not this module's. The conversation and message kinds are served by the entity engine.
  */
 export class ChatNodePortsModule extends ConfigurableModuleClass {
     /** Registers the capability in the app that runs graph nodes. */
@@ -19,7 +17,6 @@ export class ChatNodePortsModule extends ConfigurableModuleClass {
                 ...(base.providers ?? []),
                 KnowledgeNodePortService,
                 ChannelSendExecutorService,
-                ChatMessageProposeExecutorService,
             ],
         }
     }

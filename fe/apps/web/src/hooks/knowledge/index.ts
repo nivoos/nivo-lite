@@ -1,7 +1,6 @@
 export {
     DOCUMENT_STATUS_TONE,
     DOCUMENT_STATUS_KEYS,
-    isAgentModule,
     isDuplicateNote,
     isFinalFailure,
     isReadyNote,
@@ -10,6 +9,9 @@ export {
 export { useAskKnowledge } from "./useAskKnowledge"
 export { useKnowledgeSource } from "./useKnowledgeSource"
 export { useKnowledgeSources } from "./useKnowledgeSources"
+export { useKnowledgeJobs } from "./useKnowledgeJobs"
+export type { KnowledgeJobStateOf } from "./useKnowledgeJobs"
+export type { KnowledgeSourcesView } from "./useKnowledgeSources"
 export { useKnowledgeProgressViewOf } from "./useKnowledgeProgressViewOf"
 export { useLibraryCommands } from "./useLibraryCommands"
 export { useNivoKnowledge } from "./useNivoKnowledge"

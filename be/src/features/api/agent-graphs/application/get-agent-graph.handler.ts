@@ -1,24 +1,25 @@
 import { QueryHandler } from "@nestjs/cqrs"
-import { AgentGraphAdminService, type AgentGraphWire } from "@modules/domain/agent-graphs"
+import { AgentGraphReadService, type AgentGraphRead } from "@modules/domain/agent-pages"
 import { ICQRSHandler } from "@modules/platform/cqrs"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { GetAgentGraphQuery } from "./get-agent-graph.query"
 
 @QueryHandler(GetAgentGraphQuery)
-/** Opens the graph of one agent for the editor, seeding it on the first open. The admin service checks the owner or manager role. */
-export class GetAgentGraphHandler extends ICQRSHandler<GetAgentGraphQuery, AgentGraphWire> {
+/** Opens the graph of one agent for the editor, with the model and the credits of each AI node over the last 7 days. */
+export class GetAgentGraphHandler extends ICQRSHandler<GetAgentGraphQuery, AgentGraphRead> {
     constructor(
         @InjectLogger() logger: Logger,
-        private readonly admin: AgentGraphAdminService,
+        private readonly graphs: AgentGraphReadService,
     ) {
         super(logger)
     }
 
-    protected override process(command: GetAgentGraphQuery): Promise<AgentGraphWire> {
-        return this.admin.open(
-            { workspaceId: command.params.request.workspaceId, principalId: command.params.principal.id },
-            command.params.request.agentId,
-            command.params.request.locale,
+    protected override process(query: GetAgentGraphQuery): Promise<AgentGraphRead> {
+        return this.graphs.open(
+            query.params.principal.id,
+            query.params.request.workspaceId,
+            query.params.request.agentId,
+            query.params.request.locale,
         )
     }
 }

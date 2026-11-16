@@ -1,8 +1,8 @@
 import { Module } from "@nestjs/common"
 import { ModulesApiModule } from "../../modules.module"
-import { AgentSyncStatusResolver } from "./agent-sync-status.resolver"
 import { ApplySetupResolver } from "./apply-setup.resolver"
 import { ContextNotesResolver } from "./context-notes.resolver"
+import { CreateAgentInstallationResolver } from "./create-agent-installation.resolver"
 import { DismissContextNoteResolver } from "./dismiss-context-note.resolver"
 import { DecideSetupCardResolver } from "./decide-setup-card.resolver"
 import { InstallModuleResolver } from "./install-module.resolver"
@@ -17,7 +17,8 @@ import { PostSetupMessageResolver } from "./post-setup-message.resolver"
 import { RenameInstallationAgentResolver } from "./rename-installation-agent.resolver"
 import { RenameModuleInstallationResolver } from "./rename-module-installation.resolver"
 import { SaveHoldingMessageResolver } from "./save-holding-message.resolver"
-import { SaveReplyTimeoutResolver } from "./save-reply-timeout.resolver"
+import { SaveWorkingHoursResolver } from "./save-working-hours.resolver"
+import { AgentDeletionImpactResolver } from "./agent-deletion-impact.resolver"
 import { RemoveAgentResolver } from "./remove-agent.resolver"
 import { SetModuleLiveResolver } from "./set-module-live.resolver"
 import { SetOperatingModeResolver } from "./set-operating-mode.resolver"
@@ -32,17 +33,18 @@ import { SetupVersionsResolver } from "./setup-versions.resolver"
         ModuleDefinitionResolver,
         ModuleInstallationsResolver,
         ModuleInstallationResolver,
-        AgentSyncStatusResolver,
         ModuleRequirementFactsResolver,
         InstallModuleResolver,
+        CreateAgentInstallationResolver,
         InstanceOfRecordResolver,
         RenameModuleInstallationResolver,
         RenameInstallationAgentResolver,
         SetOperatingModeResolver,
         SetModuleLiveResolver,
+        AgentDeletionImpactResolver,
         RemoveAgentResolver,
-        SaveReplyTimeoutResolver,
         SaveHoldingMessageResolver,
+        SaveWorkingHoursResolver,
         SetupStateResolver,
         SetupVersionsResolver,
         PostSetupMessageResolver,

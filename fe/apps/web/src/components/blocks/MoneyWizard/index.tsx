@@ -6,7 +6,7 @@ import { useBankName } from "@/hooks/banks"
 import { useFormatter, useTranslations } from "next-intl"
 import { GUIDES } from "@/hooks/connection-guides"
 import { PROVIDERS, providerKey } from "@/hooks/connection-providers"
-import { agentChoicesOf, guideScreensOf, useCopyLabels, verifyHelpOf } from "@/hooks/connection-wizard"
+import { agentChoicesOf, guideScreensOf, useCopyLabels, verifyHelpOf, useWizardPhases } from "@/hooks/connection-wizard"
 import { bankOptions, MONEY_STEPS, useMoneyWizard } from "@/hooks/money-wizard"
 import type { AgentOption, FirstEvent, MoneyGuideView, MoneyProvider } from "@/modules/types"
 import { MoneyWizardBase } from "./component"
@@ -28,6 +28,7 @@ interface MoneyWizardProps {
 export const MoneyWizard = (props: MoneyWizardProps) => {
     const bankName = useBankName()
     const tw = useTranslations("connectionWizard")
+    const phases = useWizardPhases("money")
     const tc = useTranslations("connections")
     const format = useFormatter()
     const copy = useCopyLabels()
@@ -46,6 +47,7 @@ export const MoneyWizard = (props: MoneyWizardProps) => {
             props={{
                 title: tw("title", { provider: tc(providerKey(props.provider, "title")) }),
                 stepLabel: tw("stepOf", { n: wizard.index + 1, total: MONEY_STEPS.length }),
+                phases,
                 steps: [
                     tw("stepEnv"),
                     tw("stepAccount"),
@@ -86,9 +88,9 @@ export const MoneyWizard = (props: MoneyWizardProps) => {
                 received: wizard.received ? moneyReceived(wizard.firstEvent, format, tw) : null,
                 hasCheckFailed: wizard.hasCheckFailed,
                 agentStep: {
-                    title: tw("agentTitleAccounting"),
+                    title: tw("agentTitleBank"),
                     notice: wizard.hasSkipped && !wizard.received ? tw("skipNote") : null,
-                    agents: agentChoicesOf(props.agents, props.provider, tw),
+                    agents: agentChoicesOf(props.agents, tw),
                     value: wizard.agentIds,
                     hint: tw("agentHint"),
                     none: tw("agentNone"),

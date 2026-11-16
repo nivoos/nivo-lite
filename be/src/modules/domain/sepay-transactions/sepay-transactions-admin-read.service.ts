@@ -41,7 +41,7 @@ export class SepayTransactionsAdminReadService {
             order: { receivedAt: "DESC" },
             take: limit,
         })
-        return rows.map((row) => toRow(row))
+        return rows.map((item) => toRow(item))
     }
 
     /** The newest transfers, newest first, at most `limit`. */
@@ -51,6 +51,6 @@ export class SepayTransactionsAdminReadService {
             order: { receivedAt: "DESC" },
             take: limit,
         })
-        return rows.map((row) => toRow(row))
+        return rows.map((item) => toRow(item))
     }
 }

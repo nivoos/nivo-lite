@@ -10,6 +10,7 @@ import { filterFragment, type FilterScope } from "./filter.policy"
 import { keysetFragment } from "./keyset.policy"
 import { paramBag } from "./param-bag.policy"
 import { onlyRecord, pickFields, projectRecord, recordRowsOf, recordSelection } from "./record-row.policy"
+import { confinedAgentOf } from "./agent-scope.policy"
 import type { ScopedTx } from "./scoped-tx.contracts"
 
 /** What a page read needs: the query tree and the position of the last row of the previous page (decoded by the caller from its signed cursor). */
@@ -49,6 +50,8 @@ export const listRecords = async (
     )
     const scope: FilterScope = { catalog, entity, alias: "r", params, builder, depth: 0 }
     builder.where("r.entity = :entity AND r.workspaceId = :ws", { entity: entity.name, ws: tx.workspaceId })
+    const agent = confinedAgentOf(tx)
+    if (agent !== null) builder.andWhere("r.agentId = :agent", { agent })
     if (query.where !== undefined) builder.andWhere(filterFragment(query.where, scope))
     if (request.after !== null) builder.andWhere(keysetFragment(entity, query.order, request.after, "r", params))
     const joins = Object.entries(query.join ?? {})

@@ -1,8 +1,15 @@
 import { Injectable, type OnApplicationBootstrap } from "@nestjs/common"
-import { nodeIndexOf, nodeListProblems, type NodeDefinition, type NodeIndex } from "@nivo-lite/agent-sdk/node"
+import {
+    nodeIndexOf,
+    nodeListProblems,
+    type NodeDefinition,
+    type NodeIndex,
+    type NodeInstall,
+} from "@nivo-lite/agent-sdk/node"
 import { EntityNodePortsService } from "@modules/domain/entity-engine"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { GraphNodesError, GraphNodesErrorCode } from "./errors/graph-nodes.error"
+import { finalRefusalConflictsOf, undeclaredWritesOf } from "./tool-declarations.policy"
 import { InjectGraphNodesOptions } from "./graph-nodes.decorators"
 import { GraphNodesLogEvent } from "./graph-nodes.log-events"
 import type { GraphNodesOptions } from "./graph-nodes.options"
@@ -22,6 +29,7 @@ import type {
  */
 export class GraphNodeRegistryService implements OnApplicationBootstrap {
     private readonly index: NodeIndex
+    private readonly words: NodeInstall["words"]
     private readonly ports = new Map<string, NodeDataPort>()
     private readonly executors = new Map<string, NodeEffectExecutor>()
     private readonly resolvers: Array<NodeSubjectResolver> = []
@@ -32,6 +40,14 @@ export class GraphNodeRegistryService implements OnApplicationBootstrap {
         entityPorts: EntityNodePortsService,
     ) {
         this.index = nodeIndexOf(options.install)
+        // E-FIX12 gate: a tool whose write is undeclared (or declared against its core spec) is refused at boot, never guessed at run time.
+        const [undeclared] = undeclaredWritesOf(this.index)
+        if (undeclared !== undefined)
+            throw new GraphNodesError({ code: GraphNodesErrorCode.WriteUndeclared, params: { tool: undeclared.tool, why: undeclared.why } })
+        const [conflict] = finalRefusalConflictsOf(this.index)
+        if (conflict !== undefined)
+            throw new GraphNodesError({ code: GraphNodesErrorCode.FinalRefusalConflict, params: { tool: conflict.tool, why: conflict.why } })
+        this.words = options.install.words
         for (const port of entityPorts.ports()) this.addDataPort(port)
         for (const problem of nodeListProblems(options.install)) {
             this.logger.warn(GraphNodesLogEvent.InstallProblem, { code: problem.code, at: problem.at })
@@ -73,6 +89,11 @@ export class GraphNodeRegistryService implements OnApplicationBootstrap {
         return this.resolvers
     }
 
+    /** The words of a text key of the install, as a model reads them; undefined for a key the install has no words for. */
+    wordsOf(key: string): string | undefined {
+        return this.words?.(key)
+    }
+
     /** The install by id. */
     installed(): NodeIndex {
         return this.index
@@ -91,6 +112,11 @@ export class GraphNodeRegistryService implements OnApplicationBootstrap {
         const port = this.ports.get(kind)
         if (port === undefined) throw new GraphNodesError({ code: GraphNodesErrorCode.PortMissing, params: { kind } })
         return port
+    }
+
+    /** The port of a data kind, or undefined when no module serves it. */
+    optionalPortOf(kind: string): NodeDataPort | undefined {
+        return this.ports.get(kind)
     }
 
     /** The executor of an effect, or undefined when no module performs it. */

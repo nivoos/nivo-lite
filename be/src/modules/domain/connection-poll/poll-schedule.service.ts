@@ -1,3 +1,4 @@
+import { InjectClock, type Clock } from "@modules/platform/clock"
 import { Injectable } from "@nestjs/common"
 import { In, type EntityManager } from "typeorm"
 import { callDbFunction, InjectPrimaryEntityManager } from "@modules/platform/database"
@@ -42,6 +43,7 @@ export class PollScheduleService {
     constructor(
         @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
         @InjectConnectionPollOptions() private readonly options: ConnectionPollOptions,
+        @InjectClock() private readonly clock: Clock,
     ) {}
 
     /** Gives every connection of the providers a row in the schedule. */
@@ -52,14 +54,21 @@ export class PollScheduleService {
         ])
     }
 
-    /** Claims up to `size` due connections of the providers, oldest first, and holds them for the lease. */
+    /**
+     * Claims up to `size` due connections of the providers, oldest first, and holds them for the lease. A REMOVED connection (owner ruling R36:
+     * `connections.deleted_at` set) keeps its schedule row but is never claimed.
+     */
     claimDue(providers: ReadonlyArray<string>, size: number): Promise<ReadonlyArray<DueConnection>> {
         return this.entityManager.transaction(async (tx) => {
             const due = await tx
                 .createQueryBuilder(ConnectionPollScheduleEntity, "s")
-                .where("s.provider IN (:...providers) AND s.needs_reauth = false AND s.next_poll_at <= now()", {
-                    providers: [...providers],
-                })
+                .where(
+                    "s.provider IN (:...providers) AND s.needs_reauth = false AND s.next_poll_at <= now() " +
+                        "AND EXISTS (SELECT 1 FROM public.connections c WHERE c.id = s.connection_id AND c.deleted_at IS NULL)",
+                    {
+                        providers: [...providers],
+                    },
+                )
                 .orderBy("s.next_poll_at")
                 .limit(size)
                 .setLock("pessimistic_write")
@@ -108,8 +117,9 @@ export class PollScheduleService {
         connectionId: string,
         reason: PollHotReason,
         ttlMs: number = this.options.schedule.hotTtlMs,
+        within: EntityManager = this.entityManager,
     ): Promise<void> {
-        await callDbFunction(this.entityManager, "public.connection_poll_mark_hot", [
+        await callDbFunction(within, "public.connection_poll_mark_hot", [
             connectionId,
             this.options.schedule.hotIntervalMs,
             ttlMs,
@@ -119,23 +129,46 @@ export class PollScheduleService {
 
     /**
      * The connection can be read back now (its credential was just saved, or the owner says the provider plan was upgraded): the breaker, the owner
-     * request and the unavailable capability are cleared and it is polled hot.
+     * request and the unavailable capability are cleared and it is polled hot. `within` is the transaction of the job write that asks for the
+     * poll: the readiness and the job commit together.
      */
-    async markReady(connectionId: string): Promise<void> {
-        await this.entityManager.update(
+    async markReady(connectionId: string, within: EntityManager = this.entityManager): Promise<void> {
+        await within.update(
             ConnectionPollScheduleEntity,
             { connectionId },
             { failures: 0, breakerState: "closed", breakerOpenedAt: null, needsReauth: false, unavailableReason: null },
         )
-        await this.markHot(connectionId, "connection_ready")
+        await this.markHot(connectionId, "connection_ready", this.options.schedule.hotTtlMs, within)
     }
 
-    /** The webhook of the provider delivered for this connection: it is healthy, so the interval may be long. */
+    /**
+     * The webhook of the provider delivered for this connection: it is healthy, so the interval may be long. A delivery after a silence longer
+     * than the declared webhook silence (or the first one ever) is a detectable GAP: events may have been missed meanwhile, so the account is
+     * polled hot at once (owner R95: the poll brings back what the webhook lost).
+     */
     async recordWebhook(connection: string): Promise<void> {
-        await this.entityManager.update(
-            ConnectionPollScheduleEntity,
-            { connectionId: connection },
-            { lastWebhookAt: () => "now()" },
-        )
+        const held = await this.entityManager.findOne(ConnectionPollScheduleEntity, {
+            where: { connectionId: connection },
+            select: { connectionId: true, lastWebhookAt: true },
+        })
+        await this.entityManager.update(ConnectionPollScheduleEntity, { connectionId: connection }, { lastWebhookAt: () => "now()" })
+        if (held === null) return
+        const silentSince = held.lastWebhookAt?.getTime() ?? null
+        if (silentSince === null || this.clock.now().getTime() - silentSince > this.options.schedule.webhookSilentAfterMs) {
+            await this.markHot(connection, "webhook_gap")
+        }
+    }
+
+    /**
+     * THE PASS AT PROCESS START (owner R95): every scheduled account that is not waiting for its owner is due now, so the first ticks after a
+     * downtime read back what the webhooks lost meanwhile (fair across workspaces, under each provider's limits, as every tick).
+     */
+    async dueNow(): Promise<void> {
+        await this.entityManager
+            .createQueryBuilder()
+            .update(ConnectionPollScheduleEntity)
+            .set({ nextPollAt: () => "now()" })
+            .where("needs_reauth = false AND next_poll_at > now()")
+            .execute()
     }
 }

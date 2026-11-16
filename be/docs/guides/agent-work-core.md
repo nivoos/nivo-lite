@@ -4,6 +4,12 @@ How a NIVO agent works around the clock while costing nothing when idle. An agen
 stateless worker runs one turn, and the result lands in Postgres. Paths are from the repository root. [nivo-mcp.md](nivo-mcp.md)
 owns the tool door and [jobs.md](jobs.md) owns the queue; this page adds to them and never restates them.
 
+> State 2026-11-10: this page is the design of the wake road as built in October. The turn runner it describes (OpenClaw, the
+> `/agent-tools` bridge, the agent sync) is removed (OpenClaw steps 1 to 6 in code by 2026-11-11, migration 012300; every OpenClaw line
+> below is history, not the running system). The wake road, the lease and
+> the drain of sections 4 and 5 still hold; a workflow run now executes in the engine, and on a LangGraph thread when its workflow
+> is flagged: see [engine-threads.md](engine-threads.md) for threads, stops, deadlines, the sweep, the effect ledger and metering.
+
 ## 1. The system on one page
 
 ```
@@ -20,7 +26,7 @@ schedule ───────── BullMQ job scheduler ──────┘
                                                     │
          ┌──────────────────────────────────────────┴──────────────────────────────┐
          │ 1. agent_turn_begin: kill switch, lease, fence + 1, best pending wake   │ Postgres
-         │ 2. gates by code: installation, quota, breaker, cap, probe              │
+         │ 2. gates by code: installation, quota, breaker, cap                     │
          │ 3. AgentTurnRunner.run ──> OpenClaw: model loop, tool calls ── proposal │ no transaction open
          │      tool calls ──> nivo_call plugin ──> /agent-tools ──> MCP gateway   │
          │ 4. agent_turn_propose: proposal stored under the fence                  │ Postgres
@@ -31,8 +37,8 @@ schedule ───────── BullMQ job scheduler ──────┘
 ```
 
 The backend owns triggers, schedule, state, rights, approval, quota, audit and delivery. OpenClaw runs one turn and returns a
-proposal. A worker holds nothing between turns: a lost worker or a deploy resumes from `agent_wakes`, `agent_turns`,
-`agent_goals` and `agent_tasks`.
+proposal. A worker holds nothing between turns: a lost worker or a deploy resumes from `agent_wakes`, `agent_turns`
+and `agent_tasks`.
 
 ## 2. What the code says
 
@@ -70,9 +76,8 @@ the thread work migration (folded into the baseline), and its entity extends `Uu
 | --------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `agent_work_settings` | `workspace_id`                                 | `work_enabled` bool default true, `road` (`legacy`, `core`) default `core`, `background_daily_cap` int default 200, `paused_by`, `paused_at`                                                                                                                                                  |
 | `agent_work_state`    | `agent_id`                                     | `work_enabled` bool default true, `paused_by`, `paused_at`, `fence` bigint default 0, `lease_owner`, `lease_until`, `running_turn_id`, `failures` int, `breaker_until`, `last_turn_at`, `background_day` date, `background_turns` int                                                         |
-| `agent_goals`         | id                                             | `agent_id`, `title` (200), `detail` (2000), `status` (`active`, `paused`, `done`, `dropped`), `source` (`owner`, `module`, `agent`), `created_by_member`, `due_at`, `reviewed_at`                                                                                                             |
-| `agent_tasks`         | id, unique (`agent_id`, `dedupe_key`)          | `agent_id`, `goal_id`, `title` (200), `detail` (2000), `status` (`open`, `waiting`, `done`, `dropped`), `waiting_on` (`approval`, `member`, `event`), `next_action_at`, `work_item_id`, `origin_wake_id`, `done_at`                                                                           |
-| `agent_triggers`      | id                                             | `agent_id`, `kind` (`schedule`, `event`), `preset` (`every_15m`, `hourly`, `daily_at`, `weekdays_at`), `at_time` (time), `time_zone` default `Asia/Ho_Chi_Minh`, `event_name`, `probe_key`, `enabled`, `next_run_at`, `last_fired_at`, `reconciled_at`                                        |
+| `agent_tasks`         | id, unique (`agent_id`, `dedupe_key`)          | `agent_id`, `title` (200), `detail` (2000), `status` (`open`, `waiting`, `done`, `dropped`), `waiting_on` (`approval`, `member`, `event`), `next_action_at`, `work_item_id`, `origin_wake_id`, `done_at`                                                                           |
+| `agent_triggers`      | id                                             | `agent_id`, `kind` (`schedule`, `event`), `preset` (`every_15m`, `hourly`, `daily_at`, `weekdays_at`), `at_time` (time), `time_zone` default `Asia/Ho_Chi_Minh`, `event_name`, `enabled`, `next_run_at`, `last_fired_at`, `reconciled_at`                                        |
 | `agent_wakes`         | id, unique (`agent_id`, `source`, `event_key`) | `agent_id`, `source` (`customer`, `tag`, `internal`, `schedule`), `event_key`, `priority` smallint, `context` jsonb, `actor_member_id`, `status` (`pending`, `running`, `done`, `skipped`, `held`, `failed`, `dead`), `reason`, `attempts`, `not_before`, `started_at`, `finished_at`         |
 | `agent_turns`         | id, unique (`wake_id`, `fence`)                | `agent_id`, `wake_id`, `fence`, `runner` text default `openclaw`, `runtime_agent_id`, `thread_key`, `status` (`running`, `proposed`, `settled`, `failed`, `abandoned`), `proposal` jsonb, `outcome` jsonb, `model`, `prompt_tokens`, `completion_tokens`, `cost`, `duration_ms`, `error_code` |
 
@@ -81,9 +86,9 @@ Indexes: `agent_wakes (agent_id, priority, created_at) WHERE status = 'pending'`
 `agent_turns (runtime_agent_id, thread_key) WHERE status = 'running'`, `agent_triggers (next_run_at) WHERE enabled`.
 
 `context` holds ids and flags only, the same rule as a queue payload (BE-QUEUES-1): `conversationId`, `messageId`, `channelEventId`,
-`lookupName`, `room`, `threadId`, `authorUserId`, `locale`, `triggerId`, `slot`, `eventName`, `subjectId`, `taskId`, `probeKey`.
+`lookupName`, `room`, `threadId`, `authorUserId`, `locale`, `triggerId`, `slot`, `eventName`, `subjectId`, `taskId`.
 
-A goal or a task does not repeat `work_items`. A work item is one gated business action; a task is the agent's own to-do, and it
+A task does not repeat `work_items`. A work item is one gated business action; a task is the agent's own to-do, and it
 points at the item it opened through `work_item_id`. The existing `thread_work` table stays the record of work inside a thread.
 
 SQL functions, `SECURITY DEFINER` with pinned `search_path` (BE-PERSISTENCE-19), called with `callDbFunction` (R334):
@@ -167,11 +172,8 @@ New reactor `be/src/features/reactors/agent-wakes`. Consumers on existing topics
 | -------------- | -------------------------- | -------------------------------------------------------------------------- |
 | Money in       | `bank_credit_booked`       | Agents with an enabled `agent_triggers` row of `kind: event` for that name |
 | A new document | `knowledge_source_indexed` | Same                                                                       |
-| Paid           | `payment_reconciled`       | Same                                                                       |
 
-`eventKey` is `<eventName>:<payload.dedupeKey>`, so a replay is one wake. An invoice being due is a fact about time, with no event: it is a
-daily schedule with the probe `invoices_due`. An event trigger takes the same probe check as a schedule, so a credit with no work behind it
-costs no model call. A new event needs its consumer here and a row, nothing else.
+`eventKey` is `<eventName>:<payload.dedupeKey>`, so a replay is one wake. A new event needs its consumer here and a row, nothing else.
 
 ## 5. Scheduling
 
@@ -207,21 +209,8 @@ Tick `agent-work-sweep`, `*/1 * * * *`, in the tick list (`be/src/modules/platfo
 
 ### 5.3 Code first
 
-A `schedule` or `event` wake reaches the model only when a probe says there is work. `AgentProbe` is a port with a registry, in `agent-schedules`:
-
-```ts
-interface AgentProbe {
-  readonly key: string
-  check(agent: AgentRef, context: AgentWakeContext): Promise<ProbeAnswer>
-}
-type ProbeAnswer =
-  { readonly work: false } | { readonly work: true; readonly brief: string; readonly subjectIds: ReadonlyArray<string> }
-```
-
-First probes: `tasks_due` (open tasks and active goals past `reviewed_at`), `invoices_due`, `new_documents`, `money_in`. A probe only reads, with a
-statement budget of 2 s. A failed probe skips the wake with reason `probe_failed` and spends no model call. `work: false` finishes the wake as
-`skipped`, reason `no_work`. The `brief` goes into the turn's message as data, so the model starts from what was found. A due task is itself work, so a
-wake with a `taskId` needs no probe.
+There is no code-first probe: the probes of the wake engine (`tasks_due`, `new_documents`, `accounting_close`) were deleted in the engine
+cleanup wave 1 (ruling R67). A clock or event wake runs what its trigger starts; a check of the business belongs to the package's graph.
 
 The agent asks to be woken again through `tasks[].next_action_at` in its proposal, bounded to between 5 minutes and 7 days and counted against the
 daily cap. It cannot add a trigger.
@@ -331,7 +320,7 @@ OpenClaw keeps the session, its transcript and the workspace files, all rebuilda
 
 1. A member sends "@ke-toan how much is due?". `PostOfficeMessageHandler` calls `OfficeTagService.post`: in one transaction `TeamChatService.postHuman`, then a `tag` wake per allowed
    agent, key `<messageId>`, context `{ messageId, room, authorUserId, locale }`.
-2. Only `author_kind = 'human'` lines wake, so an agent's line can never start a loop. Agent to agent stays with `can_tag_agent_ids` and chain limits in threads.
+2. Only `author_kind = 'human'` lines wake, so an agent's line can never start a loop. Agent to agent is a delivered workflow call, which the call guard refuses on a cycle, too deep a chain or a duplicate.
 3. The office shows the agent typing from `begin` to `finish`. `ChatTypingService.set` proves a member, so it gains `setAgent(workspaceId, target, agent, typing)` beside it, on the same realtime topic.
 4. `OfficeTagHandler.prepare`, in the worker: when the author is an owner or manager and the agent `accepts` commands, it calls `OfficeCommandService.propose`, which is already
    idempotent per message. `card` or `reply` ends the wake as `done` with no OpenClaw turn. Only `chat` continues.
@@ -355,7 +344,7 @@ OpenClaw keeps the session, its transcript and the workspace files, all rebuilda
 A tag never widens what the agent holds, and a member gets nothing past their role. Background turns have no person behind them, so a write always stops for a person: nothing leaves on a schedule alone.
 A background turn never speaks to a customer. To reach one it opens a work item, and the approval flow of `work_items` and `approval_requests` decides.
 
-Words inside a wake are data. Message bodies, event text and probe briefs reach the prompt under a label that says so, as nivo-mcp.md section 7 does.
+Words inside a wake are data. Message bodies, event text and briefs reach the prompt under a label that says so, as nivo-mcp.md section 7 does.
 
 **Quota.** Before a turn, `UsageGateService.blockedBy(workspaceId, kind)`, the same allowance as today. Kind `chat_reply` for customers and the new `agent_work` otherwise, metered per turn with the module, and copied to the turn row.
 `background_daily_cap` counts `internal` and `schedule` turns per agent per day; customer and tag turns are never capped by it. Over quota: customer gets the holding line, a tag gets a line, a background wake is `skipped`, reason `quota`.
@@ -391,17 +380,16 @@ sweep per minute over partial indexes.
 
 ## 10. Observability and the web
 
-Log events in `be/src/modules/domain/agent-work/agent-work.log-events.ts`: `WakeWritten`, `TurnBegun`, `TurnBusy`, `ProbeSkipped`, `TurnFenced`, `WakeDead`, `BreakerOpened`, with ids only. Measures from the tables through
+Log events in `be/src/modules/domain/agent-work/agent-work.log-events.ts`: `WakeWritten`, `TurnBegun`, `TurnBusy`, `TurnFenced`, `WakeDead`, `BreakerOpened`, with ids only. Measures from the tables through
 `AgentWorkReadService`: wake wait (`started_at - created_at`) per source, skip rate, turns and cost per agent per day. The existing job alerts cover the queues; a new alert kind fires on a pending customer wake older than 2 minutes.
 
-GraphQL, in `be/src/features/api/agent-work`: `agentWork(installationId)` gives state, goals, open tasks, triggers, the next run and the last 20 turns. `workspaceAgentWork` gives the switch and counts. Mutations: `setAgentWork`, `setWorkspaceAgentWork`, `saveAgentGoal`, `saveAgentTrigger`, `removeAgentTrigger`, `closeAgentTask`, owner or manager except the two switches. The turn list carries no prompt and no customer words.
+GraphQL, in `be/src/features/api/agent-work`: `agentWork(installationId)` gives state, open tasks, triggers, the next run and the last 20 turns. `workspaceAgentWork` gives the switch and counts. Mutations: `setAgentWork`, `setWorkspaceAgentWork`, `saveAgentTrigger`, `removeAgentTrigger`, `closeAgentTask`, owner or manager except the two switches. The turn list carries no prompt and no customer words.
 
 The web, as a new tab of the instance frame, `/agents/<type>/<id>/work`, Work:
 
 | Region       | Shows                                                                                |
 | ------------ | ------------------------------------------------------------------------------------ |
 | Status band  | Working now, idle, paused, or breaker open; the next run in words; queue length      |
-| Goals        | List with add and close                                                              |
 | Open tasks   | What it is on, what it waits for, link to the work item                              |
 | Schedule     | Triggers as sentences with presets; the switch per trigger                           |
 | Recent turns | Why it woke, what it did (`no_work` rows collapsed into a count), tokens, cost, time |
@@ -422,9 +410,7 @@ The kill switch is in Settings per agent and on the agents list per workspace. T
 **Automation.** The engine is deterministic and stays on its minute tick (R335). `onBusinessEvent`, scans, `AutomationGateService` and `AutomationTextService`, which calls the model directly for wording, do not change.
 One thing joins: a new executor `wake_agent`, so a pipeline hands a case to an agent by `wake(internal, "<runId>:<step>")` when it needs judgement.
 
-**Global ticks.** `accounting_desk.morning`, `marketing_tick`, `content_tick` and hiring ticks keep running. Each becomes a seeded trigger with a probe when its module is ready, one module at a time, and its entry in the tick list goes when the last workspace has moved. No brief here moves one; that keeps W4 reviewable.
-
-**Hiring.** `HiringPublicService.chatBrief` stays a context block.
+**Global ticks.** `marketing_tick` and `content_tick` keep running. Each becomes a seeded trigger when its module is ready, one module at a time, and its entry in the tick list goes when the last workspace has moved. No brief here moves one; that keeps W4 reviewable.
 
 ## 12. Test plan
 
@@ -442,7 +428,6 @@ Unit specs per file (BE-TEST-5, R273). The proofs that only a real store shows, 
 | `poison`               | A wake failing past budget is `dead` and the next wake runs                                                    |
 | `scheduler-fires-once` | A real scheduler on Redis writes one wake per slot, and a sweep of the same slot adds none                     |
 | `scheduler-recovered`  | After Redis loses the scheduler, the sweep restores it and writes one wake for the latest slot                 |
-| `no-work-no-model`     | A probe with no work: wake `skipped`, runner not called, no usage row                                          |
 | `kill-switch`          | Killed: wakes `held`, no runner call. On again: customer and tag wakes return, schedule wakes skip             |
 | `tag-to-reply`         | A member's line ends as the agent's line in the room, with one turn; a staff tag without the right gets a line |
 | `agent-line-no-wake`   | An agent's line naming a handle writes no wake                                                                 |
@@ -485,7 +470,7 @@ Paths: the agent work core migration (folded into the baseline) (new), `be/src/m
 `be/src/tests/world/agent-work-capabilities.options.ts` (new).
 
 Build: the seven tables and five functions; entities and `agentWorkEntities`; `AgentTurnQueue` with its dedupe builders; `AgentWakeService.wake`; `AgentLeaseService` over the functions; `AgentDrainService.drain(agentId)` with begin, heartbeat, handler
-dispatch, propose, settle, finish and the follow-on job; the ports `AgentTurnExecutor` and `AgentWorkHandler` under an optional injection token, where an absent handler leaves the wake `held`, reason `no_handler`; `AgentGoalsService`, `AgentTasksService`, `AgentTriggersService`
+dispatch, propose, settle, finish and the follow-on job; the ports `AgentTurnExecutor` and `AgentWorkHandler` under an optional injection token, where an absent handler leaves the wake `held`, reason `no_handler`; `AgentTasksService`, `AgentTriggersService`
 (rows only), `AgentWorkSettingsService` for both switches and `road`; `AgentWorkReadService`; `be/src/modules/domain/agent-work/agent-work.policy.ts` for priority, budgets and retry waits.
 
 Specs: `agent-work.policy`: priority per source, wait per attempt, budget per source. `agent-wake.service`: a new wake enqueues; a repeat does not. `agent-drain.service`: `busy` and `idle` end quietly; `begun` runs handler then finish; a stored proposal skips the executor; a false `propose` stops before settle; `fenced` from finish stops; `more` enqueues;
@@ -503,9 +488,9 @@ Paths: `be/src/modules/platform/queue/queue-transport.port.ts`, `be/src/modules/
 `be/src/modules/platform/jobs/job-ticks.contracts.ts` (one entry), `.starcistacks/application-stacks.yaml` (one `jobs:` entry), `be/src/modules/domain/agent-schedules/**` (new), `be/src/features/jobs/run-agent-turn/**` (new), `be/src/features/jobs/fire-agent-schedule/**` (new),
 `be/src/features/jobs/sweep-agent-work/**` (new), `be/apps/api/src/compose/jobs.ts` (three lines), `be/src/modules/domain/modules/modules.catalog.contracts.ts` (optional `triggers`), `be/src/tests/integration/agent-work/agent-work-road.integration-spec.ts` (new).
 
-Build: `QueueTransport.schedule`, `unschedule`, `scheduledIds` and `workFires`, with `upsertJobScheduler` called on variables so R268 reads a forward; `QueueScheduleRegistry`; `AgentTriggerSyncService` (presets to pattern, the hashed minute, seeding from a module's `triggers`); `AgentProbesService` with `tasks_due` first, and `invoices_due`, `new_documents`, `money_in` as read-only providers; `AgentWorkSweepService` over `agent_work_due`; the three jobs. `RunAgentTurnProcessor` has concurrency 4 and calls `AgentDrainService.drain`. The scheduler list in `be/apps/api/src/compose/schedulers.ts` stays empty. Action graph (section 15.7): each entry of a module's `triggers` carries a stable `key`, and `agent_triggers` is seeded per key, so a base graph's `start` node can name it. W6 reads that key; nothing here reads the graph.
+Build: `QueueTransport.schedule`, `unschedule`, `scheduledIds` and `workFires`, with `upsertJobScheduler` called on variables so R268 reads a forward; `QueueScheduleRegistry`; `AgentTriggerSyncService` (presets to pattern, the hashed minute, seeding from a module's `triggers`); `AgentWorkSweepService` over `agent_work_due`; the three jobs. `RunAgentTurnProcessor` has concurrency 4 and calls `AgentDrainService.drain`. The scheduler list in `be/apps/api/src/compose/schedulers.ts` stays empty. Action graph (section 15.7): each entry of a module's `triggers` carries a stable `key`, and `agent_triggers` is seeded per key, so a base graph's `start` node can name it. W6 reads that key; nothing here reads the graph.
 
-Specs: transport: forwards pattern, tz and template; `workFires` never calls `job_start`. Sync: each preset; the minute is stable per agent; a disabled trigger unschedules; the 15-minute floor and 8-trigger cap; a seed key repeated on re-install writes no second row. Sweep: each of the four duties, and a batch bound. Probes: each answer, failure skips, a `taskId` needs none. Fire: slot read from the id; a missing trigger unschedules. Integration on Redis: `scheduler-fires-once` (BE-QUEUES-4), `scheduler-recovered`, `no-work-no-model`, `crash-resume`.
+Specs: transport: forwards pattern, tz and template; `workFires` never calls `job_start`. Sync: each preset; the minute is stable per agent; a disabled trigger unschedules; the 15-minute floor and 8-trigger cap; a seed key repeated on re-install writes no second row. Sweep: each of the four duties, and a batch bound. Fire: slot read from the id; a missing trigger unschedules. Integration on Redis: `scheduler-fires-once` (BE-QUEUES-4), `scheduler-recovered`, `no-work-no-model`, `crash-resume`.
 
 Done: section 13.0, and `npx --no-install starci app check` shows R268 and R335 clean. Note that BE-QUEUES-3 needs its ruling in the report; do not edit it.
 
@@ -642,7 +627,7 @@ interface DataUse {
 | -------------- | ---------- | ------------------------------------------------------------------------- |
 | What it knows  | `knows`    | Spending policy section 4 (Brain), supplier contract on Drive             |
 | What it does   | `does`     | Confirms the expense, then records it in the ledger                       |
-| What it uses   | `uses`     | SePay, with the tool name `sepay.transactions.debits` on a secondary line |
+| What it uses   | `uses`     | SePay, with the tool name `nivo.tool.payment.debit.list` on a secondary line |
 | What it reads  | `reads`    | Amount and supplier name, from the SePay statement                        |
 | What it writes | `writes`   | An expense line, into the payables ledger                                 |
 | Who approves   | `approver` | Dinh, and Mr Nam after 4 hours without an answer                          |
@@ -665,7 +650,7 @@ interface DecidePoint {
 interface GraphBranch {
   readonly key: string
   readonly when: Condition | "else" // condition
-  readonly outcome: "auto" | "ask" | "stop" // action
+  readonly then: "auto" | "ask" | "stop" // action
   readonly next: string // the node it goes to
   readonly approver: BranchApprover | null // approver, required when `ask`
   readonly sources: ReadonlyArray<GraphSource> // source
@@ -770,7 +755,7 @@ A fact declares type, unit and allowed values in the registry, and `op` and `val
 | `authority.alwaysAsk`                | An `approve` node that cannot become `auto`                                                                                        |
 | `executor`, `n8n.audience`           | An `act` node with `pipeline`, `doneBy: "nivo"`                                                                                    |
 
-An `act` node with `pipeline` is a map entry: `AutomationEngineService` keeps running it on its tick, and `automation_pipelines.enabled` stays its switch. Its customer message reaches `runWork` through `AutomationGateService`, so the graph's branch decides there like any other. A template whose `version` rises raises a proposal of kind `template_update`, and no graph changes by itself.
+An `act` node with `pipeline` is a map entry: `AutomationEngineService` keeps running it on its tick. Its customer message reaches `runWork` through `AutomationGateService`, so the graph's branch decides there like any other. A template whose `version` rises raises a proposal of kind `template_update`, and no graph changes by itself.
 
 ### 15.8 Versions, conflicts, learning
 
@@ -904,7 +889,6 @@ A `tool` run has no work item to hand on, so a branch that leads to another acti
 | `outgoing.has_link`                             | Whether the text holds a link                                                     |
 | `outgoing.has_phone`                            | Whether the text holds a phone number                                             |
 | `outgoing.length`                               | The number of characters                                                          |
-| `outgoing.says_received`                        | Whether the text tells the customer money arrived, by a fixed list of phrases     |
 | `customer.known`                                | Whether the work names a lead                                                     |
 | `money.amount_vnd`, `money.source`, `money.via` | The money of the turn, below                                                      |
 | `tool.name`, `tool.connector`, `handover.to`    | The call the road is about to make                                                |
@@ -927,7 +911,7 @@ No text means the `outgoing.*` facts are absent. **A fact that cannot be compute
 - `shadow` is one thing only: the owner chose, for one agent, to watch a graph before it decides. Every road then walks and records, `shadow_diff` marks a difference from what ran, and the verdict stays the gate's. It holds through later publishes until the owner turns it back. Only the owner role sets the mode, in either direction, because turning a graph off widens the agent; `mode_set_by` and `mode_set_at` keep who and when.
 - **Data rights start at the first publish.** A seed holds `rights: []`, no person chose that, and `graphProblems` never read it. Default deny on a seed would cut every agent off from its own Brain, so `AgentDataRightsService` governs from the first version a person published. Actions are enforced from the seed.
 
-**Rules the graph does not hold.** Prose decides nothing. A sentence of the published setup that names a figure and an approval, with no condition of the graph on that figure, is listed as `unheldRules` on the graph the owner opens. It warns and does not block a publish, and it reads figures, so a rule in words alone raises nothing.
+**Rules the graph does not hold.** Prose decides nothing. At setup the model reads the setup text and returns the sums from which the text makes a person decide, each with the sentence that states it; code keeps one only when the sentence is in the text word for word and no condition of the graph holds the sum, and raises it as a gap that stores the sum. The open gaps whose sum the draft still does not hold are listed as `unheldRules` on the graph the owner opens (no model call on a view). It warns and does not block a publish; no word list decides what a rule is, and a rule that names no sum raises nothing.
 
 **What the owner sees.** Each walk writes one row of `agent_graph_decisions`: road, mode, version, path, facts as read, what was `unread`, why it was `unjudged`, the gate's answer, the outcome, and the `work_item_id` when there is one. A reply or tool run keys on `dedupe_key`, which holds the digest of the text or the step, so a redelivery writes no second row while a different draft for the same message is judged again. A reply that asks is recorded once, on its work item. `agentGraphRuns(installationId)` lists them newest first, with what the graph did and whether it differed from the gate. An action no node holds is listed too, as `not_in_graph`.
 

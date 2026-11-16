@@ -1,7 +1,5 @@
 import type { Metadata } from "next"
 import { getTranslations } from "next-intl/server"
-import { notFound } from "next/navigation"
-import { isModuleKey } from "@/modules/catalog"
 import { AgentSetupPageBase } from "./component"
 
 /** What the route hands the page: the type and the instance of the url. */
@@ -18,7 +16,6 @@ export const agentSetupMetadata = async (): Promise<Metadata> => {
 
 /** The Setup tab of one instance: the connected blocks read the chat, the draft, the checklist and the versions in the browser. */
 export const AgentSetupPage = (props: AgentSetupPageProps) => {
-    if (!isModuleKey(props.module)) notFound()
     return (
         <AgentSetupPageBase
             props={{
@@ -28,3 +25,6 @@ export const AgentSetupPage = (props: AgentSetupPageProps) => {
         />
     )
 }
+
+/** The same Setup tab while the route loads: the panes read the agent from the address and draw their own skeletons. */
+export const AgentSetupLoadingPage = () => <AgentSetupPageBase props={{ module: undefined, installationId: undefined }} />

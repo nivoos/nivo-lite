@@ -26,6 +26,7 @@ export class PollOwnerNoticeService {
     ): Promise<void> {
         const reason = why === "permission" ? POLL_NEEDS_PERMISSION_REASON : POLL_NEEDS_REAUTH_REASON
         await this.connections.markFailing(record.id, reason)
+        await this.connections.markHealth(record.id, { state: "needs_reauth", reason, checkedAt: new Date(openedAt).toISOString() })
         await this.entityManager.transaction((manager) =>
             this.inboundEvents.keepForOwner(manager, {
                 workspaceId: record.workspaceId,

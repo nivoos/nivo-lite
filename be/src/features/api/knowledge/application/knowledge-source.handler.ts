@@ -1,24 +1,20 @@
 import { QueryHandler } from "@nestjs/cqrs"
-import { KnowledgeDocumentsService, type OpenedKnowledgeSource } from "@modules/domain/knowledge"
+import { KnowledgeSourceReadService, type KnowledgeSourceRead } from "@modules/domain/knowledge"
 import { ICQRSHandler } from "@modules/platform/cqrs"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { KnowledgeSourceQuery } from "./knowledge-source.query"
 
 @QueryHandler(KnowledgeSourceQuery)
-/** Reads one document of the workspace with its text and its passages. */
-export class KnowledgeSourceHandler extends ICQRSHandler<KnowledgeSourceQuery, OpenedKnowledgeSource> {
+/** Reads one document of the workspace with its text and its passages, and what it cost in AI for an owner or manager (null for staff). */
+export class KnowledgeSourceHandler extends ICQRSHandler<KnowledgeSourceQuery, KnowledgeSourceRead> {
     constructor(
         @InjectLogger() logger: Logger,
-        private readonly documents: KnowledgeDocumentsService,
+        private readonly source: KnowledgeSourceReadService,
     ) {
         super(logger)
     }
 
-    protected override process(query: KnowledgeSourceQuery): Promise<OpenedKnowledgeSource> {
-        return this.documents.document(
-            query.params.principal.id,
-            query.params.request.workspaceId,
-            query.params.request.id,
-        )
+    protected override process(query: KnowledgeSourceQuery): Promise<KnowledgeSourceRead> {
+        return this.source.read(query.params.principal.id, query.params.request.workspaceId, query.params.request.id)
     }
 }

@@ -31,7 +31,7 @@ const controlled = (withReturn: boolean) => {
                     wake = resolve
                 })
             }
-            if (failure !== undefined) throw failure
+            if (failure !== undefined) return Promise.reject(failure)
             return queue.shift() ?? { done: true, value: undefined }
         },
         ...(withReturn ? { return: returned } : {}),
@@ -155,7 +155,7 @@ describe("eventStream disconnects and failures", () => {
         const subject = await buildSubject()
         const source = controlled(true)
         const { state } = listen(subject.eventStream(source.frames))
-        const failure = new RealtimeError({ code: RealtimeErrorCode.ListenDropped })
+        const failure = new RealtimeError({ code: RealtimeErrorCode.ReplayFailed })
 
         source.fail(failure)
         await jest.advanceTimersByTimeAsync(0)

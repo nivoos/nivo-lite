@@ -10,6 +10,7 @@ import {
     interleavedByWorkspace,
     intervalFor,
     jittered,
+    planAfterDeferral,
     planAfterFailure,
     planAfterRead,
     probeOf,
@@ -29,6 +30,7 @@ const build = async () => {
                     intervalFor,
                     interleavedByWorkspace,
                     jittered,
+                    planAfterDeferral,
                     planAfterFailure,
                     planAfterRead,
                     probeOf,
@@ -489,5 +491,41 @@ describe("planAfterFailure unavailable", () => {
                 .unavailableReason,
         ).toBe("plan")
         expect(subject.planAfterFailure(flagged, { kind: "fatal" }, NOW, options, MID).unavailableReason).toBe("plan")
+    })
+})
+
+describe("planAfterDeferral", () => {
+    it("plans the connection again once the named window has passed and counts one more cycle that did not read", async () => {
+        const { planAfterDeferral } = await build()
+
+        const plan = planAfterDeferral(rowOf({ failures: 1, breakerState: "half_open" }), 300, NOW, options, MID)
+
+        expect(plan).toMatchObject({
+            nextPollAt: NOW + 300,
+            intervalMs: 30 * MIN,
+            failures: 2,
+            breakerState: "half_open",
+            needsReauth: false,
+            raiseOwnerNotice: false,
+            succeeded: false,
+        })
+    })
+
+    it("keeps the unfinished backfill, so a deferred chunk is read again from where it stopped", async () => {
+        const { planAfterDeferral } = await build()
+        const to = new Date(NOW - 10 * MIN)
+        const newest = new Date(NOW - MIN)
+
+        const plan = planAfterDeferral(rowOf({ backfillTo: to, backfillNewest: newest }), 300, NOW, options, MID)
+
+        expect(plan).toMatchObject({ backfillTo: to.getTime(), backfillNewest: newest.getTime() })
+    })
+
+    it("asks for a person exactly at the cycle that makes the breaker threshold in a row, not before and not after", async () => {
+        const { planAfterDeferral } = await build()
+        const asked = (failures: number) => planAfterDeferral(rowOf({ failures }), 300, NOW, options, MID).raiseOwnerNotice
+
+        expect([3, 4, 5, 6].map(asked)).toEqual([false, true, false, false])
+        expect(options.breakerThreshold).toBe(5)
     })
 })

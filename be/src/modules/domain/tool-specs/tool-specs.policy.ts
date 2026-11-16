@@ -1,0 +1,769 @@
+import { TOOL, crmIdOfOp, crmProviderKeyOf, type ToolNames } from "@nivo-lite/agent-sdk/names"
+import {
+    DOMAIN_TOOL_BUSINESS_REFUSALS,
+    INVOICE_TOOL_BUSINESS_REFUSALS,
+    MEDIA_TOOL_BUSINESS_REFUSALS,
+    PAYMENT_REQUEST_REFUSALS,
+    PAYMENT_TOOL_BUSINESS_REFUSALS,
+} from "@modules/domain/provider-registry"
+import { CRM_TEMPLATES, readDocument, takesReplayKey } from "@modules/domain/openapi-tools"
+import { sourceToolSpecOf } from "./source-tool-spec.policy"
+import type {
+    ConfirmRead,
+    CoreToolId,
+    OptionalToolSpec,
+    RefusalsOf,
+    ToolAccountMode,
+    ToolConfirmBy,
+    ToolDataKind,
+    ToolRefusals,
+    ToolSpec,
+    ToolSpecRegistry,
+} from "./tool-specs.contracts"
+
+/** The pseudo-provider of NIVO's own tools (ruling B2): it owns every tool no provider owns, is always bound and never attachable. */
+export const NIVO_OWNER: string = "nivo"
+
+/** The refusals the run's pin answers on the effect road for every effect (`effect-pin.policy.ts` `PinRefusal`). */
+export const PIN_REFUSALS = ["conversation_mismatch", "lead_mismatch", "conversation_unverified"] as const
+
+/**
+ * The refusals of the setup the door answers on the effect road (`AbilityVerdict` refuse reasons): the agent is attached to no account
+ * serving the tool (the kill switch), or the step's node states no readable mode (no default). They FREEZE the step on the template
+ * road, so they are in no tool's refusal set (`FROZEN_RIGHT_REFUSALS`).
+ */
+export const HELD_RIGHT_REFUSALS = ["not_attached", "node_mode_unknown"] as const
+
+/**
+ * The refusals of the agent's rights and of the setup the door judges on the effect road: on the template road each FREEZES the step
+ * (the door throws `GRAPH_NODES_TOOL_NOT_GRANTED`), so none is a typed refusal of any tool (`tool-specs.policy.spec.ts` proves it).
+ */
+export const FROZEN_RIGHT_REFUSALS = [...HELD_RIGHT_REFUSALS] as const
+
+/**
+ * The old refusal of a second customer line for the same stop. Nothing answers it any more (a step that runs again answers its
+ * earlier send from that send's receipt, nivo-frame `rights` 11d); it stays listed only because the agent-sdk send signature
+ * (`packages/agent-sdk/src/names/tool.ts`) still types it, and every code the SDK types must be listed here. Drop both together.
+ */
+export const REPEAT_SEND_REFUSALS = ["already_told_for_this_stop"] as const
+
+/** What the customer send's executor answers (`chat-node-ports.policy.ts` `SEND_REFUSAL`, every value). */
+export const SEND_REFUSALS = [
+    "no_recipient",
+    "no_channel_identity",
+    "channel_ambiguous",
+    "route_held",
+    "connection_missing",
+    "channel_no_access",
+    "customer_opted_out",
+    "recipient_not_linked",
+    "outside_window",
+    "plan_blocked",
+    "not_delivered",
+    "subject_required",
+    "address_not_accepted",
+    "entrance_incomplete",
+] as const
+
+/** What a write to a contact answers (`ContactWriteRefusal`, every value). */
+export const CONTACT_WRITE_REFUSALS = ["contact_missing", "other_contact"] as const
+
+/**
+ * What linking an identity answers to a node (`ContactIdentityLinkRefusal`, every value): the BUSINESS refusals only. `internal_only` (an
+ * outside identity linked from a run that serves a customer) and `ask_only` (an outside identity with no person's approval) are classed
+ * `infrastructure` by the native (`NATIVE_REFUSAL_CLASS`): they freeze the step, so no node reads them and no set lists them.
+ */
+export const CONTACT_LINK_REFUSALS = [
+    ...CONTACT_WRITE_REFUSALS,
+    "identity_invalid",
+    "identity_taken",
+    "token_invalid",
+    "account_missing",
+] as const
+
+/** What merging two contacts answers (`ContactMergeRefusal`, every value). */
+export const CONTACT_MERGE_REFUSALS = ["contact_missing", "same_contact", "no_proof"] as const
+
+/** Why an order may not be cancelled (blocks-core `CancelRefusal`, every value). */
+export const CANCEL_RULE_REFUSALS = [
+    "order_not_cancellable",
+    "order_paid",
+    "order_invoiced",
+    "order_has_payment",
+    "order_has_invoice",
+] as const
+
+/** Why the books refuse a settlement (blocks-core `SettleRefusal`, every value). */
+export const SETTLE_RULE_REFUSALS = [
+    "transaction_missing",
+    "order_missing",
+    "transaction_not_credit",
+    "order_not_open",
+    "order_unpriced",
+    "transaction_used",
+    "claim_missing",
+    "claim_closed",
+] as const
+
+/**
+ * The money providers that serve the payment request (`nivo.tool.payment.request.*`, owner ruling R111): every provider that registers a
+ * `PaymentRequestPort` (the gate `payment-request-port.spec.ts` keeps this list and the registrations equal). `casso` reads credits only.
+ */
+const PAYMENT_REQUESTERS: ReadonlyArray<string> = ["sepay", "payos"]
+
+/** The registrars that serve the generic domain purposes (`nivo.tool.domain.*`): providers are equal, the node's order picks. */
+const REGISTRARS: ReadonlyArray<string> = ["inet", "tino"]
+
+/**
+ * The e-invoice providers that serve `nivo.tool.invoice.create` (owner ruling R57: the invoice is issued AT the provider, through the
+ * account the step is bound to; NIVO and a CRM serve no invoice purpose): providers are equal, the node's order picks.
+ */
+const INVOICE_ISSUERS: ReadonlyArray<string> = ["misa_meinvoice"]
+
+/** The speech and dubbing service that serves `nivo.tool.speech.*` and `nivo.tool.dubbing.*`. */
+const SPEECH: ReadonlyArray<string> = ["elevenlabs"]
+
+/** The video generation service that serves `nivo.tool.video.generate` and `nivo.tool.video.generation.get`. */
+const VIDEO: ReadonlyArray<string> = ["veo"]
+
+/** The cloud compose services that serve `nivo.tool.video.compose` and `.render.get`: providers are equal, the node's order picks. */
+const COMPOSERS: ReadonlyArray<string> = ["shotstack", "creatomate", "json2video"]
+
+/** The providers that serve the generic calendar tools (`nivo.tool.calendar.*`) and the YouTube destination: the Google account. */
+const GOOGLE: ReadonlyArray<string> = ["google"]
+
+/** The provider that serves the Facebook and Instagram destination tools: the Meta account (a Page and its linked Instagram). */
+const META: ReadonlyArray<string> = ["meta"]
+
+/** The provider that serves the TikTok destination tools. */
+const TIKTOK: ReadonlyArray<string> = ["tiktok"]
+
+/** The engine's refusals of an effect no provider serves: the pin. */
+const OWN_EFFECT = [...PIN_REFUSALS] as const
+
+/** A closed refusal set of the codes `R`. */
+interface ClosedRefusals<R extends string> {
+    readonly closed: true
+    readonly codes: ReadonlyArray<R>
+}
+
+/** An open refusal set. */
+interface OpenRefusals {
+    readonly closed: false
+    readonly codes: ReadonlyArray<string>
+}
+
+/** A spec with its refusal set's own type and whether it writes as written, as the registry's checks read them. */
+type SpecWith<F extends ToolRefusals, M extends boolean = boolean> = Omit<ToolSpec, "refusals" | "mutates"> & {
+    readonly mutates: M
+    readonly refusals: F
+}
+
+/** A closed set: every code the tool can answer. */
+const closed = <const R extends string>(...codes: ReadonlyArray<R>): ClosedRefusals<R> => ({ closed: true, codes })
+
+/** The business refusals of a calendar or destination tool: the platform refused the request, or the id is not there. */
+const PUBLISH_REFUSALS = closed("rejected", "not_found")
+
+/** An open set: the codes known by reading; the tool may answer others (its adapter's refusals are free text). */
+const open = (...codes: ReadonlyArray<string>): OpenRefusals => ({ closed: false, codes })
+
+/** The parts of a spec most tools share, filled by the helpers below. */
+interface SpecParts<F extends ToolRefusals> {
+    readonly owners?: ReadonlyArray<string>
+    readonly account?: ToolAccountMode
+    readonly dataKind?: ToolDataKind | null
+    readonly onceBy?: ReadonlyArray<string>
+    readonly approvalContent?: ReadonlyArray<string>
+    readonly repeatable?: boolean
+    readonly confirmBy?: ToolConfirmBy
+    readonly finalRefusals?: ReadonlyArray<F["codes"][number]>
+    readonly refusals: F
+}
+
+/**
+ * A spec, engine-owned and on no account unless the parts say otherwise: `mutates` false for a read, true for a write; `repeatable` true
+ * for a read and false for a write unless the parts declare it (R74: the engine never guesses it).
+ */
+const specOf = <M extends boolean, F extends ToolRefusals>(mutates: M, parts: SpecParts<F>): SpecWith<F, M> => ({
+    mutates,
+    owners: parts.owners ?? [NIVO_OWNER],
+    account: parts.account ?? "none",
+    dataKind: parts.dataKind ?? null,
+    onceBy: parts.onceBy ?? [],
+    refusals: parts.refusals,
+    repeatable: parts.repeatable ?? !mutates,
+    ...(parts.confirmBy === undefined ? {} : { confirmBy: parts.confirmBy }),
+    ...(parts.finalRefusals === undefined ? {} : { finalRefusals: parts.finalRefusals }),
+    ...(parts.approvalContent === undefined ? {} : { approvalContent: parts.approvalContent }),
+})
+
+/** A read: it only looks. */
+const readSpec = <F extends ToolRefusals>(parts: SpecParts<F>): SpecWith<F, false> => specOf(false, parts)
+
+/** A write: anything that is no read (nothing else of what a tool does is the engine's). */
+const writeSpec = <F extends ToolRefusals>(parts: SpecParts<F>): SpecWith<F, true> => specOf(true, parts)
+
+/** The refusals a native read is known to answer; on the tool road a native refusal is a tool error today (the node freezes). */
+const nativeRead = (dataKind: ToolDataKind | null, ...codes: ReadonlyArray<string>): SpecWith<OpenRefusals, false> =>
+    readSpec({ dataKind, refusals: open(...codes) })
+
+/**
+ * Every core tool's spec, keyed by `TOOL`. A TOTAL record: a `TOOL` id without its spec does not compile, and a closed refusal set must
+ * equal the SDK's `ToolNames[id]["refusals"]` union (`tool-specs.policy.spec.ts` proves the rest against the scattered tables it replaces).
+ */
+export const TOOL_SPECS = {
+    // Customer and conversation.
+    // Repeatable (R74): a send whose outcome is unknown is sent again under the same key; the worst case is a duplicate line.
+    [TOOL.customerMessageSend]: writeSpec({
+        owners: ["zalo_oa", "telegram", "meta", "smtp"],
+        account: "owner",
+        approvalContent: ["subject", "text", "images"],
+        repeatable: true,
+        // FINAL for the person: they withdrew consent, or NIVO holds no address of them at all: nobody can make this send happen.
+        // Every other refusal (a closed window, a plan, the channel's "no") is a stop a person can resolve.
+        finalRefusals: ["customer_opted_out", "no_recipient", "no_channel_identity"],
+        refusals: closed(...SEND_REFUSALS, ...REPEAT_SEND_REFUSALS, ...PIN_REFUSALS),
+    }),
+    [TOOL.leadCareGet]: nativeRead(null, "other_lead"),
+    [TOOL.leadOrderList]: nativeRead(null, "other_conversation", "other_lead"),
+    // The contact (the engine's person).
+    [TOOL.contactGet]: nativeRead(null, "other_conversation", "other_contact"),
+    [TOOL.contactSearch]: nativeRead(null),
+    [TOOL.contactUpdate]: writeSpec({ refusals: closed(...CONTACT_WRITE_REFUSALS) }),
+    [TOOL.contactMemoryRemember]: writeSpec({ refusals: closed(...CONTACT_WRITE_REFUSALS) }),
+    [TOOL.contactIdentityLink]: writeSpec({ refusals: closed(...CONTACT_LINK_REFUSALS) }),
+    [TOOL.contactMerge]: writeSpec({ refusals: closed(...CONTACT_MERGE_REFUSALS) }),
+    [TOOL.conversationMessageList]: nativeRead(null, "other_conversation", "other_lead"),
+    [TOOL.customerProfileGet]: nativeRead(null, "not_found"),
+    // Catalogue and orders.
+    [TOOL.orderGet]: nativeRead("payments", "not_found", "other_lead"),
+    [TOOL.orderOpenList]: nativeRead("payments"),
+    // Payments.
+    [TOOL.paymentCreditList]: readSpec({
+        owners: ["sepay", "casso"],
+        account: "each",
+        dataKind: "payments",
+        refusals: open(),
+    }),
+    // One bank move of ONE attached account of a bank feed (SePay, Casso, payOS answer the same shape), from its raw row: a read.
+    [TOOL.paymentCreditGet]: readSpec({
+        owners: ["sepay", "casso", "payos"],
+        account: "any",
+        dataKind: "payments",
+        refusals: open(...PAYMENT_TOOL_BUSINESS_REFUSALS),
+    }),
+    [TOOL.paymentDebitList]: readSpec({
+        owners: ["sepay"],
+        account: "each",
+        dataKind: "payments",
+        refusals: open(),
+    }),
+    [TOOL.paymentClaimList]: nativeRead("payments"),
+    // THE PAYMENT REQUEST (owner ruling R111): ONE purpose, served by every money provider through one port; WHICH provider issues it is the
+    // account the pick order chose (ONE bound account). Declared by the strongest provider: `create` WRITES (payOS creates a link at the
+    // provider; SePay composes a transfer instruction and creates nothing, which a write declaration covers: a declaration must hold for every
+    // provider serving the tool, and the spec is one per tool). `create` is REPEATABLE: an attempt whose answer was lost was never shown to any
+    // payer (the pay address and QR are only in the answer), so making the recorded intent again (A-2: same args, same key) at worst leaves one
+    // unseen, unpayable request at the provider, which its validity ends; the request the order keeps is the one whose answer came back, and the
+    // paid event is matched by THAT request's reference. A deterministic provider order code (one per act key) was weighed and refused: payOS's
+    // read answers no pay address, so a replay that met "order already exists" could not give the payer anything (PAYOS-19 would become a dead
+    // end instead of a second, good request). `cancel` is CONFIRMED by `get` (PAYOS-20: the cancel answer lost, the link WAS cancelled) and
+    // declares `no_request_state` FINAL (a provider that keeps no request has nothing to cancel). `get` reads.
+    [TOOL.paymentRequestCreate]: writeSpec({
+        owners: PAYMENT_REQUESTERS,
+        account: "any",
+        repeatable: true,
+        refusals: open(...PAYMENT_REQUEST_REFUSALS),
+    }),
+    [TOOL.paymentRequestGet]: readSpec({
+        owners: PAYMENT_REQUESTERS,
+        account: "any",
+        refusals: open(...PAYMENT_REQUEST_REFUSALS),
+    }),
+    [TOOL.paymentRequestCancel]: writeSpec({
+        owners: PAYMENT_REQUESTERS,
+        account: "any",
+        finalRefusals: ["no_request_state"],
+        confirmBy: {
+            tool: TOOL.paymentRequestGet,
+            args: { requestRef: { from: "args", member: "requestRef" } },
+            happened: { member: "status", equals: "cancelled" },
+        },
+        refusals: open(...PAYMENT_REQUEST_REFUSALS),
+    }),
+    // The generic timers: the engine's own (no account); a timer wakes the agent's own graph after the run ended. Arming an armed ref
+    // replaces its instant; bounds are the schema's, so a refusal is an invalid argument (no business refusal).
+    [TOOL.timerArm]: writeSpec({ refusals: open() }),
+    [TOOL.timerCancel]: writeSpec({ refusals: open() }),
+    [TOOL.bankTransactionList]: readSpec({
+        owners: ["sepay"],
+        account: "each",
+        dataKind: "payments",
+        refusals: open(),
+    }),
+    // The team, the work and the day.
+    [TOOL.teamMessagePost]: writeSpec({
+        refusals: open(
+            "kind_not_postable",
+            "order_missing",
+            "not_paid",
+            "not_person_line",
+            "other_room",
+            ...OWN_EFFECT,
+        ),
+    }),
+    [TOOL.agentTag]: writeSpec({ refusals: closed(...OWN_EFFECT) }),
+    [TOOL.teamChatReportPost]: writeSpec({ refusals: open() }),
+    // The books.
+    [TOOL.ledgerEntryAppend]: writeSpec({
+        owners: ["google"],
+        account: "any",
+        refusals: open("not_found"),
+    }),
+    [TOOL.ledgerEntryVoid]: writeSpec({
+        owners: ["google"],
+        account: "any",
+        refusals: open("not_found"),
+    }),
+    [TOOL.ledgerStatusGet]: readSpec({ owners: ["google"], account: "each", refusals: open() }),
+    [TOOL.connectionStatusGet]: readSpec({ owners: ["sepay"], account: "each", refusals: open() }),
+    [TOOL.driveStatusGet]: readSpec({
+        owners: ["google"],
+        account: "each",
+        dataKind: "documents",
+        refusals: open(),
+    }),
+    [TOOL.driveSourceList]: readSpec({
+        owners: ["google"],
+        account: "each",
+        dataKind: "documents",
+        refusals: open(),
+    }),
+    // The e-invoice issue (owner ruling R57): a PROVIDER tool of the e-invoice providers, on ONE bound account of theirs (the seller), run
+    // by `invoice-tools` over `InvoiceIssuePort` (live or sandbox by the account). A write in the mode its node declares; NOT repeatable:
+    // an unknown outcome may have issued a legal document, so it stops for a person. Its business refusals are the leaf list of the port.
+    [TOOL.invoiceCreate]: writeSpec({
+        owners: INVOICE_ISSUERS,
+        account: "any",
+        refusals: open(...INVOICE_TOOL_BUSINESS_REFUSALS),
+    }),
+    [TOOL.einvoiceList]: nativeRead("invoices"),
+    [TOOL.einvoiceGet]: nativeRead("invoices"),
+    // The second brain.
+    [TOOL.brainSearch]: nativeRead("brain"),
+    [TOOL.brainFactGet]: nativeRead("brain", "not_found"),
+    [TOOL.brainFactList]: nativeRead("brain"),
+    [TOOL.brainFactRelated]: nativeRead("brain", "not_found"),
+    [TOOL.brainPolicyList]: nativeRead("brain"),
+    [TOOL.brainPassageSearch]: nativeRead("brain"),
+    [TOOL.brainPassageRead]: nativeRead("brain", "not_found"),
+    [TOOL.brainDocumentRead]: nativeRead("brain", "not_found"),
+    [TOOL.brainChangePropose]: writeSpec({
+        dataKind: "brain",
+        refusals: open("quote_not_said", "not_found"),
+    }),
+    // Mail.
+    [TOOL.mailMessageList]: readSpec({
+        owners: ["imap", "smtp"],
+        account: "each",
+        dataKind: "mail",
+        refusals: open("not_found"),
+    }),
+    [TOOL.mailMessageGet]: readSpec({
+        owners: ["imap", "smtp"],
+        account: "each",
+        dataKind: "mail",
+        refusals: open("not_found"),
+    }),
+    // Domains: the generic domain purposes, served by every registrar that registers a `DomainRegistrarPort`. A call about a name the
+    // workspace does not hold yet (availability, a page of one account, a registration, a transfer in) takes ONE bound account (`any`);
+    // a call about a held domain acts on the account that holds it (`owner`: the tools find it by the domain, `domain-owner.policy.ts`).
+    [TOOL.domainAvailabilityGet]: readSpec({
+        owners: REGISTRARS,
+        account: "any",
+        dataKind: "domains",
+        refusals: open(...DOMAIN_TOOL_BUSINESS_REFUSALS),
+    }),
+    [TOOL.domainGet]: readSpec({
+        owners: REGISTRARS,
+        account: "owner",
+        dataKind: "domains",
+        refusals: open(...DOMAIN_TOOL_BUSINESS_REFUSALS),
+    }),
+    [TOOL.domainList]: readSpec({
+        owners: REGISTRARS,
+        account: "any",
+        dataKind: "domains",
+        refusals: open(...DOMAIN_TOOL_BUSINESS_REFUSALS),
+    }),
+    [TOOL.domainRegistrationCreate]: writeSpec({
+        owners: REGISTRARS,
+        account: "any",
+        dataKind: "domains",
+        // FINAL: the name already exists at the registry (HTTP 409): nobody can register it through this tool.
+        finalRefusals: ["already_exists"],
+        refusals: open(...DOMAIN_TOOL_BUSINESS_REFUSALS),
+    }),
+    // Renews at the provider (owner ruling R57) and answers `renewed` / `pending`; NOT repeatable (it moves money at the provider). An
+    // unknown outcome is CONFIRMED by the renewal check (R81-3): the domain's expiry read before the renewal, then the check against it.
+    [TOOL.domainRenewalCreate]: writeSpec({
+        owners: REGISTRARS,
+        account: "owner",
+        dataKind: "domains",
+        refusals: open(...DOMAIN_TOOL_BUSINESS_REFUSALS),
+        confirmBy: {
+            before: { tool: TOOL.domainGet, args: { name: { from: "args", member: "name" } } },
+            tool: TOOL.domainRenewalGet,
+            args: {
+                name: { from: "args", member: "name" },
+                expiresBefore: { from: "before", member: "expiresOn" },
+                reference: { from: "value", value: null },
+            },
+            happened: { member: "outcome", equals: "renewed" },
+        },
+    }),
+    // Whether a renewal took effect (the held domain's expiry now against the one before it): a read, repeatable.
+    [TOOL.domainRenewalGet]: readSpec({
+        owners: REGISTRARS,
+        account: "owner",
+        dataKind: "domains",
+        refusals: open(...DOMAIN_TOOL_BUSINESS_REFUSALS),
+    }),
+    [TOOL.domainTransferCreate]: writeSpec({
+        owners: REGISTRARS,
+        account: "any",
+        dataKind: "domains",
+        refusals: open(...DOMAIN_TOOL_BUSINESS_REFUSALS),
+    }),
+    [TOOL.domainDnsRecordList]: readSpec({
+        owners: REGISTRARS,
+        account: "owner",
+        dataKind: "domains",
+        refusals: open(...DOMAIN_TOOL_BUSINESS_REFUSALS),
+    }),
+    [TOOL.domainDnsRecordCreate]: writeSpec({
+        owners: REGISTRARS,
+        account: "owner",
+        dataKind: "domains",
+        refusals: open(...DOMAIN_TOOL_BUSINESS_REFUSALS),
+    }),
+    [TOOL.domainDnsRecordUpdate]: writeSpec({
+        owners: REGISTRARS,
+        account: "owner",
+        dataKind: "domains",
+        refusals: open(...DOMAIN_TOOL_BUSINESS_REFUSALS),
+    }),
+    [TOOL.domainDnsRecordDelete]: writeSpec({
+        owners: REGISTRARS,
+        account: "owner",
+        dataKind: "domains",
+        refusals: open(...DOMAIN_TOOL_BUSINESS_REFUSALS),
+    }),
+    [TOOL.domainNameserverUpdate]: writeSpec({
+        owners: REGISTRARS,
+        account: "owner",
+        dataKind: "domains",
+        refusals: open(...DOMAIN_TOOL_BUSINESS_REFUSALS),
+    }),
+    // Media: the generic speech, dubbing and video purposes, each on ONE bound account of a provider that serves it.
+    [TOOL.speechGenerate]: writeSpec({
+        owners: SPEECH,
+        account: "any",
+        dataKind: "media",
+        refusals: open(...MEDIA_TOOL_BUSINESS_REFUSALS),
+    }),
+    [TOOL.speechVoiceList]: readSpec({
+        owners: SPEECH,
+        account: "any",
+        dataKind: "media",
+        refusals: open(...MEDIA_TOOL_BUSINESS_REFUSALS),
+    }),
+    [TOOL.dubbingCreate]: writeSpec({
+        owners: SPEECH,
+        account: "any",
+        dataKind: "media",
+        refusals: open(...MEDIA_TOOL_BUSINESS_REFUSALS),
+    }),
+    [TOOL.dubbingGet]: readSpec({
+        owners: SPEECH,
+        account: "any",
+        dataKind: "media",
+        refusals: open(...MEDIA_TOOL_BUSINESS_REFUSALS),
+    }),
+    [TOOL.videoGenerate]: writeSpec({
+        owners: VIDEO,
+        account: "any",
+        dataKind: "media",
+        refusals: open(...MEDIA_TOOL_BUSINESS_REFUSALS),
+    }),
+    [TOOL.videoGenerationGet]: readSpec({
+        owners: VIDEO,
+        account: "any",
+        dataKind: "media",
+        refusals: open(...MEDIA_TOOL_BUSINESS_REFUSALS),
+    }),
+    [TOOL.videoCompose]: writeSpec({
+        owners: COMPOSERS,
+        account: "any",
+        dataKind: "media",
+        refusals: closed("invalid_spec", "provider_refused"),
+    }),
+    [TOOL.videoRenderGet]: readSpec({
+        owners: COMPOSERS,
+        account: "any",
+        dataKind: "media",
+        refusals: closed("not_found"),
+    }),
+    // The generic record tools (BIZ-MOVE G2): NIVO's own, on no account, over every record type a package declares with `defineEntity`;
+    // each reaches only the records of the calling agent. The closed sets are every BUSINESS code the adapter answers
+    // (`RECORD_REFUSAL_CLASS` of `native-tools/record-native.policy.ts`); `type_read_only` and `not_served` are infrastructure (the step
+    // freezes) and are in no set.
+    [TOOL.recordGet]: readSpec({ refusals: closed("type_unknown", "not_found") }),
+    [TOOL.recordList]: readSpec({ refusals: closed("type_unknown", "query_invalid", "query_not_indexed") }),
+    [TOOL.recordCreate]: writeSpec({ refusals: closed("type_unknown", "invalid_value", "taken") }),
+    [TOOL.recordUpdate]: writeSpec({
+        refusals: closed("type_unknown", "not_found", "invalid_value", "taken", "stale"),
+    }),
+    // The generic file tools (BIZ-MOVE G3): the engine's own file store, on no account, over every `file` field a package declares with
+    // `defineEntity`; put and link WRITE the record, get READS it; each reaches only the calling agent's own records. The closed sets are
+    // every BUSINESS code of `FILE_REFUSAL_CLASS` (`native-tools/file-native.policy.ts`); `not_served` and `store_unavailable` are
+    // infrastructure (the step freezes) and are in no set.
+    [TOOL.filePut]: writeSpec({
+        refusals: closed(
+            "type_unknown",
+            "field_not_file",
+            "not_found",
+            "mime_not_accepted",
+            "too_big",
+            "key_invalid",
+            "object_missing",
+            "url_invalid",
+            "url_unreachable",
+            "quota_exceeded",
+            "record_rejected",
+        ),
+    }),
+    [TOOL.fileLink]: writeSpec({
+        refusals: closed(
+            "type_unknown",
+            "field_not_file",
+            "not_found",
+            "mime_not_accepted",
+            "too_big",
+            "key_invalid",
+            "object_missing",
+            "quota_exceeded",
+            "record_rejected",
+        ),
+    }),
+    [TOOL.fileGet]: readSpec({
+        refusals: closed("type_unknown", "field_not_file", "not_found", "no_file", "key_invalid"),
+    }),
+    // The calendar and the destinations (provider worker, BIZ-MOVE 1-D): each runs on the account of its owner provider, whichever the
+    // node lists (`account: "any"`). The closed set is every BUSINESS code the adapters answer (`CALENDAR_BUSINESS_REFUSALS`,
+    // `SOCIAL_BUSINESS_REFUSALS`); a missing credential or consent (`not_connected`, `connection_refused`, `not_available`) freezes the step.
+    // The calendar holds no store kind (the free slots are computed from the calendar's own busy time), so a governed agent's data right
+    // does not judge it; a destination's kind is the media's.
+    [TOOL.calendarSlotFreeList]: readSpec({ owners: GOOGLE, account: "any", refusals: PUBLISH_REFUSALS }),
+    [TOOL.calendarEventCreate]: writeSpec({ owners: GOOGLE, account: "any", refusals: PUBLISH_REFUSALS }),
+    [TOOL.calendarEventUpdate]: writeSpec({ owners: GOOGLE, account: "any", refusals: PUBLISH_REFUSALS }),
+    [TOOL.calendarEventCancel]: writeSpec({ owners: GOOGLE, account: "any", refusals: PUBLISH_REFUSALS }),
+    [TOOL.facebookPostPublish]: writeSpec({
+        owners: META,
+        account: "any",
+        dataKind: "media",
+        refusals: PUBLISH_REFUSALS,
+    }),
+    [TOOL.instagramMediaPublish]: writeSpec({
+        owners: META,
+        account: "any",
+        dataKind: "media",
+        refusals: PUBLISH_REFUSALS,
+    }),
+    [TOOL.instagramMediaStatusGet]: readSpec({
+        owners: META,
+        account: "any",
+        dataKind: "media",
+        refusals: PUBLISH_REFUSALS,
+    }),
+    [TOOL.youtubeVideoPublish]: writeSpec({
+        owners: GOOGLE,
+        account: "any",
+        dataKind: "media",
+        refusals: PUBLISH_REFUSALS,
+    }),
+    [TOOL.youtubeVideoStatusGet]: readSpec({
+        owners: GOOGLE,
+        account: "any",
+        dataKind: "media",
+        refusals: PUBLISH_REFUSALS,
+    }),
+    [TOOL.tiktokVideoPublish]: writeSpec({
+        owners: TIKTOK,
+        account: "any",
+        dataKind: "media",
+        refusals: PUBLISH_REFUSALS,
+    }),
+    [TOOL.tiktokVideoStatusGet]: readSpec({
+        owners: TIKTOK,
+        account: "any",
+        dataKind: "media",
+        refusals: PUBLISH_REFUSALS,
+    }),
+    [TOOL.tiktokCreatorInfoGet]: readSpec({
+        owners: TIKTOK,
+        account: "any",
+        dataKind: "media",
+        refusals: PUBLISH_REFUSALS,
+    }),
+} satisfies ToolSpecRegistry
+
+/** The refusals the SDK types for a core tool that its spec does not list: `never` for every tool, or this file does not compile. */
+type Unlisted = {
+    readonly [K in CoreToolId]: Exclude<RefusalsOf<K>, (typeof TOOL_SPECS)[K]["refusals"]["codes"][number]>
+}[CoreToolId]
+
+/** Compiles only when every code of every SDK union is listed: the SDK never types a refusal the engine does not know. */
+export const EVERY_SDK_REFUSAL_LISTED: [Unlisted] extends [never] ? true : never = true
+
+/** True when the SDK marks the tool's signature as one that can ask (`Asking`: `asks: true`). */
+type AsksBySdk<K extends CoreToolId> = ToolNames[K] extends { readonly asks: true } ? true : false
+
+/** True when the registry says the tool writes: every such tool can ask a person (a read never asks). */
+type AsksBySpec<K extends CoreToolId> = (typeof TOOL_SPECS)[K]["mutates"] extends false ? false : true
+
+/** The core tools whose SDK `asks` mark differs from whether they write: `never`, or this file does not compile. */
+type AskMismatch = {
+    readonly [K in CoreToolId]: [AsksBySdk<K>] extends [AsksBySpec<K>]
+        ? [AsksBySpec<K>] extends [AsksBySdk<K>]
+            ? never
+            : K
+        : K
+}[CoreToolId]
+
+/**
+ * Compiles only when the SDK's `asks` mark holds exactly for the tools that write (asks <=> mutates): so the typed refusal of
+ * `ctx.tools.call` offers `declined` for every tool that can ask and for no read.
+ */
+export const ASKS_EXACTLY_WHEN_NOT_READ: [AskMismatch] extends [never] ? true : never = true
+
+const SPEC_BY_ID: ReadonlyMap<string, ToolSpec> = new Map(Object.entries(TOOL_SPECS))
+
+/** Every core tool id the registry holds. */
+export const CORE_TOOL_IDS: ReadonlyArray<CoreToolId> = [...new Set(Object.values(TOOL))]
+
+/** The spec of a core tool, or null for an id the registry does not hold (a plugin's tool, an operation of a pinned document). */
+export const toolSpecOf = (tool: string): OptionalToolSpec => SPEC_BY_ID.get(tool) ?? null
+
+/** True when a core tool writes (`mutates`), false for a read, null for an id the registry does not hold. */
+export const mutatesBySpec = (tool: string): boolean | null => toolSpecOf(tool)?.mutates ?? null
+
+/** The specs of the operations of the CRM documents the installed plugins pin, by tool id; read once, at the first ask (not at load). */
+let sourceSpecs: ReadonlyMap<string, ToolSpec> | undefined
+
+/**
+ * The spec of an operation of a document an installed plugin pins (`sourceToolSpecOf`, from the document: its method, its effect mark,
+ * whether it takes the replay key), or null for any other id. Only `repeatableBySpec` reads it: the other facts of a source's tools keep
+ * their own readers (owners: `ownersOfTool`; mutates: the plugin's definition).
+ */
+const sourceSpecOf = (tool: string): OptionalToolSpec => {
+    sourceSpecs ??= new Map(
+        CRM_TEMPLATES.flatMap((template) => {
+            const source = crmProviderKeyOf(template.id)
+            const reading = readDocument(JSON.stringify(template.openapi), source)
+            if (!reading.ok) return []
+            return [...reading.document.operations.values()].map((operation): [string, ToolSpec] => [
+                operation.toolId,
+                sourceToolSpecOf({ source, dataKind: null, method: operation.method, effect: operation.effect, replayKeyed: takesReplayKey(operation) }),
+            ])
+        }),
+    )
+    return sourceSpecs.get(tool) ?? null
+}
+
+/**
+ * Whether a tool declares it may be sent again on an unknown outcome (`repeatable`): a core tool by its spec, an operation of an installed
+ * plugin's pinned document by what the document declares (a read; a write that takes the replay key); null for any other id (the caller
+ * then treats it as not repeatable: never guessed).
+ */
+export const repeatableBySpec = (tool: string): boolean | null => (toolSpecOf(tool) ?? sourceSpecOf(tool))?.repeatable ?? null
+
+/**
+ * True when a core tool DECLARES `refusal` FINAL for the subject (`finalRefusals`): a business answer, never a stop. False for every other
+ * refusal and for an id no spec holds (never guessed: an undeclared refusal of a write outside is a stop).
+ */
+export const finalRefusalBySpec = (tool: string, refusal: string): boolean => toolSpecOf(tool)?.finalRefusals?.includes(refusal) === true
+
+/** How a core tool declares its confirmation on an unknown outcome (`confirmBy`), or null when it declares none (or is no core tool). */
+export const confirmByOf = (tool: string): ToolConfirmBy | null => toolSpecOf(tool)?.confirmBy ?? null
+
+/** The reads a write declares for its confirmation (its `before` read, then its confirmation read); none for a tool that declares none. */
+export const confirmReadsOf = (tool: string): ReadonlyArray<string> => {
+    const confirm = confirmByOf(tool)
+    if (confirm === null) return []
+    return confirm.before === undefined ? [confirm.tool] : [confirm.before.tool, confirm.tool]
+}
+
+/** A plain record of a value, or null. */
+const recordOf = (value: unknown): Readonly<Record<string, unknown>> | null =>
+    typeof value === "object" && value !== null && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : null
+
+/**
+ * The arguments of a confirmation read, each filled from where it is declared (QB-P3 rule I-4): the write's arguments, the answer of the
+ * read made before the write, or a fixed value. Null when a declared member is absent (or null) where it should come from: then nothing
+ * can be confirmed.
+ */
+export const confirmArgsOf = (
+    read: ConfirmRead,
+    args: Readonly<Record<string, unknown>>,
+    before: unknown,
+): Readonly<Record<string, unknown>> | null => {
+    const kept = recordOf(before)
+    const filled: Array<[string, unknown]> = []
+    for (const [name, arg] of Object.entries(read.args)) {
+        if (arg.from === "value") {
+            filled.push([name, arg.value])
+            continue
+        }
+        const value = arg.from === "args" ? args[arg.member] : kept?.[arg.member]
+        if (value === undefined || value === null) return null
+        filled.push([name, value])
+    }
+    return Object.fromEntries(filled)
+}
+
+/** True when a confirmation read's answer says the write happened: its declared member equals its declared value. */
+export const confirmedHappened = (confirm: ToolConfirmBy, answer: unknown): boolean =>
+    recordOf(answer)?.[confirm.happened.member] === confirm.happened.equals
+
+/**
+ * True when a core tool's spec DECLARES that its act stays inside NIVO's database (QB-P3 rule I-2): it does not write, or NIVO alone owns
+ * it (its own records). False for a provider's tool and for every id no spec holds (a plugin's effect, a CRM operation): the engine
+ * cannot prove those stay inside, so their acts are written as an intent first.
+ */
+export const staysInsideBySpec = (tool: string): boolean => {
+    const held = toolSpecOf(tool)
+    if (held === null) return false
+    return !held.mutates || (held.owners.length > 0 && held.owners.every((owner) => owner === NIVO_OWNER))
+}
+
+/** True for a core tool NIVO owns itself (the pseudo-provider `nivo`): it acts on no connected account. */
+export const isEngineOwned = (tool: string): boolean => toolSpecOf(tool)?.owners.includes(NIVO_OWNER) === true
+
+/**
+ * The owners of a tool: a core tool's spec, else for a CRM operation (`nivo.api.crm.<crmId>.…`) the CRM's provider key (`crm.<crmId>`),
+ * else none (a plugin's tool no registry holds). A CRM owns its own generated operations only, never a platform purpose (R57).
+ */
+export const ownersOfTool = (tool: string): ReadonlyArray<string> => {
+    const held = toolSpecOf(tool)
+    if (held !== null) return held.owners
+    const crmId = crmIdOfOp(tool)
+    return crmId === null ? [] : [crmProviderKeyOf(crmId)]
+}
+
+/** True when the provider (or `nivo`) owns the tool's purpose: what the save check of a template node's account reads. */
+export const ownsTool = (owner: string, tool: string): boolean => ownersOfTool(tool).includes(owner)
+
+/** True for a core tool a call is handed ONE account for (the node's list in order, or the default account): C4.3. */
+export const takesOneAccountBySpec = (held: ToolSpec): boolean => held.account === "any"

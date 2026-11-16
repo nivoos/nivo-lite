@@ -3,9 +3,9 @@ export { parseMetaConfig } from "./meta.config"
 export { INSTAGRAM_FIELDS, PAGE_FIELDS } from "./meta.contracts"
 export type {
     AppObject,
+    MetaAttachment,
     MetaEvent,
     MetaPageChoice,
-    MetaPageCredentials,
     MetaSubscriptionStatus,
     PageSubscription,
     SendResult,

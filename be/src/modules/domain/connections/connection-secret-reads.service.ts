@@ -7,6 +7,7 @@ import {
 } from "@modules/domain/connection-secrets"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { ok, refused, type Outcome } from "@modules/platform/primitives"
+import type { DueZalo } from "./connections.contracts"
 import { ConnectionEntity } from "./persistence/entities"
 
 /** The most Zalo connections one renewal pass reads. */
@@ -50,16 +51,19 @@ export class ConnectionSecretReadsService {
             : refused(ConnectionSecretsErrorCode.NotFound)
     }
 
-    /** The ids of the live Zalo connections whose access token ends before the horizon, soonest first. */
-    async dueZalo(horizon: Date): Promise<ReadonlyArray<string>> {
+    /** The live Zalo connections whose access token ends before the horizon, with their workspace and that end, soonest first. */
+    async dueZalo(horizon: Date): Promise<ReadonlyArray<DueZalo>> {
         const expiring = await this.secrets.expiringBefore(horizon, DUE_ZALO_MAX)
         if (expiring.length === 0) return []
         const live = await this.entityManager.find(ConnectionEntity, {
-            select: { id: true },
-            where: { id: In([...expiring]), provider: "zalo_oa", status: Not("disconnected") },
+            select: { id: true, workspaceId: true },
+            where: { id: In(expiring.map((entry) => entry.connectionId)), provider: "zalo_oa", status: Not("disconnected") },
             take: DUE_ZALO_MAX,
         })
-        const liveIds = new Set(live.map((row) => row.id))
-        return expiring.filter((id) => liveIds.has(id))
+        const workspaces = new Map(live.map((row) => [row.id, row.workspaceId]))
+        return expiring.flatMap((entry) => {
+            const workspaceId = workspaces.get(entry.connectionId)
+            return workspaceId === undefined ? [] : [{ id: entry.connectionId, workspaceId, expiresAt: entry.expiresAt }]
+        })
     }
 }

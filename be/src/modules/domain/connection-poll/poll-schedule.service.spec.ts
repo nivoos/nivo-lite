@@ -1,8 +1,12 @@
 import { Test } from "@nestjs/testing"
-import { fakeTransaction, mockEntityManager } from "@starci/jest-preset"
+import { FakeClock, fakeTransaction, mockEntityManager } from "@starci/jest-preset"
 import { In } from "typeorm"
+import { CLOCK } from "@modules/platform/clock"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import {
+    POLL_MINUTE_MS,
+    POLL_NOW,
+    POLL_NOW_MS,
     POLL_DUE_AT,
     POLL_HOT_UNTIL,
     busyPollScheduleEntityOf,
@@ -26,6 +30,7 @@ const build = async (em = mockEntityManager()) => {
         providers: [
             PollScheduleService,
             { provide: PRIMARY_ENTITY_MANAGER, useValue: em },
+            { provide: CLOCK, useValue: new FakeClock(POLL_NOW) },
             { provide: CONNECTION_POLL_OPTIONS, useValue: { schedule: DEFAULT_POLL_SCHEDULE, redis: undefined } },
         ],
     }).compile()
@@ -75,6 +80,7 @@ describe("PollScheduleService claimDue", () => {
         expect(fake?.callsOf("limit")).toEqual([[20]])
         expect(fake?.callsOf("orderBy")).toEqual([["s.next_poll_at"]])
         expect(fake?.callsOf("where")[0]?.[1]).toEqual({ providers: ["sepay"] })
+        expect(fake?.callsOf("where")[0]?.[0]).toContain("c.id = s.connection_id AND c.deleted_at IS NULL")
         const [, criteria, set] = tx.em.update.mock.calls[0] ?? []
         expect(criteria).toEqual({ connectionId: In(["c-1", "c-2"]) })
         expect(evaluatedValues(set)).toEqual({ nextPollAt: "now() + make_interval(secs => 600)" })
@@ -223,13 +229,75 @@ describe("PollScheduleService signals", () => {
         ])
     })
 
-    it("stamps the delivery of the webhook", async () => {
-        const em = mockEntityManager({ update: [ConnectionPollScheduleEntity, { affected: 1 }] })
+})
+
+describe("PollScheduleService recordWebhook", () => {
+    const held = (lastWebhookAt: Date | null) => ({
+        findOne: [ConnectionPollScheduleEntity, pollScheduleEntityOf({ lastWebhookAt })] as [typeof ConnectionPollScheduleEntity, unknown],
+    })
+
+    it("stamps the delivery and leaves the account as it is when the webhook delivered a moment ago", async () => {
+        const em = mockEntityManager({ ...held(new Date(POLL_NOW_MS - POLL_MINUTE_MS)), update: [ConnectionPollScheduleEntity, { affected: 1 }] })
         const service = await build(em)
 
         await service.recordWebhook("c-1")
 
-        const set = evaluatedValues(em.update.mock.calls[0]?.[2])
-        expect(set).toEqual({ lastWebhookAt: "now()" })
+        expect(evaluatedValues(em.update.mock.calls[0]?.[2])).toEqual({ lastWebhookAt: "now()" })
+        expect(em.query).not.toHaveBeenCalled()
+    })
+
+    it("marks the account hot as a webhook gap when the delivery comes after a silence longer than the declared one", async () => {
+        const silent = new Date(POLL_NOW_MS - DEFAULT_POLL_SCHEDULE.webhookSilentAfterMs - POLL_MINUTE_MS)
+        const em = mockEntityManager({ ...held(silent), update: [ConnectionPollScheduleEntity, { affected: 1 }], query: [MARK_HOT, []] })
+        const service = await build(em)
+
+        await service.recordWebhook("c-1")
+
+        expect(evaluatedValues(em.update.mock.calls[0]?.[2])).toEqual({ lastWebhookAt: "now()" })
+        expect(em.query).toHaveBeenCalledWith(MARK_HOT, ["c-1", DEFAULT_POLL_SCHEDULE.hotIntervalMs, DEFAULT_POLL_SCHEDULE.hotTtlMs, "webhook_gap"])
+    })
+
+    it("marks the account hot at the very first delivery ever", async () => {
+        const em = mockEntityManager({ ...held(null), update: [ConnectionPollScheduleEntity, { affected: 1 }], query: [MARK_HOT, []] })
+        const service = await build(em)
+
+        await service.recordWebhook("c-1")
+
+        expect(em.query.mock.calls[0]?.[1]).toEqual(["c-1", DEFAULT_POLL_SCHEDULE.hotIntervalMs, DEFAULT_POLL_SCHEDULE.hotTtlMs, "webhook_gap"])
+    })
+
+    it("does not mark an hour-old delivery as a gap, but the exact silence limit plus a millisecond is one", async () => {
+        const edge = DEFAULT_POLL_SCHEDULE.webhookSilentAfterMs
+        const atLimit = mockEntityManager({ ...held(new Date(POLL_NOW_MS - edge)), update: [ConnectionPollScheduleEntity, { affected: 1 }] })
+        await (await build(atLimit)).recordWebhook("c-1")
+        expect(atLimit.query).not.toHaveBeenCalled()
+
+        const past = mockEntityManager({ ...held(new Date(POLL_NOW_MS - edge - 1)), update: [ConnectionPollScheduleEntity, { affected: 1 }], query: [MARK_HOT, []] })
+        await (await build(past)).recordWebhook("c-1")
+        expect(past.query).toHaveBeenCalledTimes(1)
+    })
+
+    it("only stamps an account that has no schedule row yet (nothing to make hot)", async () => {
+        const em = mockEntityManager({ findOne: [ConnectionPollScheduleEntity, null], update: [ConnectionPollScheduleEntity, { affected: 0 }] })
+        const service = await build(em)
+
+        await service.recordWebhook("c-9")
+
+        expect(em.query).not.toHaveBeenCalled()
+    })
+})
+
+describe("PollScheduleService dueNow", () => {
+    it("makes every scheduled account that is not waiting for its owner due now, and none that is parked", async () => {
+        const em = mockEntityManager()
+        const [fake] = queueQueryBuilders(em, [{ execute: { affected: 3 } }])
+        const service = await build(em)
+
+        await service.dueNow()
+
+        expect(fake?.callsOf("update")).toEqual([[ConnectionPollScheduleEntity]])
+        expect(evaluatedValues(fake?.callsOf("set")[0]?.[0])).toEqual({ nextPollAt: "now()" })
+        expect(fake?.callsOf("where")).toEqual([["needs_reauth = false AND next_poll_at > now()"]])
+        expect(fake?.callsOf("execute")).toHaveLength(1)
     })
 })

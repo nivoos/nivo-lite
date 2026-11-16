@@ -1,5 +1,14 @@
 import { Test } from "@nestjs/testing"
-import { graphNodeStepOf, localeOf, outputsOf, subjectOfLabel, tagSourceOf, triggerScopeOf } from "./graph-flow.policy"
+import type { GraphSpecNode } from "@nivo-lite/agent-sdk/graph"
+import {
+    graphNodeStepOf,
+    localeOf,
+    nodeBlocks,
+    nodeStepKeyOf,
+    subjectOfLabel,
+    tagSourceOf,
+    triggerScopeOf,
+} from "./graph-flow.policy"
 import type { FlowWake } from "./graph-flow.policy"
 
 /** The members of the subject under test. */
@@ -8,8 +17,9 @@ interface Subject {
     readonly triggerScopeOf: typeof triggerScopeOf
     readonly localeOf: typeof localeOf
     readonly graphNodeStepOf: typeof graphNodeStepOf
-    readonly outputsOf: typeof outputsOf
+    readonly nodeStepKeyOf: typeof nodeStepKeyOf
     readonly subjectOfLabel: typeof subjectOfLabel
+    readonly nodeBlocks: typeof nodeBlocks
 }
 
 const SUBJECT = Symbol("graph-flow.policy")
@@ -20,7 +30,15 @@ const build = async (): Promise<Subject> => {
         providers: [
             {
                 provide: SUBJECT,
-                useValue: { tagSourceOf, triggerScopeOf, localeOf, graphNodeStepOf, outputsOf, subjectOfLabel },
+                useValue: {
+                    tagSourceOf,
+                    triggerScopeOf,
+                    localeOf,
+                    graphNodeStepOf,
+                    nodeStepKeyOf,
+                    subjectOfLabel,
+                    nodeBlocks,
+                },
             },
         ],
     }).compile()
@@ -43,14 +61,13 @@ describe("tagSourceOf", () => {
         expect(policy.tagSourceOf(wake({ context: { authorAgentId: "a-2" } }))).toBe("agent")
         expect(policy.tagSourceOf(wake({ actorMemberId: "m-1" }))).toBe("chats-group")
         expect(policy.tagSourceOf(wake({ context: { authorUserId: "u-1" } }))).toBe("chats-group")
-        expect(policy.tagSourceOf(wake({ source: "customer" }))).toBe("channel")
         expect(policy.tagSourceOf(wake({ context: { conversationId: "c-1" } }))).toBe("channel")
         expect(policy.tagSourceOf(wake())).toBe("agent")
     })
 })
 
 describe("triggerScopeOf", () => {
-    it("keeps the flat context, parses the tag's data as context, and names the source, origin and language", async () => {
+    it("keeps the flat context, supplies the tag's data, names the source, origin and language, and writes no `context` member", async () => {
         const policy = await build()
         const scope = policy.triggerScopeOf(
             wake({
@@ -72,7 +89,7 @@ describe("triggerScopeOf", () => {
             authorAgentId: "a-2",
             locale: "en",
             subject: { kind: "order", id: "o-1" },
-            context: { items: [{ name: "Lan" }] },
+            items: [{ name: "Lan" }],
             source: "agent",
             origin: "agent",
         })
@@ -80,9 +97,9 @@ describe("triggerScopeOf", () => {
             source: "sepay",
             origin: "system-event",
             subject: null,
-            context: {},
             locale: "vi",
         })
+        expect(policy.triggerScopeOf(wake({ context: { tagSource: "sepay" } }))).not.toHaveProperty("context")
     })
 
     it("speaks Vietnamese unless the trigger says English", async () => {
@@ -96,25 +113,36 @@ describe("graphNodeStepOf", () => {
     const node = { key: "record", kind: "output" as const, step: "sales.order-from-chat" }
     const input = { versionId: "v-1", nodeKey: "record", trigger: {} }
 
-    it("keys the step by its node and gives it the saga kind of its node", async () => {
+    it("keys the step by its node and gives it the step kind of its node", async () => {
         const policy = await build()
-        expect(policy.graphNodeStepOf(node, input, "compensable")).toEqual({
+        expect(policy.graphNodeStepOf(node, input, "write")).toEqual({
             stepKey: "record",
             nodeKey: "record",
             kind: "graph_node",
-            effect: { kind: "compensable", compensation: "graph_node" },
+            effect: { kind: "write" },
             input,
         })
-        expect(policy.graphNodeStepOf(node, input, "pivot").effect).toEqual({ kind: "pivot" })
         expect(policy.graphNodeStepOf(node, input, "read").effect).toEqual({ kind: "read" })
     })
 
-    it("reads the output each done step kept, by node key", async () => {
+    it("keys a step by the node it ran: a body step of a for-each item is its node, whatever the item's identity", async () => {
         const policy = await build()
-        expect(policy.outputsOf({ record: { output: { orderId: "o-1" } }, gone: {} })).toEqual({
-            record: { orderId: "o-1" },
-            gone: undefined,
-        })
+        expect(policy.nodeStepKeyOf("record")).toBe("record")
+        expect(policy.nodeStepKeyOf("each[2].ship")).toBe("ship")
+        expect(policy.nodeStepKeyOf("each[INV-7.a].ship")).toBe("ship")
+        expect(
+            policy.graphNodeStepOf(
+                { key: "ship", kind: "output", step: "s" },
+                {
+                    versionId: "v",
+                    nodeKey: "ship",
+                    trigger: {},
+                    item: { value: 1, index: 2, key: "order-9" },
+                    loop: { nodeKey: "each", index: 2, items: [1, 2, 1] },
+                },
+                "read",
+            ).stepKey,
+        ).toBe("each[order-9].ship")
     })
 })
 
@@ -127,5 +155,27 @@ describe("subjectOfLabel", () => {
         expect(policy.subjectOfLabel("x:")).toBeNull()
         expect(policy.subjectOfLabel(1)).toBeNull()
         expect(policy.triggerScopeOf(wake({ context: { subject: "a label" } })).subject).toBe("a label")
+    })
+})
+
+describe("nodeBlocks", () => {
+    const node = (blocking?: boolean): GraphSpecNode => ({
+        key: "notify",
+        kind: "output",
+        step: "sales.order-notice",
+        ...(blocking === undefined ? {} : { blocking }),
+    })
+
+    it("blocks by default, and lets a side node (`blocking: false`) be passed over", async () => {
+        const policy = await build()
+        expect(policy.nodeBlocks(node(), undefined)).toBe(true)
+        expect(policy.nodeBlocks(node(), true)).toBe(true)
+        expect(policy.nodeBlocks(node(), false)).toBe(false)
+    })
+
+    it("takes the graph node's own word over the definition's", async () => {
+        const policy = await build()
+        expect(policy.nodeBlocks(node(true), false)).toBe(true)
+        expect(policy.nodeBlocks(node(false), undefined)).toBe(false)
     })
 })

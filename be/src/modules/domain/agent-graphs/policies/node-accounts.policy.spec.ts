@@ -1,0 +1,206 @@
+import type { GraphSpec, GraphV2Step } from "@nivo-lite/agent-sdk/graph"
+import { latestTemplateVersion, type TemplateAgent, type TemplateGraph } from "@nivo-lite/agent-sdk/template"
+import { INSTALLED } from "@modules/domain/installed-plugins"
+import { accountKindOf } from "@modules/domain/installed-plugins/template-graph-adapter.policy"
+import { templateGraph } from "@tests/fixtures/builders/agent-workflows.builder"
+import { templateFlowProblems } from "./flow.policy"
+import recorded from "./node-accounts-table.json"
+
+/**
+ * The proof of the node rights of every installed template agent (the core agents and the NIVO Web plugin's), read from
+ * the installation the engine runs by (`INSTALLED.templateAgents()`, GraphSpec `@2`). nivo-frame `rights`: a node declares ONE mode and
+ * its providers in priority order; nothing is bound at install (no row): the runner binds per provider at RUN TIME. The table records,
+ * for every template graph x node step, the graph, the step key, the node id, the step's mode and its providers in order
+ * (`node-accounts-table.json`, RE-RECORDED in this shape when the install-time rows were removed). A change of a node's mode or of a
+ * provider list or order fails here until it is re-recorded on purpose; `agent-graph-rights.install-rows.spec.ts` proves the run-time
+ * reader and binding answer exactly this table.
+ *
+ * Ledger (TOOLS-LEAD, 2026-11-13): the table was RE-RECORDED from the installation (191 -> 225 rows), after the diff was read row by row:
+ * (a) owner "NIVO Web auto gan het" (BIZ-MOVE D-5): 24 nivo-web-core steps moved `ask` -> `auto` (every step of webdesk, webrenew, websales,
+ *     webbooks except `webbooks.invoice#issue`, which stays `ask`; the 25th, `sales.consult#cancel-order`, is (c));
+ * (b) ten new graphs: booking.book / .remind / .team-chat, content.plan / .draft / .report, hiring.screen / .digest, video.produce,
+ *     sales.payment (34 rows);
+ * (c) `sales.consult` recomposed by ACCOUNT-DATA (cancel-order is `auto`; `order-record` -> `order-create`; confirm / win / payment-request /
+ *     send-qr / schedule / notify steps replaced by tell-order, arm-reminder, cancel-read, cancel-paid-notice) and its sibling
+ *     `sales.payment-reminder` (node renamed `payment-remind`, `read` added, `tell-team` removed);
+ * (d) NOT in the first three reasons, named elsewhere: the accounting agent is dropped, so `accounting.team-chat` (3 rows) is gone;
+ * (e) NOT in the first three reasons: the money lane's `webbooks.payment` now has `credit` (sepay, casso) and `open` (crm) steps and its
+ *     `match` step lists `crm` only (it reads the credit from the step before; `payment-settle.node.ts` declares `accounts: [CRM_PROVIDER]`).
+ * Rows under (d) and (e) are flagged to the lead for a word; no row is unexplained.
+ * Ledger (ACCOUNT-DATA 4M-12, 2026-11-13, re-recorded 225 -> 225 rows, read row by row): (f) `sales.consult` gains `request-qr`
+ * (`sales.request-qr`, auto, [sepay]: the transfer QR) and `cancel-reminder`, `sales.after-sale` gains `cancel-reminder`
+ * (`sales.payment-reminder-cancel`, auto, none); `sales.payment#credit` lists [sepay, casso, payos] (one credit read for the three
+ * feeds); (g) NOT ours: `booking.team-chat` (3 rows) is no longer installed (BIZ-MOVE's booking agent), flagged to its lead.
+ * Ledger (TOOLS-LEAD F2, 2026-11-13, 226 rows): (h) `sales.web-order` gains its start step `lead` (`sales.web-order-lead`, auto, none: finds or makes
+ * the sale's lead of the website contact; ACCOUNT-DATA-LEAD's addendum 1, graph v5 -> v6).
+ * Ledger (ENGINE-FIX EF-G, 2026-11-14, re-recorded 232 -> 258 rows, read row by row): (i) rights rule 11e (one write per `ask` step):
+ * `booking.book#confirm` (`booking.confirm`, ask) keeps ONE write (the record) and so lists no provider; the customer send and the team
+ * post moved to `tell` (`booking.confirm-tell`, auto, [zalo_oa, telegram, meta]) and `notify` (`booking.confirm-notify`, auto, none);
+ * `hiring.screen` gains `move` (`hiring.invite-move`, auto, none: the record move split off the `ask` mail of `invite`); (j) rights rule
+ * 11c (a declined write is a business outcome): 23 `team.declined-notice` steps (auto, none) on the declined routes of booking.book,
+ * content.plan / .draft, hiring.screen, video.produce, sales.consult / .payment / .web-order; (k) NOT ours: `chatbot.front-desk#hear`
+ * (`chatbot.hear`, auto, none) is a step another lead added; recorded as installed, flagged to the ENGINE-FIX lead.
+ * Ledger (ROAD Opus-1f, 2026-11-14, coordinator R44, re-recorded 258 -> 261 rows from the installation, read by diff): (j) `sales.consult`
+ * v25 (Opus-3f 06:17): + `not-sale-notice` (`sales.not-sale-notice`, auto, none), + `paid-declined-notice` (`team.declined-notice`), and the
+ * payment wait folded into the sale (+ `credit` [sepay, casso, payos], `paid-order`, `short`, `short-notice`, `order-talk`, `remind`
+ * [zalo_oa, telegram, meta]); - `arm-reminder` / `cancel-reminder` (the reminder nodes are deleted, R28), - the graph
+ * `sales.payment-reminder` (`read`, `remind`) and `sales.after-sale#cancel-reminder`. (k) every NIVO Web agent's CRM provider is the pinned
+ * OpenAPI source `crm.nivoweb` (was `crm`): providers by id, as the CRM ruling names them; modes unchanged.
+ * Ledger (ROAD Opus-1g, 2026-11-14, coordinator R45, re-recorded 261 -> 262 rows from the installation of the 06:43 build, read by diff):
+ * `sales.consult` v27 + `keep-occasions-declined-notice` (`team.declined-notice`, auto, none): a declined dates keep tells the team.
+ * Ledger (ROAD Opus-1h, 2026-11-14, coordinator R45 packages half, re-recorded 262 -> 265 rows from the installation of the 07:08 build,
+ * read by diff): `sales.consult` v28 + `order-talk-unsent-notice` (NEW generic `team.unsent-notice`, auto, none: a refused/declined order
+ * answer tells the team) and + `unpaid-notice` (`sales.unpaid-notice`, auto, none: the pay loop ran out); `sales.after-sale` v15 +
+ * `thank-unsent-notice` (`team.unsent-notice`, auto, none). `not-sale-notice` keeps its row (its step key is unchanged inside `talk`).
+ * Ledger (P1, 2026-11-14, coordinator R47, 265 -> 266 rows, read by diff): `sales.consult` v29 + `remind-unsent-notice` (`team.unsent-notice`, auto, none:
+ * a refused payment reminder tells the team); `remind-sent` is an if-step and has no row.
+ * Ledger (RESTART-R4, 2026-11-14, coordinator R53, 266 -> 270 rows from the installation of WEBCORE's 11:51 build, read by diff): the
+ * one-run talks `websales.enquiry` v8 and `webrenew.answer` v14 + `desk` (`webdesk.understand-sales`, auto, none) and + `message`
+ * (`websales.round-message` / `webrenew.round-message`, auto, none) each; the other rows of the two graphs keep graph/step/node/mode/
+ * providers (only `webrenew.answer`'s `reply`, `reply-notice`, `unlinked-tell` move up in the order).
+ * Ledger (E-FIX7, 2026-11-14, coordinator R68 / G-SLIM, 270 -> 254 rows from the installation of G-SLIM's 13:39 build, read by diff):
+ * the slim graphs replace every hand-made notice pair by the step option `unsuccessful` (the ENGINE posts the notice), so 16 rows
+ * disappear and none appear: `sales.consult` v30 keep-occasions-declined-notice, create-declined-notice, tell-declined-notice,
+ * order-talk-unsent-notice, remind-unsent-notice, unpaid-notice, paid-declined-notice, consult-declined-notice, cancel-declined-notice,
+ * tell-cancelled-declined-notice; `sales.after-sale` v17 thank-unsent-notice; `sales.payment` v11 pay-declined-notice,
+ * claim-reply-declined-notice; `sales.web-order` v9 lead-declined-notice; `chatbot.front-desk` v26 complaint-declined-notice,
+ * answer-declined-notice. Every other row keeps graph/step/node/mode/providers and its order.
+ * Ledger (WEBCORE-4, 2026-11-14, coordinator R57 / R68 / R83, 254 -> 221 rows from the installation of WEBCORE-4's 15:12 nivo-web-core build, read by
+ * diff; only nivo-web-core rows move, every other row is untouched): (k) R68: the 37 `team.declined-notice` rows of the six NIVO Web agents
+ * disappear (the step option `unsuccessful` replaces each pair); (l) R57: `webrenew.renew` gains `check` (`webrenew.renew-check`, auto, [crm.nivoweb])
+ * and `record` (`webrenew.renew-record`, auto, [crm.nivoweb]); its `renew` step is the registrar call (`webrenew.renew`, ask, [inet, tino]: it spends
+ * NIVO Web's balance); `webbooks.invoice` gains `record` (`webbooks.issue-record`, auto, [crm.nivoweb]) and its `issue` runs on [misa_meinvoice]
+ * (still ask); (m) E-R57: `webrenew.renew` gains `recheck` (`webrenew.renew-recheck`, auto, [inet, tino]: the registrar's order read again while a
+ * renewal is pending); (n) R83 customer mail (interim, the CEO reviews later): ask on AI-written mail about money or a commitment
+ * (`webdesk.mail-tickets#mail-reply-draft`, `webrenew.answer#tell`, `webbooks.invoice#mail`, `webbooks.debt-round#draft`, `websales.round#follow`,
+ * `websales.close#pay`, `websales.won#tell`, `websales.mail-enquiries#draft`); auto stays on the first renewal reminder (`webrenew.round#send`) and
+ * the "renewed" notice (`webrenew.renew#renewed-tell`), whose rows do not change.
+ * Ledger (WEBCORE-4b, 2026-11-14, coordinator "ask ONE write" / NODE_ASK_WRITES_MANY, 221 -> 229 rows from the installation of the 15:3x build, read by
+ * diff; only nivo-web-core rows move): (o) the four asked customer sends that chose chat or mail by data are split by channel so each asked step
+ * declares ONE write: the chat step keeps its key and loses `smtp` (`webrenew.answer#tell`, `websales.round#follow`, `websales.close#pay`,
+ * `websales.won#tell`), a NEW `<key>-mail` step per graph holds the mail send alone (ask, [smtp] plus the CRM where the node reads it), and a NEW
+ * auto `<key>-told` merge step (no tools, no accounts) returns the one send that was not skipped.
+ * Ledger (P-CONSENT, 2026-11-14, coordinator business decision "a person who asks the shop to stop messaging them must be able to say so in the chat",
+ * front desk v27, +2 rows read by diff; no other row moves): `chatbot.front-desk` gains the `stop` route of `understand` and its two steps:
+ * `stop-keep` (`chatbot.stop-keep`, auto, none: the one `nivo.tool.contact.update` write, `doNotContact: { reason }`) and `stop-reply`
+ * (`chatbot.stop-reply`, auto, [zalo_oa, telegram, meta]: the one acknowledgement on the person's own line); the update and the send are
+ * separate steps, so each step makes ONE write (the `ask` rule).
+ * Ledger (WEBCORE-5, 2026-11-14, coordinator R91 / R92 "mail is a channel of the ONE customer send" (SEND-ONE), 229 -> 221 rows from the installation of the 19:4x
+ * build, read by diff; only nivo-web-core rows move): (p) the four sends that WEBCORE-4b split by channel because mail was a second tool are ONE asked step
+ * again, each with ONE write (`nivo.tool.customer.message.send`): `webrenew.answer#tell`, `websales.round#follow`, `websales.close#pay`, `websales.won#tell`
+ * are `ask` and list the chat providers AND `smtp` (the mail channel of the one send) in their old order again; the eight steps WEBCORE-4b added
+ * (`tell-mail`, `tell-told`, `follow-mail`, `follow-told`, `pay-mail`, `pay-told`, `tell-mail` of won, `told`) and their nodes are deleted. Every other
+ * row, the other mail steps included (their `smtp` is now the provider of the one send, not of a mail tool), keeps graph/step/node/mode/providers.
+ * Ledger (WEBCORE-6, 2026-11-14, coordinator R91 / MAIL-IN "a person's mail is a line like a chat message", same row count 221, from the installation of the
+ * WEBCORE-6 build, read by diff; only nivo-web-core rows move): (q) `webmail.triage` step `read` (`webmail.read`, auto, [imap]: the batch read of the mailbox) is
+ * replaced by `hear` (`webmail.hear`, auto, none: the person's unread lines of the route, a native read of the conversation); `webmail.triage#sort`
+ * (`webmail.sort`) no longer reads a mail from the mailbox (the line is the person's mail), so it lists no provider ([imap] -> none). The mailbox is the
+ * agent's `smtp` account (the trigger source), no step acts on it; every other row keeps graph/step/node/mode/providers.
+ * Ledger (PAY-REQ, 2026-11-15, owner ruling R111, +2 rows from the source installation, read by diff; no other row moves): `sales.consult` v32
+ * `request-qr` -> `request-pay` (`sales.request-pay`, auto, [payos, sepay]: the ONE payment request), + `request-now` (`sales.request-read`,
+ * auto, [payos, sepay]) and + `cancel-request` (`sales.request-cancel`, auto, [payos, sepay]); `websales.close#pay` lists `sepay` after the CRM
+ * (the first instalment's payment request), mode unchanged.
+ */
+
+/** A node step of a template graph. */
+type NodeStep = Extract<GraphV2Step, { readonly kind: "node" }>
+
+/** One line of the recorded table. */
+interface Line {
+    readonly graph: string
+    readonly step: string
+    readonly node: string
+    readonly mode: string
+    readonly providers: ReadonlyArray<string>
+}
+
+/** One graph of a template agent, with its node steps and the engine's graph (`@1`, the adapter's output) a workflow version stores. */
+interface Case {
+    readonly agent: TemplateAgent
+    readonly graph: TemplateGraph
+    readonly steps: ReadonlyArray<NodeStep>
+    readonly engineGraph: GraphSpec
+}
+
+/** Every graph of every template agent the installation ships. */
+const CASES: ReadonlyArray<Case> = INSTALLED.templateAgents().flatMap((agent) =>
+    agent.graphs.map((graph): Case => ({
+        agent,
+        graph,
+        steps: graph.spec.nodes.flatMap((step) => (step.kind === "node" ? [step] : [])),
+        engineGraph: templateGraph(graph.key),
+    })),
+)
+
+/** The table as the installation declares it. */
+const declaredLines = (): ReadonlyArray<Line> =>
+    CASES.flatMap((one) =>
+        one.steps.map((step): Line => ({
+            graph: one.graph.key,
+            step: step.key,
+            node: step.step,
+            mode: step.mode,
+            providers: [...step.accounts],
+        })),
+    )
+
+
+describe("the node rights of every installed template agent: each step's ONE mode and its providers in order, recorded", () => {
+    // Ledger (TOOLS-LEAD 2026-11-13): "accounting" leaves the list (the agent is dropped); booking, content, hiring and video join it.
+    it("covers the core agents and the six NIVO Web agents, and some step lists providers", () => {
+        const agents = [...new Set(CASES.map((one) => one.agent.key))]
+        expect(agents).toEqual(
+            expect.arrayContaining([
+                "chatbot",
+                "sales",
+                "booking",
+                "content",
+                "hiring",
+                "video",
+                "webmail",
+                "webdocs",
+                "webdesk",
+                "webrenew",
+                "webbooks",
+                "websales",
+            ]),
+        )
+        expect(agents).not.toContain("accounting")
+        expect(CASES.every((one) => one.steps.length > 0)).toBe(true)
+        expect(CASES.some((one) => one.steps.some((step) => step.accounts.length > 0))).toBe(true)
+        expect(CASES.some((one) => one.steps.some((step) => step.mode === "ask"))).toBe(true)
+    })
+
+    it("holds the recorded table: a node's mode, a provider or an order changes only on purpose", () => {
+        expect(declaredLines()).toEqual(recorded.lines)
+    })
+
+    // Ledger (TOOLS-LEAD 2026-11-13; templates.md: `tools` lists only tools that act outside, the record / brain / contact tools are every node's
+    // by default; the adapter's `accountsOfStep` is a pure copy of the step's providers and `mode` is carried on every node step): the old
+    // expectation added a pseudo-account `nivo` carrying every listed tool at the step's mode. Both are gone; the step's providers and its
+    // ONE mode are what the engine's node carries.
+    it("is carried by the adapter as the `@1` node's accounts: the step's providers in order, no operations, and the step's ONE mode", () => {
+        for (const one of CASES) {
+            for (const step of one.steps) {
+                const node = one.engineGraph.nodes.find((candidate) => candidate.key === step.key)
+                expect([one.graph.key, step.key, node?.step, node?.mode, node?.accounts]).toEqual([
+                    one.graph.key,
+                    step.key,
+                    step.step,
+                    step.mode,
+                    step.accounts.map((provider) => ({ kind: accountKindOf(provider), provider, connectionId: null })),
+                ])
+            }
+        }
+    })
+
+    it("passes the engine's save check of its accounts", () => {
+        for (const template of INSTALLED.templates().filter((entry) => INSTALLED.templateGraphOf(entry.id) !== null)) {
+            const problems = templateFlowProblems(latestTemplateVersion(template).graph)
+            expect([template.id, problems.filter((problem) => problem.code.startsWith("NODE_ACCOUNT_"))]).toEqual([
+                template.id,
+                [],
+            ])
+        }
+    })
+})

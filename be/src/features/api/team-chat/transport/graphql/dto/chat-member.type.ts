@@ -28,4 +28,8 @@ export class ChatMemberType {
     /** Whether the member muted the room. */
     @Field(() => Boolean)
     muted!: boolean
+
+    /** Whether the seat may write in the room: an agent by the right to post it holds; a person everywhere but the read-only NIVO room. */
+    @Field(() => Boolean)
+    mayPost!: boolean
 }

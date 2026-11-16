@@ -21,7 +21,10 @@ export class CreateApiKeyResolver {
         @Args("input") input: CreateApiKeyInput,
     ): Promise<CreatedApiKeyType> {
         const result = await this.commandBus.execute(
-            new CreateApiKeyCommand({ request: { workspaceId, name: input.name, agentId: input.agentId }, principal }),
+            new CreateApiKeyCommand({
+                request: { workspaceId, name: input.name, kind: input.kind, agentId: input.agentId },
+                principal,
+            }),
         )
         return toCreatedApiKeyType(result)
     }

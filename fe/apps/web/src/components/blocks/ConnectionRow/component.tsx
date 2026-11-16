@@ -1,5 +1,4 @@
 import { Badge, Button, Cluster, DropdownMenu, IconButton, Link, Stack, Text } from "@starci/grammar/common"
-import { ConnectionAccessMenu } from "@/components/composites/ConnectionAccessMenu"
 import { ConnectionRowBody, rowMenuEntriesOf, type RowCommandSet } from "@/components/frames/ConnectionRowBody"
 import { ProviderLogo } from "@/components/branches/ProviderLogo"
 import type { RowView } from "@/modules/types"
@@ -36,11 +35,10 @@ export const ConnectionRowBase = (props: ConnectionRowBaseProps) => {
                     </Button>
                 )}
                 {view.page === null ? null : (
-                    <Button intent="neutral" href={view.page.href}>
+                    <Link variant="head" href={view.page.href}>
                         {view.page.label}
-                    </Button>
+                    </Link>
                 )}
-                {view.access === null ? null : <ConnectionAccessMenu {...view.access} onPick={on.pick} />}
                 {entries.length === 0 ? null : (
                     <DropdownMenu
                         placement="bottom end"
@@ -56,8 +54,8 @@ export const ConnectionRowBase = (props: ConnectionRowBaseProps) => {
                     />
                 )}
             </Cluster>
-            <Stack gap="row">
-                <Cluster gap="inline" align="center">
+            <Stack gap="inline">
+                <Cluster gap="identity" align="center">
                     <ProviderLogo {...view.logo} glyph="email" />
                     <Badge isDot tone={view.statusTone}>
                         {view.statusLabel}

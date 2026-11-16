@@ -1,33 +1,31 @@
-{"findings":[],"hash":"b2ff0b2c184c1b20c27fe0ed61af296ee4a928fedfc05c3f3999d58330c165ba","path":"be/apps/api/Dockerfile","step":"prettier"}
-{"findings":[],"hash":"996756c8b7582ae34fe6060a6a0f4ca5352b980e092dae5bc7f497d63e8507a8","path":"be/apps/api/src/api.env.ts","step":"prettier"}
-{"findings":[],"hash":"b4848f92330c518a72a7e38474f8b9b18c69069b8dedb03df32f16399f14a14d","path":"be/apps/api/src/api.options.ts","step":"prettier"}
-{"findings":[],"hash":"0896a289546e5d45c2e12b2e776bf3f91270be929af1e921a71c0dba4ac65ab2","path":"be/apps/api/src/app.module.ts","step":"prettier"}
-{"findings":[],"hash":"ab29b2fafde1a74550f3a6d4ae9259230e8d35675967f63abd66b52a2d903564","path":"be/apps/api/src/compose/accounting.ts","step":"prettier"}
-{"findings":[],"hash":"8f0009f734aea49190eb40a28fc8a09863f8307d8b5f4f4f020d0f1be372738f","path":"be/apps/api/src/compose/admin.ts","step":"prettier"}
-{"findings":[],"hash":"1a9a017e2c95e3c4a1d4a92b78c2194f01ab8ceec526310c0075d1e8a8adb4f6","path":"be/apps/api/src/compose/agent-api.ts","step":"prettier"}
-{"findings":[],"hash":"b8d53be7ee44d509c0c073c228cb44b7c825180d92988bb734ef751b9731c392","path":"be/apps/api/src/compose/agent-graphs.ts","step":"prettier"}
-{"findings":[],"hash":"6d18d1d855291bfbcf9c166375e8df9d4c88ba60b8ba36c9df9f9adf34752e5e","path":"be/apps/api/src/compose/agent-work.ts","step":"prettier"}
-{"findings":[],"hash":"70c2269974bbac04ef973289a4afb4fc40fb2a5fd9c3cac7d9098e32e707c881","path":"be/apps/api/src/compose/agents.ts","step":"prettier"}
-{"findings":[],"hash":"298506a30d18bffa58c7453f943fed72d0065d4761d1263ed431632204b62d6b","path":"be/apps/api/src/compose/api.ts","step":"prettier"}
+{"findings":[],"hash":"d95c305bba7df315249f0c64be91f6308046383eb662344d6d365926026db4f2","path":"be/apps/api/Dockerfile","step":"prettier"}
+{"findings":[],"hash":"44f9e5069fe0343463df80c8444e3f372735c3bd1233b99c45c0f2801b63088b","path":"be/apps/api/src/api.env.spec.ts","step":"prettier"}
+{"findings":[],"hash":"b969fca6aa8b06523213d876c4a5f2bbe7c5fb3f4cd29b7f08217d9f626315e4","path":"be/apps/api/src/api.env.ts","step":"prettier"}
+{"findings":[],"hash":"f919af84fd8a70f0f35e826f28cb311ac084779cde3b24d0141422f3e1561cc0","path":"be/apps/api/src/api.options.ts","step":"prettier"}
+{"findings":[],"hash":"5858a881d6a6efa5dba70a2e93afb24c757d59e116ddda65372d9140ed645e38","path":"be/apps/api/src/app.module.ts","step":"prettier"}
+{"findings":[],"hash":"804c2ed5a39d79401261a74cad4199d251dbcfa6552f77d2c8c9c913194cffc6","path":"be/apps/api/src/compose/admin.ts","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"be/apps/api/src/compose/agent-api.ts is not formatted by prettier; run `npm run format`","path":"be/apps/api/src/compose/agent-api.ts","rule":"HFS_FORMAT"}],"hash":"354541ca2617a67c9ed3d138ef4630d4231a8a19895f8254d5794ffe9bfbba85","path":"be/apps/api/src/compose/agent-api.ts","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"be/apps/api/src/compose/agent-boundary.spec.ts is not formatted by prettier; run `npm run format`","path":"be/apps/api/src/compose/agent-boundary.spec.ts","rule":"HFS_FORMAT"}],"hash":"24abb0308ca1bf2e4b885bd49ea4c028a7759d59ca5c4f3084d2c75252c17b9a","path":"be/apps/api/src/compose/agent-boundary.spec.ts","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"be/apps/api/src/compose/agent-graphs.ts is not formatted by prettier; run `npm run format`","path":"be/apps/api/src/compose/agent-graphs.ts","rule":"HFS_FORMAT"}],"hash":"79f7649a71f8708da2a25ad1cbf4a0b45611a74f7742bc4d4e758422133c78e8","path":"be/apps/api/src/compose/agent-graphs.ts","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"be/apps/api/src/compose/agent-work.ts is not formatted by prettier; run `npm run format`","path":"be/apps/api/src/compose/agent-work.ts","rule":"HFS_FORMAT"}],"hash":"a4b74f401960790c18190ece274c6fbfd6ceaa40da2051cb99ba76717ecfe7bf","path":"be/apps/api/src/compose/agent-work.ts","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"be/apps/api/src/compose/agents.ts is not formatted by prettier; run `npm run format`","path":"be/apps/api/src/compose/agents.ts","rule":"HFS_FORMAT"}],"hash":"e47a48716ae69541a893fc9cf1700d3695db2c0265ce30b36b0d3ee89b6c42b7","path":"be/apps/api/src/compose/agents.ts","step":"prettier"}
+{"findings":[],"hash":"0082fef81af1607527d266dd1156e565ed065eb862c37c3bd06c933d4732cbf5","path":"be/apps/api/src/compose/api.ts","step":"prettier"}
 {"findings":[],"hash":"0dfd9e56ff7fd2a3498fcbb88310e61122dc142db81c8d8c3347bb4d7f7f273d","path":"be/apps/api/src/compose/authentication.ts","step":"prettier"}
-{"findings":[],"hash":"7bd6bbd2e9be79b4903b1271b0dddbd90fe86a0b2a10a79f38a51fb68e6d01ed","path":"be/apps/api/src/compose/automations.ts","step":"prettier"}
-{"findings":[],"hash":"c8cf78e32e6eafd155b2114adf958c96d73e5582ed3039be364ae15abb9a1eba","path":"be/apps/api/src/compose/billing.ts","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"be/apps/api/src/compose/automations.ts is not formatted by prettier; run `npm run format`","path":"be/apps/api/src/compose/automations.ts","rule":"HFS_FORMAT"}],"hash":"eff27705e6987c1d8ff903aa81d182eef98e7264bfa2241d889b4932a96de6bc","path":"be/apps/api/src/compose/automations.ts","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"be/apps/api/src/compose/billing.ts is not formatted by prettier; run `npm run format`","path":"be/apps/api/src/compose/billing.ts","rule":"HFS_FORMAT"}],"hash":"cfc88219d192535ebb62d4227e27a298bde82bb289dbae76f380a7564dc6c38c","path":"be/apps/api/src/compose/billing.ts","step":"prettier"}
 {"findings":[],"hash":"caf17b1f9cc033e87967d7e98f5483a496c67fe692d0bc2eff9733bfd63ff83a","path":"be/apps/api/src/compose/bindings.ts","step":"prettier"}
-{"findings":[],"hash":"20cf9ffe610fcb464a1c29cede75a9c4f39e2ed9d355def9059a98e615f0113e","path":"be/apps/api/src/compose/bookings.ts","step":"prettier"}
-{"findings":[],"hash":"c9e166f84dcaa04eb7047e3bdb2d94f0adc7d6a48a70ce000cd55e91e9513e0f","path":"be/apps/api/src/compose/business.ts","step":"prettier"}
-{"findings":[],"hash":"52df14676b0e6b158a9168a02953833d1c347560f974f1161b5f1853eac5e50d","path":"be/apps/api/src/compose/connections.ts","step":"prettier"}
-{"findings":[],"hash":"c43a143de9bc8a28d5b0bec144cd23046f46bacf321197a7071e0065b0ea2b34","path":"be/apps/api/src/compose/content.ts","step":"prettier"}
-{"findings":[],"hash":"6006168bbdcd8101f4d5b2433fef8e39ce7b878c8685260b0f6c81ce5dcdcd53","path":"be/apps/api/src/compose/identity.ts","step":"prettier"}
-{"findings":[],"hash":"760dd48da6b0921bc023646666236629ccc8d51bd2323c4a64ffdd4e708980da","path":"be/apps/api/src/compose/jobs.ts","step":"prettier"}
-{"findings":[],"hash":"0921288cf9127253b9b3e8ffbcd3ff0a9b6654ad3f9c041b255d268e3e422f87","path":"be/apps/api/src/compose/knowledge.ts","step":"prettier"}
-{"findings":[],"hash":"9d54e0ee8648e1c3b9a3cfe6a83c54a154c770cd980fe65d71f855bf20dfa260","path":"be/apps/api/src/compose/messaging.ts","step":"prettier"}
-{"findings":[],"hash":"b3b72c64a999cd63be5273ce839b7b3d82e3c92a5e5d4a334b614867495cf547","path":"be/apps/api/src/compose/modules.ts","step":"prettier"}
-{"findings":[],"hash":"0ba85783bc9ab703e8cf6f497efd3c0fedd588f330c56d4354d76e4cccf3f9d6","path":"be/apps/api/src/compose/platform-catalog.ts","step":"prettier"}
-{"findings":[],"hash":"b546449c8c69d984b487a16cfe80610a55d9b9afb5b595bf1ff6d3c8dfa22a0b","path":"be/apps/api/src/compose/platform.ts","step":"prettier"}
-{"findings":[],"hash":"5d349c27a3ede650ab90448ea653b62cdbc9bb778d692bf0f1403df45624ca67","path":"be/apps/api/src/compose/reactors.ts","step":"prettier"}
-{"findings":[],"hash":"d8050bc081cc0337633749f3477a54cda53b4990392cfa998d34ce034dc5c5ca","path":"be/apps/api/src/compose/realtime.ts","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"be/apps/api/src/compose/connection-field-writers.spec.ts is not formatted by prettier; run `npm run format`","path":"be/apps/api/src/compose/connection-field-writers.spec.ts","rule":"HFS_FORMAT"}],"hash":"1a6b1feac52efd0bfdedc3cf376a6ff3a039102f48823f89dcfa7e1fb621f897","path":"be/apps/api/src/compose/connection-field-writers.spec.ts","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"be/apps/api/src/compose/connections.ts is not formatted by prettier; run `npm run format`","path":"be/apps/api/src/compose/connections.ts","rule":"HFS_FORMAT"}],"hash":"5b308479bb5383dea9d639b42fd8d461d29678bbadf21c2c542240e18b021334","path":"be/apps/api/src/compose/connections.ts","step":"prettier"}
+{"findings":[],"hash":"720a581bc19742b3ae5f21ce1332e24c326e39bb13f2f10fc52045b71307efb2","path":"be/apps/api/src/compose/identity.ts","step":"prettier"}
+{"findings":[],"hash":"3da3b98a96d6051f721e682f94522a9cc4d6955b1283c9a4897681d05c4fec25","path":"be/apps/api/src/compose/jobs.ts","step":"prettier"}
+{"findings":[],"hash":"bfa87ea389bb79b9c791cbeaefb5fa6df5ce5be571b91eee75ff91b680ad3290","path":"be/apps/api/src/compose/knowledge.ts","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"be/apps/api/src/compose/messaging.ts is not formatted by prettier; run `npm run format`","path":"be/apps/api/src/compose/messaging.ts","rule":"HFS_FORMAT"}],"hash":"6dc4b7dcd6ce60b7a592f92ccda279fa6b31f0cf5d637d16cd067e8c316b8c1a","path":"be/apps/api/src/compose/messaging.ts","step":"prettier"}
+{"findings":[],"hash":"41416c9c37e02372315b01e8b22699e37b3d1e286ba9d28f34177f0651a388eb","path":"be/apps/api/src/compose/modules.ts","step":"prettier"}
+{"findings":[],"hash":"0addc85723f36013c7d1c8f8f4df0724887ba44dd9996d9f47475d486b3d73f2","path":"be/apps/api/src/compose/platform-catalog.ts","step":"prettier"}
+{"findings":[],"hash":"b990fa556ca938c0201d1a352d2086e18fc3f533a493e0e94b42b2e5821668cc","path":"be/apps/api/src/compose/platform.ts","step":"prettier"}
+{"findings":[],"hash":"b041446d87f019460f44acfdabc1d6a97136c91306c8f89c25246a1be42a85a5","path":"be/apps/api/src/compose/reactors.ts","step":"prettier"}
+{"findings":[],"hash":"442bac6b5130600d6046e075b6e7ad2a21ca0bf25e6da30147af996191bf70c6","path":"be/apps/api/src/compose/realtime.ts","step":"prettier"}
 {"findings":[],"hash":"f606cc29cebda2959337384efcf784c096d39c937f31a892b0afee113f74e447","path":"be/apps/api/src/compose/schedulers.ts","step":"prettier"}
-{"findings":[],"hash":"ce5716d136d8d5475fa0c3e94016460adb8740cb2be28d05d1757ab0437f8a03","path":"be/apps/api/src/compose/system.ts","step":"prettier"}
-{"findings":[],"hash":"5e42991e2d32e96a77dd7777e50f08cc9b57a5977ca5b9f803f588a600f60c56","path":"be/apps/api/src/compose/video.ts","step":"prettier"}
-{"findings":[],"hash":"28b21ed5e196f807c208809b5a67cf039b70ea07ec8421e891529076f724b5d2","path":"be/apps/api/src/compose/webhooks.ts","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"be/apps/api/src/compose/system.ts is not formatted by prettier; run `npm run format`","path":"be/apps/api/src/compose/system.ts","rule":"HFS_FORMAT"}],"hash":"e4e32130bc7b30dfdf3c4510db6cc3bb74500c3422f9507798154c3d4098f3eb","path":"be/apps/api/src/compose/system.ts","step":"prettier"}
+{"findings":[],"hash":"52bf001cbca5fc7d0411dab85707d13e1ef967bc4f6c545361598ce61c47ce7a","path":"be/apps/api/src/compose/webhooks.ts","step":"prettier"}
 {"findings":[],"hash":"c07e2c9feaab087a31b8d2749fd6ccd273c8b4658fc5c59cd68d5e68dae39b4b","path":"be/apps/api/src/main.ts","step":"prettier"}

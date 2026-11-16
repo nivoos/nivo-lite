@@ -17,6 +17,7 @@ export interface BillingOverviewBaseProps {
         /** The payment history is drawn here (the credits page draws its own). */
         readonly withOrders: boolean
         readonly planLabel: string
+        readonly planTermLabel: string
         readonly statusLabel: string
         readonly paidUntilLabel: string
         readonly renewalLabel: string
@@ -133,7 +134,7 @@ export const BillingOverviewBase = (props: BillingOverviewBaseProps) => (
 /** Draws the SurfaceCard section of the BillingOverview view. */
 const renderCurrentBillingPlan = (props: BillingOverviewBaseProps, plan: BillingPlanView, isLoading: boolean) => (
     <SurfaceCard label={props.props.planLabel} headingLevel={2} isLoading={isLoading}>
-        <Stack gap="section">
+        <Stack gap="row">
             <DescriptionList
                 layout="columns"
                 isDivided
@@ -141,7 +142,7 @@ const renderCurrentBillingPlan = (props: BillingOverviewBaseProps, plan: Billing
                 items={[
                     {
                         id: "plan",
-                        term: props.props.planLabel,
+                        term: props.props.planTermLabel,
                         description: (
                             <Text isStrong isLoading={isLoading}>
                                 {plan.planName}
@@ -169,7 +170,7 @@ const renderCurrentBillingPlan = (props: BillingOverviewBaseProps, plan: Billing
                 ]}
             />
             {plan.canRenew ? (
-                <Cluster gap="row">
+                <Cluster gap="inline">
                     <BillingRenewal
                         props={{ label: props.props.renewalLabel, isPending: props.props.isRenewing }}
                         on={{ renew: props.on.renew }}

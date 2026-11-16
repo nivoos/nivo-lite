@@ -5,7 +5,7 @@ import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { WorkbenchActionCommand } from "./workbench-action.command"
 
 @CommandHandler(WorkbenchActionCommand)
-/** Runs an action through the workbench door, which proves membership, permission and the authority rules. */
+/** Runs an action through the workbench door, which proves membership and the permission the action declares. */
 export class WorkbenchActionHandler extends ICQRSHandler<WorkbenchActionCommand, DoorAnswer> {
     constructor(
         @InjectLogger() logger: Logger,

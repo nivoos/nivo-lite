@@ -58,6 +58,31 @@ export class OwnersService {
     }
 
     /**
+     * Changes the sign-in address of the account that has `from` to `to`, IN PLACE: the account keeps its id, so every workspace it owns
+     * and every membership stays its own. Refused when `from` has no account (`OWNERS_ACCOUNT_MISSING`) or `to` already belongs to another
+     * account (`OWNERS_EMAIL_TAKEN`); renaming to the address it already has changes nothing. Prints fixed words only, never an address.
+     * With `dry` it only reads and prints whether the old account exists and the new address is free.
+     */
+    async renameOwner(from: string, to: string, dry: boolean): Promise<void> {
+        const [current] = await callDbFunction<AccountRow>(this.entityManager, "public.be_auth_user_by_email", [normalizeEmail(from)])
+        const target = normalizeEmail(to)
+        const [holder] = await callDbFunction<AccountRow>(this.entityManager, "public.be_auth_user_by_email", [target])
+        const free = holder === undefined || holder.id === current?.id
+        this.options.print(`old account exists: ${current === undefined ? "no" : "yes"}; new address free: ${free ? "yes" : "no"}`)
+        if (dry) return
+        if (current === undefined) throw new OwnersError({ code: OwnersErrorCode.AccountMissing })
+        if (!free) throw new OwnersError({ code: OwnersErrorCode.EmailTaken })
+        const [changed] = await callDbFunction<{ be_auth_set_email: boolean }>(this.entityManager, "public.be_auth_set_email", [current.id, target, this.clock.now()])
+        this.options.print(changed?.be_auth_set_email === false ? "owner address unchanged (already so)" : "owner address changed in place")
+    }
+
+    /** The id of the account of an address, or null when it has none (reads only). */
+    async findAccount(email: string): Promise<string | null> {
+        const [existing] = await callDbFunction<AccountRow>(this.entityManager, "public.be_auth_user_by_email", [normalizeEmail(email)])
+        return existing?.id ?? null
+    }
+
+    /**
      * The id of the account that has the address. A missing one is made confirmed, with a password nobody knows, so the person it
      * belongs to opens it by resetting the password or by `create-owner run`; an existing one is left as it is.
      */

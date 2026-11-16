@@ -28,8 +28,6 @@ export interface PollScheduleOptions {
     readonly batchSize: number
     /** How long a claimed connection is kept from other workers; a worker that dies frees it by then. */
     readonly leaseMs: number
-    /** The longest wait for a rate-limit token a poll sits through; a longer one is rescheduled instead. */
-    readonly maxInlineWaitMs: number
     /** The pages one chunk of a first-connect backfill reads. */
     readonly backfillChunkPages: number
 }

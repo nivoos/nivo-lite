@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common"
-import { In, Not, type EntityManager } from "typeorm"
+import { In, IsNull, Not, type EntityManager } from "typeorm"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import type {
     ConnectionOwner,
@@ -50,7 +50,7 @@ export class ConnectionsUpkeepService {
             .createQueryBuilder(ConnectionEntity, "co")
             .update()
             .set({ publicMeta: () => "jsonb_set(public_meta, '{health}', :verdict::jsonb)" })
-            .where({ id: connectionId })
+            .where({ id: connectionId, deletedAt: IsNull() })
             .setParameter(
                 "verdict",
                 JSON.stringify({ state: mark.state, reason: mark.reason, checked_at: mark.checkedAt }),
@@ -83,7 +83,7 @@ export class ConnectionsUpkeepService {
                 syncEveryMinutes: () => ":minutes::int",
                 nextSyncAt: () => "CASE WHEN :minutes::int IS NULL THEN NULL ELSE now() END",
             })
-            .where({ workspaceId, id })
+            .where({ workspaceId, id, deletedAt: IsNull() })
             .setParameter("minutes", everyMinutes)
             .returning("id")
             .execute()
@@ -95,8 +95,8 @@ export class ConnectionsUpkeepService {
     /**
      * A sync finished: the connection works, the next sync is scheduled and the given public facts join the old ones.
      */
-    async markSynced(connectionId: string, facts: SyncFacts): Promise<void> {
-        await this.entityManager
+    async markSynced(connectionId: string, facts: SyncFacts, within?: EntityManager): Promise<void> {
+        await (within ?? this.entityManager)
             .createQueryBuilder(ConnectionEntity, "co")
             .update()
             .set({
@@ -108,16 +108,16 @@ export class ConnectionsUpkeepService {
                     "CASE WHEN sync_every_minutes IS NULL THEN NULL ELSE now() + make_interval(mins => sync_every_minutes) END",
                 publicMeta: () => "jsonb_concat(public_meta, CAST(:facts AS jsonb))",
             })
-            .where({ id: connectionId })
+            .where({ id: connectionId, deletedAt: IsNull() })
             .setParameter("facts", JSON.stringify(facts))
             .execute()
     }
 
     /** A sync failed: the owner reads the reason and the retry waits at least a quarter of an hour. */
-    async markSyncFailed(connectionId: string, reason: string): Promise<void> {
-        await this.entityManager.update(
+    async markSyncFailed(connectionId: string, reason: string, within?: EntityManager): Promise<void> {
+        await (within ?? this.entityManager).update(
             ConnectionEntity,
-            { id: connectionId },
+            { id: connectionId, deletedAt: IsNull() },
             {
                 status: "error",
                 lastError: reason,
@@ -129,10 +129,11 @@ export class ConnectionsUpkeepService {
 
     /**
      * Claims the connections of these providers whose scheduled sync is due, soonest first; their next sync moves half
-     * an hour on until the sync sets the real time.
+     * an hour on until the sync sets the real time. Given the caller's transaction, the claim commits with the caller's writes (the
+     * runs and jobs opened for the claimed connections), so a crash between them claims nothing.
      */
-    claimDueSyncs(providers: ReadonlyArray<Provider>, size: number): Promise<ReadonlyArray<ConnectionOwner>> {
-        return this.entityManager.transaction(async (tx) => {
+    claimDueSyncs(providers: ReadonlyArray<Provider>, size: number, within?: EntityManager): Promise<ReadonlyArray<ConnectionOwner>> {
+        const claim = async (tx: EntityManager): Promise<ReadonlyArray<ConnectionOwner>> => {
             const due = await tx
                 .createQueryBuilder(ConnectionEntity, "c")
                 .select("c.id", "id")
@@ -154,7 +155,8 @@ export class ConnectionsUpkeepService {
                 .returning("id, workspace_id")
                 .execute()
             return returnedOwners(claimed.raw)
-        })
+        }
+        return within === undefined ? this.entityManager.transaction(claim) : claim(within)
     }
 
     /** Makes one SMTP connection the workspace default; every other one becomes a spare. */
@@ -163,7 +165,7 @@ export class ConnectionsUpkeepService {
             .createQueryBuilder(ConnectionEntity, "co")
             .update()
             .set({ isDefault: () => "(id = :id)" })
-            .where("workspace_id = :workspaceId AND provider = 'smtp' AND (is_default OR id = :id)", {
+            .where("workspace_id = :workspaceId AND provider = 'smtp' AND deleted_at IS NULL AND (is_default OR id = :id)", {
                 workspaceId,
                 id,
             })

@@ -101,6 +101,30 @@ describe("DataSyncRunsService / finish", () => {
     })
 })
 
+describe("DataSyncRunsService / finish in a transaction and reopen", () => {
+    it("settles the run in the caller's transaction when one is given, never on the service's own manager", async () => {
+        const own = mockEntityManager()
+        const tx = mockEntityManager({ update: [DataSyncRunEntity, { affected: 1 }] })
+        const runs = await build(own)
+
+        await expect(runs.finish("run-1", "ok", 7, null, tx)).resolves.toBeUndefined()
+
+        expect(tx.update).toHaveBeenCalledTimes(1)
+        expect(own.update).not.toHaveBeenCalled()
+    })
+
+    it("opens a failed run again: running, no failure, no end", async () => {
+        const em = mockEntityManager({ update: [DataSyncRunEntity, { affected: 1 }] })
+        const runs = await build(em)
+
+        await expect(runs.reopen("run-1")).resolves.toBeUndefined()
+
+        expect(namedCalls(em.update.mock.calls, 2)).toEqual([
+            ["DataSyncRunEntity", { id: "run-1", status: "failed" }, { status: "running", error: null, finishedAt: null }],
+        ])
+    })
+})
+
 describe("DataSyncRunsService / find", () => {
     it("answers a settled run of the workspace", async () => {
         const em = mockEntityManager({

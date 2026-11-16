@@ -14,7 +14,9 @@ export const ProfileListRegion = (props: ProfileListRegionProps) => (
             <ListRegion
                 label={props.props.label}
                 rows={rows}
-                footer={props.props.footer}
+                count={props.props.count}
+                isAttention={props.props.isAttention}
+                action={props.props.action}
                 empty={props.props.read.labels.empty}
                 isLoading={isSkeleton}
             />

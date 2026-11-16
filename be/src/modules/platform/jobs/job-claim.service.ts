@@ -21,11 +21,11 @@ import {
     type RunKey,
 } from "./jobs.contracts"
 import { InjectJobsManagers } from "./jobs.decorators"
-import type { JobClaims } from "./jobs.port"
+import type { JobClaims, ParkedJobSummary } from "./jobs.port"
 import { JobEntity, type JobState } from "./persistence/entities"
 
 /** The columns a claim answers, as the database names them. */
-const CLAIM_COLUMNS = "id, kind, fencing_token, current_step, payload"
+const CLAIM_COLUMNS = "id, kind, fencing_token, current_step, payload, resume_count"
 
 /** The row a claim returns: the job with its bumped token (a bigint the driver hands back as text) and the step it stopped at. */
 interface ClaimedRow {
@@ -34,6 +34,7 @@ interface ClaimedRow {
     readonly fencing_token: string
     readonly current_step: string | null
     readonly payload: object
+    readonly resume_count?: number | string | null
 }
 
 /** Whether a returned column set has the claim's shape; the payload is checked on top, for it must be an object. */
@@ -55,7 +56,12 @@ const claimResultOf = (row: ClaimedRow): ClaimedJob => ({
     fencingToken: Number(row.fencing_token),
     currentStep: row.current_step,
     payload: row.payload,
+    resumeCount: Number(row.resume_count ?? 0),
 })
+
+/** The failure class a parked row names; a row that names none (or an unknown one) reads as `code`. */
+const failureClassOf = (value: string | null): ParkedJobSummary["failureClass"] =>
+    value === "transient" || value === "input" || value === "config" ? value : "code"
 
 @Injectable()
 /**
@@ -193,7 +199,31 @@ export class JobClaimService implements JobClaims {
         })
     }
 
-    /** Holds the live fence across domain effects; no job-row writes may be attempted inside the callback. */
+    /** The workspace's parked jobs, oldest park first; a row without a recorded class reads as `code` (a person must look). */
+    async awaitingFix(workspaceId: string, limit: number): Promise<ReadonlyArray<ParkedJobSummary>> {
+        const rows = await this.writer()
+            .createQueryBuilder(JobEntity, "job")
+            .where("job.status = :parked AND job.payload ->> 'workspaceId' = :workspaceId", {
+                parked: "failed_awaiting_fix" satisfies JobState,
+                workspaceId,
+            })
+            .orderBy("job.parkedAt", "ASC")
+            .limit(limit)
+            .getMany()
+        return rows.map((row) => ({
+            jobId: row.id,
+            job: row.kind,
+            failureClass: failureClassOf(row.failureClass),
+            reason: row.error ?? "",
+            parkedAt: row.parkedAt ?? this.clock.now(),
+            resumeCount: row.resumeCount,
+        }))
+    }
+
+    /**
+     * Holds the live fence (the job row's lock) while `work` writes on the fence's OWN transaction, handed to it: no job-row writes, and
+     * nothing on another connection of the pool, no outside call (concept outbox-job rule 12).
+     */
     withFence<T>(job: ClaimedJob, work: JobEffect<T>): Promise<T> {
         return this.writer().transaction(async (manager) => {
             const fence = await manager
@@ -213,11 +243,14 @@ export class JobClaimService implements JobClaims {
                     params: { jobId: job.jobId, token: job.fencingToken },
                 })
             }
-            return work()
+            return work(manager)
         })
     }
 
-    /** Runs a terminal delivery effect under its latest failed claim, so it cannot overwrite a live successor. */
+    /**
+     * Runs a terminal delivery effect under its latest failed claim, so it cannot overwrite a live successor; on the fence's own
+     * transaction, handed to it (concept outbox-job rule 12).
+     */
     withFailedFence(jobKey: string, work: FailedJobEffect): Promise<void> {
         return this.writer().transaction(async (manager) => {
             const row = await manager
@@ -228,7 +261,7 @@ export class JobClaimService implements JobClaims {
                 .setLock("pessimistic_write")
                 .getOne()
             if (row === null) return
-            await work({ jobId: row.id, expectedFencingToken: row.fencingToken })
+            await work({ jobId: row.id, expectedFencingToken: row.fencingToken }, manager)
         })
     }
 

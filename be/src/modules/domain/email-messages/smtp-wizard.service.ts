@@ -34,7 +34,9 @@ export class SmtpWizardService {
         if (!verdict.ok) throw new EmailMessagesError({ code: verdict.code })
         const form = verdict.form
         await this.mail.assertSmtpTarget(form.host, form.port)
-        const id = await this.connections.create({
+        // One mailbox = one account (rule MI-2): the inbound half of this address standing alone joins the new account.
+        const inbound = await this.inboundAloneOf(actor.workspaceId, form.fromEmail)
+        const id = await this.connections.createMailbox({
             workspaceId: actor.workspaceId,
             createdBy: actor.principalId,
             provider: "smtp",
@@ -52,8 +54,18 @@ export class SmtpWizardService {
                 reply_to: form.replyTo,
             },
             secret: { plain: JSON.stringify({ password: form.password }), webhookSecret: randomSecret() },
-        })
+        }, inbound)
         return { id, host: form.host, fromEmail: form.fromEmail, isDefault: false }
+    }
+
+    /** The workspace's ONE live `imap` account of the address (its inbound half standing alone), or null when it has none or several. */
+    private async inboundAloneOf(workspaceId: string, address: string): Promise<string | null> {
+        const wanted = address.trim().toLowerCase()
+        const alone = (await this.connections.listByProvider(workspaceId, "imap", { includeDisconnected: false })).filter(
+            (account) => !account.sandbox && (account.meta.email ?? "").trim().toLowerCase() === wanted,
+        )
+        const [only, ...more] = alone
+        return only === undefined || more.length > 0 ? null : only.id
     }
 
     /** Sends a real test email; success marks the connection connected (and the default when the workspace has none), failure keeps the reason on it and throws. */

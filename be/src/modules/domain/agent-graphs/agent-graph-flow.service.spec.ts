@@ -1,22 +1,20 @@
 import { Test } from "@nestjs/testing"
 import { mock } from "@starci/jest-preset"
-import { nodeIndexOf } from "@nivo-lite/agent-sdk/node"
 import type { GraphSpec } from "@nivo-lite/agent-sdk/graph"
+import { coreTemplates } from "@modules/domain/installed-plugins/installed-plugins.testing"
 import { OWNER_EXAMPLE, graphOf, stateOf } from "@tests/fixtures/builders/agent-graph.builder"
 import { AgentGraphFlowService } from "./agent-graph-flow.service"
 import { AgentGraphsService } from "./agent-graphs.service"
 import type { GraphDocument } from "./agent-graphs.contracts"
 import { AgentGraphsErrorCode } from "./errors/agent-graphs.error"
 
-const INSTALLED = nodeIndexOf({ nodes: [], effects: [], tools: [], dataKinds: [] })
-const FLOW: GraphSpec = {
-    schema: "nivo/agent-graph@1",
-    moduleKey: "sales",
-    trigger: { kind: "tag", sources: ["channel"] },
-    grant: { rights: [], tools: [], effects: [] },
-    nodes: [{ key: "end", kind: "output", step: "stop" }],
-}
-const INPUT = { workspaceId: "ws-1", agentId: "agent-1", installationId: "inst-1", flow: FLOW, installed: INSTALLED }
+/** The flow: an installed core template version's graph, the only graph a flow publish takes. */
+const FLOW: GraphSpec = (() => {
+    const graph = coreTemplates()[0]?.versions[0]?.graph
+    if (graph === undefined) throw new Error("the core package ships no template")
+    return graph
+})()
+const INPUT = { workspaceId: "ws-1", agentId: "agent-1", installationId: "inst-1", flow: FLOW }
 const VERSION = {
     id: "version-2",
     version: 2,
@@ -44,9 +42,9 @@ describe("AgentGraphFlowService > publish", () => {
 
         await expect(service.publish(INPUT)).resolves.toBe("created")
 
-        expect(graphs.ensure).toHaveBeenCalledWith("ws-1", "agent-1", "inst-1", { nodes: [], rights: [] })
+        expect(graphs.ensure).toHaveBeenCalledWith("ws-1", "agent-1", "inst-1", { nodes: [] })
         expect(graphs.publish).toHaveBeenCalledWith(
-            expect.objectContaining({ kind: "spec", document: { nodes: [], rights: [], flow: FLOW } }),
+            expect.objectContaining({ kind: "spec", document: { nodes: [], flow: FLOW } }),
         )
     })
 
@@ -98,17 +96,17 @@ describe("AgentGraphFlowService > publish", () => {
         await expect(service.publish(INPUT)).resolves.toBe("replaced")
 
         expect(graphs.publish).toHaveBeenCalledWith(
-            expect.objectContaining({ document: { nodes: [], rights: [], flow: FLOW } }),
+            expect.objectContaining({ document: { nodes: [], flow: FLOW } }),
         )
     })
 
-    it("refuses a flow with a node that is not installed, naming it, and writes nothing", async () => {
+    it("refuses a flow that is no installed template version's copy (a step not installed), naming it, and writes nothing", async () => {
         const { service, graphs } = await build(null)
         const unknown: GraphSpec = { ...FLOW, nodes: [{ key: "end", kind: "output", step: "not.installed" }] }
 
         await expect(service.publish({ ...INPUT, flow: unknown })).rejects.toMatchObject({
             code: AgentGraphsErrorCode.PublishRefused,
-            params: { problems: "NODE_UNKNOWN end" },
+            params: { problems: `GRAPH_TEMPLATE_EDITED ${FLOW.moduleKey}` },
         })
 
         expect(graphs.stateOfAgent).not.toHaveBeenCalled()

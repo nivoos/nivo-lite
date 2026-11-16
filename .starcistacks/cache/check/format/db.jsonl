@@ -1,2 +1,3 @@
 {"findings":[],"hash":"9433a902aab1c953b4ab7bff66db417e99c538d0b6b7c1d32dd59db5d480427f","path":"db/bootstrap.sql","step":"prettier"}
-{"findings":[],"hash":"2e9977a7efa909db3b0d91be08b2d7ee492116bc0b5b8e37063a79fde74be4b9","path":"db/entities.manifest.json","step":"prettier"}
+{"findings":[],"hash":"b79993ebc11c1145ad92753b562d303c0f27f4efc59c0035077e8324881899af","path":"db/entities.ddl.sql","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"db/entities.manifest.json is not formatted by prettier; run `npm run format`","path":"db/entities.manifest.json","rule":"HFS_FORMAT"}],"hash":"a23bb453308b2e38483557ef1d50ffdc67e5bf5f3f162a7373c4b6341404729d","path":"db/entities.manifest.json","step":"prettier"}

@@ -8,8 +8,8 @@ type PageProps = { readonly params: Promise<{ module: string; installation: stri
 
 /** The chat slot of one agent instance: the viewer's direct room with the agent. */
 const Page = async (props: PageProps): Promise<ReactElement> => {
-    const { module, installation } = await props.params
-    return <AgentChatTabPage module={module} installationId={installation} />
+    const { installation } = await props.params
+    return <AgentChatTabPage installationId={installation} />
 }
 
 export default Page

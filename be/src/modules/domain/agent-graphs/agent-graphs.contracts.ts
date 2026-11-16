@@ -1,11 +1,22 @@
 import type { GraphSpec } from "@nivo-lite/agent-sdk/graph"
-import type { ApprovalPolicy, ApproverGroup } from "@modules/domain/authority-rules"
 import type { IntentBusiness } from "@modules/domain/intent-contracts"
-import type { DataRight } from "@modules/domain/mcp-gateway"
-import type { FactSpec, FactView, TriggerMatch } from "./agent-graphs-contract.contracts"
-import type { UnheldRule } from "./policies/unheld-rules.policy"
+import type { WorkspaceRole } from "@modules/domain/workspace-members"
+import type { FactSpec, FactView, GraphChangeKind, TriggerMatch } from "./agent-graphs-contract.contracts"
 
-export type { FactSpec, FactView }
+export type { FactSpec, FactView, GraphChangeKind }
+
+/** How the people of an approver group of a stored graph answer: any one of them, all of them, or one after the other. */
+export type ApprovalPolicy = "any" | "all" | "sequential"
+
+/** The approver group a stored graph names: everyone with one of the roles, seated in one of the rooms, or named one by one. */
+export interface ApproverGroup {
+    /** Workspace roles whose members are in the group. */
+    readonly roles: ReadonlyArray<WorkspaceRole>
+    /** Keys of the team-chat rooms whose people are in the group. */
+    readonly rooms: ReadonlyArray<string>
+    /** Member ids named one by one; their order is the order a sequential policy asks them. */
+    readonly members: ReadonlyArray<string>
+}
 
 /** The most nodes one graph may hold. */
 export const MAX_GRAPH_NODES = 60
@@ -152,8 +163,8 @@ export interface GraphBranch {
     readonly key: string
     /** The when. */
     readonly when: Condition | "else"
-    /** What the branch does: run on its own, ask, or stop. */
-    readonly outcome: BranchAction
+    /** What the branch does: runs by itself, asks its approver first, or stops. */
+    readonly mode: BranchAction
     /** The next. */
     readonly next: string
     /** The approver. */
@@ -222,8 +233,6 @@ export interface GraphNode {
 export interface GraphDocument {
     /** The nodes. */
     readonly nodes: ReadonlyArray<GraphNode>
-    /** The rights. */
-    readonly rights: ReadonlyArray<DataRight>
     /** The business half of the contracts the owner approved, by intent; a graph with none runs on the frames alone. */
     readonly contracts?: ReadonlyArray<IntentBusiness> | undefined
     /** The node graph: a spec composed of installed SDK nodes, which runs the agent's wakes itself, with no model turn. */
@@ -271,6 +280,20 @@ export interface GraphNodeCard {
     readonly count: string
     /** The is placeholder. */
     readonly isPlaceholder: boolean
+    /** The visible group (sub-flow) the node belongs to in the graph view, from the `group` of its spec node; absent for a node on its own. */
+    readonly group?: string | undefined
+    /** Set on a node that waits (for the customer's reply, for payment): what it waits for and the timeout and reminder, as durations like "2h". */
+    readonly wait?: GraphNodeWait | undefined
+}
+
+/** What a waiting node waits for and how long, for the graph view. */
+export interface GraphNodeWait {
+    /** What the node waits for. */
+    readonly kind: "reply" | "payment" | "other"
+    /** How long it waits before it gives up, as a duration like "24h"; absent for no timeout. */
+    readonly timeout?: string | undefined
+    /** When it nudges the other side, as a duration like "2h"; absent for no reminder. */
+    readonly reminder?: string | undefined
 }
 
 /** One finding of `graphProblems`. */
@@ -288,18 +311,12 @@ export interface GraphProblem {
         | "else_auto"
         | "gap"
         | "overlap"
-        | "ceiling"
         | "no_right"
         | "placeholder_live"
-        | "approver_no_grant"
         | "blank_answer"
         | "on_timeout_unset"
         | "approver_missing"
-        | "no_data_right"
-        | "outsider_wide"
         | "bad_condition"
-        | "intent_no_frame"
-        | "trigger_no_intent"
         | "contract_unknown_intent"
         | "contract_no_task"
     /** The node key. */
@@ -313,82 +330,26 @@ export interface GraphProblem {
 /** One thing the setup chat still has to ask, in the fixed order of section 15.6. */
 export interface GraphGap {
     /** The code. */
-    readonly code:
-        "boundary" | "approver_missing" | "approver_absent" | "on_timeout" | "else_unset" | "approver_no_grant"
+    readonly code: "boundary" | "approver_missing" | "on_timeout" | "else_unset"
     /** The node key. */
     readonly nodeKey: string
     /** The branch key. */
     readonly branchKey: string | null
 }
 
-/** The ceiling the authority rules put on one action. */
-export interface CeilingRule {
-    /** The action. */
-    readonly action: string
-    /** The mode. */
-    readonly mode: "auto" | "ask" | "never"
-    /** Strictly below this the action runs alone, when the rule has no bands. */
-    readonly limitVnd: number | null
-    /** Up to this, inclusive, the action runs alone. */
-    readonly autoMax: number | null
-    /** The action never runs alone; the registry caps it at `ask` or `never`. */
-    readonly maxMode: "ask" | "never" | null
-}
-
-/** The top of the amount range a branch covers; null when the branch has none. */
-export type AmountTop = number | null
-
 /** What the pure checks need to know about the workspace. */
 export interface GraphContext {
     /** The facts. */
     readonly facts: FactRegistry
-    /** The ceilings. */
-    readonly ceilings: ReadonlyArray<CeilingRule>
     /** Whether the agent holds a grant on the tool, by its `connector.tool` name or the connector wildcard. */
     readonly isGranted: (tool: string) => boolean
-    /** Whether the member group may approve the action up to this amount (null: no top). */
-    readonly approverCovers: (action: string, group: ApproverGroup, top: AmountTop) => boolean
-    /** Whether the group still holds at least one active seat. */
-    readonly groupHasPeople: (group: ApproverGroup) => boolean
-    /** Whether the agent faces customers. */
-    readonly facesCustomers: boolean
-    /** Whether an intent has a frame in the catalogue of the module; absent leaves the contract checks out. */
-    readonly hasFrame?: ((intent: string) => boolean) | undefined
-}
-
-/** One decision the learning reads, newest last. */
-export interface ClosedDecision {
-    /** The id. */
-    readonly id: string
-    /** The branch key. */
-    readonly branchKey: string
-    /** The closed as. */
-    readonly closedAs: DecisionClosedAs
-    /** The amount. */
-    readonly amount: number | null
-}
-
-/** A thing the learning proposes, with the decisions that prove it. */
-export interface LearnedProposal {
-    /** The signal. */
-    readonly signal: "trust" | "reject" | "timeout"
-    /** The branch key. */
-    readonly branchKey: string
-    /** The dedupe key. */
-    readonly dedupeKey: string
-    /** The widens. */
-    readonly widens: boolean
-    /** The evidence. */
-    readonly evidence: ReadonlyArray<string>
-    /** The amounts the evidence decisions carried, which a confirmed proposal moves a boundary to. */
-    readonly amounts: ReadonlyArray<number>
 }
 
 /** One reason a change widens what the agent may do. */
 export interface DiffChange {
     /** The kind. */
     readonly kind:
-        "boundary_raised" | "branch_more_auto" | "tool_added" | "self_approver" | "right_added" | "right_widened"
+        "boundary_raised" | "branch_more_auto" | "tool_added" | "self_approver"
     /** The node key. */
     readonly nodeKey: string | null
     /** The branch key. */
@@ -402,21 +363,6 @@ export interface GraphDiff {
     /** The changes. */
     readonly changes: ReadonlyArray<DiffChange>
 }
-
-/** How a version came to be; `spec` is a node graph a graph spec published, which no rules-derived refresh replaces. */
-export type GraphChangeKind = "seed" | "chat" | "edit" | "conflict" | "learned" | "template" | "rollback" | "spec"
-
-/** Where a proposal stands: waiting for a person, taken, turned down, or overtaken by a newer change. */
-export type ProposalStatus = "open" | "confirmed" | "declined" | "superseded"
-
-/** The kinds of proposal. */
-export type ProposalKind = "conflict" | "learned" | "template_update" | "gap" | "contract"
-
-/** How a decision closed. */
-export type DecisionClosedAs = "done" | "approved" | "edited" | "rejected" | "expired" | "stopped"
-
-/** What a recorded run came to: `auto` when it ran. */
-export type DecisionOutcome = "auto" | "ask" | "stop" | "divert"
 
 /** One version of a graph as the owner lists it. */
 export interface GraphVersionView {
@@ -432,34 +378,6 @@ export interface GraphVersionView {
     readonly publishedAt: string
     /** The published by. */
     readonly publishedBy: string | null
-}
-
-/** One proposal as the owner reads it. */
-export interface GraphProposalView {
-    /** The id. */
-    readonly id: string
-    /** The kind. */
-    readonly kind: ProposalKind
-    /** The status. */
-    readonly status: ProposalStatus
-    /** The node key. */
-    readonly nodeKey: string | null
-    /** The branch key. */
-    readonly branchKey: string | null
-    /** The widens. */
-    readonly widens: boolean
-    /** The evidence. */
-    readonly evidence: ReadonlyArray<string>
-    /** The created at. */
-    readonly createdAt: string
-    /** For a conflict: the passage the graph follows now, so the owner reads the two side by side; null for the other kinds. */
-    readonly before?: string | null | undefined
-    /** For a conflict: the passage the Brain says now; null for the other kinds. */
-    readonly after?: string | null | undefined
-    /** For a contract: the intent it is about; null for the other kinds. */
-    readonly intent?: string | null | undefined
-    /** For a gap: the question nothing fitted; for a contract: the task the shop states; null for the other kinds. */
-    readonly text?: string | null | undefined
 }
 
 /** The graph of one agent as the editor opens it. */
@@ -484,14 +402,10 @@ export interface AgentGraphView {
     readonly problems: ReadonlyArray<GraphProblem>
     /** The nodes as the graph draws them at a glance. */
     readonly cards: ReadonlyArray<GraphNodeCard>
-    /** The proposals still waiting for a person. */
-    readonly proposals: ReadonlyArray<GraphProposalView>
     /** The facts a condition may be written on. */
     readonly facts: ReadonlyArray<FactView>
     /** What is wrong with the contracts of the draft and does not stop a publish. */
     readonly warnings: ReadonlyArray<GraphProblem>
-    /** The sums the setup text states as a rule that no condition of the graph holds: prose decides nothing. */
-    readonly unheldRules: ReadonlyArray<UnheldRule>
 }
 
 /** Looks a sentence of the message catalog up in the language of the reader, so a policy stays pure and holds no wording. */

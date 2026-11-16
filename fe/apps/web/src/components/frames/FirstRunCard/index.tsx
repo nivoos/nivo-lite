@@ -18,7 +18,7 @@ type FirstRunCardProps = FirstRunCardHead &
         | { readonly collection: Collection; readonly children?: never }
     )
 
-/** The question, its form or collection, and the unchanged back/forward controls. */
+/** The question with its line under it in the header zone, its form or collection, and the unchanged back/forward controls. */
 export const FirstRunCard = (props: FirstRunCardProps) => {
     const head = (
         <Stack gap="identity">
@@ -33,23 +33,21 @@ export const FirstRunCard = (props: FirstRunCardProps) => {
     )
     if (props.collection !== undefined) {
         return (
-            <Stack gap="section" measure="form">
-                <SurfaceCard
-                    ariaLabel={props.title}
-                    headers={[{ kind: "custom", children: head }]}
-                    footers={[{ kind: "custom", children: actions }]}
-                    {...props.collection}
-                />
-            </Stack>
+            <SurfaceCard
+                ariaLabel={props.title}
+                headers={[{ kind: "custom", children: head }]}
+                footers={[{ kind: "custom", children: actions }]}
+                {...props.collection}
+            />
         )
     }
     return (
-        <SurfaceCard ariaLabel={props.title} measure="form">
-            <Stack gap="section">
-                {head}
-                {props.children}
-                {actions}
-            </Stack>
+        <SurfaceCard
+            ariaLabel={props.title}
+            headers={[{ kind: "custom", children: head }]}
+            footers={[{ kind: "custom", children: actions }]}
+        >
+            {props.children}
         </SurfaceCard>
     )
 }

@@ -1,4 +1,3 @@
-import { MODULE_KEYS, isModuleKey, type ModuleKey } from "@/modules/catalog"
 import type { KnowledgeDocument, DocumentStatus } from "@/modules/types"
 
 /** Statuses a worker still has to move on: the live list and the Second Brain notice watch these. */
@@ -65,15 +64,6 @@ export const isReadyNote = (code: string): boolean => READY_NOTES.has(code)
 export const topicsOf = (rows: ReadonlyArray<Pick<KnowledgeDocument, "topic">>): ReadonlyArray<string> =>
     [...new Set(rows.map((row) => (row.topic ?? "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b))
 
-/** The agents a document may be kept for. */
-export const AGENT_MODULES: ReadonlyArray<ModuleKey> = [...MODULE_KEYS]
-
-/** One agent type, by the key of the catalog. */
-export type AgentModule = Extract<ModuleKey, string>
-
-/** Whether a value is the key of an agent type. */
-export const isAgentModule = (value: string): value is AgentModule => isModuleKey(value)
-
-/** The module a filter value stands for, or "all". */
-export const moduleFilterOf = (value: string | null | undefined): ModuleKey | "all" =>
-    MODULE_KEYS.find((key) => key === value) ?? "all"
+/** The module a filter value names, or "all" when it names none. */
+export const moduleFilterOf = (value: string | null | undefined): string =>
+    value === null || value === undefined || value === "" ? "all" : value

@@ -1,6 +1,6 @@
 import { Column, Entity } from "typeorm"
 import { UuidAbstractEntity } from "@modules/platform/database"
-import type { AgentTaskStatus, AgentTaskWaitingOn } from "../../agent-work.contracts"
+import type { AgentTaskData, AgentTaskStatus, AgentTaskWaitingOn } from "../../agent-work.contracts"
 
 @Entity({ schema: "public", name: "agent_tasks" })
 /** The agent's own to-do. It points at the work item it opened and never repeats it; the key is the agent's own name for the task. */
@@ -13,9 +13,6 @@ export class AgentTaskEntity extends UuidAbstractEntity {
     @Column({ name: "agent_id", type: "uuid" })
     agentId!: string
 
-    /** The goal it serves, or null. */
-    @Column({ name: "goal_id", type: "uuid", nullable: true })
-    goalId!: string | null
 
     /** The agent's key for the task: unique per agent. */
     @Column({ name: "dedupe_key", type: "text" })
@@ -48,6 +45,10 @@ export class AgentTaskEntity extends UuidAbstractEntity {
     /** The wake whose turn opened it, or null. */
     @Column({ name: "origin_wake_id", type: "uuid", nullable: true })
     originWakeId!: string | null
+
+    /** The small flat record the writer of the task keeps on it (a care timer's data, handed back when it is due), or null. */
+    @Column({ name: "data", type: "jsonb", nullable: true })
+    data!: AgentTaskData | null
 
     /** When it was closed, or null. */
     @Column({ name: "done_at", type: "timestamptz", nullable: true })

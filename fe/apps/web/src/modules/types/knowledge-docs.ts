@@ -16,6 +16,8 @@ export type DocGlyph = "file" | "text" | "faq" | "url" | "nivo" | "public" | "se
 export interface DocChipView {
     readonly label: string
     readonly tone: "neutral" | "warning" | "success" | "danger" | "accent"
+    /** A dot before the words: the state is live (work is running or waits to retry); a result has none. */
+    readonly isDot?: boolean
 }
 
 /** One row of the list pane: its mark, its name, one line under it and where it stands. */
@@ -50,6 +52,17 @@ export interface DocHeadView {
     /** The command that reads the document again; null where nothing can be read again (the base knowledge, a reader who may not write). */
     readonly reindex: { readonly label: string; readonly isPending: boolean; readonly isDisabled: boolean } | null
     readonly menu: ReadonlyArray<DocMenuItemView>
+    /** The command that moves the document to the other area (who reads it), with its confirmation; null where the area cannot be changed (a reader who may not write, the base knowledge). */
+    readonly area: {
+        readonly label: string
+        readonly isPending: boolean
+        readonly confirm: {
+            readonly title: string
+            readonly description: string
+            readonly confirmLabel: string
+            readonly cancelLabel: string
+        }
+    } | null
     /** The confirmation of the delete command; null where the document cannot be deleted. */
     readonly remove: {
         readonly title: string
@@ -221,17 +234,19 @@ export interface KnowledgeDocsView {
         readonly ideas: DocIdeasView | null
         /** The one line that sends the owner to the queue where the facts read from the documents wait; null while none waits. */
         readonly nextReview: { readonly label: string; readonly href: string } | null
+        /** The link from the opened document to its questions ("Questions of the document (3)"); null while none are open. */
+        readonly questions: { readonly label: string; readonly href: string } | null
         /** The page's first read has no data yet: every region draws its skeleton at once. */
         readonly isWaiting: boolean
         readonly hasAside: boolean
         readonly isRemoveOpen: boolean
+        readonly isAreaOpen: boolean
         readonly canAdd: boolean
         readonly addHref: string
         readonly addLabel: string
     }
     readonly on: {
         readonly selectTab: (id: string) => void
-        readonly reviewAll: () => void
         readonly select: (id: string) => void
         readonly search: (value: string) => void
         readonly setTab: (id: string) => void
@@ -244,6 +259,8 @@ export interface KnowledgeDocsView {
         readonly menu: (id: string) => void
         readonly removeOpenChange: (isOpen: boolean) => void
         readonly remove: () => Promise<void>
+        readonly areaOpenChange: (isOpen: boolean) => void
+        readonly area: () => Promise<void>
         readonly closeAside: () => void
         readonly idea: (ideaId: string, menuId: string) => void
         readonly moreIdeas: () => void

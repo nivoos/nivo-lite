@@ -11,17 +11,25 @@ interface ZaloConnectionFactsProps {
     readonly connectionId: string
 }
 
-/** The connected health tiles: the health of the OA at a glance. */
+/**
+ * The connected overview of a Zalo OA connection: the connection's facts. The setup's phases are the steps card of the same tab
+ * (one stepper per page), so no second setup card is drawn here.
+ */
 export const ZaloConnectionFacts = (props: ZaloConnectionFactsProps) => {
     const t = useTranslations("zaloConnection")
+    const tc = useTranslations("connections")
     const slotLabels = useSlotLabels()
-    const tiles = useZaloOverviewFacts(props.connectionId)
+    const overview = useZaloOverviewFacts(props.connectionId)
     const { reload } = useZaloPage(props.connectionId)
     const refusal = useConnectionRefusal()
     if (refusal !== undefined) return null
     return (
         <ZaloConnectionFactsBase
-            props={{ label: t("mainLabel"), facts: tiles, slotLabels: slotLabels(t("factsEmpty")) }}
+            props={{
+                title: tc("factsTitle"),
+                facts: overview,
+                slotLabels: slotLabels(t("factsEmpty")),
+            }}
             on={{ retry: reload }}
         />
     )

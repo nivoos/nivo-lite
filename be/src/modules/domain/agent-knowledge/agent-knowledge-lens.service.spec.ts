@@ -70,7 +70,6 @@ const build = async () => {
         countReadable: jest.fn().mockResolvedValue(2),
     })
     const recall = mock<KnowledgeRecallService>({
-        standingMemory: jest.fn().mockResolvedValue(""),
         factsInView: jest.fn().mockResolvedValue([]),
     })
     const nivo = mock<NivoKnowledgeService>({
@@ -103,14 +102,14 @@ describe("AgentKnowledgeLensService", () => {
         expect(lens.audienceOf("chatbot")).toBe("customer")
         expect(lens.audienceOf("content")).toBe("customer")
         expect(lens.audienceOf("no-such-module")).toBe("customer")
-        expect(lens.audienceOf("accounting")).toBe("internal")
+        expect(lens.audienceOf("sales")).toBe("internal")
     })
 })
 
 describe("AgentKnowledgeLensService", () => {
     it("opens the internal lanes only to the team view of a module, never to the public", async () => {
         const { lens } = await build()
-        expect(lens.lanesOf("accounting")).toMatchObject({ documentInternal: true, factRestricted: true })
+        expect(lens.lanesOf("sales")).toMatchObject({ documentInternal: true, factRestricted: true })
         expect(lens.customerLanes()).toEqual({
             documentPublic: true,
             documentInternal: false,
@@ -161,9 +160,9 @@ describe("AgentKnowledgeLensService", () => {
             content: "Sunday deliveries need approval.",
         }
         sources.readableFor.mockResolvedValueOnce([{ id: "source-1", ...document }])
-        await expect(lens.sourcesFor(WS, "accounting", "installation-1", 3)).resolves.toEqual([document])
+        await expect(lens.sourcesFor(WS, "sales", "installation-1", 3)).resolves.toEqual([document])
         expect(sources.readableFor).toHaveBeenCalledWith(
-            { workspaceId: WS, module: "accounting", audience: "internal", installationId: "installation-1" },
+            { workspaceId: WS, module: "sales", audience: "internal", installationId: "installation-1" },
             3,
         )
     })
@@ -192,7 +191,7 @@ describe("AgentKnowledgeLensService", () => {
 describe("AgentKnowledgeLensService", () => {
     it("counts public, internal and restricted facts with the same view and a 500 fact limit", async () => {
         const { lens, sources, recall } = await build()
-        const view = { workspaceId: WS, module: "accounting", audience: "internal", installationId: "instance-1" }
+        const view = { workspaceId: WS, module: "sales", audience: "internal", installationId: "instance-1" }
         sources.countReadable.mockResolvedValueOnce(7).mockResolvedValueOnce(4)
         recall.factsInView.mockResolvedValueOnce([
             factOf("public"),
@@ -200,7 +199,7 @@ describe("AgentKnowledgeLensService", () => {
             factOf("restricted"),
             factOf("public"),
         ])
-        await expect(lens.countsFor(WS, "accounting", "instance-1")).resolves.toEqual({
+        await expect(lens.countsFor(WS, "sales", "instance-1")).resolves.toEqual({
             audience: "internal",
             documents: { public: 7, internal: 4 },
             facts: { public: 2, internal: 1, restricted: 1 },
@@ -263,7 +262,7 @@ describe("AgentKnowledgeLensService", () => {
 })
 
 describe("AgentKnowledgeLensService ask", () => {
-    const input = { module: "accounting", audience: "customer", installationId: "i1", question: "  delivery days " }
+    const input = { module: "sales", audience: "customer", installationId: "i1", question: "  delivery days " }
 
     it("answers the facts of the view before the passages, with the scope as visibility", async () => {
         const { lens, recall, search } = await build()
@@ -274,7 +273,7 @@ describe("AgentKnowledgeLensService ask", () => {
 
         expect(search.ask).toHaveBeenCalledWith("u1", WS, input)
         expect(recall.factsMatching).toHaveBeenCalledWith(
-            { workspaceId: WS, module: "accounting", audience: "customer", installationId: "i1" },
+            { workspaceId: WS, module: "sales", audience: "customer", installationId: "i1" },
             "delivery days",
             5,
         )
@@ -352,5 +351,95 @@ describe("AgentKnowledgeLensService notes", () => {
         await expect(lens.notes(request)).resolves.toEqual([])
         await expect(lens.notes({ ...request, question: "  " })).resolves.toEqual([])
         expect(recall.factsMatching).toHaveBeenCalledTimes(1)
+    })
+})
+
+describe("AgentKnowledgeLensService overview", () => {
+    it("lists every document and fact of the scope but marks what a customer-facing view leaves unread", async () => {
+        const { lens, sources, recall } = await build()
+        sources.summariesFor.mockResolvedValue([
+            { id: "d1", title: "Prices", topic: null, kind: "text", visibility: "public", updatedAt: "2026-11-07" },
+            { id: "d2", title: "Costs", topic: null, kind: "text", visibility: "internal", updatedAt: "2026-11-06" },
+        ])
+        recall.factsToOverview.mockResolvedValue([
+            { ...factOf("public"), status: "proposed", evidence: [{ kind: "document", ref: "d1", label: "Prices" }] },
+            factOf("internal"),
+        ])
+
+        const overview = await lens.overviewFor(WS, "chatbot", "i1")
+
+        expect(sources.summariesFor).toHaveBeenCalledWith(
+            { workspaceId: WS, module: "chatbot", installationId: "i1", audience: "internal" },
+            200,
+        )
+        expect(recall.factsToOverview).toHaveBeenCalledWith({
+            workspaceId: WS,
+            module: "chatbot",
+            installationId: "i1",
+            audience: "internal",
+        })
+        expect(overview).toMatchObject({ module: "chatbot", installationId: "i1", audience: "customer", waitingFacts: 1 })
+        expect(overview.layers.map((layer) => [layer.layer, layer.isRead, layer.totalFacts])).toEqual([
+            ["public", true, 1],
+            ["internal", false, 1],
+            ["restricted", false, 0],
+        ])
+        expect(overview.documents.map((document) => [document.id, document.isRead, document.waitingFacts])).toEqual([
+            ["d1", true, 1],
+            ["d2", false, 0],
+        ])
+    })
+})
+
+describe("AgentKnowledgeLensService > waitingFactLabel", () => {
+    it("names the first fact that waits for the owner in the scope, subject and attribute", async () => {
+        const { lens, recall } = await build()
+        recall.factsToOverview.mockResolvedValue([
+            factOf("internal"),
+            { ...factOf("internal"), status: "proposed", subjectLabel: "Threshold", attributeLabel: "auto post" },
+        ])
+
+        await expect(lens.waitingFactLabel(WS, "sales", null)).resolves.toBe("Threshold · auto post")
+        expect(recall.factsToOverview).toHaveBeenCalledWith({
+            workspaceId: WS,
+            module: "sales",
+            installationId: null,
+            audience: "internal",
+        })
+    })
+
+    it("answers null when every fact in the scope is approved", async () => {
+        const { lens, recall } = await build()
+        recall.factsToOverview.mockResolvedValue([factOf("internal")])
+
+        await expect(lens.waitingFactLabel(WS, "sales", null)).resolves.toBeNull()
+    })
+})
+
+describe("AgentKnowledgeLensService > waitingFactsOf", () => {
+    it("counts the waiting proposals through the view of the module: a customer-facing module reads the customer view", async () => {
+        const { lens, recall } = await build()
+        recall.waitingInView.mockResolvedValue(3)
+
+        await expect(lens.waitingFactsOf(WS, "chatbot", "i1")).resolves.toBe(3)
+        expect(recall.waitingInView).toHaveBeenCalledWith({
+            workspaceId: WS,
+            module: "chatbot",
+            audience: "customer",
+            installationId: "i1",
+        })
+    })
+
+    it("reads the internal view for an internal module", async () => {
+        const { lens, recall } = await build()
+        recall.waitingInView.mockResolvedValue(63)
+
+        await expect(lens.waitingFactsOf(WS, "sales", null)).resolves.toBe(63)
+        expect(recall.waitingInView).toHaveBeenCalledWith({
+            workspaceId: WS,
+            module: "sales",
+            audience: "internal",
+            installationId: null,
+        })
     })
 })

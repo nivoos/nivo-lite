@@ -1,8 +1,7 @@
-import { Button, EmptyNotice, Icon, Page, Section, Stack, SurfaceCard, Text } from "@starci/grammar/common"
+import { Button, EmptyNotice, Page, Section, Stack } from "@starci/grammar/common"
 import type { ReactNode } from "react"
 import { SlotView } from "@nivo-lite/agent-sdk/client"
 import type { DataSlot, SlotLabels } from "@/modules/types"
-import { nivoIconSource } from "@/components/leaves/Icon"
 
 /** One outgoing webhook as the list shows it. */
 export interface DevelopersWebhookRow {
@@ -48,7 +47,7 @@ type ConnectedWebhooksProps = Omit<DevelopersWebhooksProps, "onAdd">
 
 /** The outgoing webhooks: the connected ones as rows of one list, or the provider offered under "Not connected". */
 const DevelopersWebhooks = (props: DevelopersWebhooksProps) => (
-    <div data-guide="connections.webhook">
+    <div data-guide-id="connections.webhook">
         {props.rows.length > 0 ? (
             <ConnectedWebhooks
                 rows={props.rows}
@@ -100,7 +99,7 @@ export interface DevelopersPanelBaseProps {
     }
 }
 
-/** Draws the "Advanced" page: its header band, then in the body the outgoing events (or the forbidden notice staff see) and the sections. */
+/** Draws the "Developers" page: its header band, then in the body the outgoing events (or the forbidden notice staff see) and the sections. */
 export const DevelopersPanelBase = (props: DevelopersPanelBaseProps) => (
     <Page
         measure="product"
@@ -129,9 +128,6 @@ export const DevelopersPanelBase = (props: DevelopersPanelBaseProps) => (
                                   action: (
                                       <Button
                                           intent="neutral"
-                                          startContent={
-                                              <Icon source={nivoIconSource("add", "leading")} usage="leading" />
-                                          }
                                           onPress={props.on.add}
                                       >
                                           {props.props.webhooksView.addLabel}
@@ -139,29 +135,25 @@ export const DevelopersPanelBase = (props: DevelopersPanelBaseProps) => (
                                   ),
                               }
                             : {})}
+                        caption={props.props.eventsBody}
                     >
-                        <Stack gap="row">
-                            <SlotView
-                                slot={props.props.webhooksRead}
-                                placeholder={true}
-                                labels={props.props.slotLabels}
-                                forbidden="hide"
-                                onRetry={props.on.retry}
-                                render={(_, isLoading) => (
-                                    <DevelopersWebhooks
-                                        rows={props.props.webhooks}
-                                        canManage={props.props.canManageWebhooks}
-                                        view={props.props.webhooksView}
-                                        isLoading={isLoading}
-                                        onAdd={props.on.add}
-                                        onEdit={props.on.edit}
-                                    />
-                                )}
-                            />
-                            <Text size="xs" tone="muted">
-                                {props.props.eventsBody}
-                            </Text>
-                        </Stack>
+                        <SlotView
+                            slot={props.props.webhooksRead}
+                            placeholder={true}
+                            labels={props.props.slotLabels}
+                            forbidden="hide"
+                            onRetry={props.on.retry}
+                            render={(_, isLoading) => (
+                                <DevelopersWebhooks
+                                    rows={props.props.webhooks}
+                                    canManage={props.props.canManageWebhooks}
+                                    view={props.props.webhooksView}
+                                    isLoading={isLoading}
+                                    onAdd={props.on.add}
+                                    onEdit={props.on.edit}
+                                />
+                            )}
+                        />
                     </Section>
                 )}
             />
@@ -172,7 +164,7 @@ export const DevelopersPanelBase = (props: DevelopersPanelBaseProps) => (
 
 /** Draws the connected outgoing webhook rows and their available actions. */
 const ConnectedWebhooks = (props: ConnectedWebhooksProps) => (
-    <SurfaceCard
+    <Section
         kind="list"
         ariaLabel={props.view.title}
         isLoading={props.isLoading}
@@ -208,7 +200,7 @@ const ConnectedWebhooks = (props: ConnectedWebhooksProps) => (
 
 /** Offers the provider connection when no outgoing webhook exists. */
 const AvailableWebhook = (props: Pick<DevelopersWebhooksProps, "canManage" | "view" | "isLoading" | "onAdd">) => (
-    <SurfaceCard
+    <Section
         kind="list"
         isLoading={props.isLoading}
         ariaLabel={props.view.notConnected}

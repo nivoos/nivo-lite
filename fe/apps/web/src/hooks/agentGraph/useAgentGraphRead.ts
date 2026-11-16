@@ -20,7 +20,6 @@ import { useAgentGraphWords } from "./useAgentGraphWords"
 /** The graph, as the back end carries it and as the panes draw it. */
 export interface AgentGraphRead {
     readonly agentId: string
-    readonly draftRev: number
     readonly wire: AgentGraphWire
     readonly data: AgentGraphData
 }
@@ -36,9 +35,9 @@ export interface AgentGraphReadView {
 /**
  * Reads the action graph of an instance through the W6 contract (`agentGraph`, `agentGraphVersions`) and the people an approver can
  * be (`approverDirectory`). The JSON texts of the graph are parsed once, with their schemas, in `parseAgentGraphWire`; what the
- * panes draw is made from that and the directory. `changes` is how many branches were saved to the draft on this screen.
+ * panes draw is made from that and the directory.
  */
-export const useAgentGraphRead = (installationId: string, changes: number): AgentGraphReadView => {
+export const useAgentGraphRead = (installationId: string): AgentGraphReadView => {
     const t = useTranslations("agentGraph")
     const format = useFormatter()
     const locale = useLocale()
@@ -66,19 +65,15 @@ export const useAgentGraphRead = (installationId: string, changes: number): Agen
             ? undefined
             : {
                   agentId,
-                  draftRev: graph.data.draftRev,
                   wire,
                   data: agentGraphOfWire(
                       {
                           wire,
-                          mode: graph.data.mode,
                           activeVersionId: graph.data.activeVersionId ?? null,
                           versions: versions.data,
                           members,
                           coverage: coverage.data,
                           run,
-                          changes,
-                          isDraftChanged: graph.data.isDraftChanged,
                       },
                       {
                           ...words,

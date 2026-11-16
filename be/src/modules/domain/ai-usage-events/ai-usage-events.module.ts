@@ -1,7 +1,9 @@
 import { Module, type DynamicModule } from "@nestjs/common"
+import { USAGE_NOTICE_DOOR } from "./ai-usage-events.decorators"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./ai-usage-events.module-definition"
 import { AiUsageEventsService } from "./ai-usage-events.service"
 import { AiUsageOverviewService } from "./ai-usage-overview.service"
+import { AiWorkUsageService } from "./ai-work-usage.service"
 import { UsageGateService } from "./usage-gate.service"
 
 @Module({})
@@ -12,8 +14,17 @@ export class AiUsageEventsModule extends ConfigurableModuleClass {
         const base = super.register(options)
         return {
             ...base,
-            providers: [...(base.providers ?? []), AiUsageEventsService, AiUsageOverviewService, UsageGateService],
-            exports: [AiUsageEventsService, AiUsageOverviewService, UsageGateService],
+            providers: [
+                ...(base.providers ?? []),
+                options.notices === undefined
+                    ? { provide: USAGE_NOTICE_DOOR, useValue: null }
+                    : { provide: USAGE_NOTICE_DOOR, useExisting: options.notices },
+                AiUsageEventsService,
+                AiUsageOverviewService,
+                UsageGateService,
+                AiWorkUsageService,
+            ],
+            exports: [USAGE_NOTICE_DOOR, AiUsageEventsService, AiUsageOverviewService, UsageGateService, AiWorkUsageService],
         }
     }
 }

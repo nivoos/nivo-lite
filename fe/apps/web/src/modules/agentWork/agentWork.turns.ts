@@ -64,7 +64,7 @@ const toTurnView = (wire: TurnWire, context: AgentWorkContext): AgentWorkTurnVie
 
 /** The turn list: the wakes that found nothing to do are one count. */
 export const toTurnsView = (wires: ReadonlyArray<TurnWire>, context: AgentWorkContext): AgentWorkTurnsView => {
-    const quiet = wires.filter((wire) => isQuiet(wire)).length
+    const quiet = wires.filter((entry) => isQuiet(entry)).length
     return {
         rows: wires.filter((wire) => !isQuiet(wire)).map((wire) => toTurnView(wire, context)),
         quietLabel: quiet === 0 ? "" : context.t("quietWakes", { n: quiet }),

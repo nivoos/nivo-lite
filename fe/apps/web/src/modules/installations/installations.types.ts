@@ -1,4 +1,3 @@
-import type { ModuleKey } from "@/modules/catalog"
 
 /**
  * Where an installed agent stands: being installed, in setup, ready to go live, live, paused, or waiting for a connection its module
@@ -23,23 +22,25 @@ export type InstallationLifecycle =
 export type OperatingMode = "assist" | "autopilot"
 
 /**
- * One installed agent of a workspace: an INSTANCE of a module type. Single-instance types (accounting, inventory...) have one per
+ * One installed agent of a workspace: an INSTANCE of a module type. Single-instance types (accounting...) have one per
  * workspace; multi-instance types (chatbot, booking, lead_gen) may have several, each with its own name, agent, connections and setup.
  */
 export type Installation = {
     readonly id: string
     readonly workspaceId: string
-    readonly moduleKey: ModuleKey
+    readonly moduleKey: string
     /**
-     * The one display name of the agent, as the owner gave it: the header, Settings, the profile, Office, the chat and the OpenClaw
-     * copy all show this name. The instance label the back end keeps beside it only tells instances of one type apart; no screen reads it.
+     * The one display name of the agent, as the owner gave it: the header, Settings, the profile, Office and the chat
+     * all show this name. The instance label the back end keeps beside it only tells instances of one type apart; no screen reads it.
      */
     readonly name: string
     /** The type allows several instances (copied from the catalogue at insert). */
     readonly isMulti: boolean
     readonly agentId: string | null
-    /** The picture the owner gave the agent; null draws the NIVO unicorn mascot. */
+    /** The picture the owner gave the agent (an upload, or the image of a chosen preset); null draws the default sprout. */
     readonly agentAvatarUrl: string | null
+    /** The preset the owner chose ("initials" draws the initials); null when none was chosen. */
+    readonly agentAvatarPreset: string | null
     readonly agentHandle: string
     readonly status: InstallationStatus
     /** Where the agent stands by the business rules (the back end derives it): only `running` answers customers. */

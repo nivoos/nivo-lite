@@ -1,5 +1,5 @@
 import { CommandHandler } from "@nestjs/cqrs"
-import { BrainService } from "@modules/domain/brain"
+import { BrainFactDecisionService } from "@modules/domain/brain"
 import type { FactRecord } from "@modules/domain/brain-facts"
 import { ICQRSHandler } from "@modules/platform/cqrs"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
@@ -10,12 +10,12 @@ import { DecideBrainFactCommand } from "./decide-brain-fact.command"
 export class DecideBrainFactHandler extends ICQRSHandler<DecideBrainFactCommand, FactRecord> {
     constructor(
         @InjectLogger() logger: Logger,
-        private readonly brain: BrainService,
+        private readonly decision: BrainFactDecisionService,
     ) {
         super(logger)
     }
 
     protected override process(command: DecideBrainFactCommand): Promise<FactRecord> {
-        return this.brain.decideFact(command.params.principal.id, command.params.request)
+        return this.decision.decide(command.params.principal.id, command.params.request)
     }
 }

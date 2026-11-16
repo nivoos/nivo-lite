@@ -125,9 +125,7 @@ const cleanTable = (raw: unknown): TableOutcome => {
     if (table === "" || idColumn === "") {
         return { ok: false, problem: COPY.needIdColumn(table === "" ? COPY.unnamedTable : table) }
     }
-    const columns = Array.isArray(source.columns)
-        ? source.columns.map((value) => ident(value)).filter((column) => column !== "")
-        : []
+    const columns = Array.isArray(source.columns) ? source.columns.map((item) => ident(item)).filter((column) => column !== "") : []
     const mapping: TableMapping = {
         schema: ident(source.schema),
         table,

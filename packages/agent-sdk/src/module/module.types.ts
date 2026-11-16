@@ -33,22 +33,21 @@ export type ModuleCapabilityRole =
 /** How often a clock trigger a module seeds fires. */
 export type ModuleTriggerPreset = "every_15m" | "hourly" | "daily_at" | "weekdays_at"
 
-/** How much an authority action may do without a person. */
-export type ModuleAuthorityMode = "auto" | "ask" | "never"
-
 /** The kinds of subject a setup gate may write a Second Brain fact about. */
 export type ModuleFactSubject =
     "business" | "product" | "service" | "policy" | "customer" | "person" | "supplier" | "place" | "other"
 
-/** What a setup answer writes: a Second Brain fact, or one field of an action's rule. */
-export type ModuleGateWrite =
-    | {
-          readonly kind: "fact"
-          readonly subjectType: ModuleFactSubject
-          readonly attributeLabel: string
-          readonly scope: "public" | "internal" | "restricted"
-      }
-    | { readonly kind: "rule"; readonly action: string; readonly field: "mode" | "limit_vnd" }
+/** What a setup answer writes: a Second Brain fact. */
+export interface ModuleGateWrite {
+    /** Always a fact. */
+    readonly kind: "fact"
+    /** What the fact is about. */
+    readonly subjectType: ModuleFactSubject
+    /** The label of the attribute the fact states. */
+    readonly attributeLabel: string
+    /** Who may read the fact. */
+    readonly scope: "public" | "internal" | "restricted"
+}
 
 /** One thing a module must know before it may act. */
 export interface ModuleTemplateGate {
@@ -64,44 +63,6 @@ export interface ModuleTemplateGate {
     readonly hint_en: string
     /** What the setup chat writes from the answer, when anything. */
     readonly writes?: ReadonlyArray<ModuleGateWrite>
-}
-
-/** One action of a module that the authority matrix governs: a branch of the seed graph. */
-export interface ModuleTemplateAction {
-    /** The stable action key, unique across every module. */
-    readonly action: string
-    /** The action title. */
-    readonly label: Bilingual
-    /** The default authority mode. */
-    readonly mode: ModuleAuthorityMode
-    /** The default amount limit in VND: a template parameter the owner can change. */
-    readonly limitVnd: number | null
-    /** The fields a request for this action must carry. */
-    readonly requiredFields: ReadonlyArray<string>
-    /** Whether an amount limit is meaningful for the action. */
-    readonly amountLimit: boolean
-    /** The facts a decide point on this action reads from real records, the first being its amount. */
-    readonly graphFacts?: ReadonlyArray<string> | undefined
-    /** The loosest mode the action can ever take. */
-    readonly maxMode: "ask" | "never" | null
-    /** A note shown with the action. */
-    readonly note: string
-    /** The actions this one chains to. */
-    readonly next: ReadonlyArray<string>
-}
-
-/** One command the module accepts from other agents on the command bus. */
-export interface ModuleTemplateCommand {
-    /** The stable command key, unique within the module. */
-    readonly command: string
-    /** The authority action that governs the command. */
-    readonly action: string
-    /** The kind of subject the command acts on. */
-    readonly subjectType: string
-    /** The payload keys a sender must supply. */
-    readonly requiredFields: ReadonlyArray<string>
-    /** What the command does. */
-    readonly description: Bilingual
 }
 
 /** The agent a module installs with. */
@@ -146,8 +107,23 @@ export interface ModuleTemplateTrigger {
     readonly preset: ModuleTriggerPreset
     /** The time of day (`HH:MM`) of a daily preset. */
     readonly atTime?: string | undefined
-    /** The probe that decides whether a fire has work. */
-    readonly probeKey?: string | undefined
+}
+
+/**
+ * A document the module's agent works better with, suggested to the shop to teach it: a suggestion to add something to the knowledge,
+ * never a requirement. A module declares it; the host serves it with the catalogue and draws it, and holds none of it.
+ */
+export interface ModuleKnowledgeIdea {
+    /** The stable idea key; the same key declared by several modules is one suggestion. */
+    readonly key: string
+    /** What the document is about, as a short title. */
+    readonly topic: Bilingual
+    /** What to write in it. */
+    readonly hint: Bilingual
+    /** The business types it fits; absent means any. */
+    readonly businessTypes?: ReadonlyArray<string> | undefined
+    /** It fits every agent of the module's kind of work, not the module's own: it ranks after the specific ideas. Absent: it does not. */
+    readonly general?: boolean | undefined
 }
 
 /**
@@ -181,12 +157,19 @@ export interface ModuleTemplate {
     readonly status: "stable" | "early"
     /** Who the module's agent talks to. */
     readonly audience: ModuleAudience
+    /**
+     * The module publishes what its agent writes (social posts, videos) or reaches people outside the business with it: the agent reads
+     * public knowledge only, whatever its audience. Absent: it does not.
+     */
+    readonly publishes?: boolean
     /** The module comes with every workspace. */
     readonly includedWithWorkspace: boolean
     /** The module can be added from the catalogue. */
     readonly available: boolean
     /** The folder of the NIVO base knowledge for the module. */
     readonly knowledgeFolder: string
+    /** The documents the module suggests the shop to add to its knowledge; none when absent. */
+    readonly knowledgeIdeas?: ReadonlyArray<ModuleKnowledgeIdea> | undefined
     /** The key of the module's workbench, when it has one; the workbench registration carries the same key. */
     readonly workbench: string | null
     /** The key of the module's extra settings, when it has any. */
@@ -203,10 +186,6 @@ export interface ModuleTemplate {
     readonly agent: ModuleTemplateAgent
     /** What the module must know before it may act. */
     readonly gates: ReadonlyArray<ModuleTemplateGate>
-    /** The actions the authority matrix governs. */
-    readonly authorityActions: ReadonlyArray<ModuleTemplateAction>
-    /** The commands other agents may ask the module to run. */
-    readonly accepts: ReadonlyArray<ModuleTemplateCommand>
     /** The clock triggers seeded for the module's agent; none when absent. */
     readonly triggers?: ReadonlyArray<ModuleTemplateTrigger>
 }
@@ -231,7 +210,7 @@ export interface ModuleServer {
 
 /** The codes a module list is refused with. */
 export type ModuleListProblemCode =
-    "MODULE_KEY_DUPLICATE" | "MODULE_KEY_MISMATCH" | "MODULE_ACTION_DUPLICATE" | "MODULE_COMMAND_UNKNOWN_ACTION"
+    "MODULE_KEY_DUPLICATE" | "MODULE_KEY_MISMATCH"
 
 /** Why a module list was refused, and the key it is about. */
 export interface ModuleListProblem {

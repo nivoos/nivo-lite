@@ -1,0 +1,8 @@
+export { DataCopiesModule } from "./data-copies.module"
+export { parseDataBackupConfig } from "./data-copies.config"
+export { DataBackupDueService } from "./data-backup-due.service"
+export { DataBackupService } from "./data-backup.service"
+export { DataVerifyService } from "./data-verify.service"
+export { DATA_DRIVERS, DATA_OPEN_CONTEXT, DATA_RECIPIENTS, DATA_SET_LIST, DATA_SPOOL } from "./data-copies.decorators"
+export type { DataSpools } from "./data-copies.decorators"
+export type { DataSetDeclaration } from "./data-copies.contracts"

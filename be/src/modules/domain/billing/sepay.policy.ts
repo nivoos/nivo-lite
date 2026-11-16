@@ -3,7 +3,7 @@ import type { BankAccountOptions } from "./billing.options"
 import { BillingError, BillingErrorCode } from "./errors/billing.error"
 import type { JsonObject } from "./webhook-body.policy"
 
-/** The VietQR image for one transfer of NIVO's own billing: https://qr.sepay.vn/img?acc=...&bank=...&amount=...&des=... */
+/** The VietQR image for one transfer of NIVO's own billing: https://vietqr.app/img?acc=...&bank=...&amount=...&des=... */
 export const qrImageUrl = (account: BankAccountOptions, amount: number, orderCode: string): string =>
     vietQrUrl({ accountNumber: account.account, bankCode: account.bank }, amount, orderCode)
 

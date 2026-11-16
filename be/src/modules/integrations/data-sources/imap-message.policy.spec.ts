@@ -2,10 +2,8 @@ import { Test } from "@nestjs/testing"
 import type { AddressObject, Attachment, ParsedMail } from "mailparser"
 import {
     IMAP_MAX_TEXT,
-    formatImapCursor as realFormatImapCursor,
     isInvoiceXml as realIsInvoiceXml,
     messageToRow as realMessageToRow,
-    parseImapCursor as realParseImapCursor,
     unreadableRow as realUnreadableRow,
 } from "./imap-message.policy"
 
@@ -17,8 +15,6 @@ const buildSubject = async () => {
             {
                 provide: SUBJECT,
                 useValue: {
-                    parseImapCursor: realParseImapCursor,
-                    formatImapCursor: realFormatImapCursor,
                     isInvoiceXml: realIsInvoiceXml,
                     messageToRow: realMessageToRow,
                     unreadableRow: realUnreadableRow,
@@ -27,8 +23,6 @@ const buildSubject = async () => {
         ],
     }).compile()
     return moduleRef.get<{
-        parseImapCursor: typeof realParseImapCursor
-        formatImapCursor: typeof realFormatImapCursor
         isInvoiceXml: typeof realIsInvoiceXml
         messageToRow: typeof realMessageToRow
         unreadableRow: typeof realUnreadableRow
@@ -79,8 +73,41 @@ const registerMessageFields = () => {
                 attachments: [{ name: null, type: "image/png", size: 8 }],
                 messageId: "<m@example.com>",
                 inReplyTo: "<previous@example.com>",
+                references: [],
+                autoSubmitted: null,
+                precedence: null,
+                returnPath: null,
             },
         })
+    })
+
+    it("MAIL-IN: keeps the thread's ids and the raw headers the standards define for mail no person wrote, as the message carries them", async () => {
+        const subject = await buildSubject()
+
+        const row = subject.messageToRow(
+            "INBOX",
+            "9",
+            6,
+            mail({
+                references: ["<a@example.com>", "<b@example.com>"],
+                headerLines: [
+                    { key: "auto-submitted", line: "Auto-Submitted:  auto-replied" },
+                    { key: "precedence", line: "Precedence: bulk" },
+                    { key: "return-path", line: "Return-Path: <>" },
+                ],
+            }),
+            null,
+        )
+
+        expect(row.data).toMatchObject({
+            references: ["<a@example.com>", "<b@example.com>"],
+            autoSubmitted: "auto-replied",
+            precedence: "bulk",
+            returnPath: "<>",
+        })
+        expect(subject.messageToRow("INBOX", "9", 7, mail({ references: "<only@example.com>" }), null).data.references).toEqual([
+            "<only@example.com>",
+        ])
     })
 }
 
@@ -153,6 +180,10 @@ const registerMessageFallbacks = () => {
                 attachments: [],
                 messageId: null,
                 inReplyTo: null,
+                references: [],
+                autoSubmitted: null,
+                precedence: null,
+                returnPath: null,
             },
         })
     })
@@ -217,18 +248,6 @@ const registerInvoiceXml = () => {
 }
 
 describe("imap message policy", () => {
-    describe("cursors", () => {
-        it("parses a saved cursor and writes one back", async () => {
-            const subject = await buildSubject()
-
-            expect(subject.parseImapCursor(null)).toBeNull()
-            expect(subject.parseImapCursor("")).toBeNull()
-            expect(subject.parseImapCursor("nope")).toBeNull()
-            expect(subject.parseImapCursor("12:34")).toEqual({ validity: "12", uid: 34 })
-            expect(subject.formatImapCursor("12", 34)).toBe("12:34")
-        })
-    })
-
     describe("messageToRow", () => {
         registerHtmlEdgeCases()
         registerMessageFields()

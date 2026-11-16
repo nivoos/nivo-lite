@@ -1,5 +1,6 @@
 import { UuidAbstractEntity } from "@modules/platform/database"
 import { Column, Entity } from "typeorm"
+import type { SourceReading } from "../../knowledge-sources.contracts"
 
 /** Where a knowledge source stands; the table holds it under a CHECK. */
 export type KnowledgeSourceStatus =
@@ -80,7 +81,7 @@ export class KnowledgeSourceEntity extends UuidAbstractEntity {
     @Column({ name: "progress", type: "integer", default: () => "0" })
     progress!: number
 
-    /** The stage the worker is on while it works (read, chunk, embed, store or facts), or `critic` while the critic checks the dossier of a ready document; null otherwise. */
+    /** The stage the worker is on while it works (read, chunk, embed, store or facts), or `critic` while the critic checks a ready document; null otherwise. */
     @Column({ name: "stage", type: "text", nullable: true })
     stage!: "read" | "chunk" | "embed" | "store" | "facts" | "critic" | null
 
@@ -95,4 +96,8 @@ export class KnowledgeSourceEntity extends UuidAbstractEntity {
     /** The SHA-256 of the text whose passages and facts are complete; null while the work on the text is unfinished. */
     @Column({ name: "content_hash", type: "text", nullable: true })
     contentHash!: string | null
+
+    /** How the last reading of the file or link went (`SourceReading`); null before any. Read only where it is shown, never by default. */
+    @Column({ name: "reading", type: "jsonb", nullable: true, select: false })
+    reading?: SourceReading | null
 }

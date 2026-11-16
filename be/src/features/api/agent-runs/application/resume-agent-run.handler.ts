@@ -1,20 +1,20 @@
 import { CommandHandler } from "@nestjs/cqrs"
-import { AgentRunOwnerResumeService, type OwnerResumeAnswer } from "@modules/domain/agent-runs"
+import { AgentRunCancelService, type OwnerPauseAnswer } from "@modules/domain/agent-runs"
 import { ICQRSHandler } from "@modules/platform/cqrs"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { ResumeAgentRunCommand } from "./resume-agent-run.command"
 
 @CommandHandler(ResumeAgentRunCommand)
-/** Runs a parked run again through the owner's door of the agent runs. */
-export class ResumeAgentRunHandler extends ICQRSHandler<ResumeAgentRunCommand, OwnerResumeAnswer> {
+/** Resumes a run a person paused, through the run door (owner or manager). */
+export class ResumeAgentRunHandler extends ICQRSHandler<ResumeAgentRunCommand, OwnerPauseAnswer> {
     constructor(
         @InjectLogger() logger: Logger,
-        private readonly resumes: AgentRunOwnerResumeService,
+        private readonly door: AgentRunCancelService,
     ) {
         super(logger)
     }
 
-    protected override process(command: ResumeAgentRunCommand): Promise<OwnerResumeAnswer> {
-        return this.resumes.resume({ principalId: command.params.principal.id, ...command.params.request })
+    protected override process(command: ResumeAgentRunCommand): Promise<OwnerPauseAnswer> {
+        return this.door.resume({ principalId: command.params.principal.id, ...command.params.request })
     }
 }

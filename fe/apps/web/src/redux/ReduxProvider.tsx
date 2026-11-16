@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, type ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 import { Provider } from "react-redux"
 import { makeStore } from "./store"
 
@@ -11,6 +11,6 @@ interface ReduxProviderProps {
 
 /** Creates one store per browser session (never shared between requests) and provides it to the tree. */
 export const ReduxProvider = (props: ReduxProviderProps) => {
-    const store = useMemo(() => makeStore(), [])
+    const [store] = useState(makeStore)
     return <Provider store={store}>{props.children}</Provider>
 }

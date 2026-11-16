@@ -131,9 +131,9 @@ export class PostgresListenerClient implements NotificationListener {
         if (this.connection !== connection) return
         this.connection = undefined
         this.logger.warn(RealtimeLogEvent.ListenLost, { cause: cause instanceof Error ? cause.message : "closed" })
-        connection.end().catch((error_: unknown) =>
+        connection.end().catch((error: unknown) =>
             this.logger.warn(RealtimeLogEvent.ListenLost, {
-                cause: String(error_),
+                cause: String(error),
             }),
         )
         handlers.lost()

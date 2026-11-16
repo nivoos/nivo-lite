@@ -1,7 +1,6 @@
 import { Test } from "@nestjs/testing"
 import { mock } from "@starci/jest-preset"
 import Papa from "papaparse"
-import { DomainError } from "@modules/platform/errors"
 import { PUBLIC_HOST, WORKBOOK_READER, TABLE_DOCUMENT_READERS } from "./data-sources.decorators"
 import { DataSourcesError, DataSourcesErrorCode } from "./errors/data-sources.error"
 import { TABLE_COPY } from "./messages/table.messages"
@@ -233,7 +232,7 @@ const registerReadDocumentFile = () => {
 
         it("reads a word file and a pdf, and refuses a file that is not one", async () => {
             const { client } = await build()
-            const cause = new ReaderStandInError({ code: "locked" })
+            const cause = new Error("locked")
 
             await expect(client.readDocumentFile("notes.docx", docx)).resolves.toEqual({ text: "word" })
             await expect(client.readDocumentFile("notes.docx", csv("no"))).rejects.toMatchObject({
@@ -316,17 +315,14 @@ interface TextParser {
 
 const textParser: TextParser = Papa
 
-/** The failure a fake document reader raises. */
-class ReaderStandInError extends DomainError<string> {}
-
 class MockWord {
     text = "word"
-    error: ReaderStandInError | undefined = undefined
+    error: Error | undefined = undefined
 }
 class MockPdf {
     text = "pdf"
     pages = 2
-    error: ReaderStandInError | undefined = undefined
+    error: Error | undefined = undefined
 }
 const mockWord = new MockWord()
 const mockPdf = new MockPdf()
@@ -385,16 +381,12 @@ const build = async () => {
     const workbookReader = mock<WorkbookReader>()
     const readers = mock<TableDocumentReaders>()
     readers.docx.mockImplementation(() =>
-        Promise.resolve().then(() => {
-            if (mockWord.error !== undefined) throw mockWord.error
-            return mockWord.text
-        }),
+        mockWord.error === undefined ? Promise.resolve(mockWord.text) : Promise.reject(mockWord.error),
     )
     readers.pdfDetails.mockImplementation(() =>
-        Promise.resolve().then(() => {
-            if (mockPdf.error !== undefined) throw mockPdf.error
-            return { text: mockPdf.text, pages: mockPdf.pages }
-        }),
+        mockPdf.error === undefined
+            ? Promise.resolve({ text: mockPdf.text, pages: mockPdf.pages })
+            : Promise.reject(mockPdf.error),
     )
     const moduleRef = await Test.createTestingModule({
         providers: [

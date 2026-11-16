@@ -1,9 +1,4 @@
-import type { AgentAccess, AgentPurpose } from "./agents-connections.contracts"
-import type { SyncFile } from "@modules/integrations/openclaw"
 import type { WorkspaceRole } from "@modules/domain/workspace-members"
-
-/** Whether the agent engine can run a generation right now. */
-export type EngineAvailability = "ready" | "not_configured" | "offline"
 
 /** An agent as the instance list shows it. */
 export interface AgentSummary {
@@ -116,26 +111,6 @@ export interface DoneData {
     readonly count: number
     /** The latest few. */
     readonly items: ReadonlyArray<DashboardItem>
-}
-
-/** One connection bound to the agent. */
-export interface ConnectionItem {
-    /** The connection. */
-    readonly id: string
-    /** The display name. */
-    readonly name: string
-    /** The provider key; the page labels it. */
-    readonly provider: string
-    /** The bot username, when the provider has one. */
-    readonly botUsername: string | null
-    /** The masked bank account, when the connection is a bank feed. */
-    readonly accountMasked: string | null
-    /** connected, error or pending. */
-    readonly status: "connected" | "error" | "pending"
-    /** What the agent may do through it. */
-    readonly access: AgentAccess
-    /** What the agent uses it for. */
-    readonly purpose: AgentPurpose
 }
 
 /** Who the agent talks to: customers or the team. */
@@ -263,8 +238,6 @@ export interface AgentDashboardData {
     readonly waiting: Region<WaitingData>
     /** The work finished by policy in seven days. */
     readonly done: Region<DoneData>
-    /** The connections bound to the agent. */
-    readonly connections: Region<ReadonlyArray<ConnectionItem>>
     /** What the agent can read. */
     readonly knowledge: Region<KnowledgeData>
 }
@@ -277,41 +250,6 @@ export interface DashboardQuery {
     readonly module: string
     /** The instance whose dashboard it is; the type's first installation when absent. */
     readonly installationId?: string | null
-}
-
-/** The OpenClaw copy of one agent, built only from the NIVO database. */
-export interface AgentBundle {
-    /** The installation. */
-    readonly installationId: string
-    /** The workspace. */
-    readonly workspaceId: string
-    /** The module. */
-    readonly module: string
-    /** The OpenClaw agent id. */
-    readonly agentId: string
-    /** The display name. */
-    readonly agentName: string
-    /** The active context version, or null. */
-    readonly contextVersion: number | null
-    /** Who the agent talks to. */
-    readonly audience: AgentAudience
-    /** AGENTS.md and SOUL.md. */
-    readonly files: ReadonlyArray<SyncFile>
-}
-
-/** Who answers a module's customers. */
-export type Processor = "nivo" | "openclaw"
-
-/** Whether the agent engine is usable, for the Agents page. */
-export interface EngineStatus {
-    /** True when a gateway address and credential are configured. */
-    readonly gatewayConfigured: boolean
-    /** True when the agent workspaces can be written. */
-    readonly workspaceWritable: boolean
-    /** The last time a sync of the workspace ran, or null when none ever did. */
-    readonly lastSyncCheckAt: string | null
-    /** True when the last sync check is younger than the freshness window. */
-    readonly syncFresh: boolean
 }
 
 /** The values that fill the `{{name}}` placeholders of a message. */
@@ -385,9 +323,6 @@ export type OptionalId = string | null
 /** The HTTPS address of an agent picture, or null for the generated avatar. */
 export type OptionalAvatarUrl = string | null
 
-/** A text, or null when there is none. */
-export type OptionalAgentText = string | null
-
 /** The settings of an installation: a free-form bag the modules lane owns. */
 export interface AgentSettingsBag {
     /** Any setting. */
@@ -440,7 +375,7 @@ export interface AgentOwners {
     readonly fallbackMemberId: string | null
 }
 
-/** What a manager sets about the ownership of one agent: a full replacement of the five settings. */
+/** What a manager sets about the ownership of one agent: a full replacement of the four settings. */
 export interface OwnershipChange {
     /** The member in charge of the agent. */
     readonly ownerMemberId: string
@@ -450,8 +385,6 @@ export interface OwnershipChange {
     readonly assignableRoles: ReadonlyArray<string>
     /** The department rooms (keys) whose members may hand the agent work. */
     readonly assignableRooms: ReadonlyArray<string>
-    /** The other agents it may pass work to. */
-    readonly canTagAgentIds: ReadonlyArray<string>
 }
 
 /** A department room as the ownership page names it. */
@@ -462,25 +395,13 @@ export interface RoomLabel {
     readonly name: string
 }
 
-/** An agent another agent may pass work to. */
-export interface TagTarget {
-    /** The agent. */
-    readonly id: string
-    /** The display name. */
-    readonly name: string
-    /** The module it belongs to. */
-    readonly module: string
-    /** active or paused. */
-    readonly status: string
-}
-
 /** A person in charge of an agent, with whether they can answer today. */
 export interface OwnerCard extends MemberRef {
     /** False when the member was removed or disabled. */
     readonly active: boolean
 }
 
-/** Everything the profile page says about who answers for an agent, who may give it work and who it may pass work to. */
+/** Everything the profile page says about who answers for an agent and who may give it work. */
 export interface AgentOwnership {
     /** The agent. */
     readonly agentId: string
@@ -494,6 +415,22 @@ export interface AgentOwnership {
     readonly assignableRoles: ReadonlyArray<WorkspaceRole>
     /** The rooms whose members may hand the agent work. */
     readonly assignableRooms: ReadonlyArray<RoomLabel>
-    /** The agents it may pass work to. */
-    readonly canTag: ReadonlyArray<TagTarget>
+}
+
+/** The workflow a call names: its id and the version it is pinned to. */
+export interface TagWorkflowPin {
+    /** The id of the workflow called. */
+    readonly workflow: string
+    /** The version pinned, or `latest`. */
+    readonly version: number | "latest"
+}
+
+/** What a tag's context names of a workflow call: the pin, the mapped params and the calling run (null for none). */
+export interface TagWorkflowCall {
+    /** The workflow and version the call is pinned to. */
+    readonly pin: TagWorkflowPin
+    /** The params mapped for the call. */
+    readonly params: Readonly<Record<string, unknown>>
+    /** The run that makes the call, or null. */
+    readonly runId: string | null
 }

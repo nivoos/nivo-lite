@@ -5,6 +5,18 @@ export type InviteDelivery = "invited" | "existing" | "none"
 export interface InviteDeliveryPort {
     /** Emails the invitation and answers how it reached the person; never throws. */
     deliverInvite(email: string, redirectTo: string): Promise<InviteDelivery>
+    /** Emails the invitation of a job exactly once under `key`; a mail that cannot be sent is thrown (the job's runner retries it or parks it). */
+    deliverInviteOnce(key: string, email: string, redirectTo: string): Promise<InviteDelivery>
+}
+
+/**
+ * Names the job that issues an invitation: the effect keys of its token and its mail start with `key` (`<jobId>`), so the invitation
+ * is made once per command and a run again changes and sends nothing that already happened. Absent = a person waiting on the call
+ * (the web app's own request), which gets the answer and, when the mail cannot be sent, the link to copy.
+ */
+export interface InviteIssuance {
+    /** The effect key prefix of the job's invitation (`<jobId>`). */
+    readonly key: string
 }
 
 /** What an owner or manager asks to invite. */
@@ -87,6 +99,8 @@ export interface InviteState {
     readonly acceptedAt: string | null
     /** Set once revoked. */
     readonly revokedAt: string | null
+    /** Set once the invited person declined. */
+    readonly declinedAt: string | null
     /** When the link stops working, ISO 8601. */
     readonly expiresAt: string
 }
@@ -105,4 +119,32 @@ export interface ChangedInvite {
 export interface MintedToken {
     /** The raw token, shown once inside the invitation link. */
     readonly token: string
+}
+
+/** An invitation addressed to the signed-in person, as the workspaces lobby lists it. */
+export interface InviteForMe {
+    /** The invitation id. */
+    readonly id: string
+    /** The workspace it is for. */
+    readonly workspaceId: string
+    /** The workspace name. */
+    readonly workspaceName: string
+    /** The role it grants. */
+    readonly role: "manager" | "staff"
+    /** Who invited the person, when the directory knows them. */
+    readonly invitedByName: string | null
+    /** When the invitation stops working, ISO 8601. */
+    readonly expiresAt: string
+}
+
+/** An invitation the invited person declined, as the team page lists it. */
+export interface DeclinedInvite {
+    /** The invitation id. */
+    readonly id: string
+    /** The invited address. */
+    readonly email: string
+    /** The role it offered. */
+    readonly role: "manager" | "staff"
+    /** When it was declined, ISO 8601. */
+    readonly declinedAt: string
 }

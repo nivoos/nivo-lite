@@ -1,5 +1,4 @@
-import type { ParkedFlowAlert } from "@modules/platform/jobs"
-import type { DoorApi } from "@nivo-lite/agent-sdk/mutation"
+import type { DoorApi, WorkflowApi } from "@nivo-lite/agent-sdk/mutation"
 import type { PortDefinition } from "@nivo-lite/agent-sdk/port"
 import type { ScopedTx } from "./policies/scoped-tx.contracts"
 
@@ -25,6 +24,10 @@ export interface JobPorts {
 export interface JobDoorBinding {
     /** The workspace the job runs for. */
     readonly workspaceId: string
+    /** The run of the job (its claimed delivery): what a call the job makes names as the turn it is made in. */
+    readonly jobId: string
+    /** The installed agent of the job's module, when the job reaches records (the agent its records are stamped with); absent for a job that reaches none. */
+    readonly agentId?: string | undefined
     /** The job's claim key for a step: the same on every retry of the delivery. */
     readonly effectKey: (step: string) => string
     /** Whether an engine scope (an open transaction) is open now; a door call is refused while it is. */
@@ -37,8 +40,16 @@ export interface EngineDoorProvider {
     doorApi(binding: JobDoorBinding): DoorApi
 }
 
-/** Where the engine tells the owner of a job it parked; the app root binds it, so the engine names no capability that files the owner's items. */
-export interface EngineFailureAlerts {
-    /** Tells the owner of the one alert of a park. */
-    raise(alert: ParkedFlowAlert): Promise<void>
+/** What a job run tells the provider of its workflow port about itself. */
+export interface JobWorkflowBinding {
+    /** The workspace the job runs for. */
+    readonly workspaceId: string
+    /** Whether an engine scope (an open transaction) is open now; a start is refused while it is. */
+    readonly scopeOpen: () => boolean
+}
+
+/** The provider of the `workflow` port of declared jobs: the app root binds it, so the engine never imports the agent work. */
+export interface EngineWorkflowProvider {
+    /** The workflow handle of one job run. */
+    workflowApi(binding: JobWorkflowBinding): WorkflowApi
 }

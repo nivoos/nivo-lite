@@ -7,6 +7,8 @@ class GrantsSubject {
     readonly DOOR_GRANTS = policy.DOOR_GRANTS
     readonly isDoorGranted = policy.isDoorGranted
     readonly NOT_GRANTED = policy.NOT_GRANTED
+    readonly SPOKEN_AS_MODULE_AGENT = policy.SPOKEN_AS_MODULE_AGENT
+    readonly isSpokenAsModuleAgent = policy.isSpokenAsModuleAgent
 }
 
 const build = async (): Promise<GrantsSubject> => {
@@ -15,30 +17,33 @@ const build = async (): Promise<GrantsSubject> => {
 }
 
 describe("door grants", () => {
-    it("holds exactly the tools the flow F module jobs and the turn sync call", async () => {
+    it("holds exactly the tools the flow F module jobs call", async () => {
         const subject = await build()
         expect([...subject.DOOR_GRANTS].sort()).toEqual([
-            "ai.agent.history",
-            "ai.agent.turn",
-            "chat.profile",
-            "chat.send",
-            "ledger.append",
-            "ledger.status",
-            "team-chat.post-approval",
-            "team-chat.post-report",
+            "nivo.tool.customer.message.send",
+            "nivo.tool.ledger.entry.append",
+            "nivo.tool.ledger.status.get",
+            "nivo.tool.team-chat.report.post",
         ])
     })
 
     it("grants those tools and denies every other, by default", async () => {
         const subject = await build()
         for (const tool of subject.DOOR_GRANTS) expect(subject.isDoorGranted(tool)).toBe(true)
-        for (const tool of ["chat.zalo.send", "ledger.void", "ai.agent", "", "ai.agent.turn.x"])
+        for (const tool of ["chat.zalo.send", "nivo.tool.ledger.entry.void", "ai.agent", "", "ai.agent.turn.x"])
             expect(subject.isDoorGranted(tool)).toBe(false)
     })
 
     it("names every granted tool in the door grammar, so the door never meets a granted name it cannot read", async () => {
         const subject = await build()
         for (const tool of subject.DOOR_GRANTS) expect(isDoorTool(tool)).toBe(true)
+    })
+
+    it("names the customer send as the one voice a job speaks as its own module agent, and no other grant", async () => {
+        const subject = await build()
+        expect(subject.SPOKEN_AS_MODULE_AGENT).toEqual(["nivo.tool.customer.message.send"])
+        for (const tool of subject.SPOKEN_AS_MODULE_AGENT) expect(subject.isDoorGranted(tool)).toBe(true)
+        expect(subject.isSpokenAsModuleAgent("nivo.tool.ledger.entry.append")).toBe(false)
     })
 
     it("answers forbidden, not granted, for a tool it denies", async () => {

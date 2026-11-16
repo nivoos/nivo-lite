@@ -1,4 +1,3 @@
-import { parseKnowledgeConfig } from "@modules/domain/knowledge"
 import { parseBillingConfig } from "@modules/domain/billing"
 import { parseConnectionPollConfig } from "@modules/domain/connection-poll"
 import { parseServerConfig, type EnvSource } from "@modules/platform/config"
@@ -6,8 +5,9 @@ import { parsePrimaryDatabaseConfig } from "@modules/platform/database"
 import { parseHttpSecurityConfig } from "@modules/platform/http-security"
 import { parseJobsConfig } from "@modules/platform/jobs"
 import { parseJobsAlertConfig } from "@modules/domain/job-ops"
-import { parseAgentWorkConfig } from "@modules/domain/agent-work"
 import { parseQueueConfig } from "@modules/platform/queue"
+import { parseDataBackupConfig } from "@modules/domain/data-copies"
+import { parseSeedConfig } from "@modules/integrations/seed"
 import { parseRealtimeConfig } from "@modules/platform/realtime"
 import { parseChannelsConfig } from "@modules/domain/channels"
 import { parseConnectionSecretsConfig } from "@modules/domain/connection-secrets"
@@ -18,33 +18,47 @@ import { parseSepayConfig } from "@modules/integrations/sepay"
 import { parseTelegramConfig } from "@modules/integrations/telegram"
 import { parseZaloConfig } from "@modules/integrations/zalo"
 import { parseZaloProviderConfig } from "@modules/domain/zalo-provider"
-import { parseMcpGatewayConfig } from "@modules/domain/mcp-gateway"
-import { parseMcpConfig } from "@modules/integrations/mcp"
+import { parseToolsConfig } from "@modules/domain/tools"
 import { parsePlatformAdminConfig } from "@modules/domain/platform-admin"
 import { parseWorkspaceInvitesConfig } from "@modules/domain/workspace-invites"
 import { parseWorkspacesConfig } from "@modules/domain/workspaces"
+import { parseApiKeysConfig } from "@modules/domain/api-keys"
 import { parseDocumentsConfig } from "@modules/integrations/documents"
 import { parseAiGatewayConfig } from "@modules/integrations/ai-gateway"
 import { parseAiConfig } from "@modules/integrations/ai"
+import { parseQdrantConfig } from "@modules/integrations/qdrant"
 import { parseRedisConfig } from "@modules/integrations/redis"
 import { parseRemoteFilesConfig } from "@modules/integrations/remote-files"
 import { parseAiTasksConfig } from "@modules/domain/ai-tasks"
 import { parseAgentRunsConfig } from "@modules/domain/agent-runs"
+import { parseAgentThreadsConfig } from "@modules/domain/agent-threads"
+import { parseAgentLoopConfig } from "@modules/domain/graph-nodes"
+import { parseLanggraphConfig } from "@modules/integrations/langgraph"
 import { parseEntityEngineConfig } from "@modules/domain/entity-engine"
-import { parseAgentTurnsConfig } from "@modules/domain/agent-turns"
-import { parseOpenclawConfig } from "@modules/integrations/openclaw"
-import { parseVideoConfig } from "@modules/domain/video"
-import { parseFfmpegConfig } from "@modules/integrations/ffmpeg"
 import { parseObjectStorageConfig } from "@modules/integrations/object-storage"
 import { parseIdentityAuthConfig } from "@modules/domain/identity"
 import { parsePassportConfig } from "@modules/integrations/passport"
 import { parseConnectionsConfig } from "@modules/domain/connections"
+import { parseProviderSandboxConfig } from "@modules/domain/provider-sandbox"
 import { parseWebhookConnectionsConfig } from "@modules/domain/webhook-connections"
 import { parseChannelSetupConfig } from "@modules/integrations/channel-setup"
 import { parseGoogleConfig } from "@modules/integrations/google"
 import { parseMetaConfig } from "@modules/integrations/meta"
 import { parseWebhookDeliveryConfig } from "@modules/integrations/webhook-delivery"
-import { parseTtsConfig } from "@modules/integrations/tts"
+import { parseInetConfig } from "@modules/integrations/inet"
+import { parsePayosConfig } from "@modules/integrations/payos"
+import { parseTinoConfig } from "@modules/integrations/tino"
+import { parseElevenLabsConfig } from "@modules/integrations/elevenlabs"
+import { parseVeoConfig } from "@modules/integrations/veo"
+import { parseShotstackConfig } from "@modules/integrations/shotstack"
+import { parseCreatomateConfig } from "@modules/integrations/creatomate"
+import { parseJson2VideoConfig } from "@modules/integrations/json2video"
+import { parseGoogleCalendarConfig } from "@modules/integrations/google-calendar"
+import { parseMetaPublishingConfig } from "@modules/integrations/meta-publishing"
+import { parseYoutubeConfig } from "@modules/integrations/youtube"
+import { parseTiktokConfig } from "@modules/integrations/tiktok"
+import { parseMisaAmisConfig } from "@modules/integrations/misa-amis"
+import { parseMisaMeinvoiceConfig } from "@modules/integrations/misa-meinvoice"
 
 /** Everything the API needs from its environment, parsed once by `api.env.ts` and handed to `AppModule.register`. */
 export interface ApiOptions {
@@ -66,6 +80,8 @@ export interface ApiOptions {
     readonly documents: ReturnType<typeof parseDocumentsConfig>
     /** Whether a person with no workspace may create a free one. */
     readonly workspaces: ReturnType<typeof parseWorkspacesConfig>
+    /** The public base URL of the mcp app an MCP key's endpoint is answered under (`MCP_PUBLIC_URL`, optional). */
+    readonly apiKeys: ReturnType<typeof parseApiKeysConfig>
     /** Invitation links and how long they stay valid. */
     readonly workspaceInvites: ReturnType<typeof parseWorkspaceInvitesConfig>
     /** The payment feeds: keys, bank account and the credential key. */
@@ -76,13 +92,9 @@ export interface ApiOptions {
     readonly redis: ReturnType<typeof parseRedisConfig>
     /** The limits every read of a remote file is held to: size, deadline and redirects. */
     readonly remoteFiles: ReturnType<typeof parseRemoteFilesConfig>
-    /** The OpenClaw gateway and the agent workspaces. */
-    readonly openclaw: ReturnType<typeof parseOpenclawConfig>
     /** The running build and how often a parked run is run again. */
     readonly agentRuns?: ReturnType<typeof parseAgentRunsConfig>
     /** The key that signs entity-engine cursors. */ readonly entityEngine: ReturnType<typeof parseEntityEngineConfig>
-    /** The secret that signs the calls of the OpenClaw bridge plugin. */
-    readonly agentTurns: ReturnType<typeof parseAgentTurnsConfig>
     /** The prompt library tunables and the AI endpoint it calls. */
     readonly aiTasks: ReturnType<typeof parseAiTasksConfig>
     /** The key that seals the credentials of the connections. */
@@ -97,8 +109,8 @@ export interface ApiOptions {
     readonly zalo: ReturnType<typeof parseZaloConfig>
     /** The reply window, the stale age and the backfill window of the Zalo inbox reconcile job. */
     readonly zaloProvider: ReturnType<typeof parseZaloProviderConfig>
-    /** The MCP gateway: the credential NAMES remote connectors may use (each read through <NAME>_FILE) and the call limit. */
-    readonly mcpGateway: ReturnType<typeof parseMcpGatewayConfig>
+    /** The engine tools: the call limit of a tool family that declares none. */
+    readonly toolsConfig: ReturnType<typeof parseToolsConfig>
     /** Outgoing mail: the platform sender and the private-host policy. */
     readonly mail: ReturnType<typeof parseMailConfig>
     /** The private-host policy for the owner's systems the data hub reads. */
@@ -111,14 +123,14 @@ export interface ApiOptions {
     readonly realtime: ReturnType<typeof parseRealtimeConfig>
     /** How the BullMQ workers and the outbox relay run. */
     readonly queue: ReturnType<typeof parseQueueConfig>
-    /** The burst window of a conversation and the longest it may keep a turn waiting. */
-    readonly agentWork: ReturnType<typeof parseAgentWorkConfig>
     /** Who this worker is and how long a job claim lasts. */
     readonly jobs: ReturnType<typeof parseJobsConfig>
     /** The independent monitor of failed jobs and stale queued work. */
     readonly jobsAlert: ReturnType<typeof parseJobsAlertConfig>
     /** The channel token key that seals provider credentials, and the public site address; the ports are bound by `compose/connections.ts`. */
     readonly connections: ReturnType<typeof parseConnectionsConfig>
+    /** The provider sandbox's dev switch (`PROVIDER_SANDBOX_ENABLED`, ruling R60): read here once, off unless `true`. */
+    readonly providerSandbox: ReturnType<typeof parseProviderSandboxConfig>
     /** The signing key behind outgoing webhooks. */
     readonly webhookConnections: ReturnType<typeof parseWebhookConnectionsConfig>
     /** Google OAuth and Sheets. */
@@ -129,17 +141,55 @@ export interface ApiOptions {
     readonly channelSetup: ReturnType<typeof parseChannelSetupConfig>
     /** Deliveries to tenant-supplied webhook addresses. */
     readonly webhookDelivery: ReturnType<typeof parseWebhookDeliveryConfig>
-    /** The knowledge capability: the demo pacing knob of indexing (`KNOWLEDGE_INDEX_CHUNK_DELAY_MS`, 0 unless a demo asks). */
-    readonly knowledge: ReturnType<typeof parseKnowledgeConfig>
-    /** How ffmpeg is run. */
-    readonly ffmpeg: ReturnType<typeof parseFfmpegConfig>
-    /** The text-to-speech provider of the video voiceover. */
-    readonly tts: ReturnType<typeof parseTtsConfig>
-    /** Where the video renderer finds its assets and how it runs ffmpeg. */
-    readonly video: ReturnType<typeof parseVideoConfig>
+    /** The vector index (`QDRANT_URL` required, `QDRANT_API_KEY`): the only home of vectors. */
+    readonly qdrant: ReturnType<typeof parseQdrantConfig>
+    /** iNET's API host and call limit (the domain registrar; the key is per connection, sealed). */
+    readonly inet: ReturnType<typeof parseInetConfig>
+    /** Tino's API host and call limit (the domain registrar; the token is per connection, sealed). */
+    readonly tino: ReturnType<typeof parseTinoConfig>
+    /** payOS's API host and call limit (the payment-link provider; the three keys are per connection, sealed). */
+    readonly payos: ReturnType<typeof parsePayosConfig>
+    /** ElevenLabs' API host and call limits (speech and dubbing; the key is per connection, sealed). */
+    readonly elevenlabs: ReturnType<typeof parseElevenLabsConfig>
+    /** Veo's API host and call limits (video generation; the key is per connection, sealed). */
+    readonly veo: ReturnType<typeof parseVeoConfig>
+    /** Shotstack's API host and call limit (cloud video compose; the key and the stage/production choice are per connection). */
+    readonly shotstack: ReturnType<typeof parseShotstackConfig>
+    /** Creatomate's API host and call limit (cloud video compose; the key is per connection, sealed). */
+    readonly creatomate: ReturnType<typeof parseCreatomateConfig>
+    /** JSON2Video's API host and call limit (cloud video compose; the key is per connection, sealed). */
+    readonly json2video: ReturnType<typeof parseJson2VideoConfig>
+    /** Google Calendar's API host and call limit (the calendar tools; the access token is the Google account's). */
+    readonly googleCalendar: ReturnType<typeof parseGoogleCalendarConfig>
+    /** The Graph API's publishing host and limits (Facebook Page and Instagram posts; the Page token is per connection, sealed). */
+    readonly metaPublishing: ReturnType<typeof parseMetaPublishingConfig>
+    /** YouTube's API hosts and limits (video upload; the access token is the Google account's). */
+    readonly youtube: ReturnType<typeof parseYoutubeConfig>
+    /** TikTok's API host, limits and the deployment's app client (video posting; the user tokens are per connection, sealed). */
+    readonly tiktok: ReturnType<typeof parseTiktokConfig>
+    /** MISA AMIS' call limit (no operation is built: its documentation could not be read). */
+    readonly misaAmis: ReturnType<typeof parseMisaAmisConfig>
+    /** MISA meInvoice's call limit (no operation is built: its documentation could not be read). */
+    readonly misaMeinvoice: ReturnType<typeof parseMisaMeinvoiceConfig>
+    /** The scheduled backup of this environment (`DATA_BACKUP_*`): disabled with its reason when not declared. */
+    readonly dataBackup: ReturnType<typeof parseDataBackupConfig>
+    /** The git layer of the data standard (`SEED_STANDARD_CACHE`, the identity `SOPS_AGE_KEY_FILE`, the git author): the backup repository driver and the verify's open handle. */
+    readonly seed: ReturnType<typeof parseSeedConfig>
+    /** The bounds of the LangGraph integration; reading them is also the guard that refuses a LangSmith tracing switch at boot. */
+    readonly langgraph?: ReturnType<typeof parseLanggraphConfig>
+    /** The thread runs' tunables (graphs kept, the stops' deadline windows). */
+    readonly agentThreads?: ReturnType<typeof parseAgentThreadsConfig>
+    /** The nodes whose agent runs on the prebuilt loop with native tool calling (`AGENT_LOOP=prebuilt:<ids>`); none unless the flag names them. */
+    readonly agentLoop?: ReturnType<typeof parseAgentLoopConfig>
 }
-/** Reads the API environment; missing or invalid values fail boot and secret readers prefer mounted files. */
+/**
+ * Reads the API environment; missing or invalid values fail boot and secret readers prefer mounted files. The LangGraph options are
+ * read first and always, whatever the engine flag says: a tracing switch in the environment stops the boot before anything else.
+ */
 export const readApiEnv = (env: EnvSource): ApiOptions => ({
+    langgraph: parseLanggraphConfig(env),
+    agentThreads: parseAgentThreadsConfig(env),
+    agentLoop: parseAgentLoopConfig(env),
     server: parseServerConfig(env),
     httpSecurity: { ...parseHttpSecurityConfig(env), webhooks: {} },
     database: parsePrimaryDatabaseConfig(env),
@@ -150,15 +200,14 @@ export const readApiEnv = (env: EnvSource): ApiOptions => ({
     documents: parseDocumentsConfig(env),
     platformAdmin: parsePlatformAdminConfig(env),
     workspaces: parseWorkspacesConfig(env),
+    apiKeys: parseApiKeysConfig(env),
     workspaceInvites: parseWorkspaceInvitesConfig(env),
     billing: parseBillingConfig(env),
     connectionPoll: parseConnectionPollConfig(env),
     redis: parseRedisConfig(env),
     remoteFiles: parseRemoteFilesConfig(env),
-    openclaw: parseOpenclawConfig(env),
     agentRuns: parseAgentRunsConfig(env),
     entityEngine: parseEntityEngineConfig(env),
-    agentTurns: parseAgentTurnsConfig(env),
     aiTasks: parseAiTasksConfig(env, parseAiConfig(env)),
     connectionSecrets: parseConnectionSecretsConfig(env),
     channels: parseChannelsConfig(env),
@@ -166,23 +215,36 @@ export const readApiEnv = (env: EnvSource): ApiOptions => ({
     sepay: parseSepayConfig(env),
     zalo: parseZaloConfig(env),
     zaloProvider: parseZaloProviderConfig(env),
-    mcpGateway: parseMcpGatewayConfig(env, parseMcpConfig(env)),
+    toolsConfig: parseToolsConfig(env),
     mail: parseMailConfig(env),
     dataSources: parseDataSourcesConfig(env),
     telegramUser: parseTelegramUserConfig(env),
     realtime: parseRealtimeConfig(env),
     queue: parseQueueConfig(env),
-    agentWork: parseAgentWorkConfig(env),
     jobs: parseJobsConfig(env),
     jobsAlert: parseJobsAlertConfig(env),
     connections: parseConnectionsConfig(env),
+    providerSandbox: parseProviderSandboxConfig(env),
     webhookConnections: parseWebhookConnectionsConfig(env),
     google: parseGoogleConfig(env),
     meta: parseMetaConfig(env),
     channelSetup: parseChannelSetupConfig(env),
     webhookDelivery: parseWebhookDeliveryConfig(env),
-    knowledge: parseKnowledgeConfig(env),
-    ffmpeg: parseFfmpegConfig(env),
-    tts: parseTtsConfig(env),
-    video: parseVideoConfig(env),
+    qdrant: parseQdrantConfig(env),
+    inet: parseInetConfig(env),
+    tino: parseTinoConfig(env),
+    payos: parsePayosConfig(env),
+    elevenlabs: parseElevenLabsConfig(env),
+    veo: parseVeoConfig(env),
+    shotstack: parseShotstackConfig(env),
+    creatomate: parseCreatomateConfig(env),
+    json2video: parseJson2VideoConfig(env),
+    googleCalendar: parseGoogleCalendarConfig(env),
+    metaPublishing: parseMetaPublishingConfig(env),
+    youtube: parseYoutubeConfig(env),
+    tiktok: parseTiktokConfig(env),
+    misaAmis: parseMisaAmisConfig(env),
+    misaMeinvoice: parseMisaMeinvoiceConfig(env),
+    dataBackup: parseDataBackupConfig(env),
+    seed: parseSeedConfig(env),
 })

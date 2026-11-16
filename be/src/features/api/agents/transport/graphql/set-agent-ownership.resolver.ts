@@ -13,7 +13,7 @@ import { toAgentAckType, toSetAgentOwnershipRequest } from "./agents.mapper"
 export class SetAgentOwnershipResolver {
     constructor(@InjectCommandBus() private readonly commandBus: CommandBus) {}
 
-    /** Replaces the owner, the fallback, who may give the agent work and whom it may tag; a manager only. */
+    /** Replaces the owner, the fallback and who may give the agent work; a manager only. */
     @Mutation(() => AgentAckType, { name: "setAgentOwnership" })
     async setAgentOwnership(
         @CurrentPrincipal() principal: Principal,

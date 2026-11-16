@@ -55,3 +55,14 @@ const YEAR_SECONDS = 60 * 60 * 24 * 365
 export const rememberWorkspaceCookie = (workspaceId: string): void => {
     document.cookie = `${WORKSPACE_COOKIE}=${encodeURIComponent(workspaceId)}; path=/; max-age=${YEAR_SECONDS}; samesite=lax`
 }
+
+/** Forgets the remembered workspace when it is `workspaceId` (one the person cannot open), so the front address no longer leads to it. */
+export const forgetWorkspaceCookie = (workspaceId: string): void => {
+    const remembered = document.cookie
+        .split(";")
+        .map((part) => part.trim())
+        .find((part) => part.startsWith(`${WORKSPACE_COOKIE}=`))
+        ?.slice(WORKSPACE_COOKIE.length + 1)
+    if (remembered !== undefined && decodeURIComponent(remembered) !== workspaceId) return
+    document.cookie = `${WORKSPACE_COOKIE}=; path=/; max-age=0; samesite=lax`
+}

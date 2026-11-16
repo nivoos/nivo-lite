@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
-import type { MetaEvent, MetaEventKind, MetaLead, MetaPlatform, MetaReferral } from "./meta.contracts"
+import type { MetaAttachment, MetaEvent, MetaEventKind, MetaLead, MetaPlatform, MetaReferral } from "./meta.contracts"
 
 /** Constant-time equality of two strings (different lengths are simply unequal). */
 export const sameToken = (a: string, b: string): boolean => {
@@ -97,6 +97,22 @@ const idsFor = (platform: MetaPlatform, entryId: string | null) =>
 const senderFor = (platform: MetaPlatform, id: string | null) =>
     platform === "facebook" ? { sender_psid: id, sender_igsid: null } : { sender_psid: null, sender_igsid: id }
 
+/**
+ * The content parts of a message (`message.attachments[]`), every one kept as Meta names it (its type, the address of its bytes, its
+ * name), none dropped for its type: what a part means and whether its bytes can be read is decided downstream, never here.
+ */
+const attachmentsOf = (value: unknown): Array<MetaAttachment> =>
+    arr(value).flatMap((item) => {
+        const part = obj(item)
+        const type = str(part?.type)
+        if (!part || !type) return []
+        const payload = obj(part.payload)
+        // A shared place carries its coordinates, no file: they are what Meta sent of it.
+        const at = obj(payload?.coordinates)
+        const place = at === null ? null : [str(at.lat), str(at.long)].filter((one) => one !== null).join(",") || null
+        return [{ type, url: str(payload?.url), name: place ?? str(payload?.title) ?? str(payload?.name) ?? str(part.name) }]
+    })
+
 /** One `messaging` item (also the value of a `messages` / `messaging_postbacks` change): a DM or a postback, never an echo, receipt or reaction. */
 const fromMessaging = (
     platform: MetaPlatform,
@@ -130,9 +146,9 @@ const fromMessaging = (
     if (message) {
         const mid = str(message.mid)
         const quick = str(obj(message.quick_reply)?.payload)
-        const hasAttachment = arr(message.attachments).length > 0
+        const attachments = attachmentsOf(message.attachments)
         const text = str(message.text)
-        if (!text && !hasAttachment && !quick) return null
+        if (!text && attachments.length === 0 && !quick) return null
         const identity = mid ?? `${senderId}:${when}`
         return {
             ...blank(platform, "dm", when, `dm:${identity}`),
@@ -140,6 +156,7 @@ const fromMessaging = (
             ...senderFor(platform, senderId),
             text: text ?? quick,
             mid,
+            ...(attachments.length === 0 ? {} : { attachments }),
             postback_payload: quick,
             referral: referralOf(message.referral) ?? referralOf(messaging.referral),
         }

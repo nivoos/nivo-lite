@@ -29,8 +29,6 @@ export interface ImapCopyView {
         foldersHint: string
         sinceTitle: string
         sinceHint: string
-        scheduleHint: string
-        scheduleLabel: string
         saved: string
     }
 }
@@ -64,8 +62,6 @@ export const useImapCopy = (isPending: boolean): ImapCopyView => {
             foldersHint: t("foldersHint"),
             sinceTitle: t("sinceTitle"),
             sinceHint: t("sinceHint"),
-            scheduleHint: t("scheduleHint"),
-            scheduleLabel: t("stepSchedule"),
             saved: t("agentSaved"),
         },
     }

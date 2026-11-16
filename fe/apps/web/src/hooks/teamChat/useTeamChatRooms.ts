@@ -57,12 +57,12 @@ const openOf = (target: TeamChatTarget, rooms: ReadonlyArray<ChatRoomNode>): Cha
 }
 
 /** The rooms of the viewer in the open workspace, the open one, and what is done to a room: choose it, mute it, open another. */
-export const useTeamChatRooms = (target: TeamChatTarget): TeamChatRoomsView => {
+export const useTeamChatRooms = (target: TeamChatTarget, enabled = true): TeamChatRoomsView => {
     const workspaceId = useWorkspaceId()
     const viewerId = useMember()?.userId ?? ""
     const words = useChatRowWords()
-    const rooms = useQueryChatRoomsSwr(workspaceId, {})
-    const unread = useQueryChatUnreadSwr(workspaceId)
+    const rooms = useQueryChatRoomsSwr(enabled ? workspaceId : undefined, {})
+    const unread = useQueryChatUnreadSwr(enabled ? workspaceId : undefined)
     const mute = useMutateSetChatRoomMutedSwr(workspaceId ?? "")
     const create = useMutateCreateChatRoomSwr(workspaceId ?? "")
     const room = rooms.data === undefined ? undefined : openOf(target, rooms.data)
@@ -80,7 +80,7 @@ export const useTeamChatRooms = (target: TeamChatTarget): TeamChatRoomsView => {
         room,
         roomId,
         isMuted: room?.muted === true,
-        other: room === undefined ? null : otherPartyOf(room, viewerId),
+        other: room === undefined ? null : otherPartyOf(room, viewerId, words),
         viewerId,
         refresh,
         toggleMute: async () => {

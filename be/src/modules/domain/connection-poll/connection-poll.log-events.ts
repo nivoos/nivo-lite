@@ -6,16 +6,20 @@ export enum ConnectionPollLogEvent {
     Skipped = "connection_poll.skipped",
     /** The poll of one connection failed; the run goes on with the next. */
     Failed = "connection_poll.failed",
-    /** One poll run finished. */
-    Done = "connection_poll.done",
     /** The scheduler tick finished for one provider: calls, 429s, auth failures, items found, items the webhook missed and lag ride in the fields. */
     Metrics = "connection_poll.metrics",
-    /** A poll waited for the provider's rate limit and was planned again. */
+    /** A poll waited for the provider's rate limit and was planned again: information, not a failure; the wait and the count of cycles in a row ride in the fields. */
     Deferred = "connection_poll.deferred",
+    /** A poll was deferred for the rate limit cycle after cycle: the owner was told once, through the poll's one owner item. */
+    DeferredOwnerTold = "connection_poll.deferred_owner_told",
+    /** The owner item of a poll deferred cycle after cycle could not be filed. */
+    DeferredOwnerNotTold = "connection_poll.deferred_owner_not_told",
     /** The circuit breaker of a connection opened; the failure class rides in the fields. */
     BreakerOpened = "connection_poll.breaker_opened",
     /** The provider's plan lacks the capability: the connection is tried again rarely and the owner was told once. */
     Unavailable = "connection_poll.unavailable",
     /** The provider refused the credential: polling stopped and the owner was asked to connect again. */
     NeedsReauth = "connection_poll.needs_reauth",
+    /** The pass at process start could not mark the scheduled accounts due; the ordinary cadence reads them later. */
+    BootPassFailed = "connection_poll.boot_pass_failed",
 }

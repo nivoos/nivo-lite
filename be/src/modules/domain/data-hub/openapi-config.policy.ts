@@ -9,8 +9,6 @@ import {
     type OpenApiOperation,
     type OpenApiPull,
 } from "@modules/integrations/data-sources"
-import type { OpenApiAuthDraft } from "./openapi-wizard.contracts"
-import { apiSummary } from "./messages/openapi.messages"
 
 type OpenApiAuthType = OpenApiAuth["type"]
 type OpenApiMethod = OpenApiOperation["method"]
@@ -105,9 +103,6 @@ export const parseConfig = (raw: string | undefined | null): OpenApiConfig | nul
     return isApiJsonObject(read.value) ? normalizeConfig(read.value) : null
 }
 
-/** The short line shown on the connection card. */
-export const summaryOf = (config: OpenApiConfig): string => apiSummary(config.pulls.length, config.tools.length)
-
 /** Reads the stored credential JSON into a checked credential (empty when broken). */
 export const parseAuth = (raw: string): OpenApiAuth => {
     const read = readApiJson(raw)
@@ -142,6 +137,3 @@ export const credentialOf = (config: OpenApiConfig, auth: OpenApiAuth): string =
         user: auth.user,
         password: auth.password,
     })
-
-/** Cleans the credential typed in the wizard: an unknown type is none, names are trimmed. */
-export const cleanAuth = (draft: OpenApiAuthDraft): OpenApiAuth => parseAuth(JSON.stringify(draft))

@@ -1,14 +1,16 @@
 import { Test } from "@nestjs/testing"
 import { builder, mock, mockEntityManager } from "@starci/jest-preset"
-import { JOB_CLAIMS } from "@modules/platform/jobs"
-import type { ClaimedJob, JobClaims } from "@modules/platform/jobs"
+import type { ClaimedJob } from "@modules/platform/jobs"
+import { classifyFailure } from "@modules/platform/queue"
 import { Secret } from "@modules/platform/config"
-import type { DoorApi, JobDefinition } from "@nivo-lite/agent-sdk/mutation"
-import type { EngineDoorProvider, EngineFailureAlerts } from "./entity-engine.contracts"
-import { ENGINE_FAILURE_ALERTS, ENTITY_ENGINE_OPTIONS } from "./entity-engine.decorators"
+import type { DoorApi, JobDefinition, WorkflowApi } from "@nivo-lite/agent-sdk/mutation"
+import type { EngineDoorProvider, EngineWorkflowProvider } from "./entity-engine.contracts"
+import { ENTITY_ENGINE_OPTIONS } from "./entity-engine.decorators"
 import type { EntityEngineOptions } from "./entity-engine.options"
 import { EntityEngineService } from "./entity-engine.service"
 import { EntityPortsService } from "./entity-ports.service"
+import { EntityEngineError, EntityEngineErrorCode } from "./errors/entity-engine.error"
+import { ModuleAgentService } from "./module-agent.service"
 import { ModuleJobRunnerService } from "./module-job-runner.service"
 import { mintScopedTx } from "./policies/scoped-tx.policy"
 
@@ -24,6 +26,8 @@ const claimed = (payload: object): ClaimedJob => ({
     currentStep: null,
     payload,
 })
+
+const AGENT = { id: "agent-1", sees: "all" } as const
 
 const payloadOf = (job: string) => ({ workspaceId: WS, job, input: { orderId: "o-1" } })
 
@@ -42,14 +46,46 @@ const build = async (buildId?: string, withDoor = true) => {
         input: callingInput,
         ports: { door: { entry: "port", id: "engine.door" } },
     })
+    const recordingInput = mock<JobDefinition["input"]>()
+    const recording = mock<JobDefinition>({
+        name: "sales.recordAndSend",
+        input: recordingInput,
+        ports: { orders: { entry: "port", id: "engine.entities" }, door: { entry: "port", id: "engine.door" } },
+    })
+    const bookingInput = mock<JobDefinition["input"]>()
+    const booking = mock<JobDefinition>({
+        name: "blocks-core.booking.remind",
+        input: bookingInput,
+        ports: { orders: { entry: "port", id: "engine.entities" } },
+    })
+    bookingInput.safeParse.mockReturnValue({ success: true, data: { orderId: "o-1" } })
+    booking.run.mockResolvedValue(undefined)
+    const loyaltyInput = mock<JobDefinition["input"]>()
+    const loyalty = mock<JobDefinition>({
+        name: "loyalty.expire",
+        input: loyaltyInput,
+        ports: { orders: { entry: "port", id: "engine.entities" } },
+    })
+    loyaltyInput.safeParse.mockReturnValue({ success: true, data: { orderId: "o-1" } })
+    loyalty.run.mockResolvedValue(undefined)
+    recordingInput.safeParse.mockReturnValue({ success: true, data: { orderId: "o-1" } })
+    recording.run.mockResolvedValue(undefined)
+    const startingInput = mock<JobDefinition["input"]>()
+    const starting = mock<JobDefinition>({
+        name: "sales.startFlow",
+        input: startingInput,
+        ports: { workflow: { entry: "port", id: "engine.workflow" } },
+    })
+    startingInput.safeParse.mockReturnValue({ success: true, data: { orderId: "o-1" } })
+    starting.run.mockResolvedValue(undefined)
     plainInput.safeParse.mockReturnValue({ success: true, data: { orderId: "o-1" } })
     callingInput.safeParse.mockReturnValue({ success: true, data: { orderId: "o-1" } })
     plain.run.mockResolvedValue(undefined)
     calling.run.mockResolvedValue(undefined)
     engine.scoped.mockImplementation((_workspaceId, run) => run(TX))
     ports.portsFor.mockReturnValue({ handle: "ports" })
-    const claims = mock<JobClaims>()
-    const alerts = mock<EngineFailureAlerts>()
+    const agents = mock<ModuleAgentService>()
+    agents.scopeOf.mockResolvedValue(AGENT)
     const handle = mock<DoorApi>()
     const door = mock<EngineDoorProvider>()
     door.doorApi.mockReturnValue(handle)
@@ -58,16 +94,15 @@ const build = async (buildId?: string, withDoor = true) => {
             ModuleJobRunnerService,
             { provide: EntityEngineService, useValue: engine },
             { provide: EntityPortsService, useValue: ports },
+            { provide: ModuleAgentService, useValue: agents },
             {
                 provide: ENTITY_ENGINE_OPTIONS,
                 useValue: builder<EntityEngineOptions>({
                     entities: [],
-                    jobs: [plain, calling],
+                    jobs: [plain, calling, starting, recording, booking, loyalty],
                     cursorKey: new Secret("a2V5"),
                 })(buildId === undefined ? {} : { buildId }),
             },
-            { provide: JOB_CLAIMS, useValue: claims },
-            { provide: ENGINE_FAILURE_ALERTS, useValue: alerts },
         ],
     }).compile()
     const runner = moduleRef.get(ModuleJobRunnerService)
@@ -79,8 +114,9 @@ const build = async (buildId?: string, withDoor = true) => {
         plain,
         plainInput,
         calling,
-        claims,
-        alerts,
+        starting,
+        recording,
+        agents,
         door,
         handle,
     }
@@ -100,6 +136,61 @@ describe("ModuleJobRunnerService", () => {
         const [handed, input, context] = plain.run.mock.calls[0] ?? []
         expect([handed, input]).toEqual([{ handle: "ports" }, { orderId: "o-1" }])
         expect([context?.workspaceId, context?.attempt, context?.effectKey("notify")]).toEqual([WS, 2, "j-1:notify"])
+    })
+
+    it("runs a job that reaches records for the installed agent of its module, so what it writes is that agent's", async () => {
+        const { runner, engine, agents } = await build()
+
+        await runner.run(claimed(payloadOf("sales.confirmNotice")))
+
+        expect(agents.scopeOf).toHaveBeenCalledWith(WS, "sales")
+        expect(engine.scoped.mock.calls[0]?.[2]).toEqual(AGENT)
+    })
+
+    it("reads the module of a package-qualified job as its agent part and of an old-form job as its first part", async () => {
+        const { runner, agents } = await build()
+
+        await runner.run(claimed(payloadOf("blocks-core.booking.remind")))
+        await runner.run(claimed(payloadOf("loyalty.expire")))
+
+        expect(agents.scopeOf.mock.calls).toEqual([
+            [WS, "booking"],
+            [WS, "loyalty"],
+        ])
+    })
+
+    it("opens every scope of a job that reaches records and calls the door for the module's agent", async () => {
+        const { runner, engine, ports, agents } = await build()
+
+        await runner.run(claimed(payloadOf("sales.recordAndSend")))
+
+        expect(agents.scopeOf).toHaveBeenCalledTimes(1)
+        const runIn = ports.portsFor.mock.calls[0]?.[0]
+        await runIn?.((tx) => Promise.resolve(tx))
+        await runIn?.((tx) => Promise.resolve(tx))
+        expect(engine.scoped.mock.calls.map((call) => call[2])).toEqual([AGENT, AGENT])
+    })
+
+    it("asks for no agent and stamps nothing for a job that reaches no records", async () => {
+        const { runner, engine, ports, agents } = await build()
+
+        await runner.run(claimed(payloadOf("sales.sendNotice")))
+        await ports.portsFor.mock.calls[0]?.[0]?.((tx) => Promise.resolve(tx))
+
+        expect(agents.scopeOf).not.toHaveBeenCalled()
+        expect(engine.scoped.mock.calls[0]?.[2]).toBeUndefined()
+    })
+
+    it("refuses a job that reaches records when its module has no installed agent, writing nothing: the failure throws to the jobs runner", async () => {
+        const { runner, engine, plain, agents } = await build("build-1")
+        agents.scopeOf.mockRejectedValue(new EntityEngineError({ code: EntityEngineErrorCode.AgentMissing }))
+
+        await expect(runner.run(claimed(payloadOf("sales.confirmNotice")))).rejects.toMatchObject({
+            code: EntityEngineErrorCode.AgentMissing,
+        })
+
+        expect(engine.scoped).not.toHaveBeenCalled()
+        expect(plain.run).not.toHaveBeenCalled()
     })
 
     it("gives every call of a job that calls the door a scoped transaction of its own", async () => {
@@ -125,6 +216,35 @@ describe("ModuleJobRunnerService", () => {
         expect(calling.run).toHaveBeenCalledTimes(1)
     })
 
+    it("tells the door the job run and, for a job that reaches records, the installed agent of its module (the speaker of a voice tool)", async () => {
+        const { runner, door } = await build()
+
+        await runner.run(claimed(payloadOf("sales.sendNotice")))
+        await runner.run(claimed(payloadOf("sales.recordAndSend")))
+
+        const [plain, recording] = door.doorApi.mock.calls.map((call) => call[0])
+        expect([plain?.jobId, plain?.agentId]).toEqual(["j-1", undefined])
+        expect([recording?.jobId, recording?.agentId]).toEqual(["j-1", AGENT.id])
+    })
+
+    it("hands a job that starts a workflow the handle of the workflow provider, bound to the workspace, outside any transaction", async () => {
+        const { runner, engine, ports, starting } = await build()
+        const handle = mock<WorkflowApi>()
+        const provider = mock<EngineWorkflowProvider>()
+        provider.workflowApi.mockReturnValue(handle)
+        runner.bindWorkflow(provider)
+
+        await runner.run(claimed(payloadOf("sales.startFlow")))
+
+        expect(engine.scoped).not.toHaveBeenCalled()
+        expect(ports.portsFor.mock.calls[0]?.[2]).toEqual({})
+        expect(provider.workflowApi.mock.calls[0]?.[0].workspaceId).toBe(WS)
+        expect(starting.run.mock.calls[0]?.slice(0, 2)).toEqual([
+            { handle: "ports", workflow: handle },
+            { orderId: "o-1" },
+        ])
+    })
+
     it("tells the door an engine scope is open only while a port call runs in one", async () => {
         const { runner, ports, door } = await build()
 
@@ -139,97 +259,63 @@ describe("ModuleJobRunnerService", () => {
         expect(binding?.scopeOpen()).toBe(false)
     })
 
-    it("parks a door job in an app that registered no door provider", async () => {
-        const { runner, calling, claims } = await build("build-1", false)
-        claims.park.mockResolvedValue(false)
+    it("refuses a door job in an app that registered no door provider: the failure throws to the jobs runner", async () => {
+        const { runner, calling } = await build("build-1", false)
 
-        await runner.run(claimed(payloadOf("sales.sendNotice")))
+        await expect(runner.run(claimed(payloadOf("sales.sendNotice")))).rejects.toMatchObject({
+            code: EntityEngineErrorCode.PortUnprovided,
+        })
 
         expect(calling.run).not.toHaveBeenCalled()
-        expect(claims.park).toHaveBeenCalledWith(expect.objectContaining({ reason: "ENTITY_ENGINE_PORT_UNPROVIDED" }))
     })
 })
 
-describe("ModuleJobRunnerService park", () => {
-    it("parks a delivery that does not address a job, with the class of its failure", async () => {
-        const { runner, plain, claims } = await build("build-1")
-        claims.park.mockResolvedValue(false)
+describe("ModuleJobRunnerService failures", () => {
+    it("throws a delivery that does not address a job, a refusal the jobs runner judges as input", async () => {
+        const { runner, plain } = await build("build-1")
 
-        await runner.run(claimed({ workspaceId: WS }))
+        const failure: unknown = await runner.run(claimed({ workspaceId: WS })).catch((error_: unknown) => error_)
 
-        expect(claims.park).toHaveBeenCalledWith({
-            jobId: "j-1",
-            expectedFencingToken: 2,
-            failureClass: "input",
-            reason: "ENTITY_ENGINE_JOB_PAYLOAD_INVALID",
-            build: "build-1",
-            queue: "module_jobs",
-        })
+        expect(failure).toMatchObject({ code: EntityEngineErrorCode.JobPayloadInvalid })
+        expect(classifyFailure(failure)).toBe("input")
         expect(plain.run).not.toHaveBeenCalled()
     })
 
-    it("parks a job no module declares and raises the one alert of the park", async () => {
-        const { runner, claims, alerts } = await build("build-1")
-        claims.park.mockResolvedValue(true)
+    it("throws a job no module declares, judged as input", async () => {
+        const { runner } = await build("build-1")
 
-        await runner.run(claimed(payloadOf("sales.nothing")))
+        const failure: unknown = await runner.run(claimed(payloadOf("sales.nothing"))).catch((error_: unknown) => error_)
 
-        expect(alerts.raise).toHaveBeenCalledWith({
-            kind: "flow-parked",
-            jobId: "j-1",
-            flowKind: "module-jobs.run",
-            failureClass: "input",
-            reason: "ENTITY_ENGINE_JOB_UNKNOWN",
-            correlationId: "j-1",
-            build: "build-1",
-            action: "resume",
-        })
+        expect(failure).toMatchObject({ code: EntityEngineErrorCode.JobUnknown })
+        expect(classifyFailure(failure)).toBe("input")
     })
 
-    it("parks a job whose input the declaration rejects and raises no second alert", async () => {
-        const { runner, claims, alerts, plainInput, engine } = await build()
-        claims.park.mockResolvedValue(false)
+    it("throws a job whose input the declaration rejects, judged as input, and opens no scope", async () => {
+        const { runner, plainInput, engine } = await build()
         plainInput.safeParse.mockReturnValue({ success: false, error: mock<ParseFailure>() })
 
-        await runner.run(claimed(payloadOf("sales.confirmNotice")))
+        const failure: unknown = await runner.run(claimed(payloadOf("sales.confirmNotice"))).catch((error_: unknown) => error_)
 
-        expect(claims.park.mock.calls[0]?.[0]).toMatchObject({
-            failureClass: "input",
-            reason: "ENTITY_ENGINE_JOB_INPUT_INVALID",
-            build: "unknown",
-        })
-        expect(alerts.raise).not.toHaveBeenCalled()
+        expect(failure).toMatchObject({ code: EntityEngineErrorCode.JobInputInvalid })
+        expect(classifyFailure(failure)).toBe("input")
         expect(engine.scoped).not.toHaveBeenCalled()
     })
-})
 
-describe("ModuleJobRunnerService park on failure", () => {
-    it("parks a job that fails with a bug, naming the failure", async () => {
-        const { runner, plain, claims } = await build()
-        claims.park.mockResolvedValue(false)
-        plain.run.mockRejectedValue(new Error("boom"))
+    it("lets the failure of a job's own code through untouched, whatever it is", async () => {
+        const { runner, plain } = await build()
+        const bug = new Error("boom")
+        plain.run.mockRejectedValueOnce(bug).mockRejectedValueOnce("oops")
 
-        await runner.run(claimed(payloadOf("sales.confirmNotice")))
-
-        expect(claims.park.mock.calls[0]?.[0]).toMatchObject({ failureClass: "code", reason: "boom" })
+        await expect(runner.run(claimed(payloadOf("sales.confirmNotice")))).rejects.toBe(bug)
+        await expect(runner.run(claimed(payloadOf("sales.confirmNotice")))).rejects.toBe("oops")
     })
 
-    it("parks a job that throws something that is not an error", async () => {
-        const { runner, plain, claims } = await build()
-        claims.park.mockResolvedValue(false)
-        plain.run.mockRejectedValue("oops")
-
-        await runner.run(claimed(payloadOf("sales.confirmNotice")))
-
-        expect(claims.park.mock.calls[0]?.[0]).toMatchObject({ failureClass: "code", reason: "unknown" })
-    })
-
-    it("lets a transient failure reach the runner so the queue retries it", async () => {
-        const { runner, plain, claims } = await build()
+    it("lets a transient failure through untouched so the jobs runner retries it on the ladder", async () => {
+        const { runner, plain } = await build()
         const cause = Object.assign(new Error("reset"), { code: "ECONNRESET" })
         plain.run.mockRejectedValue(cause)
 
         await expect(runner.run(claimed(payloadOf("sales.confirmNotice")))).rejects.toBe(cause)
-        expect(claims.park).not.toHaveBeenCalled()
+        expect(classifyFailure(cause)).toBe("transient")
     })
 })

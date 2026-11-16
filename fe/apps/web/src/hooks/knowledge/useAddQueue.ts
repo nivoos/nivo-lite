@@ -58,7 +58,7 @@ export const useAddQueue = (actions: QueueActions): AddQueue => {
     const addLinks = (urls: ReadonlyArray<string>): ReadonlyArray<QueueItem> => {
         const fresh = urls
             .filter((url) => !items.some((one) => one.kind === "link" && one.name === url))
-            .map((item) => itemOfLink(item))
+            .map((entry) => itemOfLink(entry))
         setItems((now) => [...now, ...fresh])
         return fresh
     }

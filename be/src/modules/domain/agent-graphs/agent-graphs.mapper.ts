@@ -1,30 +1,23 @@
 import { fieldTextOf, fieldTextOrNullOf, isRecord } from "@modules/platform/primitives"
-import type { RecordRow } from "@nivo-lite/agent-sdk/entity/port"
 import type { JsonValue } from "@nivo-lite/agent-sdk/schema"
-import type { GraphRoad } from "@modules/domain/authority-rules"
 import { AgentGraphsError, AgentGraphsErrorCode } from "./errors/agent-graphs.error"
-import type {
-    DecisionClosedAs,
-    DecisionOutcome,
-    FactValue,
-    GraphChangeKind,
-    GraphMode,
-    ProposalKind,
-    ProposalStatus,
-} from "./agent-graphs.contracts"
-import type {
-    GraphDecisionRecord,
-    GraphRecord,
-    PlainJson,
-    ProposalRecord,
-    GraphSourceRecord,
-    VersionRecord,
-} from "./agent-graphs-records.contracts"
+import type { GraphChangeKind, GraphMode } from "./agent-graphs.contracts"
+import type { GraphRecord, PlainJson, VersionRecord } from "./agent-graphs-records.contracts"
 
-type Data = RecordRow["data"]
+/**
+ * A stored row of one of the graph tables by its entity members: a TypeORM entity of `persistence/entities`, or a store double's row.
+ * Times are instants or ISO text; `version` is the row's fence.
+ */
+export type StoredRow = object
+
+type Data = Readonly<Record<string, unknown>>
+
+/** The members of a stored row, by name. */
+const membersOfRow = (row: StoredRow): Data => Object.fromEntries(Object.entries(row))
 
 const GRAPH_MODES: ReadonlyArray<GraphMode> = ["shadow", "enforced"]
-const CHANGE_KINDS: ReadonlyArray<GraphChangeKind> = [
+/** The change kinds of a graph version the be writes and reads (the check of `agent_graph_versions.change_kind`). */
+export const GRAPH_CHANGE_KINDS: ReadonlyArray<GraphChangeKind> = [
     "seed",
     "chat",
     "edit",
@@ -33,13 +26,8 @@ const CHANGE_KINDS: ReadonlyArray<GraphChangeKind> = [
     "template",
     "rollback",
     "spec",
+    "copy",
 ]
-const PROPOSAL_KINDS: ReadonlyArray<ProposalKind> = ["conflict", "learned", "template_update", "gap", "contract"]
-const PROPOSAL_STATUSES: ReadonlyArray<ProposalStatus> = ["open", "confirmed", "declined", "superseded"]
-const ROADS: ReadonlyArray<GraphRoad> = ["work", "reply", "tool", "handover"]
-const GATE_VERDICTS: ReadonlyArray<"auto" | "ask"> = ["auto", "ask"]
-const OUTCOMES: ReadonlyArray<DecisionOutcome> = ["auto", "ask", "stop", "divert"]
-const CLOSED_AS: ReadonlyArray<DecisionClosedAs> = ["done", "approved", "edited", "rejected", "expired", "stopped"]
 
 const unreadable = (): AgentGraphsError => new AgentGraphsError({ code: AgentGraphsErrorCode.RecordUnreadable })
 
@@ -57,12 +45,6 @@ const intOf = (data: Data, key: string): number => {
     return value
 }
 
-const flagOf = (data: Data, key: string): boolean => {
-    const value = data[key]
-    if (typeof value !== "boolean") throw unreadable()
-    return value
-}
-
 const enumOf = <T extends string>(data: Data, key: string, allowed: ReadonlyArray<T>): T => {
     const value = textOf(data, key)
     const found = allowed.find((candidate) => candidate === value)
@@ -72,10 +54,10 @@ const enumOf = <T extends string>(data: Data, key: string, allowed: ReadonlyArra
 
 const isAbsent = (data: Data, key: string): boolean => data[key] === null || data[key] === undefined
 
-const enumOrNull = <T extends string>(data: Data, key: string, allowed: ReadonlyArray<T>): T | null =>
-    isAbsent(data, key) ? null : enumOf(data, key, allowed)
-
-const dateOf = (data: Data, key: string): Date => new Date(textOf(data, key))
+const dateOf = (data: Data, key: string): Date => {
+    const value = data[key]
+    return value instanceof Date ? value : new Date(textOf(data, key))
+}
 
 const dateOrNull = (data: Data, key: string): Date | null => (isAbsent(data, key) ? null : dateOf(data, key))
 
@@ -85,32 +67,14 @@ const objectOf = (data: Data, key: string): Readonly<Record<string, unknown>> =>
     return value
 }
 
-/** The texts a record keeps under one member of a wrapping object: `{ keys: [...] }` or `{ ids: [...] }`. */
-const listOf = (data: Data, key: string, member: string): ReadonlyArray<string> => {
-    const list = objectOf(data, key)[member]
-    if (!Array.isArray(list)) throw unreadable()
-    return list.map((entry) => {
-        if (typeof entry !== "string") throw unreadable()
-        return entry
-    })
-}
-
-const factsOf = (data: Data): Readonly<Record<string, FactValue>> =>
-    Object.fromEntries(
-        Object.entries(objectOf(data, "facts")).map(([key, value]) => {
-            if (typeof value !== "number" && typeof value !== "string" && typeof value !== "boolean") throw unreadable()
-            return [key, value]
-        }),
-    )
-
-/** What every record of the engine carries: its id and its workspace. */
-const headOf = (row: RecordRow): Pick<GraphRecord, "id" | "workspaceId"> => ({
-    id: row.id,
-    workspaceId: row.workspaceId,
+/** What every row carries: its id and its workspace. */
+const headOf = (row: Data): Pick<GraphRecord, "id" | "workspaceId"> => ({
+    id: textOf(row, "id"),
+    workspaceId: textOf(row, "workspaceId"),
 })
 
-/** What a record that is written under a fence carries besides its head: the record version and the time it was made. */
-const fenceOf = (row: RecordRow): Pick<GraphRecord, "fence"> => ({ fence: row.version })
+/** What a row written under a fence carries besides its head: its version. */
+const fenceOf = (row: Data): Pick<GraphRecord, "fence"> => ({ fence: String(intOf(row, "version")) })
 
 const wiringOf = (data: Data): Pick<GraphRecord, "agentId" | "installationId" | "draft" | "draftRev"> => ({
     agentId: textOf(data, "agentId"),
@@ -126,13 +90,16 @@ const modeOf = (data: Data): Pick<GraphRecord, "activeVersionId" | "mode" | "mod
     modeSetAt: dateOrNull(data, "modeSetAt"),
 })
 
-/** A graph record read from the engine's row. */
-export const graphRecordOf = (row: RecordRow): GraphRecord => ({
-    ...headOf(row),
-    ...fenceOf(row),
-    ...wiringOf(row.data),
-    ...modeOf(row.data),
-})
+/** A graph record read from its stored row. */
+export const graphRecordOf = (stored: StoredRow): GraphRecord => {
+    const row = membersOfRow(stored)
+    return {
+        ...headOf(row),
+        ...fenceOf(row),
+        ...wiringOf(row),
+        ...modeOf(row),
+    }
+}
 
 const frozenOf = (data: Data): Pick<VersionRecord, "agentId" | "number" | "document" | "documentHash"> => ({
     agentId: textOf(data, "agentId"),
@@ -145,111 +112,21 @@ const publishedOf = (
     data: Data,
 ): Pick<VersionRecord, "contextVersionId" | "changeKind" | "note" | "publishedBy" | "publishedAt"> => ({
     contextVersionId: textOrNull(data, "contextVersionId"),
-    changeKind: enumOf(data, "changeKind", CHANGE_KINDS),
+    changeKind: enumOf(data, "changeKind", GRAPH_CHANGE_KINDS),
     note: textOf(data, "note"),
     publishedBy: textOrNull(data, "publishedBy"),
     publishedAt: dateOf(data, "publishedAt"),
 })
 
-/** A version record read from the engine's row. */
-export const versionRecordOf = (row: RecordRow): VersionRecord => ({
-    ...headOf(row),
-    ...frozenOf(row.data),
-    ...publishedOf(row.data),
-})
-
-const citedOf = (data: Data): Pick<GraphSourceRecord, "versionId" | "agentId" | "nodeKey" | "branchKey"> => ({
-    versionId: textOf(data, "versionId"),
-    agentId: textOf(data, "agentId"),
-    nodeKey: textOf(data, "nodeKey"),
-    branchKey: textOf(data, "branchKey"),
-})
-
-const backedByOf = (data: Data): Pick<GraphSourceRecord, "kind" | "ref" | "valueHash"> => ({
-    kind: textOf(data, "kind"),
-    ref: textOf(data, "ref"),
-    valueHash: textOf(data, "valueHash"),
-})
-
-/** A source record read from the engine's row. */
-export const sourceRecordOf = (row: RecordRow): GraphSourceRecord => ({
-    workspaceId: row.workspaceId,
-    ...citedOf(row.data),
-    ...backedByOf(row.data),
-})
-
-const raisedOf = (data: Data): Pick<ProposalRecord, "agentId" | "kind" | "status"> => ({
-    agentId: textOf(data, "agentId"),
-    kind: enumOf(data, "kind", PROPOSAL_KINDS),
-    status: enumOf(data, "status", PROPOSAL_STATUSES),
-})
-
-const aboutOf = (data: Data): Pick<ProposalRecord, "baseVersionId" | "nodeKey" | "branchKey"> => ({
-    baseVersionId: textOrNull(data, "baseVersionId"),
-    nodeKey: textOrNull(data, "nodeKey"),
-    branchKey: textOrNull(data, "branchKey"),
-})
-
-const changeOf = (data: Data): Pick<ProposalRecord, "patch" | "widens" | "evidence"> => ({
-    patch: objectOf(data, "patch"),
-    widens: flagOf(data, "widens"),
-    evidence: listOf(data, "evidence", "ids"),
-})
-
-/** A proposal record read from the engine's row. */
-export const proposalRecordOf = (row: RecordRow): ProposalRecord => ({
-    ...headOf(row),
-    ...fenceOf(row),
-    createdAt: new Date(row.createdAt),
-    ...raisedOf(row.data),
-    ...aboutOf(row.data),
-    ...changeOf(row.data),
-})
-
-const ranOf = (data: Data): Pick<GraphDecisionRecord, "agentId" | "workItemId" | "road" | "mode" | "gateVerdict"> => ({
-    agentId: textOf(data, "agentId"),
-    workItemId: textOrNull(data, "workItemId"),
-    road: enumOf(data, "road", ROADS),
-    mode: enumOf(data, "mode", GRAPH_MODES),
-    gateVerdict: enumOrNull(data, "gateVerdict", GATE_VERDICTS),
-})
-
-const unjudgedOf = (data: Data): Pick<GraphDecisionRecord, "unread" | "unjudged" | "subjectType" | "subjectId"> => ({
-    unread: listOf(data, "unread", "keys"),
-    unjudged: textOrNull(data, "unjudged"),
-    subjectType: textOrNull(data, "subjectType"),
-    subjectId: textOrNull(data, "subjectId"),
-})
-
-const walkOf = (data: Data): Pick<GraphDecisionRecord, "versionId" | "wakeId" | "action" | "path"> => ({
-    versionId: textOf(data, "versionId"),
-    wakeId: textOrNull(data, "wakeId"),
-    action: textOf(data, "action"),
-    path: listOf(data, "path", "keys"),
-})
-
-const answerOf = (
-    data: Data,
-): Pick<GraphDecisionRecord, "facts" | "branchKey" | "outcome" | "approvalRequestId" | "closedAs" | "shadowDiff"> => ({
-    facts: factsOf(data),
-    branchKey: textOf(data, "branchKey"),
-    outcome: enumOf(data, "outcome", OUTCOMES),
-    approvalRequestId: textOrNull(data, "approvalRequestId"),
-    closedAs: enumOrNull(data, "closedAs", CLOSED_AS),
-    shadowDiff: flagOf(data, "shadowDiff"),
-})
-
-/** A decision record read from the engine's row. */
-export const decisionRecordOf = (row: RecordRow): GraphDecisionRecord => ({
-    ...headOf(row),
-    ...fenceOf(row),
-    createdAt: new Date(row.createdAt),
-    updatedAt: new Date(row.updatedAt),
-    ...ranOf(row.data),
-    ...unjudgedOf(row.data),
-    ...walkOf(row.data),
-    ...answerOf(row.data),
-})
+/** A version record read from its stored row. */
+export const versionRecordOf = (stored: StoredRow): VersionRecord => {
+    const row = membersOfRow(stored)
+    return {
+        ...headOf(row),
+        ...frozenOf(row),
+        ...publishedOf(row),
+    }
+}
 
 /** The members of an object as plain JSON, an undefined one left out. */
 const membersOf = (value: Readonly<Record<string, unknown>>): PlainJson =>

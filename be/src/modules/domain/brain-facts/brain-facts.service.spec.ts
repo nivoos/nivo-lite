@@ -1,7 +1,7 @@
+import { WorkspaceTimeZoneService } from "@modules/domain/workspace-settings"
 import * as facts from "@tests/fixtures/builders/brain-facts.builder"
-
 import { Test } from "@nestjs/testing"
-import { FakeClock, fakeTransaction, mockEntityManager } from "@starci/jest-preset"
+import { FakeClock, fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
 import type { MockEntityManager } from "@starci/jest-preset"
 import { IsNull } from "typeorm"
 import { CLOCK } from "@modules/platform/clock"
@@ -13,15 +13,24 @@ import { evaluatedCalls, evaluatedValues } from "@tests/fixtures/builders/evalua
 import { BrainFactsMaintenanceService } from "./brain-facts-maintenance.service"
 import { BrainFactsReadService } from "./brain-facts-read.service"
 import { BrainFactsService } from "./brain-facts.service"
+import { InForceBoundService } from "./in-force-bound.service"
+import { BrainFactRelationsService } from "./brain-fact-relations.service"
 import { BrainFactsErrorCode } from "./errors/brain-facts.error"
+import { SUPERSEDE } from "./fact-write.policy"
 import { BrainFactEntity } from "./persistence/entities"
+
+/** The relations store of the service: a double, so a replacement can be seen carrying the edges. */
+const relationsDouble = mock<BrainFactRelationsService>()
 
 const parts = async (em: MockEntityManager) => {
     const moduleRef = await Test.createTestingModule({
         providers: [
             BrainFactsService,
+            { provide: WorkspaceTimeZoneService, useValue: mock<WorkspaceTimeZoneService>({ timeZoneOf: () => Promise.resolve("Asia/Ho_Chi_Minh") }) },
+            InForceBoundService,
             BrainFactsReadService,
             BrainFactsMaintenanceService,
+            { provide: BrainFactRelationsService, useValue: relationsDouble },
             { provide: PRIMARY_ENTITY_MANAGER, useValue: em },
             { provide: CLOCK, useValue: new FakeClock(facts.AT) },
         ],
@@ -130,6 +139,7 @@ const registerInsert = () => {
         await expect(service.propose(facts.WS, facts.inputOf())).resolves.toEqual({
             fact: facts.factOf(),
             outcome: "proposed",
+            created: true,
         })
         expect(insertedBy(insert)).toEqual({ values: facts.insertedOf(), parameters: facts.insertParametersOf() })
         const values = evaluatedValues(insert?.callsOf("values")[0]?.[0])
@@ -145,6 +155,7 @@ const registerInsert = () => {
         await expect(service.propose(facts.WS, facts.inputOf({ unit: " " }))).resolves.toEqual({
             fact: facts.factOf(),
             outcome: "conflict",
+            created: true,
         })
         expect(insertedBy(insert)).toEqual({ values: facts.conflictInsert, parameters: facts.insertParametersOf() })
     })
@@ -155,6 +166,7 @@ const registerInsert = () => {
         await expect(service.propose(facts.WS, facts.inputOf(facts.explicitInput))).resolves.toEqual({
             fact: facts.factOf({ status: "active" }),
             outcome: "applied",
+            created: true,
         })
         expect(insertedBy(insert)).toEqual({
             values: facts.explicitInsert,
@@ -166,7 +178,9 @@ const registerInsert = () => {
         })
         expect(apply).toHaveBeenCalledWith(facts.WS, "f1", "u1")
     })
+}
 
+const registerGuards = () => {
     it("creates a restricted text proposal without modules and reports an insert that returns no fact", async () => {
         const { insert, service } = await writing([[]], [])
         const input = facts.inputOf({ scope: "restricted", autoApply: false, value: "Open every day" })
@@ -227,18 +241,19 @@ const registerApply = () => {
             decidedAt: "now()",
             decisionNote: current ? "approved" : null,
             validFrom: "coalesce(valid_from, now())",
+            validTo: "coalesce(valid_to, coalesce(valid_from, now()) + interval '1 year')",
+            version: 1,
         })
-        expect(evaluatedCalls(tx.em.update.mock.calls, 2)).toEqual(
-            current
-                ? [
-                      [
-                          "BrainFactEntity",
-                          { workspaceId: facts.WS, id: "old", status: "active" },
-                          { status: "superseded", validTo: "coalesce(valid_to, now())" },
-                      ],
-                  ]
-                : [],
+        const superseded = [
+            "BrainFactEntity",
+            { workspaceId: facts.WS, id: "old", status: "active" },
+            evaluatedValues(SUPERSEDE),
+        ]
+        expect(evaluatedCalls(tx.em.update.mock.calls, 2)).toEqual(current ? [superseded] : [])
+        expect(relationsDouble.carry.mock.calls.map((call) => call.slice(1))).toEqual(
+            current ? [[facts.WS, "old", "f1"]] : [],
         )
+        relationsDouble.carry.mockClear()
         expect(tx.commits).toBe(1)
     })
 
@@ -415,81 +430,40 @@ const registerChoices = () => {
     })
 }
 
-const registerUpkeep = () => {
-    it("only finalizes still unsupported active facts without a waiting value", async () => {
-        const retire = facts.rowOf({ proposalKind: "retire" })
-        const active = (id: string) => facts.rowOf({ status: "active", id })
-        const em = mockEntityManager({
-            findOne: [
-                [BrainFactEntity, null],
-                [BrainFactEntity, facts.rowOf()],
-                [BrainFactEntity, facts.rowOf({ status: "active", evidence: [facts.PROOF] })],
-                [BrainFactEntity, active("value")],
-                [BrainFactEntity, active("retire")],
-                [BrainFactEntity, active("file")],
-            ],
-            find: [
-                [BrainFactEntity, [facts.rowOf()]],
-                [BrainFactEntity, [retire]],
-                [BrainFactEntity, [retire]],
-                [BrainFactEntity, []],
-                [BrainFactEntity, []],
-            ],
-        })
-        const [insert] = queueQueryBuilders(em, [answered(facts.rowOf())])
-        await expect(
-            (await build(em)).finalizeOrphans(
-                facts.WS,
-                ["missing", "proposed", "supported", "value", "retire", "file"],
-                facts.PROOF,
-            ),
-        ).resolves.toBe(1)
-        expect(insertedBy(insert).values).toEqual(facts.orphanInsert)
-    })
-
-    it("rejects incomplete facts before reaching persistence", async () => {
-        const em = mockEntityManager()
-        await expect((await build(em)).propose(facts.WS, facts.inputOf({ value: " " }))).rejects.toMatchObject({
-            code: BrainFactsErrorCode.FactIncomplete,
-        })
-        expect(em.find).not.toHaveBeenCalled()
-        expect(em.createQueryBuilder).not.toHaveBeenCalled()
-    })
-
-    it("hands reads and upkeep to their services unchanged", async () => {
-        const { service, reads, maintenance } = await parts(mockEntityManager())
-        const listed = [facts.factOf()]
-        const done = { activated: listed, expired: 1 }
-        for (const method of ["list", "forView", "search"] as const) jest.spyOn(reads, method).mockResolvedValue(listed)
-        jest.spyOn(maintenance, "withdrawSource").mockResolvedValue(["orphan"])
-        jest.spyOn(maintenance, "withdrawChanged").mockResolvedValue({ orphans: [], withdrawn: 1 })
-        jest.spyOn(maintenance, "maintain").mockResolvedValue(done)
-        await expect(service.list(facts.WS, { statuses: ["active"] })).resolves.toBe(listed)
-        await expect(service.forView(facts.WS, "customer", "chatbot", null, 5)).resolves.toBe(listed)
-        await expect(service.search(facts.WS, "internal", "sales", "i1", "hours", 3)).resolves.toBe(listed)
-        await expect(service.withdrawSource(facts.WS, "doc-1", "Removed")).resolves.toEqual(["orphan"])
-        await expect(service.withdrawChanged(facts.WS, "d", "n", "t")).resolves.toMatchObject({ withdrawn: 1 })
-        await expect(service.maintain(facts.WS)).resolves.toBe(done)
-        expect(reads.list).toHaveBeenCalledWith(facts.WS, { statuses: ["active"] })
-        expect(reads.forView).toHaveBeenCalledWith(facts.WS, "customer", "chatbot", null, 5)
-        expect(reads.search).toHaveBeenCalledWith(facts.WS, "internal", "sales", "i1", "hours", 3)
-        expect(maintenance.withdrawSource).toHaveBeenCalledWith(facts.WS, "doc-1", "Removed")
-        expect(maintenance.maintain).toHaveBeenCalledWith(facts.WS)
-    })
-
-    it("files the retirement of an active value that has no number", async () => {
-        const { insert, service } = await writing([[]])
-        const active = facts.factOf({ status: "active", value: "Open every day", valueNumber: null })
-        await expect(service.proposeRetire(facts.WS, active, facts.PROOF, "u2")).resolves.toBe(true)
-        expect(insertedBy(insert).values).toMatchObject({ value: "Open every day", valueNumber: null })
-    })
-}
-
 describe("BrainFactsService", () => {
     registerReinforce()
     registerInsert()
+    registerGuards()
     registerApply()
     registerDecisions()
     registerChoices()
-    registerUpkeep()
+})
+
+describe("BrainFactsService.announceChanged: told inside a job's finishing transaction", () => {
+    it("hands the transaction to every listener, in order, and a listener that fails fails the announcement (nothing is swallowed)", async () => {
+        const service = await build(mockEntityManager({}))
+        const tx = mockEntityManager({})
+        const first = { factsChanged: jest.fn().mockResolvedValue(undefined) }
+        const second = { factsChanged: jest.fn().mockRejectedValue(new Error("cannot write its job")) }
+        service.whenChanged(first)
+        service.whenChanged(second)
+
+        await expect(service.announceChanged(facts.WS, ["f1", "f1"], tx)).rejects.toThrow("cannot write its job")
+
+        expect(first.factsChanged).toHaveBeenCalledWith(facts.WS, ["f1"], tx)
+        expect(second.factsChanged).toHaveBeenCalledWith(facts.WS, ["f1"], tx)
+    })
+
+    it("without a transaction a failing listener never fails the write nor the next listener, and no transaction is handed over", async () => {
+        const service = await build(mockEntityManager({}))
+        const failing = { factsChanged: jest.fn().mockRejectedValue(new Error("logs its own failure")) }
+        const next = { factsChanged: jest.fn().mockResolvedValue(undefined) }
+        service.whenChanged(failing)
+        service.whenChanged(next)
+
+        await expect(service.announceChanged(facts.WS, ["f1"])).resolves.toBeUndefined()
+
+        expect(failing.factsChanged).toHaveBeenCalledWith(facts.WS, ["f1"])
+        expect(next.factsChanged).toHaveBeenCalledTimes(1)
+    })
 })

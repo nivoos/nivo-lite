@@ -1,9 +1,11 @@
 // Read services lead the barrel: other capabilities import this barrel while it loads (import cycles), they must already be defined.
 export { WorkspaceMembersReadService } from "./workspace-members-read.service"
-export type { MemberRow, MemberSeat } from "./workspace-members-read.contracts"
+export type { MemberRow } from "./workspace-members-read.contracts"
+
 export { WORKSPACE_MEMBERS_ERROR_KINDS } from "./errors/workspace-members.error"
 export { WORKSPACE_MEMBERS_MESSAGES } from "./messages/workspace-members.messages"
-export { canDecide, isManagerRole, PresentedRole } from "./role.policy"
+export { isManagerRole, PresentedRole } from "./role.policy"
+
 export type {
     AccountDirectory,
     AccountOverview,
@@ -21,5 +23,7 @@ export { WorkspaceMemberDirectoryService } from "./workspace-member-directory.se
 export { MemberLookupService } from "./member-lookup.service"
 export { workspaceMembersEntities } from "./persistence/entities"
 export { MemberRosterService } from "./member-roster.service"
+export { MemberLobbyService } from "./member-lobby.service"
+export type { LobbySeat } from "./workspace-member-directory.contracts"
 export { WorkspaceMemberSeatsService } from "./workspace-member-seats.service"
 export type { MemberSeatRecord } from "./workspace-member-seats.contracts"

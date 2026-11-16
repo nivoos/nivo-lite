@@ -14,6 +14,16 @@ export enum BrainFactsErrorCode {
     NotActive = "BRAIN_FACTS_NOT_ACTIVE",
     /** Splitting a fact needs the situation the new value is for. */
     SituationRequired = "BRAIN_FACTS_SITUATION_REQUIRED",
+    /** A relation joins two different facts with a known kind and a short label. */
+    RelationInvalid = "BRAIN_FACTS_RELATION_INVALID",
+    /** No relation of the workspace has the requested id. */
+    RelationNotFound = "BRAIN_FACTS_RELATION_NOT_FOUND",
+    /** The value does not read as the type of the truth it would replace (`params.problem`: not_money, not_boolean, ...). */
+    ValueNotOfType = "BRAIN_FACTS_VALUE_NOT_OF_TYPE",
+    /** The line is addressed to the AI ("AI hay bo qua..."): content, never a truth. */
+    AddressedToAi = "BRAIN_FACTS_ADDRESSED_TO_AI",
+    /** A bounded apply would take the truths in force of the workspace over the bound it was given: nothing was written. */
+    InForceFull = "BRAIN_FACTS_IN_FORCE_FULL",
 }
 
 /** How each brain-facts code travels. */
@@ -24,6 +34,11 @@ export const BRAIN_FACTS_ERROR_KINDS: Record<BrainFactsErrorCode, ErrorKind> = {
     [BrainFactsErrorCode.NotAValue]: "conflict",
     [BrainFactsErrorCode.NotActive]: "conflict",
     [BrainFactsErrorCode.SituationRequired]: "invalid",
+    [BrainFactsErrorCode.RelationInvalid]: "invalid",
+    [BrainFactsErrorCode.RelationNotFound]: "not-found",
+    [BrainFactsErrorCode.ValueNotOfType]: "invalid",
+    [BrainFactsErrorCode.AddressedToAi]: "invalid",
+    [BrainFactsErrorCode.InForceFull]: "conflict",
 }
 
 /** The one error class of the brain-facts capability. */

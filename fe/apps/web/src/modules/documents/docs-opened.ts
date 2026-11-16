@@ -1,5 +1,6 @@
 import { INGEST_STAGES, ingestStageOf } from "./ingest-stages"
-import { isAgentModule, isDocumentActive, noteKeyOf } from "./status"
+import type { ModuleLabelOf } from "@/modules/catalog"
+import { isDocumentActive, noteKeyOf } from "./status"
 import { docGlyphOf } from "./docs-rows"
 import type { KnowledgeFormat, KnowledgeTranslate } from "./docs-translate"
 import type {
@@ -20,8 +21,8 @@ import type {
 const BYTES_PER_MB = 1_048_576
 
 /** The label of the agent a document is kept for, or of every agent. */
-const moduleLabelOf = (t: KnowledgeTranslate, module: string | null): string =>
-    module !== null && isAgentModule(module) ? t(`module_${module}`) : t("moduleAll")
+const moduleLabelOf = (t: KnowledgeTranslate, labelOf: ModuleLabelOf, module: string | null): string =>
+    module === null ? t("moduleAll") : (labelOf(module) ?? module)
 
 /** The day and month of a moment, as the artboards write them ("02/11"). */
 const dayOf = (format: KnowledgeFormat, iso: string): string =>
@@ -54,12 +55,13 @@ export const docFactsOf = (
     t: KnowledgeTranslate,
     format: KnowledgeFormat,
     source: KnowledgeDocument,
+    labelOf: ModuleLabelOf,
 ): ReadonlyArray<DocFactView> => [
     { id: "kind", term: t("factKind"), text: kindTextOf(t, format, source) },
     { id: "source", term: t("factSource"), text: sourceTextOf(t, source) },
     { id: "topic", term: t("factTopic"), text: source.topic ?? t("addNoTopic") },
     ...(source.tags.length === 0 ? [] : [{ id: "tags", term: t("factTags"), text: source.tags.join(", ") }]),
-    { id: "for", term: t("factFor"), text: moduleLabelOf(t, source.module) },
+    { id: "for", term: t("factFor"), text: moduleLabelOf(t, labelOf, source.module) },
     {
         id: "who",
         term: t("factWho"),
@@ -71,10 +73,27 @@ export const docFactsOf = (
 /** What the head of an opened document needs from its commands. */
 interface DocHeadInput {
     readonly canWrite: boolean
-    readonly busy: "reindex" | "delete" | null
+    readonly busy: "reindex" | "delete" | "area" | null
     /** The commands of the row (read again, read the facts again, apply them, take them back), already worded. */
     readonly rowActions: ReadonlyArray<DocMenuItemView>
     readonly chip: DocChipView | null
+}
+
+/** The command that moves a document to the other area, worded by where it stands now; none for a reader who may not write. */
+const areaOf = (t: KnowledgeTranslate, source: KnowledgeDocumentDetail, input: DocHeadInput): DocHeadView["area"] => {
+    if (!input.canWrite) return null
+    const toPublic = source.visibility === "internal"
+    const key = toPublic ? "areaToPublic" : "areaToInternal"
+    return {
+        label: t(key),
+        isPending: input.busy === "area",
+        confirm: {
+            title: t(`${key}Title`, { name: source.title }),
+            description: t(`${key}Body`),
+            confirmLabel: t(key),
+            cancelLabel: t("addCancel"),
+        },
+    }
 }
 
 /** The head band of an opened document: where it stands and who may read it, the one line, "read again" and the menu. */
@@ -96,7 +115,7 @@ export const docHeadOf = (
         ...(input.chip === null ? [] : [input.chip]),
         {
             label: t(source.visibility === "public" ? "vis_public" : "vis_internal"),
-            tone: source.visibility === "public" ? "accent" : "neutral",
+            tone: "neutral",
         },
     ],
     reindex: input.canWrite
@@ -109,6 +128,7 @@ export const docHeadOf = (
     menu: input.canWrite
         ? [...input.rowActions, { id: "delete", label: t("removeConfirm"), tone: "danger" as const }]
         : [],
+    area: areaOf(t, source, input),
     remove: input.canWrite
         ? {
               title: t("removeTitle", { name: source.title }),
@@ -163,6 +183,7 @@ export const nivoOpenedOf = (
     t: KnowledgeTranslate,
     format: KnowledgeFormat,
     item: NivoEntry,
+    labelOf: ModuleLabelOf,
 ): DocOpenedView<NivoBodyView> => ({
     head: {
         title: item.title,
@@ -171,6 +192,7 @@ export const nivoOpenedOf = (
         chips: [{ label: t("readOnlyChip"), tone: "neutral" }],
         reindex: null,
         menu: [],
+        area: null,
         remove: null,
     },
     body: {
@@ -189,7 +211,7 @@ export const nivoOpenedOf = (
         {
             id: "for",
             term: t("factFor"),
-            text: isAgentModule(item.module) ? t(`module_${item.module}`) : t("moduleCore"),
+            text: labelOf(item.module) ?? t("moduleCore"),
         },
         { id: "editor", term: t("factEditor"), text: t("factEditorValue") },
     ],

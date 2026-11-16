@@ -1,9 +1,9 @@
 "use client"
 
+import { useAgentRoute } from "@/hooks/installations"
 import { useTranslations } from "next-intl"
 import { useState } from "react"
 import {
-    GOAL_TITLE_MAX,
     TIME_OF_DAY,
     WORK_PLACEHOLDER,
     WORK_PRESETS,
@@ -18,8 +18,8 @@ import { AgentWorkPanesBase, type AgentWorkCopy } from "./component"
 
 /** The instance whose work the tab shows. */
 type AgentWorkPanesProps = {
-    readonly module: string
-    readonly installationId: string
+    readonly module?: string | undefined
+    readonly installationId?: string | undefined
 }
 
 const presetOf = (value: string | null): AgentWorkPreset | null =>
@@ -28,12 +28,6 @@ const presetOf = (value: string | null): AgentWorkPreset | null =>
 /** The words of the Work tab that do not come from the data. */
 const copyOf = (t: ReturnType<typeof useTranslations<"agentWork">>): AgentWorkCopy => ({
     paneLabel: t("paneLabel"),
-    goalsTitle: t("goalsTitle"),
-    goalsEmpty: t("goalsEmpty"),
-    goalDone: t("goalMarkDone"),
-    goalNewLabel: t("goalNewLabel"),
-    goalNewPlaceholder: t("goalNewPlaceholder"),
-    goalAdd: t("goalAdd"),
     tasksTitle: t("tasksTitle"),
     tasksEmpty: t("tasksEmpty"),
     taskClose: t("taskClose"),
@@ -48,37 +42,23 @@ const copyOf = (t: ReturnType<typeof useTranslations<"agentWork">>): AgentWorkCo
     timePlaceholder: t("timePlaceholder"),
     timeInvalid: t("timeInvalid"),
     scheduleAdd: t("scheduleAdd"),
-    turnsTitle: t("turnsTitle"),
-    turnsEmpty: t("turnsEmpty"),
-    turnOpenItem: t("openWorkItem"),
     readOnlyHint: t("readOnlyHint"),
     formOpen: t("formOpen"),
     formCancel: t("formCancel"),
-    phoneLabel: t("phoneLabel"),
-    phoneWork: t("phoneWork"),
-    phoneGoals: t("phoneGoals"),
 })
 
 /** The connected Work tab: it reads the work of the instance, keeps the two small forms, and sends the commands. */
 export const AgentWorkPanes = (props: AgentWorkPanesProps) => {
+    const route = useAgentRoute(props)
     const t = useTranslations("agentWork")
     const slotLabels = useSlotLabels()
-    const { slot, reload } = useAgentWork(props.module, props.installationId)
-    const actions = useAgentWorkActions(props.installationId)
-    const [goalTitle, setGoalTitle] = useState("")
+    const { slot, reload } = useAgentWork(route.module, route.installationId)
+    const actions = useAgentWorkActions(route.installationId)
     const [preset, setPreset] = useState<AgentWorkPreset>("daily_at")
     const [atTime, setAtTime] = useState("09:00")
-    const [openForm, setOpenForm] = useState<"goal" | "clock" | null>(null)
-    const [phoneView, setPhoneView] = useState<"work" | "goals">("work")
+    const [openForm, setOpenForm] = useState<"clock" | null>(null)
     const needsTime = presetNeedsTime(preset)
     const isTimeInvalid = needsTime && atTime !== "" && !TIME_OF_DAY.test(atTime)
-    const title = goalTitle.trim()
-    const addGoal = async (): Promise<void> => {
-        if (await actions.addGoal(title)) {
-            setGoalTitle("")
-            setOpenForm(null)
-        }
-    }
     return (
         <AgentWorkPanesBase
             props={{
@@ -86,10 +66,8 @@ export const AgentWorkPanes = (props: AgentWorkPanesProps) => {
                 slot,
                 placeholder: WORK_PLACEHOLDER,
                 slotLabels: slotLabels(t("emptyWork")),
-                grid: agentWorkGridOf(phoneView),
+                grid: agentWorkGridOf(),
                 draft: {
-                    goalTitle,
-                    canAddGoal: title !== "" && title.length <= GOAL_TITLE_MAX,
                     preset,
                     presetOptions: [
                         { id: "every_15m", label: t("optEvery15m") },
@@ -102,14 +80,10 @@ export const AgentWorkPanes = (props: AgentWorkPanesProps) => {
                     isTimeInvalid,
                     canAddClock: !needsTime || TIME_OF_DAY.test(atTime),
                     openForm,
-                    phoneView,
                 },
                 isSaving: actions.isSaving,
             }}
             on={{
-                goalTitle: (value) => setGoalTitle(value.slice(0, GOAL_TITLE_MAX)),
-                addGoal: () => void addGoal(),
-                closeGoal: (goal) => void actions.closeGoal(goal),
                 preset: (value) => setPreset(presetOf(value) ?? "daily_at"),
                 atTime: setAtTime,
                 addClock: () => {
@@ -117,7 +91,6 @@ export const AgentWorkPanes = (props: AgentWorkPanesProps) => {
                     setOpenForm(null)
                 },
                 openForm: setOpenForm,
-                phoneView: setPhoneView,
                 switchTrigger: (trigger, enabled) => void actions.switchTrigger(trigger, enabled),
                 removeTrigger: (id) => void actions.removeClock(id),
                 closeTask: (id) => void actions.closeTask(id),

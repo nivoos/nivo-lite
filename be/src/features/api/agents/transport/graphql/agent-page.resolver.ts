@@ -13,7 +13,7 @@ import { toAgentPageRequest, toAgentPageType } from "./agents.mapper"
 export class AgentPageResolver {
     constructor(@InjectQueryBus() private readonly queryBus: QueryBus) {}
 
-    /** Reads who is in charge of an agent, who may give it work, whom it may tag, its rules and its latest work. */
+    /** Reads who is in charge of an agent, who may give it work, its rules and its latest work. */
     @Query(() => AgentPageType, { name: "agentPage" })
     async agentPage(
         @CurrentPrincipal() principal: Principal,

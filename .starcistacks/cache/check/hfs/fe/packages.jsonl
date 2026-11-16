@@ -1,6 +1,30 @@
+{"data":{},"findings":[],"hash":"560a186ae0bba7ed8da9d0baba922be4e02a2a93ea3ef30628690b2b4f626c94","path":"fe/packages/nivo-api/package.json","step":"file-rules"}
+{"findings":[{"column":0,"line":0,"message":"fe/packages/nivo-api/package.json belongs to fe.package.api, an opt-in slot hfs.json neither lists in optionalSlots nor implies through an app kind","path":"fe/packages/nivo-api/package.json","rule":"HFS_SLOT_NOT_ENABLED"}],"hash":"63e35bb7510da6526facd2568575a8e8730108d477191a9cd19cf386b9f4a202","path":"fe/packages/nivo-api/package.json","step":"hfs"}
+{"data":{},"findings":[],"hash":"144a6be3ca808b517b9138a586df1ee6a282676cde27c8fe205ffa174f031a43","path":"fe/packages/nivo-api/src/graphql/clients/auth.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"a190b88733cbd1c801cef66fc30bf8135b66806443147de68a5a3c29c99355ab","path":"fe/packages/nivo-api/src/graphql/clients/index.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"7c1c8449c7696e3f1d06223339ad8c3439432b25d1efdd114989f0620d874c11","path":"fe/packages/nivo-api/src/graphql/clients/links/access-token.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"8421270f2263ccff8b68b9539dc80c7c36569935790f11ed54aa7ead33126898","path":"fe/packages/nivo-api/src/graphql/clients/links/end-session.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"c815cee87e2f1d8e0509f1111edd92a73bf3f8d8de0384e6141dcd1b9275fd22","path":"fe/packages/nivo-api/src/graphql/clients/links/fixture.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"39b4803b36404c1410787b1bf1de15f3e7bb350f4b220ecf0dc1649f2ac3fd68","path":"fe/packages/nivo-api/src/graphql/clients/links/headers.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"4b05e1cfc26df210a511b5bfc5ed46f642bf580de4f5e31b1988cc088f1d87cc","path":"fe/packages/nivo-api/src/graphql/clients/links/http.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"3841b94a3704a1c0b1575f45dcd07a28a6c19682af9d3f59691d42c9c210f66b","path":"fe/packages/nivo-api/src/graphql/clients/links/locale.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"16761a1f338d6ad9cedb47e17af1e1a8fd5c721e6e456ec8fe57c5fa951a0e24","path":"fe/packages/nivo-api/src/graphql/clients/links/refresh.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"5fd817ea151fae8b97db4e285f958b16a935b77700d65ce62e86c8fb62a2bfb4","path":"fe/packages/nivo-api/src/graphql/clients/links/retry.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"c49fd7736cda22e7ea5200ba40d05b08fde589295b5f5e8df1b9258baa283f66","path":"fe/packages/nivo-api/src/graphql/clients/links/timeout.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"3d5c749aaf6a2ca044f783ff545c8083e80dbc2818f9dca48b21dda236fbe2a4","path":"fe/packages/nivo-api/src/graphql/clients/links/workspace.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"da3e3d02ee367800df047f166fbb7956c45c2d001e8189b6b514f566e863157a","path":"fe/packages/nivo-api/src/graphql/clients/no-auth.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"bc105dc62dc5b54506076f9bf74c63b6df0086f72e885a50d08d2975a0851b78","path":"fe/packages/nivo-api/src/graphql/clients/options.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"fc16ca30697503addcc3749fd23a7350e734658345e20ab0c6e6231f35ff17c8","path":"fe/packages/nivo-api/src/graphql/clients/transport.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"ce0dae7b986fbe015bb3c125c33459da7efee34a1db83d91be300eba351d1c80","path":"fe/packages/nivo-api/src/graphql/types.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"78e04f5ab39ad7f19057489a70f852064a09bdccacecd2df11a758b224e0e998","path":"fe/packages/nivo-api/src/graphql/wire.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"b731ec651bc7f590e3677d436b8cf177d0b985c91b9e80c3050ca009e0dfc534","path":"fe/packages/nivo-api/src/index.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"f28ba0af1502e4fc2ff8fb674ee3b6b79efe12c7fdb3af9f41cfd3e17bf1f71e","path":"fe/packages/nivo-api/tsconfig.build.json","step":"file-rules"}
+{"findings":[{"column":0,"line":0,"message":"fe/packages/nivo-api/tsconfig.build.json belongs to fe.package.api, an opt-in slot hfs.json neither lists in optionalSlots nor implies through an app kind","path":"fe/packages/nivo-api/tsconfig.build.json","rule":"HFS_SLOT_NOT_ENABLED"}],"hash":"2931539bb0f1e29080054fe0a2717352e15285662241480a7358a3ef40b7174e","path":"fe/packages/nivo-api/tsconfig.build.json","step":"hfs"}
+{"data":{},"findings":[],"hash":"f2388b528bf9cddb2e94bd8a76066f56cfc4ce7ad712e76d8ac8f4c0156ceb43","path":"fe/packages/nivo-api/tsconfig.json","step":"file-rules"}
+{"findings":[{"column":0,"line":0,"message":"fe/packages/nivo-api/tsconfig.json belongs to fe.package.api, an opt-in slot hfs.json neither lists in optionalSlots nor implies through an app kind","path":"fe/packages/nivo-api/tsconfig.json","rule":"HFS_SLOT_NOT_ENABLED"}],"hash":"73109e2a7ccde906d948dca16e015cf3bd6f6c99b3aff7fcd5ab2fd12fde5069","path":"fe/packages/nivo-api/tsconfig.json","step":"hfs"}
 {"data":{},"findings":[],"hash":"6df4473448e1e6f9a73ab4990c6e63eee981d788029b8ba36d7ff4a9a85533da","path":"fe/packages/nivo-i18n/package.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"2d91ae6e195c3ff3c238443e94bd29d3bef6c147d4e591ba93d1fb9eeec73eeb","path":"fe/packages/nivo-i18n/src/index.ts","step":"file-rules"}
-{"data":{},"findings":[],"hash":"a2dd1f7d2945f564af3530c6c9c54507bf90070bf266c30f4f226f2e2f42b492","path":"fe/packages/nivo-i18n/src/layout.tsx","step":"file-rules"}
+{"data":{},"findings":[],"hash":"c2fc50758242e04886ac605f1c576077690f40897a6a61d94c78860cc957662f","path":"fe/packages/nivo-i18n/src/layout.tsx","step":"file-rules"}
 {"data":{},"findings":[],"hash":"5e8b88aef15c39de10e198b978fb6af9c47ca6b0a0dd001a99337a60c46941a5","path":"fe/packages/nivo-i18n/src/navigation.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"8935f0a933d9201bac33253046eeaa9d93ee3eaf388df3158057928119afa2ed","path":"fe/packages/nivo-i18n/src/routing.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"f28ba0af1502e4fc2ff8fb674ee3b6b79efe12c7fdb3af9f41cfd3e17bf1f71e","path":"fe/packages/nivo-i18n/tsconfig.build.json","step":"file-rules"}
@@ -9,3 +33,24 @@
 {"data":{},"findings":[],"hash":"6bdbd011861b821516c17dd726c3322eb05cfb48264b9169647a349b9e423320","path":"fe/packages/nivo-offer/src/index.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"f28ba0af1502e4fc2ff8fb674ee3b6b79efe12c7fdb3af9f41cfd3e17bf1f71e","path":"fe/packages/nivo-offer/tsconfig.build.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"f2388b528bf9cddb2e94bd8a76066f56cfc4ce7ad712e76d8ac8f4c0156ceb43","path":"fe/packages/nivo-offer/tsconfig.json","step":"file-rules"}
+{"data":{},"findings":[],"hash":"ab67d58c6bddd883a36abeaa4e295f9219430ae781571644c36a30dc030b1214","path":"fe/packages/shared/package.json","step":"file-rules"}
+{"findings":[{"column":0,"line":0,"message":"fe/packages/shared/package.json dependencies declares @nivo-lite/agent-sdk, absent from knowledge/hfs/fe-stack.yaml; add a canonical concern or declare sides.fe.extraPackages with its name and a nonempty reason in hfs.json","path":"fe/packages/shared/package.json","rule":"FE_STACK_UNLISTED"}],"hash":"f9aa0bd559a24c2bdb5c64da50165838f720c0e1cca22a41d7a1ea0e8a25fd09","path":"fe/packages/shared/package.json","step":"hfs"}
+{"data":{},"findings":[],"hash":"923c14d90c82a3f3bf99ba6983129df0f490a4f2fc9835b64b4a1bb45f745737","path":"fe/packages/shared/src/app-error-page-base.tsx","step":"file-rules"}
+{"data":{},"findings":[],"hash":"5207771adc11d5c623e356255ad33c83a37534b335ebc2f768c35ffffccea6ce","path":"fe/packages/shared/src/app-error-page.tsx","step":"file-rules"}
+{"data":{},"findings":[],"hash":"06df6e7ec411f33d165712ade4021d9fc8cdc96e1b6d4790fc9a415346a6f614","path":"fe/packages/shared/src/app-global-error-page-base.tsx","step":"file-rules"}
+{"data":{},"findings":[],"hash":"8c7642e25a4f2eb56fdb018b4430813f354388b5db6fd105a1f7ea15732a64a3","path":"fe/packages/shared/src/app-layout-base.tsx","step":"file-rules"}
+{"data":{},"findings":[],"hash":"9d532bdb87ce80aa5cd86334848490f14e95cbb32b192c946c160654cb26551b","path":"fe/packages/shared/src/app-layout-class-names.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"3f45573c1466bbcba092d1272b59ca7d13bfc50a50b7411ae81d7d6d5ab6cf80","path":"fe/packages/shared/src/auth-contracts.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"5726ce7b699d78244366e7d0a552c2cfeb893b34c9123148eeaed52e5475e9f5","path":"fe/packages/shared/src/failure.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"b797fa63851f80728a65cecc8fd51605026c3f5b7cf4f5d3cacc2d34b8e5623e","path":"fe/packages/shared/src/hooks/use-locale-switch.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"2071a1f68d7d4f9e46a99390bb5d894c12b8fdc06186106a7af449fdc30750a0","path":"fe/packages/shared/src/hooks/use-slot-labels.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"b6c7255427d0dd39bf14c1941e93ba5eb51cd0ce1c8a2a80f79c0f2aeb9a85b5","path":"fe/packages/shared/src/hooks/use-theme-switch.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"f563adfb205b51d46cbebc80c4f3594cf7c497086ca742b1f48a4e614382138e","path":"fe/packages/shared/src/index.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"54bc23cfeebe4c86370f7cae63024d1ad6b3f08d5c37552e56fb2028525cb7d4","path":"fe/packages/shared/src/route-error-base.tsx","step":"file-rules"}
+{"data":{},"findings":[],"hash":"2896d6deff5772694897fdbf190caee1e87538b1cc9954a5419750c60ff1fb1d","path":"fe/packages/shared/src/route-error.tsx","step":"file-rules"}
+{"data":{},"findings":[],"hash":"3132bc406e273175618f2876e971264fe3037eb3b32d8e432d1f4e1efe5462c2","path":"fe/packages/shared/src/slot.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"46ec7a73b37a0466646ab43e37c13617a62dfbafd4b4c9bebebb36cb548c7e10","path":"fe/packages/shared/src/swr-read.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"df7182c9dc1553b9bc0671d0bbc31fe29841b8ac1da6fe72b30375acb559f4dd","path":"fe/packages/shared/src/toast.tsx","step":"file-rules"}
+{"data":{},"findings":[],"hash":"7d4345e0683a84bab31ae0d4160a835bc819e1e189fbf4601a296032504e6ab4","path":"fe/packages/shared/src/viewer-cache.ts","step":"file-rules"}
+{"data":{},"findings":[],"hash":"f28ba0af1502e4fc2ff8fb674ee3b6b79efe12c7fdb3af9f41cfd3e17bf1f71e","path":"fe/packages/shared/tsconfig.build.json","step":"file-rules"}
+{"data":{},"findings":[],"hash":"f2388b528bf9cddb2e94bd8a76066f56cfc4ce7ad712e76d8ac8f4c0156ceb43","path":"fe/packages/shared/tsconfig.json","step":"file-rules"}

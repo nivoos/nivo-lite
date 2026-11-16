@@ -27,10 +27,6 @@ export class AgentConnectionType {
     @Field()
     status!: string
 
-    /** `read`, `ask` or `auto`. */
-    @Field()
-    access!: string
-
     /** What the agent uses the connection for. */
     @Field()
     purpose!: string

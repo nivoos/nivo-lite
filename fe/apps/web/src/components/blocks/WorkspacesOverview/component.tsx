@@ -1,4 +1,4 @@
-import { Alert, Button, Heading, Mascot, Stepper, SurfaceCard, Text, Stack } from "@starci/grammar/common"
+import { Alert, Button, Cluster, Heading, Mascot, Stepper, SurfaceCard, Text, Stack } from "@starci/grammar/common"
 import { APP_ROUTES } from "@/modules/routes"
 
 /** The workspaces overview shapes, in the order the owner approved them. */
@@ -11,6 +11,8 @@ export interface WorkspacesOverviewBaseProps {
     readonly shape: WorkspacesOverviewShape
     readonly props: {
         readonly createFirstLabel: string
+        /** The short line beside the way in: how long the set-up takes. */
+        readonly createFirstNote: string
         readonly welcomeTitle: string
         readonly welcomeText: string
         readonly welcomeStepsLabel: string
@@ -23,24 +25,24 @@ export interface WorkspacesOverviewBaseProps {
 /** What the welcome card draws from: the words of the overview, and whether they are placeholders. */
 type WelcomeProps = Pick<WorkspacesOverviewBaseProps, "props"> & { readonly isSkeleton: boolean }
 
-/** Draws the first-run welcome card on the soft surface with the lobby mascot; in skeleton its words rest as shapes. */
+/** Draws the first-run welcome card on the soft surface with the lobby art; in skeleton its words rest as shapes. */
 const Welcome = (props: WelcomeProps) => (
     <SurfaceCard
         ariaLabel={props.props.welcomeTitle}
         treatment="soft"
         artwork={
             <Mascot
-                src="/images/entry/lobby-welcome.webp"
+                src="/images/entry/lobby-welcome-3d.webp"
                 size="lg"
                 loading="eager"
                 assetSlot="lobby-welcome"
-                assetSha256="b2a5858380490746ec3d76a43d669439e518f9d8af80545fcbedd89ef566899b"
-                assetPrompt="The NIVO unicorn waves hello and holds a small golden heart key, sparkles, transparent ground"
+                assetSha256="d5449ae1a2ec4b93ace1d36b2e039943d9b38bf4f36536bd93f240fd3259af2f"
+                assetPrompt="A golden pure 3D key with a heart-shaped bow and small sparkles, soft clay render, no characters, transparent ground"
             />
         }
     >
-        <Stack gap="section" align="start">
-            <Heading level={2} isLoading={props.isSkeleton}>
+        <Stack gap="row" align="start">
+            <Heading level={2} scale="title" isLoading={props.isSkeleton}>
                 {props.props.welcomeTitle}
             </Heading>
             <Text tone="muted" isLoading={props.isSkeleton}>
@@ -53,9 +55,14 @@ const Welcome = (props: WelcomeProps) => (
                 isLoading={props.isSkeleton}
                 steps={props.props.welcomeSteps.map((label, index) => ({ id: `s${index}`, label }))}
             />
-            <Button intent="commit" href={APP_ROUTES.workspaceNew} isLoading={props.isSkeleton}>
-                {props.props.createFirstLabel}
-            </Button>
+            <Cluster gap="inline">
+                <Button intent="commit" href={APP_ROUTES.workspaceNew} isLoading={props.isSkeleton}>
+                    {props.props.createFirstLabel}
+                </Button>
+                <Text tone="muted" size="sm" isLoading={props.isSkeleton}>
+                    {props.props.createFirstNote}
+                </Text>
+            </Cluster>
         </Stack>
     </SurfaceCard>
 )

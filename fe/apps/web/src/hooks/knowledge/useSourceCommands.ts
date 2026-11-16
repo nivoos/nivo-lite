@@ -4,7 +4,6 @@ import { useState } from "react"
 import { useTranslations } from "next-intl"
 import {
     QUERY_KNOWLEDGE_SOURCE_SWR_KEY,
-    QUERY_BRAIN_DOSSIERS_SWR_KEY,
     QUERY_KNOWLEDGE_CATEGORIES_SWR_KEY,
     QUERY_KNOWLEDGE_SOURCES_SWR_KEY,
     QUERY_KNOWLEDGE_USAGE_SWR_KEY,
@@ -13,7 +12,9 @@ import {
     QUERY_BRAIN_TODO_SWR_KEY,
     useMutateDeleteKnowledgeSourceSwr,
     useMutateReindexKnowledgeSourceSwr,
+    useMutateUpdateKnowledgeSourceSwr,
 } from "@/hooks/swr"
+import type { UploadArea } from "@/modules/documents"
 import { useWorkspaceKey } from "@/hooks/workspaceKey"
 import { mutate } from "@/modules/viewer-cache"
 import { navigation } from "@/modules/i18n"
@@ -22,7 +23,7 @@ import { toast, useGraphQLWithToast } from "@/modules/toast"
 import { useWorkspaceId } from "@/hooks/workspaces"
 
 /** What a document page can do to the document. */
-export type SourceAction = "reindex" | "delete"
+export type SourceAction = "reindex" | "delete" | "area"
 
 /** What the document commands give the block. */
 interface SourceCommands {
@@ -30,6 +31,8 @@ interface SourceCommands {
     readonly busy: SourceAction | null
     readonly reindex: () => void
     readonly remove: () => Promise<void>
+    /** Moves the document to another area (who reads it): the owner's choice, sent as it is. */
+    readonly setArea: (visibility: UploadArea) => Promise<void>
 }
 
 /** Reads the lists a document change touches again, through the mutate of the viewer's cache (a global one never reaches it). */
@@ -41,14 +44,13 @@ const revalidateDocuments = (workspaceId: string) =>
             (key[0] === QUERY_KNOWLEDGE_SOURCE_SWR_KEY ||
                 key[0] === QUERY_KNOWLEDGE_SOURCES_SWR_KEY ||
                 key[0] === QUERY_KNOWLEDGE_CATEGORIES_SWR_KEY ||
-                key[0] === QUERY_BRAIN_DOSSIERS_SWR_KEY ||
                 key[0] === QUERY_KNOWLEDGE_USAGE_SWR_KEY ||
                 key[0] === QUERY_PUBLIC_DOCUMENTS_SWR_KEY ||
                 key[0] === QUERY_BRAIN_SWR_KEY ||
                 key[0] === QUERY_BRAIN_TODO_SWR_KEY),
     )
 
-/** Reading a document again and deleting it; each failure is toasted, the lists revalidate. */
+/** Reading a document again, moving it to another area and deleting it; each failure is toasted, the lists revalidate. */
 export const useSourceCommands = (sourceId: string): SourceCommands => {
     const router = navigation.useRouter()
     const workspaceId = useWorkspaceId()
@@ -57,6 +59,7 @@ export const useSourceCommands = (sourceId: string): SourceCommands => {
     const feedback = useTranslations("toast")
     const { trigger: reindexSource } = useMutateReindexKnowledgeSourceSwr()
     const { trigger: deleteSource } = useMutateDeleteKnowledgeSourceSwr()
+    const { trigger: updateSource } = useMutateUpdateKnowledgeSourceSwr()
     const [busy, setBusy] = useState<SourceAction | null>(null)
     const failed = () => {
         toast.danger(feedback("errorTitle"), { description: feedback("defaultError") })
@@ -92,6 +95,13 @@ export const useSourceCommands = (sourceId: string): SourceCommands => {
                 () => reindexSource({ sourceId }),
                 () => undefined,
             ).catch(failed)
+        },
+        setArea: async (visibility) => {
+            await act(
+                "area",
+                () => updateSource({ sourceId, visibility }),
+                () => undefined,
+            )
         },
         remove: async () => {
             const removed = await act(

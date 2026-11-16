@@ -1,7 +1,3 @@
-export {
-    connectionCrumbsOf,
-    connectionHeadStateOf,
-    connectionPageOf,
-    pollConnectionPage,
-    readFailureNotice,
-} from "./connectionPage.shared"
+export { connectionPageOf, pollConnectionPage, readFailureNotice } from "./connectionPage.shared"
+export { useConnectionLife } from "./useConnectionLife"
+export { useProviderPageTabs } from "./useProviderPageTabs"

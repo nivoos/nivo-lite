@@ -1,4 +1,4 @@
-import { MODULE_DECLARATIONS } from "@nivo-lite/blocks-core/modules"
+import { installed } from "@/modules/plugin-registry"
 import vi from "@/modules/i18n/messages/vi.json"
 import { chatAnswerOf } from "./chat"
 import viewer from "./viewer.json"
@@ -15,7 +15,7 @@ type FixtureAnswer = (variables: Variables) => Record<string, unknown>
 const fixtureInstallationId = (module: string): string => `fixture-${module}`
 
 /** The key of every declared module. */
-const MODULE_KEYS: ReadonlyArray<string> = MODULE_DECLARATIONS.map((declaration) => declaration.key)
+const MODULE_KEYS: ReadonlyArray<string> = installed.modules.map((declaration) => declaration.key)
 
 /** The department name of an agent in the product copy (Vietnamese); the key when the copy has none. */
 const departmentOf = (key: string): string => {
@@ -35,6 +35,7 @@ const installations = (): ReadonlyArray<Record<string, unknown>> =>
         agentId: `agent-${key}`,
         agentName: departmentOf(key),
         agentAvatarUrl: null,
+        agentAvatarPreset: null,
         agentHandle: key,
         status: "live",
         lifecycle: "running",
@@ -55,15 +56,32 @@ const ANSWERS: Readonly<Record<string, FixtureAnswer>> = {
         modulesCatalog: {
             __typename: "ModulesCatalog",
             categories: [],
-            modules: MODULE_KEYS.map((key) => ({
+            modules: MODULE_KEYS.map((key, order) => ({
                 __typename: "ModuleCatalogEntry",
                 key,
+                plugin: { __typename: "ModulePlugin", key: "fixture", label: { __typename: "Bilingual", vi: "Fixture", en: "Fixture" } },
+                order,
+                icon: "support",
+                glyph: "",
+                mascot: "",
+                category: "fixture",
+                status: "stable",
+                audience: "customer",
+                includedWithWorkspace: false,
+                available: true,
+                knowledgeFolder: key,
+                knowledgeIdeas: [],
+                workbench: null,
+                settingsExtras: null,
+                requires: { __typename: "ModuleRequirements", capabilities: [], connections: [] },
+                connectionProviders: [],
+                defaultOperatingMode: "assist",
+                multiInstance: false,
                 name: { __typename: "Bilingual", vi: departmentOf(key), en: departmentOf(key) },
                 shortName: { __typename: "Bilingual", vi: departmentOf(key), en: departmentOf(key) },
                 description: { __typename: "Bilingual", vi: departmentOf(key), en: departmentOf(key) },
                 points: { __typename: "BilingualList", vi: [], en: [] },
                 gates: [],
-                authorityActions: [],
             })),
         },
     }),
@@ -86,19 +104,15 @@ const ANSWERS: Readonly<Record<string, FixtureAnswer>> = {
             lastEventAt: null,
             firstEvent: null,
             agentIds: MODULE_KEYS.map((key) => `agent-${key}`),
-            grants: [],
         })),
     }),
     BrainTodo: () => ({
-        brainTodo: { __typename: "BrainTodo", findings: 0, facts: 0, questions: 0, proposals: 0, total: 0 },
+        brainTodo: { __typename: "BrainTodo", facts: 0, questions: 0, proposals: 0, total: 0 },
     }),
-    VideoBrand: () => ({ videoBrand: null }),
-    VideoMedia: () => ({ videoMedia: [] }),
     WorkspaceAgentWork: () => ({
         workspaceAgentWork: {
             __typename: "WorkspaceAgentWork",
             agentsOff: 0,
-            backgroundDailyCap: 50,
             heldWakes: 0,
             pendingWakes: 0,
             road: "open",
@@ -117,7 +131,6 @@ const ANSWERS: Readonly<Record<string, FixtureAnswer>> = {
             })),
             approvals: [],
             exceptions: [],
-            hasChatbot: true,
             isFoundingMember: false,
             leadCount: 5,
             openResponsibilityCount: 3,

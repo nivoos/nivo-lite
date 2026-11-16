@@ -10,7 +10,7 @@ import {
     useRegistryCheck,
     useWorkbenchHost,
 } from "../host/WorkbenchHostProvider"
-import { PageFrame } from "./PageFrame"
+import { PageFrame, type PageFrameTabs } from "./PageFrame"
 import { PrimaryCommand } from "./PrimaryCommand"
 import type { SpecContext } from "./renderer.types"
 import { SpecNode } from "./SpecNode"
@@ -39,6 +39,8 @@ export interface SpecWorkbenchProps {
     readonly route: WorkbenchRoute
     /** Whether the viewer may manage the workbench: they see the alert that names the problems. */
     readonly canManage: boolean
+    /** Takes the tab row when the host frame draws it in its own header; absent, the workbench draws its tabs itself. */
+    readonly tabsSink?: (tabs: PageFrameTabs | null) => void
 }
 
 /** The plan to draw, what its views declare beyond their trees, and the problems of the published spec. */
@@ -119,6 +121,7 @@ const DrawnWorkbench = (props: SpecWorkbenchProps): ReactNode => {
             namespace={props.namespace}
             installationId={props.route.installationId}
             params={params}
+            {...(props.tabsSink === undefined ? {} : { tabsSink: props.tabsSink })}
             selected={view?.id}
             panelId={panelId}
             onSelect={(key) => navigation.setQueryValue("tab", key)}

@@ -121,7 +121,7 @@ describe("add", () => {
             payload: { sourceId: "s-1" },
             options: {
                 jobId: "row-1",
-                attempts: 4,
+                attempts: 6,
                 backoff: { type: "nivo", delay: 5000 },
                 removeOnComplete: { age: 3600 },
                 removeOnFail: { age: 604800 },

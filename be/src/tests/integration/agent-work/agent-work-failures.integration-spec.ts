@@ -42,7 +42,7 @@ const wakeOf = (eventKey: string, over: Partial<AgentWake> = {}): AgentWake =>
     })
 
 const customerWake = (eventKey: string, conversationId: string): AgentWake =>
-    wakeOf(eventKey, { source: "customer", context: { conversationId } })
+    wakeOf(eventKey, { source: "trigger", context: { conversationId } })
 
 const post = (wake: AgentWake) => em().transaction((tx) => world.resolve(AgentWakeService).wake(tx, wake))
 
@@ -53,10 +53,7 @@ const rowOf = (wake: AgentWake) => wakeOfFact(em(), wake.agentId, wake.source, w
 
 const failures = async () => (await world.resolve(AgentWorkSettingsService).stateOf(AGENT)).failures
 
-const down = (): Promise<never> =>
-    Promise.resolve().then(() => {
-        throw new TestWorldError({ code: TestWorldErrorCode.ProviderDown })
-    })
+const down = () => Promise.reject(new TestWorldError({ code: TestWorldErrorCode.ProviderDown }))
 
 beforeAll(async () => {
     world.cleanup(async () => {

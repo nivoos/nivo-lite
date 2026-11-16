@@ -1,24 +1,24 @@
 import { Injectable } from "@nestjs/common"
-import { InjectJobClaims, type ClaimedJob, type JobClaims } from "@modules/platform/jobs"
-import { isBankFeedDeliveryRecorded } from "@modules/queues/bank-feed-delivery"
+import { InjectJobClaims, payloadOfJob, type ClaimedJob, type JobClaims } from "@modules/platform/jobs"
+import { DELIVER_BANK_FEED_JOB } from "@modules/queues/bank-feed-delivery"
 import { BankFeedService } from "./bank-feed.service"
 
 @Injectable()
-/** Validates a receipt reference before fencing its deferred domain effect. */
+/** Fences the processing of a receipt reference the runner already validated (the raw rows and the trigger). */
 export class BankFeedDeliveryService {
     constructor(
         private readonly inbox: BankFeedService,
         @InjectJobClaims() private readonly claims: JobClaims,
     ) {}
 
-    /** Invalid references do nothing; valid references advance before consuming the receipt. */
+    /** Records the step with the token this worker holds, then consumes the receipt; a failure throws (the runner judges it). */
     async process(job: ClaimedJob): Promise<void> {
-        if (!isBankFeedDeliveryRecorded(job.payload)) return
+        const message = payloadOfJob(DELIVER_BANK_FEED_JOB, job)
         await this.claims.advance({
             jobId: job.jobId,
             expectedFencingToken: job.fencingToken,
             step: "bank-feed-delivery",
         })
-        await this.inbox.processRecordedFeedDelivery(job.payload)
+        await this.inbox.processRecordedFeedDelivery(message)
     }
 }

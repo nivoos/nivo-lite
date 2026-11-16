@@ -1,0 +1,73 @@
+"use client"
+
+import { useSearchParams } from "next/navigation"
+import { useState } from "react"
+import { useCatalogEntries, useInstallations, type CatalogRole } from "@/hooks/installations"
+import { suggestedHandleOf } from "@/modules/agentAvatar"
+import { useModuleCatalog } from "@/hooks/moduleCatalog"
+import { instancesOf, type Installation } from "@/modules/installations"
+import { CREATE_AGENT_PARAM, roleOfParam, startValueOf } from "./agentCreate.shared"
+
+/** The fields of the create dialog, before the picture: the role, the name, the handle and the start. */
+export interface AgentCreateForm {
+    readonly isOpen: boolean
+    readonly isRoleOpen: boolean
+    readonly roles: ReadonlyArray<CatalogRole>
+    readonly role: string | null
+    readonly setRole: (value: string | null) => void
+    readonly name: string
+    readonly setName: (value: string) => void
+    readonly handle: string
+    /** The handle the owner typed; null while it follows the name. */
+    readonly typedHandle: string | null
+    readonly setHandle: (value: string) => void
+    readonly siblings: ReadonlyArray<Installation>
+    readonly start: string
+    readonly setStart: (value: string) => void
+    readonly reset: () => void
+}
+
+/** The start a new agent of a role gets unless the owner picks another: a copy of the oldest sibling, else the default setup. */
+const suggestedStartOf = (siblings: ReadonlyArray<Installation>): string => {
+    const [oldest] = siblings
+    return startValueOf(oldest === undefined ? { kind: "default" } : { kind: "copy", installationId: oldest.id })
+}
+
+/** The state of the create dialog: the role comes from the address ("+ Add Sales") or is chosen in the dialog ("Create agent"). */
+export const useAgentCreateForm = (): AgentCreateForm => {
+    const param = useSearchParams().get(CREATE_AGENT_PARAM)
+    const { roles } = useCatalogEntries()
+    const { modules } = useModuleCatalog()
+    const { installations } = useInstallations()
+    const [chosenRole, setChosenRole] = useState<string | null>(null)
+    const [name, setName] = useState("")
+    const [typedHandle, setTypedHandle] = useState<string | null>(null)
+    const [startValue, setStartValue] = useState<string | null>(null)
+    const fromParam = roleOfParam(param, (key) => modules[key] !== undefined)
+    const role = fromParam ?? chosenRole
+    const siblings = role === null || installations === undefined ? [] : instancesOf(installations, role)
+    return {
+        isOpen: param !== null,
+        isRoleOpen: fromParam === null,
+        roles,
+        role,
+        setRole: (value) => {
+            setChosenRole(value !== null && modules[value] !== undefined ? value : null)
+            setStartValue(null)
+        },
+        name,
+        setName,
+        handle: typedHandle ?? (role === null ? "" : suggestedHandleOf(name, role.replaceAll('_', ""))),
+        typedHandle,
+        setHandle: setTypedHandle,
+        siblings,
+        start: startValue ?? suggestedStartOf(siblings),
+        setStart: setStartValue,
+        reset: () => {
+            setChosenRole(null)
+            setName("")
+            setTypedHandle(null)
+            setStartValue(null)
+        },
+    }
+}

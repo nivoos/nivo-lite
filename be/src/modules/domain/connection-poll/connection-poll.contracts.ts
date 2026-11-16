@@ -1,7 +1,7 @@
 import type { ConnectionRecord, ConnectionsService } from "@modules/domain/connections"
+import type { PolledRow } from "@modules/domain/provider-registry"
 import type { Clock } from "@modules/platform/clock"
 import type { Logger } from "@modules/platform/logging"
-import type { Timer } from "@modules/platform/retry"
 
 /** The time window and size of one page a poller reads. */
 export interface PollWindow {
@@ -32,16 +32,14 @@ export type PollPage<Item> =
     | { readonly kind: "skipped"; readonly reason: PollSkipReason }
 
 /**
- * What a provider adds to the generic poll: how to read one page of its connection and how to hand one item to the same inbox its
- * webhook feeds. `store` answers true when the item was new, that is when the webhook never delivered it.
+ * One account as the walk reads and keeps it: its provider's poll receiver (live or sandbox by the account) and the engine's generic store of
+ * the receiver's data type. `keep` answers how many rows were new: the ones no other way (the webhook) had delivered.
  */
-export interface ConnectionPoller<Item> {
-    /** The provider of the connections it reads. */
-    readonly provider: string
-    /** Reads one page of one connection. */
-    fetch(connection: ConnectionRecord, window: PollWindow): Promise<PollPage<Item>>
-    /** Stores one item through the receipt path the webhook takes, under the webhook's key; false for a repeat. */
-    store(connection: ConnectionRecord, item: Item): Promise<boolean>
+export interface PolledAccount {
+    /** Reads one page of the account through its poll receiver. */
+    read(connection: ConnectionRecord, window: PollWindow): Promise<PollPage<PolledRow>>
+    /** Keeps the rows of one walk through the one intake, in the provider's time order; answers how many were new. */
+    keep(connection: ConnectionRecord, rows: ReadonlyArray<PolledRow>): Promise<number>
 }
 
 /** Why a provider cannot be read for a connection although the credential is fine: its plan does not include the capability. */
@@ -91,8 +89,6 @@ export interface ConnectionPollDeps {
     readonly clock: Clock
     /** The log port. */
     readonly logger: Logger
-    /** The pause between two calls to a provider. */
-    readonly timer: Timer
     /** The connections: the cursor lives in their public facts. */
     readonly connections: ConnectionsService
     /** Runs before every call to the provider, for example to take a rate-limit token; a throw ends the walk and is the outcome of the poll. */

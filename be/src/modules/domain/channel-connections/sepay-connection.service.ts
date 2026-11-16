@@ -79,7 +79,7 @@ const isStatsRead = (value: unknown): value is SepayStatsRead =>
 const ofSepayFeed =
     (column: string): (() => string) =>
     () =>
-        `(SELECT c.${column} FROM public.connections c WHERE c.id = :connectionId AND c.provider = 'sepay')`
+        `(SELECT c.${column} FROM public.connections c WHERE c.id = :connectionId AND c.provider = 'sepay' AND c.deleted_at IS NULL)`
 
 const MANAGER = ["owner", "manager"] as const
 const OWNER = ["owner"] as const
@@ -148,19 +148,7 @@ export class SepayConnectionService {
             .orderBy("e.receivedAt", "DESC")
             .limit(EVENT_LIMIT)
             .getRawMany()
-        return rows.filter(isEventRead).map((row) => eventOf(row))
-    }
-
-    /** Switches the connection between the SePay test mode and live (owner). Credits of a test connection are never booked. */
-    async setEnvironment(
-        actor: ConnectionActor,
-        connectionId: string,
-        environment: Environment,
-    ): Promise<SepayConnectionView> {
-        await this.connections.authorize(actor, OWNER)
-        const connection = await this.sepayOf(actor, connectionId)
-        await this.connections.patch(actor.workspaceId, connection.id, { environment })
-        return this.view(await this.sepayOf(actor, connectionId))
+        return rows.filter(isEventRead).map((item) => eventOf(item))
     }
 
     /**

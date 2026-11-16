@@ -1,7 +1,6 @@
 "use client"
 
 import { useSearchParams } from "next/navigation"
-import type { ModuleKey } from "@/modules/catalog"
 import type { DocTabId } from "@/modules/types"
 import { docTabOf, moduleFilterOf } from "@/modules/documents"
 
@@ -21,7 +20,7 @@ const writeKey = (key: string, value: string | undefined): void => {
 interface DocsAddress {
     readonly query: string
     readonly tab: DocTabId
-    readonly module: ModuleKey | "all"
+    readonly module: string | "all"
     /** The item of the base knowledge in view, when the address names one. */
     readonly item: string | undefined
     /** The drawer that adds documents is asked for (`add`), with the topic and the tag it was opened from. */

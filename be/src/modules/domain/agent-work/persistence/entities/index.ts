@@ -1,5 +1,3 @@
-import { AgentGoalEntity } from "./agent-goal.entity"
-import { AgentSpeakerQueueEntity } from "./agent-speaker-queue.entity"
 import { AgentTaskEntity } from "./agent-task.entity"
 import { AgentTriggerEntity } from "./agent-trigger.entity"
 import { AgentTurnEntity } from "./agent-turn.entity"
@@ -8,8 +6,6 @@ import { AgentWorkLeaseEntity } from "./agent-work-lease.entity"
 import { AgentWorkSettingsEntity } from "./agent-work-settings.entity"
 import { AgentWorkStateEntity } from "./agent-work-state.entity"
 
-export { AgentGoalEntity } from "./agent-goal.entity"
-export { AgentSpeakerQueueEntity } from "./agent-speaker-queue.entity"
 export { AgentTaskEntity } from "./agent-task.entity"
 export { AgentTriggerEntity } from "./agent-trigger.entity"
 export { AgentTurnEntity } from "./agent-turn.entity"
@@ -23,20 +19,16 @@ export const agentWorkEntities: readonly [
     typeof AgentWorkSettingsEntity,
     typeof AgentWorkStateEntity,
     typeof AgentWorkLeaseEntity,
-    typeof AgentGoalEntity,
     typeof AgentTaskEntity,
     typeof AgentTriggerEntity,
     typeof AgentWakeEntity,
     typeof AgentTurnEntity,
-    typeof AgentSpeakerQueueEntity,
 ] = [
     AgentWorkSettingsEntity,
     AgentWorkStateEntity,
     AgentWorkLeaseEntity,
-    AgentGoalEntity,
     AgentTaskEntity,
     AgentTriggerEntity,
     AgentWakeEntity,
     AgentTurnEntity,
-    AgentSpeakerQueueEntity,
 ] as const

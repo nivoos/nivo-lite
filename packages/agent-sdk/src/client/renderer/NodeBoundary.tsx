@@ -28,14 +28,13 @@ export class NodeBoundary extends Component<NodeBoundaryProps, NodeBoundaryState
     }
 
     override render(): ReactNode {
-        return this.state.hasCrashed ? (
+        if (!this.state.hasCrashed) return this.props.children
+        return (
             <EmptyNotice
                 message={this.props.message}
                 actionLabel={this.props.retryLabel}
                 onAction={() => this.setState({ hasCrashed: false })}
             />
-        ) : (
-            this.props.children
         )
     }
 }

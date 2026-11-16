@@ -8,7 +8,7 @@ import { evaluatedCalls, evaluatedValues } from "@tests/fixtures/builders/evalua
 import { fakeTransaction, mock, mockEntityManager } from "@starci/jest-preset"
 import type { MockEntityManager } from "@starci/jest-preset"
 import { Test } from "@nestjs/testing"
-import { FindOperator, Not } from "typeorm"
+import { FindOperator, IsNull, Not } from "typeorm"
 import { ConnectionSecretsService } from "@modules/domain/connection-secrets"
 import { ConnectorInterestService } from "@modules/domain/connector-interest"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
@@ -290,6 +290,45 @@ describe("ConnectionsService > create", () => {
     })
 })
 
+describe("ConnectionsService > sandbox accounts (lane concept provider-sandbox, rulings R56 + R58)", () => {
+    it("creates a sandbox account with its flag and NO secret row", async () => {
+        const tx = fakeTransaction(mockEntityManager())
+        const { fakes } = withBuilders([{ execute: { raw: [{ id: "s1" }] } }], tx.em)
+        const { service, secrets } = await buildWith(tx.em)
+        const { secret: _secret, ...fields } = connectionsCase.createInput
+        await expect(service.create({ ...fields, sandbox: true })).resolves.toBe("s1")
+        expect(evaluatedValues(fakes[0]?.callsOf("values")[0]?.[0])).toMatchObject({ sandbox: true })
+        expect(secrets.create).not.toHaveBeenCalled()
+        expect(tx.commits).toBe(1)
+    })
+
+    it("writes no sandbox column for a live account", async () => {
+        const tx = fakeTransaction(mockEntityManager())
+        const { fakes } = withBuilders([{ execute: { raw: [{ id: "c1" }] } }], tx.em)
+        await (await build(tx.em)).create(connectionsCase.createInput)
+        expect(evaluatedValues(fakes[0]?.callsOf("values")[0]?.[0])).not.toHaveProperty("sandbox")
+    })
+
+    it("derives a sandbox account's key (stable, per account) and refuses it for a live one", async () => {
+        const { em } = withBuilders([{ getRawOne: { ...ROW, id: "s1", sandbox: true } }, { getRawOne: { ...ROW, id: "s1", sandbox: true } }, { getRawOne: ROW }])
+        const service = await build(em)
+        const key = await service.sandboxKeyOf("ws-1", "s1")
+        expect(key).toMatch(/^sbx_[A-Za-z0-9_-]{43}$/)
+        await expect(service.sandboxKeyOf("ws-1", "s1")).resolves.toBe(key)
+        await expect(service.sandboxKeyOf("ws-1", ROW.id)).resolves.toBeNull()
+        expect(service.isSandboxKey("s1", key ?? "")).toBe(true)
+        expect(service.isSandboxKey("s2", key ?? "")).toBe(false)
+        expect(service.isSandboxKey("s1", undefined)).toBe(false)
+        expect(service.isSandboxKey("s1", `${key ?? ""}x`)).toBe(false)
+    })
+
+    it("carries no sandbox field on a patch, so an account's flag cannot change", async () => {
+        const { em, fakes } = withBuilders([{ execute: { raw: [{ id: "c1" }] } }])
+        await (await build(em)).patch("ws-1", "c1", { name: "Renamed", ...({ sandbox: true } as object) })
+        expect(setOf(fakes[0])).not.toHaveProperty("sandbox")
+    })
+})
+
 describe("ConnectionsService > patch", () => {
     it("changes the given fields", async () => {
         const { em, fakes } = withBuilders([{ execute: { raw: [{ id: "c1" }] } }])
@@ -309,7 +348,7 @@ describe("ConnectionsService > patch", () => {
             publicMeta: ":meta::jsonb",
             lastError: null,
         })
-        expect(whereOf(fakes[0])).toEqual([[{ workspaceId: "ws-1", id: "c1" }]])
+        expect(whereOf(fakes[0])).toEqual([[{ workspaceId: "ws-1", id: "c1", deletedAt: IsNull() }]])
         expect(fakes[0]?.callsOf("setParameter")).toEqual([["meta", '{"a":"b"}']])
     })
 
@@ -350,17 +389,40 @@ describe("ConnectionsService > secrets", () => {
     })
 })
 
-describe("ConnectionsService > remove", () => {
-    it("deletes a connection of the workspace", async () => {
-        const { em, fakes } = withBuilders([{ execute: { raw: [{ id: "c1" }] } }])
-        await expect((await build(em)).remove("ws-1", "c1")).resolves.toBeUndefined()
-        expect(em.createQueryBuilder).toHaveBeenCalledWith(ConnectionEntity, "co")
-        expect(whereOf(fakes[0])).toEqual([[{ workspaceId: "ws-1", id: "c1" }]])
+describe("ConnectionsService > remove (a SOFT delete that wipes the secrets, owner rulings R36 and R38)", () => {
+    it("marks a live connection of the workspace removed with one UPDATE and wipes its secrets in the same transaction", async () => {
+        const tx = fakeTransaction(mockEntityManager())
+        const { fakes } = withBuilders([{ execute: { raw: [{ id: "c1" }] } }, { execute: { raw: [] } }], tx.em)
+        const { service, secrets } = await buildWith(tx.em)
+        await expect(service.remove("ws-1", "c1")).resolves.toBeUndefined()
+        expect(tx.em.createQueryBuilder).toHaveBeenCalledWith(ConnectionEntity, "co")
+        expect(fakes[0]?.callsOf("update")).toHaveLength(1)
+        expect(fakes[0]?.callsOf("delete")).toHaveLength(0)
+        expect(Object.keys(fakes[0]?.callsOf("set")[0]?.[0] ?? {})).toEqual(["deletedAt"])
+        expect(JSON.stringify(whereOf(fakes[0]))).toContain('"workspaceId":"ws-1","id":"c1"')
+        expect(JSON.stringify(whereOf(fakes[0]))).toContain("isNull")
+        expect(secrets.wipe).toHaveBeenCalledWith("c1", expect.anything())
+        expect(fakes[1]?.callsOf("delete")).toHaveLength(1)
+        expect(fakes[1]?.callsOf("from")).toEqual([["zalo_wizard_drafts"]])
+        expect(fakes[1]?.callsOf("where")).toEqual([["connection_id = :id", { id: "c1" }]])
+        expect(tx.commits).toBe(1)
     })
 
-    it("answers not found for a connection that is not there", async () => {
-        const { em } = withBuilders([{ execute: { raw: [] } }])
-        await expect((await build(em)).remove("ws-1", "c9")).rejects.toMatchObject(missing)
+    it("keeps the row (provider, name, deleted mark) and deletes nothing from connections itself", async () => {
+        const tx = fakeTransaction(mockEntityManager())
+        const { fakes } = withBuilders([{ execute: { raw: [{ id: "c1" }] } }, { execute: { raw: [] } }], tx.em)
+        await (await buildWith(tx.em)).service.remove("ws-1", "c1")
+        expect(tx.em.delete).not.toHaveBeenCalled()
+        expect(fakes[0]?.callsOf("delete")).toHaveLength(0)
+    })
+
+    it("answers not found for a connection that is not there, or already removed, and wipes nothing", async () => {
+        const tx = fakeTransaction(mockEntityManager())
+        withBuilders([{ execute: { raw: [] } }], tx.em)
+        const { service, secrets } = await buildWith(tx.em)
+        await expect(service.remove("ws-1", "c9")).rejects.toMatchObject(missing)
+        expect(secrets.wipe).not.toHaveBeenCalled()
+        expect(tx.commits).toBe(0)
     })
 })
 
@@ -497,7 +559,7 @@ describe("ConnectionsService > intake", () => {
         await service.applyZaloAuthorization("c-1", "oa-9")
         await service.applyZaloAuthorization("c-1")
         expect(evaluatedCalls(em.update.mock.calls, 2)).toEqual([
-            ["ConnectionEntity", { id: "c-1" }, { status: "error", lastError: "Reconnect" }],
+            ["ConnectionEntity", { id: "c-1", deletedAt: IsNull() }, { status: "error", lastError: "Reconnect" }],
         ])
         expect(received[0]?.callsOf("setParameter")).toEqual([["first", JSON.stringify(first)]])
         expect(setOf(received[0])).toEqual({
@@ -514,6 +576,22 @@ describe("ConnectionsService > intake", () => {
         expect(zalo.map((fake) => fake.callsOf("setParameter")[0])).toEqual([
             ["meta", '{"authorized":true,"oa_id":"oa-9"}'],
             ["meta", '{"authorized":true}'],
+        ])
+    })
+
+    it("keeps the OA name Zalo reported among the public facts, trimmed and bounded, and never a blank one", async () => {
+        const em = mockEntityManager()
+        const { fakes } = withBuilders([{ execute: {} }, { execute: {} }], em)
+        const service = await build(em)
+
+        await service.applyZaloOaName("c-1", "  Ti\u1ec7m hoa NIVO ")
+        await service.applyZaloOaName("c-1", "   ")
+        await service.applyZaloOaName("c-1", "x".repeat(200))
+
+        expect(setOf(fakes[0])).toEqual({ publicMeta: "jsonb_concat(public_meta, CAST(:meta AS jsonb))" })
+        expect(fakes.map((fake) => fake.callsOf("setParameter")[0])).toEqual([
+            ["meta", '{"oa_name":"Ti\u1ec7m hoa NIVO"}'],
+            ["meta", JSON.stringify({ oa_name: "x".repeat(120) })],
         ])
     })
 })
@@ -564,6 +642,6 @@ describe("ConnectionsService > settleWizard", () => {
         expect(setOf(fakes[0])).toEqual({
             publicMeta: "jsonb_concat(public_meta, CAST(:facts AS jsonb))",
         })
-        expect(whereOf(fakes[0])).toEqual([[{ id: "c-1" }]])
+        expect(whereOf(fakes[0])).toEqual([[{ id: "c-1", deletedAt: IsNull() }]])
     })
 })

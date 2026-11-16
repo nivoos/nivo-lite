@@ -16,6 +16,7 @@ const record: ConnectionRecord = {
     status: "connected",
     lastError: null,
     environment: "live",
+    sandbox: false,
     isDefault: false,
     lastEventAt: null,
     firstEvent: null,
@@ -40,6 +41,10 @@ describe("PollOwnerNoticeService needsReauth", () => {
         await moduleRef.get(PollOwnerNoticeService).needsReauth(record, 1_762_240_000_000)
 
         expect(connections.markFailing).toHaveBeenCalledWith("c-1", POLL_NEEDS_REAUTH_REASON)
+        expect(connections.markHealth).toHaveBeenCalledWith(
+            "c-1",
+            expect.objectContaining({ state: "needs_reauth", reason: POLL_NEEDS_REAUTH_REASON }),
+        )
         expect(inboundEvents.keepForOwner).toHaveBeenCalledWith(expect.anything(), {
             workspaceId: "ws-1",
             channel: "sepay",

@@ -5,7 +5,6 @@ import { PaymentOrdersService } from "@modules/domain/payment-orders"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import type {
-    AgentTemplateOrderParams,
     CreditPack,
     CreditPackParams,
     CreditPackPurchase,
@@ -37,7 +36,7 @@ export class CreditsService {
             order: { sort: "ASC" },
             take: 50,
         })
-        return rows.map((row) => toCreditPack(row))
+        return rows.map((item) => toCreditPack(item))
     }
 
     /** The latest purchased lots of a workspace, proving the caller's owner or manager role. */
@@ -48,7 +47,7 @@ export class CreditsService {
             order: { purchasedAt: "DESC" },
             take: 200,
         })
-        return rows.map((row) => toCreditTopupLot(row))
+        return rows.map((item) => toCreditTopupLot(item))
     }
 
     /** The add-on packs a workspace paid for this month, for any member. */
@@ -61,7 +60,7 @@ export class CreditsService {
             .orderBy("p.purchasedAt", "DESC")
             .limit(200)
             .getMany()
-        return rows.map((row) => toCreditPackPurchase(row))
+        return rows.map((item) => toCreditPackPurchase(item))
     }
 
     /**
@@ -87,31 +86,7 @@ export class CreditsService {
             kind: "credit_pack",
             packCode: null,
             detail: { credits: pack.creditsPerMonth },
-        })
-        return this.billing.payable(order)
-    }
-
-    /**
-     * A pending order for a paid listing of the template marketplace (owner or manager); the same open order when it was just asked for.
-     * The plan is only the one the order is filed under: the listing never changes it. The license is written when the transfer lands.
-     */
-    async agentTemplate(userId: string, params: AgentTemplateOrderParams): Promise<PayableOrder> {
-        await this.billing.requireManager(userId, params.workspaceId)
-        const plan = await this.requireActivePlan(params.workspaceId, ["active", "past_due"])
-        const existing = await this.orders.findOpenAgentTemplate({
-            workspaceId: params.workspaceId,
-            target: params.listingId,
-            amountVnd: params.amountVnd,
-        })
-        if (existing !== null) return this.billing.payable(existing)
-        const order = await this.orders.create({
-            workspaceId: params.workspaceId,
-            userId,
-            planCode: plan.code,
-            amountVnd: params.amountVnd,
-            kind: "agent_template",
-            packCode: null,
-            detail: { listingId: params.listingId, templateKey: params.templateKey, version: params.version },
+            requestId: params.requestId,
         })
         return this.billing.payable(order)
     }
@@ -136,6 +111,7 @@ export class CreditsService {
             kind: "topup",
             packCode: pack.code,
             detail: { credits: pack.credits },
+            requestId: params.requestId,
         })
         return this.billing.payable(order)
     }
@@ -190,6 +166,7 @@ export class CreditsService {
                 daysLeft: quote.daysLeft,
                 paidUntil: workspace.paidUntil,
             },
+            requestId: params.requestId,
         })
         return { payable: this.billing.payable(order), quote: upgradeQuote }
     }

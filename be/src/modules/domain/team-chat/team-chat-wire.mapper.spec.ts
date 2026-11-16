@@ -1,5 +1,7 @@
 import { Test } from "@nestjs/testing"
 import { TeamChatErrorCode } from "./errors/team-chat.error"
+import type { BrainChangeCardView } from "./brain-change-card.contracts"
+import type { StopCardView } from "./stop-card.contracts"
 import {
     roomPayloadOf,
     messagePayloadOf,
@@ -84,16 +86,37 @@ const MESSAGE: MessageView = {
     runId: null,
     decisionId: null,
     approval: null,
+    agentMessage: null,
+    reactions: [],
+    replyTo: null,
+    forwardedFrom: null,
+    stop: null,
+    brainChange: null,
+    backgroundStopped: null,
+    jobParked: null,
 }
 
 const ROOM: ChatRoomView = {
     id: ID_B,
     kind: "group",
+    purpose: "group",
+    purposeModule: null,
     name: "Ops",
+    withNivo: false,
     position: 1,
     createdBy: ID_C,
     createdAt: AT,
-    members: [{ memberKind: "user", memberId: ID_C, name: "Lan", role: "owner", lastReadAt: AT, muted: false }],
+    members: [
+        {
+            memberKind: "user",
+            memberId: ID_C,
+            name: "Lan",
+            role: "owner",
+            lastReadAt: AT,
+            muted: false,
+            mayPost: false,
+        },
+    ],
     unreadCount: 2,
     mentionCount: 1,
     muted: false,
@@ -106,7 +129,7 @@ describe("refusals and payloads", () => {
         const names = Object.values(TeamChatErrorCode).map(
             (code) => subject.roomPayloadOf({ ok: false, refusal: code }).refusal,
         )
-        expect(names).toHaveLength(16)
+        expect(names).toHaveLength(23)
         expect(names).toContain("not_a_member_to_remove")
         expect(subject.roomPayloadOf({ ok: false, refusal: TeamChatErrorCode.NotFound })).toEqual({
             room: null,
@@ -177,7 +200,81 @@ describe("wire shapes", () => {
                 .approval,
         ).toMatchObject({ decidedAt: null })
     })
+})
 
+describe("wire shape of a stop card", () => {
+    it("carries the typed stop of a stop card as the view built it, and null for any other line", async () => {
+        const subject = await buildSubject()
+        const stop: StopCardView = {
+            stopId: "stop-1",
+            runId: "run-1",
+            stepKey: "match",
+            stepTitle: "Khop giao dich",
+            workflowTitle: "Doi soat tien ve",
+            moduleKey: "accounting",
+            leadId: null,
+            conversationId: null,
+            kind: "ai_report",
+            by: "ai",
+            state: "answered",
+            headline: "Quy trinh dang dung",
+            message: "Tiem nhan 500 VND cho don DH-0003, con thieu 500 VND.",
+            question: "Ghi nhan da tra hay giu don mo?",
+            suggestions: [],
+            facts: [],
+            needs: { answer: false, decisions: [], verdicts: [] },
+            replies: [{ kind: "answer", text: "Giu don mo", by: "seat-1", at: ISO, byName: "Lan" }],
+            repeats: 1,
+            firstAt: ISO,
+            stoppedAt: ISO,
+            resolvedAt: null,
+            approval: null,
+            decision: null,
+            preview: null,
+            revision: 2,
+        }
+        expect(subject.messageWireOf({ ...MESSAGE, stop }).stop).toEqual(stop)
+        expect(subject.messageWireOf(MESSAGE).stop).toBeNull()
+    })
+
+    it("carries the brain.change card as the view built it for this viewer, and null for any other line", async () => {
+        const subject = await buildSubject()
+        const brainChange: BrainChangeCardView = {
+            changeId: "p-ship",
+            origin: "chat",
+            kind: "change",
+            factKey: { subjectLabel: "Giao hang", attributeLabel: "Phi ship noi thanh" },
+            oldValue: "20.000 d",
+            current: { value: "20.000 d", version: 2, source: "Quy dinh giao hang.docx" },
+            newValue: "30.000 d",
+            unit: null,
+            validFrom: null,
+            validTo: null,
+            reason: "Anh vua nhan tu mai phi ship noi thanh la 30k.",
+            evidence: [
+                {
+                    kind: "message",
+                    quote: "tu mai 30k",
+                    ref: "team-chat:m-1",
+                    by: { name: "Owner", memberId: "u-1" },
+                    at: ISO,
+                },
+            ],
+            state: "open",
+            decidedBy: null,
+            supersededBy: null,
+            revision: 1,
+            canApprove: true,
+            canReject: true,
+            canKeepBoth: false,
+            cost: { credits: 0.3, usd: 0.000339 },
+        }
+        expect(subject.messageWireOf({ ...MESSAGE, brainChange }).brainChange).toEqual(brainChange)
+        expect(subject.messageWireOf(MESSAGE).brainChange).toBeNull()
+    })
+})
+
+describe("wire shape of a room", () => {
     it("shows a room with its members and last message, a list, a page and an absent room", async () => {
         const subject = await buildSubject()
         expect(subject.roomWireOf(ROOM)).toMatchObject({
@@ -248,6 +345,13 @@ describe("request builders of a thread, a room and a message", () => {
             members: [{ memberKind: "agent", memberId: ID_C }],
         })
         expect(subject.createRoomRequestOf(ID_A, { kind: "group", name: "Ops", members }).kind).toBe("group")
+        expect(subject.createRoomRequestOf(ID_A, { kind: "group", name: "Ops", members })).not.toHaveProperty("purpose")
+        const purposeOf = (purpose: string | null, purposeModule: string | null) =>
+            subject.createRoomRequestOf(ID_A, { kind: "group", name: "Ops", members, purpose, purposeModule }).purpose
+        expect(purposeOf("common", null)).toEqual({ purpose: "common" })
+        expect(purposeOf("module", "sales")).toEqual({ purpose: "module", module: "sales" })
+        expect(purposeOf("module", null)).toEqual({ purpose: "module", module: "" })
+        expect(purposeOf("group", "sales")).toEqual({ purpose: "group" })
         expect(
             subject.roomMemberRequestOf(ID_A, { roomId: ID_B, member: members[0] ?? { memberKind: "", memberId: "" } }),
         ).toEqual({
@@ -258,7 +362,9 @@ describe("request builders of a thread, a room and a message", () => {
         expect(subject.decideRequestOf(ID_A, { decisionId: ID_B, verdict: "reject" }).verdict).toBe("reject")
         expect(subject.decideRequestOf(ID_A, { decisionId: ID_B, verdict: "approve" }).verdict).toBe("approve")
     })
+})
 
+describe("request builders of a message", () => {
     it("builds the send request with defaults for what is absent", async () => {
         const subject = await buildSubject()
         expect(
@@ -269,6 +375,7 @@ describe("request builders of a thread, a room and a message", () => {
                 mentions: [{ memberKind: "user", memberId: ID_A }],
                 fileKeys: ["k"],
                 clientId: "c",
+                replyTo: ID_C,
             }),
         ).toEqual({
             workspaceId: ID_A,
@@ -278,6 +385,7 @@ describe("request builders of a thread, a room and a message", () => {
             mentions: [{ memberKind: "user", memberId: ID_A }],
             fileKeys: ["k"],
             clientId: "c",
+            replyTo: ID_C,
         })
         expect(
             subject.sendRequestOf(ID_A, {
@@ -288,6 +396,15 @@ describe("request builders of a thread, a room and a message", () => {
                 fileKeys: null,
                 clientId: null,
             }),
-        ).toEqual({ workspaceId: ID_A, roomId: null, to: null, body: "", mentions: [], fileKeys: [], clientId: null })
+        ).toEqual({
+            workspaceId: ID_A,
+            roomId: null,
+            to: null,
+            body: "",
+            mentions: [],
+            fileKeys: [],
+            clientId: null,
+            replyTo: null,
+        })
     })
 })

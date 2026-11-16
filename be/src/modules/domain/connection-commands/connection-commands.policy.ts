@@ -39,8 +39,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
 const CONNECTOR_ID = /^[a-z0-9_]{1,60}$/u
 const MAX_WISHES = 200
 const MAX_EVENTS = 20
-const LEVELS = ["read", "ask", "auto"] as const
-type Level = (typeof LEVELS)[number]
 
 const invalid = (field: string): never => {
     throw new ConnectionsError({ code: ConnectionsErrorCode.CommandInvalid, params: { field } })
@@ -55,30 +53,27 @@ const uuidOf = (value: unknown, field: string): string =>
 const textOf = (value: unknown, field: string, max: number): string =>
     typeof value === "string" && value.length <= max ? value : invalid(field)
 
-const levelOf = (value: unknown, field: string): Level => LEVELS.find((level) => level === value) ?? invalid(field)
-
 const idField = (input: Input, field: string): string => uuidOf(input[field], field)
+
+/** Whether a grant binds: `bound` true binds, false removes; anything else is refused (a binding has no level). */
+const boundOf = (input: Input): boolean => (typeof input.bound === "boolean" ? input.bound : invalid("bound"))
 const connectionOf = (input: Input): string => idField(input, "connectionId")
 
-/** One wish of a list: the id of the other side and the level when the caller picked one. */
+/** One wish of a list: the id of the other side (a binding has no level: rights live in attachments). */
 interface Wish {
     readonly id: string
-    readonly access?: Level
 }
 
-/** A list of wishes: each entry is a bare id or an object with the id and an optional level. */
+/** A list of wishes: each entry is a bare id or an object with the id. */
 const wishesOf = (input: Input, listKey: string, idKey: string): ReadonlyArray<Wish> => {
     const list = input[listKey]
     if (!Array.isArray(list) || list.length > MAX_WISHES) return invalid(listKey)
     return list.map((entry: unknown): Wish => {
         if (typeof entry === "string") return { id: uuidOf(entry, listKey) }
         if (!isRecord(entry)) return invalid(listKey)
-        const id = uuidOf(entry[idKey], listKey)
-        return entry.access === undefined ? { id } : { id, access: levelOf(entry.access, listKey) }
+        return { id: uuidOf(entry[idKey], listKey) }
     })
 }
-
-const withAccess = (wish: Wish): Pick<Wish, "access"> => (wish.access === undefined ? {} : { access: wish.access })
 
 const eventsOf = (input: Input): ReadonlyArray<string> => {
     const events = input.events
@@ -106,24 +101,18 @@ export const COMMANDS: Readonly<Record<string, Runner>> = {
     "connection.check": (s, a, i) => s.channels.check(a, connectionOf(i)),
     "connection.disconnect": (s, a, i) => s.lifecycle.disconnect(a, connectionOf(i)),
     "connection.delete": (s, a, i) => s.lifecycle.remove(a, connectionOf(i)),
-    "grant.set": (s, a, i) =>
-        s.grants.setGrant(
-            a,
-            connectionOf(i),
-            idField(i, "agentId"),
-            i.access === null ? null : levelOf(i.access, "access"),
-        ),
+    "grant.set": (s, a, i) => s.grants.setGrant(a, connectionOf(i), idField(i, "agentId"), boundOf(i)),
     "grant.connection-agents": (s, a, i) =>
         s.grants.setConnectionAgents(
             a,
             connectionOf(i),
-            wishesOf(i, "agents", "agentId").map((wish) => ({ agentId: wish.id, ...withAccess(wish) })),
+            wishesOf(i, "agents", "agentId").map((wish) => ({ agentId: wish.id })),
         ),
     "grant.agent-connections": (s, a, i) =>
         s.grants.setAgentConnections(
             a,
             idField(i, "agentId"),
-            wishesOf(i, "connections", "connectionId").map((wish) => ({ connectionId: wish.id, ...withAccess(wish) })),
+            wishesOf(i, "connections", "connectionId").map((wish) => ({ connectionId: wish.id })),
         ),
     "telegram.connect": (s, a, i) =>
         s.channels.connectTelegram(a, { name: textOf(i.name, "name", 120), token: textOf(i.token, "token", 200) }),
@@ -167,6 +156,27 @@ export const COMMANDS: Readonly<Record<string, Runner>> = {
     "meta.check": (s, a, i) => s.meta.check(a, connectionOf(i), i.repair === true),
 }
 
+/**
+ * The kinds whose act reaches a provider (a bot or webhook registered, probed or removed, a test event sent, a page subscribed, a bank
+ * webhook confirmed): each runs as ONE effect, keyed by the job, so the act is recorded as an intent before it is made. The rest read or
+ * write NIVO's own rows and need no ledger.
+ */
+const PROVIDER_KINDS: ReadonlySet<string> = new Set([
+    "connection.first-event",
+    "connection.check",
+    "connection.disconnect",
+    "connection.delete",
+    "telegram.connect",
+    "money.update",
+    "money.provider-keys",
+    "webhook.test",
+    "meta.page",
+    "meta.check",
+])
+
+/** True when the kind's act reaches a provider. */
+export const reachesProvider = (kind: string): boolean => PROVIDER_KINDS.has(kind)
+
 /** Runs one command as the actor; an unknown kind or a field that does not fit is refused as invalid, and a capability answering nothing answers `true`. */
 export const runCommand = async (
     services: CommandServices,
@@ -178,4 +188,19 @@ export const runCommand = async (
     if (runner === undefined) return invalid("kind")
     const value = await runner(services, actor, input)
     return value ?? true
+}
+
+/**
+ * The connection a finished command connected or activated as a customer channel, or null for any other command: the Telegram connect (the
+ * answer holds the connection), the Meta page choice (the input names it) and the first-event poll that finds a connection connected with
+ * its first event kept (a Zalo OA stays pending until then). The caller makes sure that channel has its front door.
+ */
+export const connectedChannelOf = (kind: string, input: Input, value: unknown): string | null => {
+    if (kind === "meta.page") return typeof input.connectionId === "string" ? input.connectionId : null
+    if (kind === "connection.first-event") {
+        const arrived = isRecord(value) && value.status === "connected" && value.firstEvent !== null
+        return arrived && typeof input.connectionId === "string" ? input.connectionId : null
+    }
+    if (kind !== "telegram.connect" || !isRecord(value) || !isRecord(value.connection)) return null
+    return typeof value.connection.id === "string" ? value.connection.id : null
 }

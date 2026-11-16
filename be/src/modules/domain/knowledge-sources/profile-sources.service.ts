@@ -1,16 +1,19 @@
 import { Injectable } from "@nestjs/common"
-import type { EntityManager } from "typeorm"
+import { IsNull, MoreThan, Not, type EntityManager } from "typeorm"
 import { InjectClock, type Clock } from "@modules/platform/clock"
 import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { KnowledgeQueue } from "@modules/queues/knowledge"
 import { KnowledgeSourcesError, KnowledgeSourcesErrorCode } from "./errors/knowledge-sources.error"
-import type { ProfileSourceInput, ProfileSourceOutcome } from "./knowledge-sources.contracts"
+import type { ProfileDocument, ProfileSourceInput, ProfileSourceOutcome } from "./knowledge-sources.contracts"
 import { KnowledgeSourceEntity } from "./persistence/entities"
 import { NOW, metaChanges } from "./source-input.policy"
 
+/** How many documents one listing statement reads. */
+const DOCUMENT_PAGE = 500
+
 @Injectable()
 /**
- * The text documents a workspace configuration run keeps (the cli `seed-workspace profile`): each is found again by its origin
+ * The text documents a seed run keeps (the brain seed): each is found again by its origin
  * and title, and every row change is queued for the normal indexing in the same transaction. The caller has already proven the
  * workspace owner; the knowledge pages keep using KnowledgeSourcesService.
  */
@@ -56,6 +59,47 @@ export class ProfileSourcesService {
             await this.queue.enqueueIndex({ sourceId: found.id, workspaceId }, tx, this.clock.now().getTime())
             return "requeued"
         })
+    }
+
+    /** Every text document of the workspace that carries an origin, oldest first, read page by page (a copy of the workspace needs all of them). */
+    async textDocuments(workspaceId: string): Promise<ReadonlyArray<ProfileDocument>> {
+        const found = await this.documentsAfter(workspaceId, null, [])
+        return [...found].sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())
+    }
+
+    private async documentsAfter(
+        workspaceId: string,
+        after: string | null,
+        kept: Array<ProfileDocument>,
+    ): Promise<Array<ProfileDocument>> {
+        const rows = await this.entityManager.find(KnowledgeSourceEntity, {
+            select: {
+                id: true,
+                origin: true,
+                title: true,
+                topic: true,
+                module: true,
+                visibility: true,
+                content: true,
+                createdAt: true,
+            },
+            where: {
+                workspaceId,
+                kind: "text",
+                origin: Not(IsNull()),
+                ...(after === null ? {} : { id: MoreThan(after) }),
+            },
+            order: { id: "ASC" },
+            take: DOCUMENT_PAGE,
+        })
+        const documents = rows.flatMap((row): ReadonlyArray<ProfileDocument> =>
+            row.origin === null ? [] : [{ ...row, origin: row.origin }],
+        )
+        kept.push(...documents)
+        const last = rows.at(-1)
+        return rows.length < DOCUMENT_PAGE || last === undefined
+            ? kept
+            : this.documentsAfter(workspaceId, last.id, kept)
     }
 
     private async insert(tx: EntityManager, source: ProfileSourceInput): Promise<string> {

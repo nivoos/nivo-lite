@@ -1,4 +1,4 @@
-import { Mascot, Page } from "@starci/grammar/common"
+import { Page } from "@starci/grammar/common"
 import { WorkspaceCreate } from "@/components/blocks/WorkspaceCreate"
 import { FirstRunStep } from "@/components/frames/FirstRunStep"
 
@@ -8,6 +8,8 @@ export interface WorkspaceNewPageBaseProps {
         /** The accessible name of the first-run steps and their labels, in order. */
         readonly stepsLabel: string
         readonly steps: ReadonlyArray<string>
+        /** One short line under each step label. */
+        readonly descriptions: ReadonlyArray<string>
     }
 }
 
@@ -17,17 +19,8 @@ export const WorkspaceNewPageBase = (props: WorkspaceNewPageBaseProps) => (
         <FirstRunStep
             stepsLabel={props.props.stepsLabel}
             steps={props.props.steps}
+            descriptions={props.props.descriptions}
             currentStepId="s0"
-            artwork={
-                <Mascot
-                    src="/images/entry/onboarding-business.webp"
-                    size="md"
-                    loading="eager"
-                    assetSlot="onboarding-business"
-                    assetSha256="b1bad1b482e9dca0e140479816678846fa4e4c896d4d3532e090f417ea5e11be"
-                    assetPrompt="The NIVO unicorn hangs a small blank wooden shop sign on a little storefront awning, transparent ground"
-                />
-            }
         >
             <WorkspaceCreate />
         </FirstRunStep>

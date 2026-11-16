@@ -15,6 +15,6 @@ export class GetBrainHandler extends ICQRSHandler<GetBrainQuery, BrainOverview> 
     }
 
     protected override process(query: GetBrainQuery): Promise<BrainOverview> {
-        return this.page.overview(query.params.principal.id, query.params.request.workspaceId)
+        return this.page.overview(query.params.principal.id, query.params.request.workspaceId, query.params.request.facts)
     }
 }

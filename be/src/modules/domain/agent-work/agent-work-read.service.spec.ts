@@ -2,9 +2,9 @@ import { Test } from "@nestjs/testing"
 import { mock, mockEntityManager } from "@starci/jest-preset"
 import type { MockEntityManager } from "@starci/jest-preset"
 import { In } from "typeorm"
-import { agentTurnRowOf, agentWakeRowOf, runningWakeRowOf } from "@tests/fixtures/builders/agent-work.builder"
+import { queueQueryBuilders } from "@tests/fixtures/builders/entity-query-builder-fake.builder"
+import { agentTurnRowOf, agentWakeRowOf } from "@tests/fixtures/builders/agent-work.builder"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
-import { AgentGoalsService } from "./agent-goals.service"
 import { AgentTasksService } from "./agent-tasks.service"
 import { AgentTriggersService } from "./agent-triggers.service"
 import { AgentWorkAccessService } from "./agent-work-access.service"
@@ -35,9 +35,8 @@ const build = async (em: MockEntityManager = mockEntityManager()) => {
         stateOf: jest.fn().mockResolvedValue(STATE),
         settingsOf: jest
             .fn()
-            .mockResolvedValue({ workspaceId: "ws-1", workEnabled: true, road: "core", backgroundDailyCap: 200 }),
+            .mockResolvedValue({ workspaceId: "ws-1", workEnabled: true, road: "core" }),
     })
-    const goals = mock<AgentGoalsService>({ alive: jest.fn().mockResolvedValue([]) })
     const tasks = mock<AgentTasksService>({ alive: jest.fn().mockResolvedValue([]) })
     const triggers = mock<AgentTriggersService>({ ofAgent: jest.fn().mockResolvedValue([]) })
     const container = await Test.createTestingModule({
@@ -46,7 +45,6 @@ const build = async (em: MockEntityManager = mockEntityManager()) => {
             { provide: PRIMARY_ENTITY_MANAGER, useValue: em },
             { provide: AgentWorkAccessService, useValue: access },
             { provide: AgentWorkSettingsService, useValue: settings },
-            { provide: AgentGoalsService, useValue: goals },
             { provide: AgentTasksService, useValue: tasks },
             { provide: AgentTriggersService, useValue: triggers },
         ],
@@ -69,7 +67,7 @@ describe("AgentWorkReadService.agentWork", () => {
         const view = await service.agentWork("ws-1", "agent-1")
 
         expect(access.agent).toHaveBeenCalledWith("ws-1", "agent-1")
-        expect(view).toMatchObject({ state: STATE, goals: [], tasks: [], triggers: [], pendingWakes: 3 })
+        expect(view).toMatchObject({ state: STATE, tasks: [], triggers: [], pendingWakes: 3 })
         expect(view.turns).toEqual([
             {
                 id: "turn-1",
@@ -146,7 +144,7 @@ describe("AgentWorkReadService.workspaceWork", () => {
         )
 
         await expect(service.workspaceWork("ws-1")).resolves.toEqual({
-            settings: { workspaceId: "ws-1", workEnabled: true, road: "core", backgroundDailyCap: 200 },
+            settings: { workspaceId: "ws-1", workEnabled: true, road: "core" },
             agentsOff: 2,
             pendingWakes: 9,
             heldWakes: 9,
@@ -155,25 +153,6 @@ describe("AgentWorkReadService.workspaceWork", () => {
             where: { workspaceId: "ws-1", workEnabled: false },
         })
         expect(em.count).toHaveBeenCalledWith(AgentWakeEntity, { where: { workspaceId: "ws-1", status: "held" } })
-    })
-})
-
-describe("AgentWorkReadService.customerWake", () => {
-    it("tells where the wake of a stored customer message stands in the words of a job", async () => {
-        const { service, em } = await build(
-            mockEntityManager({ findOne: [AgentWakeEntity, runningWakeRowOf("wake-7")] }),
-        )
-
-        await expect(service.customerWake("ws-1", "msg-1")).resolves.toEqual({ id: "wake-7", state: "running" })
-        expect(em.findOne).toHaveBeenCalledWith(AgentWakeEntity, {
-            where: { workspaceId: "ws-1", source: "customer", eventKey: "msg-1" },
-        })
-    })
-
-    it("answers null for a message no wake was written for", async () => {
-        const { service } = await build(mockEntityManager({ findOne: [AgentWakeEntity, null] }))
-
-        await expect(service.customerWake("ws-1", "msg-9")).resolves.toBeNull()
     })
 })
 
@@ -205,5 +184,50 @@ describe("AgentWorkReadService.wakeOriginOf", () => {
 
         await expect((await build(found)).service.wakeOriginOf("ws-1", "wake-1")).resolves.toBe("person")
         await expect((await build(gone)).service.wakeOriginOf("ws-1", "wake-1")).resolves.toBeNull()
+    })
+})
+
+describe("AgentWorkReadService.hasLiveWake", () => {
+    it("answers true while the subject's own wake or a wake naming it is pending, running or held", async () => {
+        const em = mockEntityManager()
+        const [fake] = queueQueryBuilders(em, [{ getCount: 1 }])
+        const { service } = await build(em)
+
+        await expect(service.hasLiveWake("ws-1", "agent-1", { wakeId: "wake-1", subjectId: "run-1" })).resolves.toBe(true)
+
+        expect(fake?.callsOf("where")).toEqual([
+            [
+                "w.workspace_id = :workspaceId AND w.agent_id = :agentId AND w.status IN (:...live)",
+                { workspaceId: "ws-1", agentId: "agent-1", live: ["pending", "running", "held"] },
+            ],
+        ])
+        expect(fake?.callsOf("andWhere")).toEqual([
+            ["(w.id = :wakeId OR w.context ->> 'subjectId' = :subjectId)", { subjectId: "run-1", wakeId: "wake-1" }],
+        ])
+    })
+
+    it("answers false when no live wake names the subject, and asks by the subject alone when there is no wake id", async () => {
+        const em = mockEntityManager()
+        const [fake] = queueQueryBuilders(em, [{ getCount: 0 }])
+        const { service } = await build(em)
+
+        await expect(service.hasLiveWake("ws-1", "agent-1", { wakeId: null, subjectId: "run-1" })).resolves.toBe(false)
+
+        expect(fake?.callsOf("andWhere")).toEqual([["w.context ->> 'subjectId' = :subjectId", { subjectId: "run-1" }]])
+    })
+})
+
+describe("AgentWorkReadService.wakeContextOf", () => {
+    it("reads the context of the wake written under a source and fact key, and null when there is none", async () => {
+        const context = { eventName: "engine.thread.resume", subjectId: "run-1" }
+        const found = await build(mockEntityManager({ findOne: [AgentWakeEntity, agentWakeRowOf({ context })] }))
+        const none = await build(mockEntityManager({ findOne: [AgentWakeEntity, null] }))
+
+        await expect(found.service.wakeContextOf("ws-1", "agent-1", "thread", "thread:run-1:answer:0")).resolves.toEqual(context)
+        await expect(none.service.wakeContextOf("ws-1", "agent-1", "thread", "thread:run-1:answer:0")).resolves.toBeNull()
+        expect(found.em.findOne).toHaveBeenCalledWith(AgentWakeEntity, {
+            select: { context: true },
+            where: { workspaceId: "ws-1", agentId: "agent-1", source: "thread", eventKey: "thread:run-1:answer:0" },
+        })
     })
 })

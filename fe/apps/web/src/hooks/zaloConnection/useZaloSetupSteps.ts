@@ -63,8 +63,8 @@ export const useZaloSetupSteps = (connectionId: string): UseZaloSetupStepsResult
         }
         return t(`${TITLE_KEYS[id]}Hint`)
     }
-    const hasItems = "items" in slot
     const authorizeLabel = isAuthorized ? t("reconnect") : t("authorize")
+    const hasItems = ("items" in slot ? slot.items : undefined) !== undefined
     return {
         stepsLabel: t("stepsLabel"),
         steps: steps.map((step, index) => ({

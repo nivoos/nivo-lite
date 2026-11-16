@@ -10,6 +10,7 @@ import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import { IDS } from "@modules/platform/ids"
 import { LOGGER } from "@modules/platform/logging"
 import type { Logger } from "@modules/platform/logging"
+import { keptEffectsLedger } from "@tests/fixtures/builders/kept-effects.builder"
 import { accountByEmailRow as account } from "@tests/fixtures/builders/identity.builder"
 import { IdentityInviteService } from "./identity-invite.service"
 import { IDENTITY_AUTH_OPTIONS } from "./identity-auth.decorators"
@@ -34,7 +35,7 @@ const SETTINGS = mock<MailOptions>({
     resetTtlSeconds: 3_600,
 })
 
-const build = async (query: ReadonlyArray<readonly [string, unknown]>) => {
+const build = async (query: ReadonlyArray<readonly [string, unknown]>, ledger: ReturnType<typeof keptEffectsLedger> | null = null) => {
     const entityManager: MockEntityManager = mockEntityManager({
         query,
         insert: [IdentityEmailTokenEntity, {}],
@@ -54,6 +55,7 @@ const build = async (query: ReadonlyArray<readonly [string, unknown]>) => {
             { provide: IDS, useValue: fakeIds() },
             { provide: IDENTITY_AUTH_OPTIONS, useValue: OPTIONS },
             { provide: LOGGER, useValue: logger },
+            ...(ledger === null ? [] : ledger.providers),
         ],
     }).compile()
     return { subject: moduleRef.get(IdentityInviteService), mailer, logger, entityManager }
@@ -146,5 +148,75 @@ describe("IdentityInviteService.deliver refusals", () => {
         await expect(subject.deliver("an@example.test", "not a url")).resolves.toBe("none")
 
         expect(logger.error).toHaveBeenCalledWith(IdentityAuthLogEvent.MailFailed, failure, { kind: "invite" })
+    })
+})
+
+describe("IdentityInviteService.deliverOnce", () => {
+    const NEW_PERSON: ReadonlyArray<readonly [string, unknown]> = [
+        [USER_BY_EMAIL, []],
+        [CREATE_USER, [{ be_auth_create_user: CREATED }]],
+    ]
+
+    it("makes the plan and sends the mail once under the job's key; a run again makes no second account link and sends nothing", async () => {
+        const ledger = keptEffectsLedger()
+        const { subject, mailer, entityManager } = await build(NEW_PERSON, ledger)
+
+        await expect(subject.deliverOnce("job-1", "new@example.test", REDIRECT)).resolves.toBe("invited")
+        await expect(subject.deliverOnce("job-1", "new@example.test", REDIRECT)).resolves.toBe("invited")
+
+        expect(mailer.send).toHaveBeenCalledTimes(1)
+        expect(entityManager.insert).toHaveBeenCalledTimes(1)
+        expect(ledger.keys()).toEqual(["job-1:plan", "job-1:mail"])
+        expect(ledger.rows.get("job-1:plan")?.acts).toBe(1)
+    })
+
+    it("a mail whose outcome was lost is sent again with the SAME link (the plan was kept), never with a second account link", async () => {
+        const ledger = keptEffectsLedger()
+        const { subject, mailer, entityManager } = await build(NEW_PERSON, ledger)
+        ledger.loseNext("job-1:mail", Object.assign(new Error("killed"), { code: "ECONNRESET" }))
+
+        await expect(subject.deliverOnce("job-1", "new@example.test", REDIRECT)).rejects.toMatchObject({ code: "ECONNRESET" })
+        await expect(subject.deliverOnce("job-1", "new@example.test", REDIRECT)).resolves.toBe("invited")
+
+        expect(mailer.send).toHaveBeenCalledTimes(2)
+        expect(mailer.send.mock.calls[1]?.[0].message.text).toBe(mailer.send.mock.calls[0]?.[0].message.text)
+        expect(entityManager.insert).toHaveBeenCalledTimes(1)
+        expect(ledger.rows.get("job-1:plan")?.acts).toBe(1)
+    })
+
+    it("sends a known person the invitation link once and answers existing", async () => {
+        const ledger = keptEffectsLedger()
+        const { subject, mailer } = await build([[USER_BY_EMAIL, [account()]]], ledger)
+
+        await expect(subject.deliverOnce("job-1", "An@Example.test", REDIRECT)).resolves.toBe("existing")
+
+        expect(mailer.send.mock.calls[0]?.[0].message.text).toContain("https://app.example.test/invite/token-1")
+    })
+
+    it("hands a pending account (made for an invitation, never used) a fresh password link instead of the plain link", async () => {
+        const ledger = keptEffectsLedger()
+        const { subject, mailer } = await build([[USER_BY_EMAIL, [account("invited")]]], ledger)
+
+        await expect(subject.deliverOnce("job-1", "an@example.test", REDIRECT)).resolves.toBe("invited")
+
+        expect(mailer.send.mock.calls[0]?.[0].message.text).toContain("/auth/reset?token=")
+    })
+
+    it("THROWS when the mail cannot be sent: nothing is swallowed as a delivery of none, and the plan stays kept", async () => {
+        const ledger = keptEffectsLedger()
+        const { subject, mailer, logger } = await build(NEW_PERSON, ledger)
+        mailer.send.mockRejectedValueOnce(Object.assign(new Error("smtp down"), { code: "ECONNREFUSED" }))
+
+        await expect(subject.deliverOnce("job-1", "new@example.test", REDIRECT)).rejects.toMatchObject({ code: "ECONNREFUSED" })
+
+        expect(logger.error).not.toHaveBeenCalled()
+        expect(ledger.rows.get("job-1:plan")?.done).toBe(true)
+        expect(ledger.rows.has("job-1:mail")).toBe(false)
+    })
+
+    it("refuses typed (config) in an app that composes no effects ledger", async () => {
+        const { subject } = await build(NEW_PERSON)
+
+        await expect(subject.deliverOnce("job-1", "new@example.test", REDIRECT)).rejects.toMatchObject({ code: "IDENTITY_CONFIG_EFFECTS_MISSING" })
     })
 })

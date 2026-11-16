@@ -1,5 +1,3 @@
-export { PAYMENT_ORDER_REQUEST_QUEUE } from "@modules/queues/payment-order-request"
-
 /** What a member asked to pay. */
 export type PaymentOrderRequestKind = "plan" | "renew" | "topup" | "upgrade" | "credit_pack"
 
@@ -52,22 +50,5 @@ export interface PaymentOrderRequestStatus {
 /** The request status when visible to the caller, or null when absent. */
 export type PaymentOrderRequestStatusLookup = PaymentOrderRequestStatus | null
 
-/** The payload of one create-payment-order job: ids only. */
-export interface OrderRequestPayload {
-    /** The workspace that pays. */
-    readonly workspaceId: string
-    /** The request row the answer is written to. */
-    readonly requestId: string
-}
-
-/** True when a job payload is the payload of a create-payment-order job. */
-export const isPaymentOrderRequestPayload = (value: unknown): value is OrderRequestPayload =>
-    typeof value === "object" &&
-    value !== null &&
-    "workspaceId" in value &&
-    typeof value.workspaceId === "string" &&
-    "requestId" in value &&
-    typeof value.requestId === "string"
-
-/** What happened to a request. */
-export type RequestOutcome = "ordered" | "failed" | "ignored"
+/** What happened to a request: its order was made and the request answered, or there was nothing to do (gone, or already answered). A refusal is thrown, never an outcome. */
+export type RequestOutcome = "ordered" | "ignored"

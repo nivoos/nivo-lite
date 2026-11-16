@@ -9,11 +9,9 @@ import {
     mock,
     mockEntityManager,
     recordingEventBus,
+    type MockEntityManager,
 } from "@starci/jest-preset"
-import type { MockEntityManager } from "@starci/jest-preset"
-import type { InstallationRecord } from "@modules/domain/module-installations"
-import { EntitlementsService } from "@modules/domain/billing"
-import { InstallationRecordsService } from "@modules/domain/module-installations"
+import { InstallationRecordsService, type InstallationRecord } from "@modules/domain/module-installations"
 import { WorkspaceMembersService } from "@modules/domain/workspace-members"
 import type { StorageObjectsPort } from "@modules/integrations/object-storage"
 import { CLOCK } from "@modules/platform/clock"
@@ -22,14 +20,17 @@ import { IDS } from "@modules/platform/ids"
 import { EVENT_BUS } from "@modules/platform/event-bus"
 import { KnowledgeSourceIndexedEvent } from "@modules/events/api"
 import { KnowledgeQueue } from "@modules/queues/knowledge"
-import { KnowledgeSourcesErrorCode } from "./errors/knowledge-sources.error"
-import { KnowledgeProgressService } from "./knowledge-progress.service"
-import { StoredNote } from "./knowledge-sources.contracts"
-import type { AddSourceInput, ReindexInput, UpdateSourceInput } from "./knowledge-sources.contracts"
+import { KnowledgeSourcesError, KnowledgeSourcesErrorCode } from "./errors/knowledge-sources.error"
+import {
+    StoredNote,
+    type AddSourceInput,
+    type ReindexInput,
+    type UpdateSourceInput,
+} from "./knowledge-sources.contracts"
 import { KNOWLEDGE_STORAGE } from "./knowledge-sources.decorators"
 import { KnowledgeSourcesService } from "./knowledge-sources.service"
 import { KnowledgeSourceEntity } from "./persistence/entities"
-import { NOW } from "./source-input.policy"
+import { NOW, columnsOf } from "./source-input.policy"
 import { SourcePartsService } from "./source-parts.service"
 import { SourceQuotaService } from "./source-quota.service"
 
@@ -45,24 +46,35 @@ const KEY = { id: "s1", workspaceId: WS }
 /** A matcher for an object holding at least these fields, typed unknown so it nests inside an expected object. */
 const matching = (fields: object): unknown => expect.objectContaining(fields)
 const NO_STAGE = { stage: null, stageDone: null, stageTotal: null }
-const touched = (changes: object) => [{ ...changes, updatedAt: NOW }]
+const touched = (changes: object): [object] => [{ ...changes, updatedAt: NOW }]
 /** Asserts that the manager updated the source `KEY` with these changes and the instant of the write. */
 const updated = (em: MockEntityManager, changes: object) =>
     expect(em.update).toHaveBeenCalledWith(KnowledgeSourceEntity, KEY, ...touched(changes))
 /** A transaction whose insert answers the new source `s1`. */
 const instance = { id: "i1", workspaceId: WS, moduleKey: "chatbot" }
+/** The manager who asks (the role of an upload and of a move). */
+const MEMBER = {
+    userId: "u1",
+    workspaceId: WS,
+    role: "manager" as const,
+    staffId: null,
+    displayName: "Lan",
+    status: "active" as const,
+}
 const inputOf = builder<AddSourceInput>({ kind: "text", title: "Hours", content: "Open 8-21", visibility: "internal" })
 const build = async (em: MockEntityManager) => {
     const members = mock<WorkspaceMembersService>()
     const queue = mock<KnowledgeQueue>()
     const bus = recordingEventBus()
     const storage = mock<StorageObjectsPort>()
-    const entitlements = mock<EntitlementsService>()
+
     const installations = mock<InstallationRecordsService>()
     const quota = mock<SourceQuotaService>()
-    const progress = mock<KnowledgeProgressService>()
     const parts = mock<SourcePartsService>()
     quota.measure.mockResolvedValue(12)
+    quota.replacementOf.mockResolvedValue({ columns: {}, replaced: null })
+    members.require.mockResolvedValue(MEMBER)
+    parts.wholeOf.mockResolvedValue({ ids: ["s1", "p2"], title: "Wash prices", visibility: "internal", origin: null })
     const moduleRef = await Test.createTestingModule({
         providers: [
             KnowledgeSourcesService,
@@ -72,17 +84,23 @@ const build = async (em: MockEntityManager) => {
             { provide: WorkspaceMembersService, useValue: members },
             { provide: KnowledgeQueue, useValue: queue },
             { provide: EVENT_BUS, useValue: bus },
-            { provide: EntitlementsService, useValue: entitlements },
+
             { provide: InstallationRecordsService, useValue: installations },
             { provide: SourceQuotaService, useValue: quota },
-            { provide: KnowledgeProgressService, useValue: progress },
             { provide: SourcePartsService, useValue: parts },
             { provide: IDS, useValue: fakeIds() },
         ],
     }).compile()
     const service = moduleRef.get(KnowledgeSourcesService)
-    return { service, members, queue, bus, storage, installations, quota, progress, parts }
+    return { service, members, queue, bus, storage, installations, quota, parts }
 }
+/** A stored document as the move's role check reads it: its id and the area it is in now. */
+const areaRow = (visibility: "public" | "internal"): KnowledgeSourceEntity => Object.assign(new KnowledgeSourceEntity(), { id: "s1", visibility })
+
+/** The member the role check answers for a caller of this role. */
+const memberWho = (role: "owner" | "manager"): Awaited<ReturnType<WorkspaceMembersService["require"]>> =>
+    mock<Awaited<ReturnType<WorkspaceMembersService["require"]>>>({ role, displayName: "Lan" })
+
 describe("KnowledgeSourcesService addSource", () => {
     it("authorizes the manager and atomically writes the source with its indexing job", async () => {
         const tx = fakeTransaction(mockEntityManager(sourceData.sourceInsertRows()))
@@ -184,7 +202,7 @@ describe("KnowledgeSourcesService retrySource", () => {
     it.each<readonly [string, UpdateSourceInput, object]>(sourceData.SOURCE_METADATA_CASES)(
         "%s",
         async (_name, input, changes) => {
-            const em = mockEntityManager(sourceWriteRows(1))
+            const { em } = fakeTransaction(mockEntityManager(sourceWriteRows(1)))
             const { service, parts } = await build(em)
             await service.updateSource("u1", WS, input)
             expect(em.update).toHaveBeenCalledWith(
@@ -196,13 +214,79 @@ describe("KnowledgeSourcesService retrySource", () => {
                 ...touched(changes),
             )
             const kept = Object.fromEntries(Object.entries(changes).filter(([key]) => key !== "title"))
-            expect(parts.follow).toHaveBeenCalledWith(WS, "s1", ...touched(kept))
+            expect(parts.follow.mock.calls[0]?.slice(0, 3)).toEqual([WS, "s1", ...touched(kept)])
         },
     )
 
     it("refuses an unknown source", async () => {
         const { service } = await build(mockEntityManager(sourceData.sourceUnchangedRows(null)))
         await expect(service.updateSource("u1", WS, { sourceId: "s1" })).rejects.toMatchObject(missing)
+    })
+
+    it("moves a laundry's price list to the public area: the area's cap under the lock first, then the area, its parts and vectors, and answers the move", async () => {
+        const { em } = fakeTransaction(mockEntityManager({ ...sourceWriteRows(1), findOne: [KnowledgeSourceEntity, areaRow("internal")] }))
+        const { service, parts, quota, members } = await build(em)
+        await expect(service.updateSource("u1", WS, { sourceId: "s1", visibility: "public" })).resolves.toEqual({
+            sourceIds: ["s1", "p2"],
+            title: "Wash prices",
+            from: "internal",
+            to: "public",
+            movedBy: "Lan",
+        })
+        expect(members.require).toHaveBeenCalledWith("u1", WS, ["owner", "manager"])
+        // INTERNAL -> PUBLIC exposes the document to customers: the owner alone.
+        expect(members.require).toHaveBeenCalledWith("u1", WS, ["owner"])
+        expect(quota.admitMove).toHaveBeenCalledWith(expect.anything(), WS, ["s1", "p2"], "public")
+        expect(quota.admitMove.mock.invocationCallOrder[0] ?? 0).toBeLessThan(
+            em.update.mock.invocationCallOrder[0] ?? 0,
+        )
+        expect(parts.follow).toHaveBeenCalledWith(WS, "s1", ...touched({ visibility: "public" }), expect.anything())
+        expect(parts.sourcesChanged).toHaveBeenCalledWith(WS, ["s1"], expect.anything())
+    })
+
+    it("a manager cannot move a document from the internal area into the public one: refused before the cap is read, nothing written", async () => {
+        const tx = fakeTransaction(mockEntityManager({ ...sourceWriteRows(1), findOne: [KnowledgeSourceEntity, areaRow("internal")] }))
+        const { service, quota, parts, members } = await build(tx.em)
+        const refusal = new KnowledgeSourcesError({ code: codes.SourceNotFound })
+        members.require.mockImplementation((_user, _workspace, roles) =>
+            roles !== undefined && roles.length === 1 ? Promise.reject(refusal) : Promise.resolve(memberWho("manager")),
+        )
+
+        await expect(service.updateSource("u1", WS, { sourceId: "s1", visibility: "public" })).rejects.toBe(refusal)
+
+        expect(quota.admitMove).not.toHaveBeenCalled()
+        expect(tx.em.update).not.toHaveBeenCalled()
+        expect(parts.follow).not.toHaveBeenCalled()
+    })
+
+    it("a manager may move a document from the public area into the internal one, and re-stating public for a public document asks no owner", async () => {
+        for (const visibility of ["internal", "public"] as const) {
+            const tx = fakeTransaction(mockEntityManager({ ...sourceWriteRows(1), findOne: [KnowledgeSourceEntity, areaRow("public")] }))
+            const { service, members } = await build(tx.em)
+
+            await service.updateSource("u1", WS, { sourceId: "s1", visibility })
+
+            expect(members.require).not.toHaveBeenCalledWith("u1", WS, ["owner"])
+            expect(tx.em.update).toHaveBeenCalled()
+        }
+    })
+
+    it("refuses a move the area cannot hold and writes nothing", async () => {
+        const tx = fakeTransaction(mockEntityManager(sourceWriteRows(1)))
+        const { service, quota, parts } = await build(tx.em)
+        quota.admitMove.mockRejectedValue(new KnowledgeSourcesError({ code: codes.InternalAreaFull }))
+        await expect(service.updateSource("u1", WS, { sourceId: "s1", visibility: "internal" })).rejects.toMatchObject({
+            code: codes.InternalAreaFull,
+        })
+        expect(tx.em.update).not.toHaveBeenCalled()
+        expect(parts.follow).not.toHaveBeenCalled()
+    })
+
+    it("answers no move for a change that names no area", async () => {
+        const { em } = fakeTransaction(mockEntityManager(sourceWriteRows(1)))
+        const { service, quota } = await build(em)
+        await expect(service.updateSource("u1", WS, { sourceId: "s1", title: "Prices" })).resolves.toBeNull()
+        expect(quota.admitMove).not.toHaveBeenCalled()
     })
 
     it("deletes the source with the later parts of a long document and answers their titles", async () => {
@@ -254,28 +338,6 @@ describe("KnowledgeSourcesService createUpload", () => {
         await expect(service.createUpload("u1", WS, "a.pdf", "application/pdf")).rejects.toMatchObject({
             code: codes.UploadUnavailable,
         })
-    })
-})
-
-describe("KnowledgeSourcesService requestReembed", () => {
-    it("queues the re-embedding with the given model after proving the caller manages the workspace", async () => {
-        const tx = fakeTransaction(mockEntityManager())
-        const { service, members, queue } = await build(tx.em)
-        await service.requestReembed("u1", WS, "m1")
-        expect(members.require).toHaveBeenCalledWith("u1", WS, ["owner", "manager"])
-        expect(queue.enqueueReembed).toHaveBeenCalledWith({ workspaceId: WS, model: "m1" }, expect.anything())
-        expect(tx.commits).toBe(1)
-    })
-
-    it("queues the follow-up of a re-embedding with the instant of the continuation", async () => {
-        const tx = fakeTransaction(mockEntityManager())
-        const { service, queue } = await build(tx.em)
-        await service.continueReembed(WS, "m1")
-        expect(queue.enqueueReembed).toHaveBeenCalledWith(
-            { workspaceId: WS, model: "m1" },
-            expect.anything(),
-            Date.parse(AT),
-        )
     })
 })
 
@@ -341,60 +403,65 @@ describe("KnowledgeSourcesService readUpload", () => {
 })
 
 describe("KnowledgeSourcesService the stages a worker moves a source through", () => {
-    it("starts reading at the read stage and announces it", async () => {
-        const { service, progress } = await build(mockEntityManager())
+    it("starts reading at the read stage", async () => {
+        const em = mockEntityManager(sourceWriteRows(1))
+        const { service } = await build(em)
         await service.begin(WS, "s1")
-        expect(progress.write).toHaveBeenCalledWith(
-            WS,
-            "s1",
-            matching({ status: "reading", stage: "read", progress: 5 }),
-        )
+        expect(em.update).toHaveBeenCalledWith(KnowledgeSourceEntity, KEY, matching({ status: "reading", stage: "read", progress: 5 }))
     })
 
-    it("stores the text, moves to indexing at the chunk stage, then announces the row", async () => {
+    it("stores the text and moves to indexing at the chunk stage", async () => {
         const em = mockEntityManager(sourceWriteRows(1))
-        const { service, progress } = await build(em)
+        const { service } = await build(em)
         await service.startIndexing(WS, "s1", "text", "Title")
         const row = matching({ status: "indexing", contentHash: null, title: "Title", stage: "chunk" })
         expect(em.update).toHaveBeenCalledWith(KnowledgeSourceEntity, KEY, row)
-        expect(progress.announce).toHaveBeenCalledWith(WS, "s1")
     })
 
-    it("hands the counts to the throttled writer and a stage change to the immediate one", async () => {
-        const { service, progress } = await build(mockEntityManager())
-        await service.advance(WS, "s1", { stage: "embed", done: 3, total: 9 })
+    it("writes a stage change at once, naming only the stage", async () => {
+        const em = mockEntityManager(sourceWriteRows(1))
+        const { service } = await build(em)
         await service.enterStage(WS, "s1", { stage: "store" })
-        expect(progress.count).toHaveBeenCalledWith(WS, "s1", { stage: "embed", done: 3, total: 9 })
-        expect(progress.write).toHaveBeenCalledWith(WS, "s1", { stage: "store" })
+        expect(em.update).toHaveBeenCalledWith(KnowledgeSourceEntity, KEY, { stage: "store", updatedAt: NOW })
     })
 
-    it("records the stored passages, publishes knowledge_source_indexed and moves on in one transaction, then announces", async () => {
+    it("writes what the next step needs in the SAME transaction that finishes indexing (the event, the status and the hand-over)", async () => {
         const tx = fakeTransaction(mockEntityManager(sourceWriteRows(1)))
-        const { service, queue, bus, progress } = await build(tx.em)
+        const { service } = await build(tx.em)
+        const within = jest.fn().mockResolvedValue(undefined)
+        await service.finishIndexing(WS, "s1", null, 3, within)
+        expect(within).toHaveBeenCalledTimes(1)
+        expect(tx.commits).toBe(1)
+    })
+
+    it("makes the source ready with its stored passages and publishes knowledge_source_indexed in one transaction", async () => {
+        const tx = fakeTransaction(mockEntityManager(sourceWriteRows(1)))
+        const { service, queue, bus } = await build(tx.em)
         await service.finishIndexing(WS, "s1", StoredNote.KeywordOnly, 3)
-        updated(tx.em, { error: StoredNote.KeywordOnly, chunkCount: 3, progress: 80 })
         expect(queue.enqueueFacts).not.toHaveBeenCalled()
         expect(bus.eventsOf(KnowledgeSourceIndexedEvent)).toEqual([
             expect.objectContaining({ payload: matching({ ...job, indexedAt: Date.parse(AT) }) }),
         ])
         expect(bus.allInTransaction).toBe(true)
         updated(tx.em, {
-            status: "extracting_facts",
-            progress: 85,
-            stage: "facts",
+            status: "ready",
+            error: StoredNote.KeywordOnly,
+            chunkCount: 3,
+            progress: 100,
+            stage: null,
             stageDone: null,
             stageTotal: null,
         })
         expect(tx.commits).toBe(1)
-        expect(progress.announce).toHaveBeenCalledWith(WS, "s1")
     })
 })
 
 describe("KnowledgeSourcesService the stages a worker ends a source with", () => {
     const ends = async (run: (service: KnowledgeSourcesService) => Promise<void>, change: object) => {
-        const { service, progress } = await build(mockEntityManager())
+        const em = mockEntityManager(sourceWriteRows(1))
+        const { service } = await build(em)
         await run(service)
-        expect(progress.write).toHaveBeenCalledWith(WS, "s1", { ...change, stage: null, done: null, total: null })
+        expect(em.update).toHaveBeenCalledWith(KnowledgeSourceEntity, KEY, { ...columnsOf({ ...change, stage: null, done: null, total: null }), updatedAt: NOW })
     }
     it.each<[string, (s: KnowledgeSourcesService) => Promise<void>, object]>(sourceData.SOURCE_STAGE_CASES)(
         "%s",
@@ -436,10 +503,9 @@ describe("KnowledgeSourcesService one job per source", () => {
 
     it("leaves a source a worker is on as it is, so two jobs never embed the same passages", async () => {
         const tx = fakeTransaction(mockEntityManager(sourceData.sourceUnchangedRows(row)))
-        const { service, queue, progress } = await build(tx.em)
+        const { service, queue } = await build(tx.em)
         await expect(service.reindexSource("u1", WS, { sourceId: "s1" })).resolves.toEqual({ id: "s1" })
         expect(queue.enqueueIndex).not.toHaveBeenCalled()
-        expect(progress.announce).not.toHaveBeenCalled()
     })
 
     it.each<readonly [string, typeof row | null, string, boolean]>(sourceData.SOURCE_ORIGIN_CASES)(
@@ -507,10 +573,10 @@ describe("KnowledgeSourcesService reading", () => {
     it("reads the source with its text after checking workspace membership", async () => {
         const em = mockEntityManager({ findOne: [KnowledgeSourceEntity, listRowOf()] })
         const { service, members } = await build(em)
-        await expect(service.detail("u1", WS, "s1")).resolves.toEqual({ ...summary, content: "c" })
+        await expect(service.detail("u1", WS, "s1")).resolves.toEqual({ ...summary, content: "c", reading: null })
         expect(members.require).toHaveBeenCalledWith("u1", WS)
         expect(em.findOne).toHaveBeenCalledWith(KnowledgeSourceEntity, {
-            select: matching({ id: true, content: true }),
+            select: matching({ id: true, content: true, reading: true }),
             where: { workspaceId: WS, id: "s1" },
         })
     })

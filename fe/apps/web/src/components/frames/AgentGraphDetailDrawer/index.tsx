@@ -16,6 +16,6 @@ export const AgentGraphDetailDrawer = (props: AgentGraphDetailDrawerProps) => (
         isOpen={props.view.isDrawerOpen}
         onOpenChange={() => props.onAction({ kind: "closeDrawer" })}
     >
-        <AgentGraphInspector view={props.view} sideTab="detail" isLoading={props.isLoading} onAction={props.onAction} />
+        <AgentGraphInspector view={props.view} isLoading={props.isLoading} onAction={props.onAction} />
     </Drawer>
 )

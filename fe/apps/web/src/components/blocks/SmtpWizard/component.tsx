@@ -1,4 +1,12 @@
-import type { DataSlot, SlotLabels, SmtpAccountView, SmtpGuideView, SmtpOption, SmtpText } from "@/modules/types"
+import type {
+    DataSlot,
+    SlotLabels,
+    SmtpAccountView,
+    SmtpGuideView,
+    SmtpOption,
+    SmtpText,
+    WizardPhases,
+} from "@/modules/types"
 import { SlotView } from "@nivo-lite/agent-sdk/client"
 import { Alert, CheckboxGroup, Input, RadioGroup, Text } from "@starci/grammar/common"
 import { SmtpAccountStep } from "@/components/composites/SmtpAccountStep"
@@ -6,6 +14,7 @@ import { SmtpGuideStep } from "@/components/composites/SmtpGuideStep"
 import {
     backAction,
     closeAction,
+    forwardAction,
     nextAction,
     startActions,
     WizardFooter,
@@ -24,6 +33,7 @@ export interface SmtpWizardBaseProps {
         readonly title: string
         readonly stepLabel: string
         readonly steps: ReadonlyArray<string>
+        readonly phases: WizardPhases
         readonly index: number
         readonly step: "provider" | "guide" | "account" | "verify"
         readonly presets: ReadonlyArray<SmtpOption>
@@ -69,9 +79,9 @@ const actionsOf = ({ props, on }: SmtpWizardBaseProps): ReadonlyArray<WizardActi
             () => on.go(1),
             () => on.close(false),
         )
-    if (props.step === "guide") return [nextAction(text.next, () => on.go(2)), back]
+    if (props.step === "guide") return [forwardAction(text.next, () => on.go(2)), back]
     if (props.step === "account") {
-        const save = nextAction(text.saveContinue, on.save, {
+        const save = forwardAction(text.saveContinue, on.save, {
             isPending: props.isPending,
             isDisabled: !props.isLocked && !props.isReady,
         })
@@ -95,6 +105,7 @@ const renderSmtpWizard = (props: SmtpWizardBaseProps, isLoading: boolean) => {
             title={view.title}
             stepLabel={view.stepLabel}
             steps={view.steps}
+            phases={view.phases}
             index={view.index}
             footer={<WizardFooter actions={actionsOf(props)} isLoading={isLoading} />}
         >

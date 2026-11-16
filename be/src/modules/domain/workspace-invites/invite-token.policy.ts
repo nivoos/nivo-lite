@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto"
+import type { EffectCallKept } from "@modules/platform/effects"
+import { isRecord } from "@modules/platform/primitives"
 import { WorkspaceInvitesError, WorkspaceInvitesErrorCode } from "./errors/workspace-invites.error"
 import type { MintedToken } from "./workspace-invites.contracts"
 
@@ -14,4 +16,15 @@ export const uuidOfRow = (row: { readonly gen_random_uuid: string } | undefined)
 /** The invitation token two random uuids make, dashes removed; only its hash is ever stored. */
 export const mintedTokenOf = (first: string, second: string): MintedToken => ({
     token: `${first}${second}`.replaceAll("-", ""),
+})
+
+/** The call that makes an invitation token once and KEEPS it SEALED on the effect ledger (a link token is a secret), so every run of a job reads the same one. */
+export const keptTokenCall = (act: () => Promise<MintedToken>): EffectCallKept<MintedToken> => ({
+    act,
+    keep: (minted) => ({ token: minted.token }),
+    from: (kept) => {
+        if (isRecord(kept) && typeof kept.token === "string") return { token: kept.token }
+        throw new WorkspaceInvitesError({ code: WorkspaceInvitesErrorCode.TokenUnavailable })
+    },
+    secret: true,
 })

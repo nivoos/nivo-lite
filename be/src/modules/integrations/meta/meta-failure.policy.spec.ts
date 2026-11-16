@@ -39,6 +39,7 @@ describe("classifyGraphError", () => {
         [facts({ code: 299 }), "permission"],
         [facts({ code: 1, message: "Already replied in private" }), "already_replied"],
         [facts({ code: 1, message: "private reply already sent" }), "already_replied"],
+        [facts({ code: 2, status: 503 }), "unavailable"],
         [facts({ code: 100, subcode: 33 }), "not_found"],
         [facts({ code: 100, status: 404 }), "not_found"],
         [facts({ code: 100, subcode: 1, status: 400 }), "error"],

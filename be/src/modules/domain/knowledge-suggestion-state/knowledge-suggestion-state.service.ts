@@ -36,7 +36,7 @@ export class KnowledgeSuggestionStateService {
             }),
             this.workspaces.businessTypeOf(workspaceId),
         ])
-        return { decisions: states.flatMap((state) => decisionOf(state)), businessType }
+        return { decisions: states.flatMap((item) => decisionOf(item)), businessType }
     }
 
     /** Marks a suggestion dismissed or not applicable; an absent state brings it back. Owners and managers only. */

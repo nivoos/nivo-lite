@@ -163,7 +163,7 @@ describe("chat typing SSE admission and isolation", () => {
             await a.typing.set(identity.ownerId, identity.workspaceId, rooms.narrow, true)
             await a.typing.set(identity.ownerId, identity.workspaceId, rooms.narrow, false)
             await received(member, 2)
-            expect(member.frames.map((wire) => typingFrame(wire))).toEqual([
+            expect(member.frames.map((frame) => typingFrame(frame))).toEqual([
                 expect.objectContaining({ actorId: identity.ownerId, state: "start" }),
                 expect.objectContaining({ actorId: identity.ownerId, state: "stop" }),
             ])
@@ -204,7 +204,7 @@ describe("chat typing SSE room isolation", () => {
             await a.typing.set(identity.outsiderId, identity.foreignWorkspaceId, rooms.foreign, true)
             await a.typing.set(identity.ownerId, identity.workspaceId, rooms.shared, false)
             await received(stream, 1)
-            expect(stream.frames.map((wire) => typingFrame(wire))).toEqual([
+            expect(stream.frames.map((frame) => typingFrame(frame))).toEqual([
                 expect.objectContaining({ actorId: identity.ownerId, actorName: "Owner", state: "stop" }),
             ])
         })
@@ -255,7 +255,7 @@ describe("chat typing SSE resume and release", () => {
             })
             await opened(resumed)
             await received(resumed, 2)
-            expect(resumed.frames.map((wire) => typingFrame(wire))).toEqual([
+            expect(resumed.frames.map((frame) => typingFrame(frame))).toEqual([
                 expect.objectContaining({ actorId: identity.ownerId, state: "stop" }),
                 expect.objectContaining({ actorId: first, state: "start" }),
             ])

@@ -62,6 +62,7 @@ export class SepayFeedWebhookService implements FeedWebhookPort, OnModuleInit {
                 ...(payload.transferType === "out" ? { direction: "debit" as const } : {}),
                 ...(payload.accountNumber === undefined ? {} : { account: payload.accountNumber }),
                 ...(occurredAt === undefined ? {} : { occurredAt }),
+                ...(payload.referenceCode === undefined ? {} : { bankRef: payload.referenceCode }),
             },
         }
     }

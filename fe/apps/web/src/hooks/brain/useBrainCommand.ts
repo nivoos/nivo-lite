@@ -2,7 +2,7 @@
 
 import { useTranslations } from "next-intl"
 import { mutate } from "@/modules/viewer-cache"
-import { QUERY_BRAIN_SWR_KEY, QUERY_BRAIN_TODO_SWR_KEY } from "@/hooks/swr"
+import { QUERY_BRAIN_FACTS_PAGE_SWR_KEY, QUERY_BRAIN_SWR_KEY, QUERY_BRAIN_TODO_SWR_KEY } from "@/hooks/swr"
 import { useWorkspaceKey } from "@/hooks/workspaceKey"
 import { toast, useGraphQLWithToast } from "@/modules/toast"
 import { useBrainFactTriggers, type BrainFactRequests } from "./useBrainFactTriggers"
@@ -63,7 +63,9 @@ export const useBrainCommand = (): BrainCommand => {
                 (key) =>
                     Array.isArray(key) &&
                     key[1] === workspace[1] &&
-                    (key[0] === QUERY_BRAIN_SWR_KEY || key[0] === QUERY_BRAIN_TODO_SWR_KEY),
+                    (key[0] === QUERY_BRAIN_SWR_KEY ||
+                        key[0] === QUERY_BRAIN_TODO_SWR_KEY ||
+                        key[0] === QUERY_BRAIN_FACTS_PAGE_SWR_KEY),
             )
             return true as const
         } catch {

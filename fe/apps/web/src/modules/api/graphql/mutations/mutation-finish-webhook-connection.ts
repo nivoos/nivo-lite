@@ -1,6 +1,6 @@
 import { gql, type ApolloClient, type TypedDocumentNode } from "@apollo/client"
-import { createAuthApolloClient } from "../clients"
-import type { InputVariables, MutateParams, WireInput } from "../types"
+import { createAuthApolloClient, type InputVariables, type MutateParams, type WireInput } from "@nivo-lite/api"
+import { webApiTransport } from "@/modules/api-transport"
 import type {
     FinishWebhookConnectionMutation,
     FinishWebhookConnectionMutationVariables,
@@ -44,7 +44,7 @@ export const mutateFinishWebhookConnection = async ({
     request,
     signal,
 }: MutateFinishWebhookConnectionParams): Promise<ApolloClient.MutateResult<MutateFinishWebhookConnectionResponse>> => {
-    const apollo = createAuthApolloClient({ signal })
+    const apollo = createAuthApolloClient(webApiTransport, { signal })
     return apollo.mutate({
         mutation: mutationMap[mutation],
         variables: { input: request },

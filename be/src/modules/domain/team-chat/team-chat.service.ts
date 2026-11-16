@@ -1,8 +1,10 @@
 import { Injectable, Optional } from "@nestjs/common"
 import type { OptionalId } from "@modules/domain/agents"
+import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { TeamChatErrorCode } from "./errors/team-chat.error"
 import type { ChatRoomEntity, ChatRoomMessageEntity } from "./persistence/entities"
 import { InjectTeamChatTags } from "./team-chat.decorators"
+import { TeamChatLogEvent } from "./team-chat.log-events"
 import type { TeamChatTags } from "./team-chat.port"
 import {
     chatDone,
@@ -10,14 +12,17 @@ import {
     cursorOf,
     directKeyOf,
     groupNameOf,
+    isPurposeValid,
+    isReadOnlyRoom,
+    isUniqueViolation,
     pageSizeOf,
     positionOf,
     sendProblem,
     storedMentionsOf,
     uniqueMembers,
+    lineKeyOf,
 } from "./team-chat.policy"
 import { TeamChatAccessService } from "./team-chat-access.service"
-import { TeamChatApprovalsService } from "./team-chat-approvals.service"
 import { TeamChatCardsService } from "./team-chat-cards.service"
 import { TeamChatFilesService } from "./team-chat-files.service"
 import { TeamChatStoreService } from "./team-chat-store.service"
@@ -25,10 +30,10 @@ import { compareRooms } from "./team-chat-view.policy"
 import { TeamChatViewsService } from "./team-chat-views.service"
 import type {
     AgentPostInput,
-    ApprovalPostInput,
     ChatMemberRef,
     ChatUpload,
     CreateRoomInput,
+    GroupPurpose,
     LineInput,
     MessagePage,
     MessageView,
@@ -42,14 +47,19 @@ import type {
 } from "./team-chat.contracts"
 import type {
     OptionalAgentLine,
-    OptionalApprovalRequest,
-    OptionalApprovalState,
     OptionalCount,
     OptionalKind,
     OptionalLine,
     OptionalReport,
     OptionalRoomView,
 } from "./team-chat-store.contracts"
+import type {
+    AgentLineReplied,
+    AgentLineReply,
+    AgentLineReplyListener,
+    PersonLineHeard,
+    PersonLineListener,
+} from "./team-chat-lines.contracts"
 
 @Injectable()
 /**
@@ -60,15 +70,57 @@ import type {
  * statements, the access rules, the views and the engine cards each live in their own class behind it.
  */
 export class TeamChatRoomsService {
+    private replyListener: AgentLineReplyListener | null = null
+    private lineListener: PersonLineListener | null = null
+
     constructor(
         private readonly store: TeamChatStoreService,
         private readonly access: TeamChatAccessService,
         private readonly views: TeamChatViewsService,
         private readonly files: TeamChatFilesService,
         private readonly cards: TeamChatCardsService,
-        private readonly approvals: TeamChatApprovalsService,
         @Optional() @InjectTeamChatTags() private readonly tags: TeamChatTags | null = null,
+        @Optional() @InjectLogger() private readonly logger: Logger | null = null,
     ) {}
+
+    /**
+     * Registers the one listener of a person's reply to a line an agent wrote under a key (the engine's report of a stuck step: the
+     * founder's answer there lets the workflow go on). The chat does no business itself: it only says a reply was written.
+     */
+    listenReplies(listener: AgentLineReplyListener): void {
+        this.replyListener = listener
+    }
+
+    /** Registers the one listener of a person's new message (the team chat turn's router); it answers the agents whose turn it took. */
+    listenLines(listener: PersonLineListener): void {
+        this.lineListener = listener
+    }
+
+    /** What people replied to the line an agent wrote under a key, oldest first; none when there is no such line. */
+    async repliesToAgentLine(workspaceId: string, key: string): Promise<ReadonlyArray<AgentLineReply>> {
+        const line = await this.store.agentLine(workspaceId, lineKeyOf(key))
+        if (line === null) return []
+        const replies = await this.store.repliesTo(workspaceId, line.id)
+        return replies.map((reply) => ({ text: reply.body, at: reply.createdAt.toISOString() }))
+    }
+
+    /**
+     * Hands a person's stored message to the line listener (the turn router) and answers the agents whose turn it took; none when no
+     * listener is registered. Run by the route job: a failure of the listener is the job's failure (the runner retries, then parks it).
+     */
+    routeLine(line: PersonLineHeard): Promise<ReadonlyArray<string>> {
+        return this.lineListener === null ? Promise.resolve([]) : this.lineListener(line)
+    }
+
+    /** Tells the listener a person replied to an agent's line; what the listener does never fails the person's message. */
+    private async heard(reply: AgentLineReplied): Promise<void> {
+        try {
+            await this.replyListener?.(reply)
+        } catch (error: unknown) {
+            // The message is written; the listener's failure is logged and never fails the person's message.
+            this.logger?.error(TeamChatLogEvent.ReplyListenerFailed, error, { lineKey: reply.lineKey })
+        }
+    }
 
     /** The rooms the viewer sits in (all of them for an owner), newest message first. */
     async rooms(
@@ -134,9 +186,17 @@ export class TeamChatRoomsService {
     /** Opens a room; a direct room of a pair that already has one answers that one. */
     createRoom(workspaceId: string, viewerId: string, input: CreateRoomInput): Promise<TeamChatResult<ChatRoomView>> {
         const others = uniqueMembers(input.members, { memberKind: "user", memberId: viewerId })
-        return input.kind === "group"
-            ? this.openGroup(workspaceId, viewerId, groupNameOf(input.name), others)
-            : this.openDirect(workspaceId, viewerId, input.name, others)
+        if (input.kind === "direct")
+            return input.purpose === undefined
+                ? this.openDirect(workspaceId, viewerId, input.name, others)
+                : Promise.resolve(chatRefusal(TeamChatErrorCode.PurposeInvalid))
+        return this.openGroup(
+            workspaceId,
+            viewerId,
+            groupNameOf(input.name),
+            others,
+            input.purpose ?? { purpose: "group" },
+        )
     }
 
     /** Adds a person or an agent to a group. */
@@ -182,22 +242,38 @@ export class TeamChatRoomsService {
         return chatDone(await this.room(workspaceId, viewerId, roomId))
     }
 
-    /** Writes a text message; the same client id from the same author in the same room is the same message. */
+    /**
+     * Writes a text message; the same client id from the same author in the same room is the same message. A read-only room (the
+     * founder's NIVO room) refuses it before anything is stored, so no `@agent` tag and no reply can start from there.
+     */
     async send(workspaceId: string, viewerId: string, input: SendInput): Promise<TeamChatResult<MessageView>> {
         const roomId = input.roomId ?? (await this.directRoomTo(workspaceId, viewerId, input.to))
         const found = roomId === null ? null : await this.access.visibleRoom(workspaceId, viewerId, roomId)
         if (found === null) return chatRefusal(TeamChatErrorCode.NotFound)
+        if (isReadOnlyRoom(found)) return chatRefusal(TeamChatErrorCode.Forbidden)
         const mentions = uniqueMembers(input.mentions, null)
         const problem = sendProblem(input.body, mentions.length, input.fileKeys.length)
         if (problem !== null) return chatRefusal(problem)
         if (!(await this.access.allKnown(workspaceId, mentions))) return chatRefusal(TeamChatErrorCode.MemberUnknown)
+        const repliedTo =
+            input.replyTo == null ? null : await this.store.messageIn(workspaceId, found.id, input.replyTo)
+        if (input.replyTo != null && repliedTo === null) return chatRefusal(TeamChatErrorCode.NotFound)
         const retried = await this.store.sentBefore(workspaceId, found.id, viewerId, input.clientId)
         const stored =
             retried === null
                 ? await this.storeText(workspaceId, found.id, viewerId, input, mentions)
                 : chatDone(retried)
         if (!stored.ok) return chatRefusal(stored.refusal)
-        if (retried === null) await this.tagAgents(workspaceId, viewerId, stored.value, mentions)
+        if (retried === null && repliedTo?.authorKind === "agent" && repliedTo.clientId !== null) {
+            await this.heard({
+                workspaceId,
+                byUserId: viewerId,
+                lineKey: repliedTo.clientId,
+                messageId: stored.value.id,
+                text: stored.value.body,
+                at: stored.value.createdAt.toISOString(),
+            })
+        }
         const view = await this.views.viewOf(workspaceId, stored.value, viewerId)
         await this.store.moveReadPosition(workspaceId, found.id, viewerId, stored.value.id)
         return chatDone(view)
@@ -210,8 +286,10 @@ export class TeamChatRoomsService {
         roomId: string,
         ask: UploadAsk,
     ): Promise<TeamChatResult<ChatUpload>> {
-        if ((await this.access.visibleRoom(workspaceId, viewerId, roomId)) === null)
-            return chatRefusal(TeamChatErrorCode.NotFound)
+        const found = await this.access.visibleRoom(workspaceId, viewerId, roomId)
+        if (found === null) return chatRefusal(TeamChatErrorCode.NotFound)
+        // A file is only ever sent with a message, and nobody writes in a read-only room.
+        if (isReadOnlyRoom(found)) return chatRefusal(TeamChatErrorCode.Forbidden)
         return this.files.requestUpload(workspaceId, roomId, ask)
     }
 
@@ -272,29 +350,9 @@ export class TeamChatRoomsService {
         return chatDone(await this.views.viewOf(workspaceId, message, viewerId))
     }
 
-    /** Where one decision stands, for the viewer; null when the workspace has no such request. */
-    approvalOf(workspaceId: string, viewerId: string, decisionId: string): Promise<OptionalApprovalState> {
-        return this.approvals.stateOf(workspaceId, viewerId, decisionId)
-    }
-
-    /** The request a decision card is about, with the group it stored; null when the workspace has no such request. */
-    approvalRequest(workspaceId: string, decisionId: string): Promise<OptionalApprovalRequest> {
-        return this.approvals.requestOf(workspaceId, decisionId)
-    }
-
     /** Writes the report of a finished run into the room its agent reports to; one card per run, null when no room can be found. */
     postReport(workspaceId: string, report: ReportInput): Promise<OptionalReport> {
         return this.cards.postReport(workspaceId, report)
-    }
-
-    /** Posts the approval card of one decision to the rooms its rule names and the approvers' direct rooms; answers how many cards exist. */
-    postApproval(workspaceId: string, approval: ApprovalPostInput): Promise<number> {
-        return this.cards.postApproval(workspaceId, approval)
-    }
-
-    /** In how many rooms the approval card of a decision stands; 0 when none was posted (no request opened, or nobody to show it to). */
-    cardRooms(workspaceId: string, decisionId: string): Promise<number> {
-        return this.cards.cardRooms(workspaceId, decisionId)
     }
 
     /** Writes one line of an agent or of the system into a room, or into the direct room with one person. */
@@ -332,24 +390,31 @@ export class TeamChatRoomsService {
         return this.opened(workspaceId, viewerId, room)
     }
 
-    /** Opens a named group with its members. */
+    /** Opens a named group with its members and its purpose; a purpose another room holds is refused. */
     private async openGroup(
         workspaceId: string,
         viewerId: string,
         name: OptionalId,
         others: ReadonlyArray<ChatMemberRef>,
+        purpose: GroupPurpose,
     ): Promise<TeamChatResult<ChatRoomView>> {
         if (name === null) return chatRefusal(TeamChatErrorCode.GroupNeedsName)
+        if (!isPurposeValid(purpose)) return chatRefusal(TeamChatErrorCode.PurposeInvalid)
         if (!(await this.access.allKnown(workspaceId, others))) return chatRefusal(TeamChatErrorCode.MemberUnknown)
-        const room = await this.store.insertRoom({
+        const opening = {
             workspaceId,
             createdBy: viewerId,
-            kind: "group",
+            kind: "group" as const,
             name,
             directKey: null,
             others,
+            purpose,
+        }
+        const room = await this.store.insertRoom(opening).catch((cause: unknown) => {
+            if (isUniqueViolation(cause)) return null
+            throw cause
         })
-        return this.opened(workspaceId, viewerId, room)
+        return room === null ? chatRefusal(TeamChatErrorCode.PurposeTaken) : this.opened(workspaceId, viewerId, room)
     }
 
     private async opened(
@@ -377,40 +442,24 @@ export class TeamChatRoomsService {
     ): Promise<TeamChatResult<ChatRoomMessageEntity>> {
         const attached = await this.files.verify(workspaceId, roomId, input.fileKeys)
         if (!attached.ok) return chatRefusal(attached.refusal)
-        return chatDone(
-            await this.store.insertText({
-                workspaceId,
-                roomId,
-                authorId: viewerId,
-                body: input.body,
-                clientId: input.clientId,
-                mentions: storedMentionsOf(mentions),
-                attachments: attached.value,
-            }),
-        )
-    }
-
-    /** A person who mentions an agent starts its graph: the work core writes the tag wake, once per message and agent. */
-    private async tagAgents(
-        workspaceId: string,
-        viewerId: string,
-        message: ChatRoomMessageEntity,
-        mentions: ReadonlyArray<ChatMemberRef>,
-    ): Promise<void> {
+        const text = {
+            workspaceId,
+            roomId,
+            authorId: viewerId,
+            body: input.body,
+            clientId: input.clientId,
+            mentions: storedMentionsOf(mentions),
+            attachments: attached.value,
+            replyTo: input.replyTo ?? null,
+        }
         const tags = this.tags
-        if (tags === null) return
-        await Promise.all(
-            mentions
-                .filter((mention) => mention.memberKind === "agent")
-                .map((mention) =>
-                    tags.handOff(workspaceId, {
-                        userId: viewerId,
-                        agentId: mention.memberId,
-                        roomId: message.roomId,
-                        messageId: message.id,
-                        text: message.body,
-                    }),
-                ),
+        // The message and the job that routes it (the turn router, then the tag of each other agent it names) commit together.
+        return chatDone(
+            tags === null
+                ? await this.store.insertText(text)
+                : await this.store.insertTextWith(text, (tx, message) =>
+                      tags.queueRoute(tx, { workspaceId, userId: viewerId, roomId, messageId: message.id }),
+                  ),
         )
     }
 }

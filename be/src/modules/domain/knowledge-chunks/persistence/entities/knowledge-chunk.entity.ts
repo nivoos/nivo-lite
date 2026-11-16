@@ -24,10 +24,6 @@ export class KnowledgeChunkEntity extends UuidAbstractEntity {
     @Column({ name: "content", type: "text" })
     content!: string
 
-    /** The pgvector vector, or null; it is read only by the database, never selected. */
-    @Column({ name: "embedding", type: "vector", nullable: true, select: false })
-    embedding!: string | null
-
     /** The search vector the database generates from the text. */
     @Column({ name: "fts", type: "tsvector", nullable: true, select: false, insert: false, update: false })
     fts!: string | null
@@ -36,7 +32,11 @@ export class KnowledgeChunkEntity extends UuidAbstractEntity {
     @Column({ name: "visibility", type: "text", default: () => "'internal'::text" })
     visibility!: string
 
-    /** The model that made the vector, or null. */
+    /** Trust gate: served to customer-facing searches only when true; set by the shop-document critic (BG3). */
+    @Column({ name: "customer_ready", type: "boolean", default: () => "false" })
+    customerReady!: boolean
+
+    /** The model that made the passage's vector (the index holds the vector), or null. */
     @Column({ name: "embedding_model", type: "text", nullable: true })
     embeddingModel!: string | null
 
@@ -55,4 +55,24 @@ export class KnowledgeChunkEntity extends UuidAbstractEntity {
     /** The page or slide number, or the sheet name, as the file gives it; null with the kind. */
     @Column({ name: "place_label", type: "text", nullable: true })
     placeLabel!: string | null
+
+    /** What the passage says, whatever model embedded it: the hex SHA-256 of its normalised text; null only for a row stored before the column and not yet backfilled. */
+    @Column({ name: "text_hash", type: "text", nullable: true })
+    textHash!: string | null
+
+    /** When the passage's vector was accepted by the vector index: searchable by meaning from then on; null while it is found by words only. */
+    @Column({ name: "indexed_at", type: "timestamptz", nullable: true })
+    indexedAt!: Date | null
+
+    /** The triage verdict: `rule` (read into truths), `data` (shop records, never truths) or `none`; null while not judged. */
+    @Column({ name: "triage", type: "text", nullable: true })
+    triage!: "rule" | "data" | "none" | null
+
+    /** The triage prompt version that judged the passage (0 = judged by code, no model); null while not judged. */
+    @Column({ name: "triage_version", type: "integer", nullable: true })
+    triageVersion!: number | null
+
+    /** The extraction prompt version that read the passage into truths; null while not read. */
+    @Column({ name: "truths_version", type: "integer", nullable: true })
+    truthsVersion!: number | null
 }

@@ -5,6 +5,12 @@ import { ChatMentionType } from "./chat-mention.type"
 import { ChatAttachmentType } from "./chat-attachment.type"
 import { ChatReportRefType } from "./chat-report-ref.type"
 import { ChatApprovalType } from "./chat-approval.type"
+import { ChatReactionType } from "./chat-reaction.type"
+import { ChatReplyType } from "./chat-reply.type"
+import { ChatBrainChangeCardType } from "./chat-brain-change-card.type"
+import { ChatStopCardType } from "./chat-stop-card.type"
+import { ChatBackgroundStoppedCardType } from "./chat-background-stopped-card.type"
+import { ChatJobParkedCardType } from "./chat-job-parked-card.type"
 
 @ObjectType()
 /** One message of a room. */
@@ -64,4 +70,36 @@ export class ChatMessageType {
     /** Set when it is an approval card. */
     @Field(() => ChatApprovalType, { nullable: true })
     approval!: ChatApprovalType | null
+
+    /** The structured message of an agent as JSON text (kind, intent, payload), when the line carries one. */
+    @Field(() => String, { nullable: true })
+    agentMessage!: string | null
+
+    /** The emoji on it, the most tapped first. */
+    @Field(() => [ChatReactionType])
+    reactions!: ReadonlyArray<ChatReactionType>
+
+    /** The message it answers, as a quote. */
+    @Field(() => ChatReplyType, { nullable: true })
+    replyTo!: ChatReplyType | null
+
+    /** Whose words it carries when it was forwarded (empty when unknown); null when it was not forwarded. */
+    @Field(() => String, { nullable: true })
+    forwardedFrom!: string | null
+
+    /** The typed stop a `workflow.stopped` card is about (state, needs, the founder's replies); null for any other line. */
+    @Field(() => ChatStopCardType, { nullable: true })
+    stop!: ChatStopCardType | null
+
+    /** The truth-graph change card (`brain.change`) as this viewer sees it (with what the viewer may do); null for any other line. */
+    @Field(() => ChatBrainChangeCardType, { nullable: true })
+    brainChange!: ChatBrainChangeCardType | null
+
+    /** NIVO's "background work stopped" card (`background.stopped`): what stopped, why, since when, where to retry; null for any other line. */
+    @Field(() => ChatBackgroundStoppedCardType, { nullable: true })
+    backgroundStopped!: ChatBackgroundStoppedCardType | null
+
+    /** NIVO's "a job stopped for a fix" card (`job.parked`): which job, why, which park episode; the web resumes or closes it through `stoppedWork`; null for any other line. */
+    @Field(() => ChatJobParkedCardType, { nullable: true })
+    jobParked!: ChatJobParkedCardType | null
 }

@@ -1,29 +1,47 @@
 import { Injectable } from "@nestjs/common"
-import { BrainFactsService, factLine, type FactRecord, type ProposeResult } from "@modules/domain/brain-facts"
+import type { EntityManager } from "typeorm"
+import { BrainFactsReadService, BrainFactsService, windowEndsBeforeStart, type FactRecord, type ProposeResult } from "@modules/domain/brain-facts"
 import { BrainLessonsService, type LessonRecord } from "@modules/domain/brain-lessons"
-import { FACT_ANSWERS, KnowledgeGapsService } from "@modules/domain/knowledge-gaps"
+import { KnowledgeGapsService } from "@modules/domain/knowledge-gaps"
 import { KnowledgeSourcesService } from "@modules/domain/knowledge-sources"
-import { WorkspaceMembersService, type WorkspaceMember, type WorkspaceRole } from "@modules/domain/workspace-members"
+import { WorkspaceMembersService, type WorkspaceMember } from "@modules/domain/workspace-members"
 import { InjectClock, type Clock } from "@modules/platform/clock"
+import { InjectPrimaryEntityManager } from "@modules/platform/database"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { eachInOrder } from "@modules/platform/primitives"
+import { KnowledgeQueue } from "@modules/queues/knowledge"
 import type { FactDecision, FactForm, KeepCurrentInput, LessonDecision, LessonForm } from "./brain.contracts"
 import { BrainLogEvent } from "./brain.log-events"
+import { BrainError, BrainErrorCode } from "./errors/brain.error"
 import { DocumentFactsService } from "./document-facts.service"
+import { MANAGERS, rolesToDecide, splitInForce } from "./founder.policy"
 
-/** Who may change the brain of a workspace. */
-const MANAGERS: ReadonlyArray<WorkspaceRole> = ["owner", "manager"]
-
-/** The trimmed note as the evidence quote; none when it is blank. */
-const quoteOf = (note: string | undefined): string | undefined => {
+/** A note without its edges; undefined when nothing is left. */
+const trimmedNoteOf = (note: string | null | undefined): string | undefined => {
     const trimmed = note?.trim()
     return trimmed === "" ? undefined : trimmed
 }
 
+/** The most workspaces one upkeep pass keeps current; the rest wait for the next tick. */
+const UPKEEP_WORKSPACES = 200
+
+/** One minute, in milliseconds: the tick's minute keys the upkeep job of each workspace. */
+const MINUTE_MS = 60_000
+
+/** What one pass of the timed upkeep tick did. */
+export interface BrainUpkeep {
+    /** Workspaces whose upkeep was due (each queued as its own job). */
+    readonly workspaces: number
+    /** Document readings that waited for credits and go on now that their workspace has credits again. */
+    readonly readingsResumed: number
+}
+
 @Injectable()
 /**
- * What an owner or manager does on the Second Brain page. What they write is applied at once (they are the reviewer); everything the
- * agents or customers say arrives as a proposal. A fact that becomes active also answers the customer questions it covers.
+ * What an owner or manager does on the Second Brain page. Only the founder (the owner) puts a truth in force: what the founder writes is
+ * applied at once, what a manager writes arrives as a proposal like everything the agents, documents, chats or customers say, and only
+ * the founder applies, chooses, splits or retires. A manager may turn a proposal down. A fact that becomes active also answers the
+ * customer questions it covers.
  */
 export class BrainService {
     constructor(
@@ -35,12 +53,22 @@ export class BrainService {
         private readonly gaps: KnowledgeGapsService,
         private readonly sources: KnowledgeSourcesService,
         private readonly documentFacts: DocumentFactsService,
+        private readonly reads: BrainFactsReadService,
+        private readonly queue: KnowledgeQueue,
+        @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
     ) {}
 
-    /** Adds a fact, or a new value for an existing one (the old value is superseded and kept in history). */
+    /**
+     * Adds a fact, or a new value for an existing one (the old value is superseded and kept in history): in force at once when the
+     * founder writes it, a proposal for the founder when a manager does.
+     */
     async saveFact(userId: string, workspaceId: string, form: FactForm): Promise<ProposeResult> {
         const me = await this.manager(userId, workspaceId)
         const now = this.clock.now()
+        // A window that ends before (or when) it starts is refused (the store's check would fail later); an end already past is kept and
+        // filed as history (`stale`). The same value with a NEW window is the next version, never "reinforced" (`windowMovedOf`).
+        if (windowEndsBeforeStart(form.validFrom, form.validTo))
+            throw new BrainError({ code: BrainErrorCode.WindowInvalid })
         const result = await this.facts.propose(workspaceId, {
             subjectType: form.subjectType,
             subjectLabel: form.subjectLabel,
@@ -52,13 +80,13 @@ export class BrainService {
             validTo: form.validTo,
             sourceKind: me.role === "owner" ? "owner" : "manager",
             proposedBy: me.displayName,
-            autoApply: true,
+            autoApply: me.role === "owner",
             evidence: [
                 {
                     kind: "manual",
                     ref: `manual:${now.getTime()}`,
                     label: `${me.displayName} wrote this on the Second Brain page`,
-                    quote: quoteOf(form.note),
+                    quote: trimmedNoteOf(form.note),
                     at: now.toISOString(),
                 },
             ],
@@ -70,11 +98,14 @@ export class BrainService {
         return result
     }
 
-    /** Decides a fact: apply, reject, choose among competing values, split into its own fact, or retire. */
+    /**
+     * Decides a fact: apply, reject, choose among competing values, split into its own fact, or retire. Rejecting is a manager's too; so
+     * is splitting, but a manager's split files the situational value as a proposal for the founder (only the founder's puts it in force).
+     */
     async decideFact(userId: string, decision: FactDecision): Promise<FactRecord> {
-        const me = await this.manager(userId, decision.workspaceId)
+        const me = await this.members.require(userId, decision.workspaceId, rolesToDecide(decision.action))
         const { workspaceId, id } = decision
-        const fact = await this.decided(workspaceId, id, me.displayName, decision)
+        const fact = await this.decided(workspaceId, id, me.displayName, decision, splitInForce(me.role))
         await this.answered(workspaceId, fact)
         return fact
     }
@@ -128,9 +159,57 @@ export class BrainService {
         await eachInOrder(deleted.parts, (part) => this.documentFacts.withdraw(workspaceId, part.id, part.title))
     }
 
-    /** Keeps the brain current before it is read: scheduled values take over, ended values expire. */
+    /**
+     * Keeps the brain current before it is read: scheduled values take over, ended values expire, and a truth a public document states
+     * that an older build left internal is given back to customers (`repairAudience`, D-BR-1; idempotent, no model call).
+     */
     async maintain(userId: string, workspaceId: string): Promise<void> {
         await this.members.require(userId, workspaceId)
+        const done = await this.facts.maintain(workspaceId)
+        await eachInOrder(done.activated, (fact) => this.answered(workspaceId, fact))
+        const widened = await this.facts.repairAudience(workspaceId, (ids) => this.publicSources(workspaceId, ids))
+        await eachInOrder(widened, (fact) => this.answered(workspaceId, fact))
+    }
+
+    /** Which of these documents customers may read (a document gone is not). */
+    private async publicSources(workspaceId: string, ids: ReadonlyArray<string>): Promise<ReadonlySet<string>> {
+        const open = new Set<string>()
+        await eachInOrder(ids, async (id) => {
+            const source = await this.sources.sourceOf(workspaceId, id)
+            if (source?.visibility === "public") open.add(id)
+        })
+        return open
+    }
+
+    /**
+     * The TIMED upkeep TICK (BR1; tick `brain-upkeep` of the one app scheduler, every 5 minutes): each workspace where a scheduled
+     * fact's start has come or a fact's end has passed becomes its own job (`upkeepWorkspace`), all queued in ONE transaction, so one
+     * workspace that fails retries and parks alone and never holds the others back. Then documents stored word-only for want of
+     * credits are indexed again, and readings that waited for credits go on by themselves, once the workspace has credits again
+     * (nothing waits for a button). A failure is thrown: the tick is a job the runner judges. A fact left with no point (the rest of a
+     * bulk apply, a write where no vector listener ran) is the vector reconcile's (tick `vector-reconcile`), never this tick's.
+     */
+    async upkeep(): Promise<BrainUpkeep> {
+        const due = await this.reads.dueWorkspaces(UPKEEP_WORKSPACES)
+        const at = Math.floor(this.clock.now().getTime() / MINUTE_MS) * MINUTE_MS
+        await this.entityManager.transaction(async (tx) => {
+            await eachInOrder(due, (workspaceId) => this.queue.enqueueBrainUpkeep(workspaceId, tx, at))
+        })
+        await this.documentFacts.resumeIndexing()
+        const readingsResumed = await this.documentFacts.resumeParked()
+        const result = { workspaces: due.length, readingsResumed }
+        this.logger.info(BrainLogEvent.UpkeepDone, { ...result })
+        return result
+    }
+
+    /**
+     * The upkeep of ONE workspace (the job the tick queued for it): the same `maintain` the Second Brain page runs, as the brain itself
+     * (no person): the scheduled value comes in force (the value it replaces is superseded, relations carried), ended values expire, and
+     * a fact that came in force gets its vector and answers its gaps, exactly as on the page. Idempotent: `maintain` promotes only rows
+     * still `scheduled` and expires only rows still `active`, so a second run, the page and the change door racing it change nothing
+     * twice. A failure is thrown, so a run again finishes what it left.
+     */
+    async upkeepWorkspace(workspaceId: string): Promise<void> {
         const done = await this.facts.maintain(workspaceId)
         await eachInOrder(done.activated, (fact) => this.answered(workspaceId, fact))
     }
@@ -141,7 +220,13 @@ export class BrainService {
     }
 
     /** Carries out the decision on the fact. */
-    private decided(workspaceId: string, id: string, by: string, decision: FactDecision): Promise<FactRecord> {
+    private decided(
+        workspaceId: string,
+        id: string,
+        by: string,
+        decision: FactDecision,
+        inForce: boolean,
+    ): Promise<FactRecord> {
         const note = decision.note ?? ""
         switch (decision.action) {
             case "apply":
@@ -151,19 +236,23 @@ export class BrainService {
             case "choose":
                 return this.facts.choose(workspaceId, id, by)
             case "split":
-                return this.facts.split(workspaceId, id, decision.situation ?? "", by)
+                return this.facts.split(workspaceId, id, decision.situation ?? "", by, inForce)
             case "retire":
                 return this.facts.retire(workspaceId, id, by, note)
         }
     }
 
-    /** A public fact that is in force answers the customer questions it covers; a failure here never blocks the fact. */
+    /**
+     * A public fact in force answers the open gaps reported under its own subject and attribute (exact keys); a failure here never blocks
+     * the fact (the gap stays open and the next fact or page action answers it). (Its vector came with the facts store's announcement of
+     * the write, for that fact alone.)
+     */
     private async answered(workspaceId: string, fact: FactRecord): Promise<void> {
         if (fact.status !== "active" || fact.scope !== "public") return
         try {
             await this.gaps.resolve(workspaceId, {
-                text: factLine(fact),
-                minimum: FACT_ANSWERS,
+                subject: fact.subjectLabel,
+                attribute: fact.attributeLabel,
                 module: null,
                 by: `fact:${fact.id}`,
             })

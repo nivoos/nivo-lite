@@ -9,12 +9,12 @@ import { mutateWorkbenchAction } from "@/modules/api/graphql/mutations/mutation-
 /** The SWR key of the generic workbench action mutation. */
 export const MUTATE_WORKBENCH_ACTION_SWR_KEY = "MUTATE_WORKBENCH_ACTION_SWR"
 
-/** What one run takes: the action name and its flat payload. */
+/** What one run takes: the action name, its flat payload and the installation the workbench is opened for (absent: the module's oldest). */
 interface TriggerArg {
-    readonly arg: { readonly name: string; readonly input: JsonValue }
+    readonly arg: { readonly name: string; readonly input: JsonValue; readonly installationId?: string | undefined }
 }
 
-/** One named action of the back end generic door: `trigger({ name, input })` answers the `ActionResult` JSON and rejects with the back end failure. */
+/** One named action of the back end generic door: `trigger({ name, input, installationId })` answers the `ActionResult` JSON and rejects with the back end failure. */
 export const useMutateWorkbenchActionSwr = (): SWRMutationResponse<
     unknown,
     Error,

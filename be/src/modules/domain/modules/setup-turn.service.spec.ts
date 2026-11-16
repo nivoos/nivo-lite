@@ -1,6 +1,7 @@
 import { Test } from "@nestjs/testing"
-import { FakeClock, builder, mock } from "@starci/jest-preset"
-import { DirectGenerationService } from "@modules/domain/ai-generations"
+import { builder, mock } from "@starci/jest-preset"
+import { claimedAiJob } from "@tests/fixtures/builders/brain-ai-effects.builder"
+import { GenerationsService } from "@modules/domain/ai-generations"
 import { BrainFactsService } from "@modules/domain/brain-facts"
 import type { FactRecord } from "@modules/domain/brain-facts"
 import { InstallationRecordsService } from "@modules/domain/module-installations"
@@ -9,20 +10,21 @@ import { SetupMessagesService } from "@modules/domain/module-setup-messages"
 import type { SetupMessageRecord } from "@modules/domain/module-setup-messages"
 import { SetupSessionsService } from "@modules/domain/module-setup-sessions"
 import type { SetupSessionRecord } from "@modules/domain/module-setup-sessions"
-import { CLOCK } from "@modules/platform/clock"
 import { MESSAGE_CATALOG } from "@modules/platform/i18n"
 import type { MessageCatalog } from "@modules/platform/i18n"
-import { LOGGER } from "@modules/platform/logging"
-import type { Logger } from "@modules/platform/logging"
-import { ModulesError, ModulesErrorCode } from "./errors/modules.error"
-import { CHATBOT_MODULE } from "./chatbot.contracts"
+import { ModulesErrorCode } from "./errors/modules.error"
 import type { ModuleDefinition } from "./modules.contracts"
 import { ModulesService } from "./modules.service"
 import { SetupCardsService } from "./setup-cards.service"
-import { SetupGraphService } from "./setup-graph.service"
 import { SetupTurnService } from "./setup-turn.service"
+import { catalogModuleOf } from "./modules.testing"
+
+const CHATBOT_MODULE = catalogModuleOf("chatbot")
 
 const PAYLOAD = { workspaceId: "ws-1", messageId: "m-2", setupSessionId: "s-1", locale: "en" }
+
+/** The claimed job of the spec: its id keys the model call. */
+const JOB = claimedAiJob(PAYLOAD, { kind: "agents.setup_turn" })
 
 const sessionOf = builder<SetupSessionRecord>({
     id: "s-1",
@@ -107,21 +109,17 @@ const MODEL_ANSWER = JSON.stringify({
     writes: [],
 })
 
-/** The one reply a turn gives when NIVO is busy. */
+/** The one reply a turn gives. */
 const postOf = (body: string) => [
     [{ workspaceId: "ws-1", setupSessionId: "s-1", role: "assistant", author: "NIVO", body }],
 ]
 
-/** Five seconds after the owner message of the spec. */
-const NOW = new Date("2026-10-01T00:01:05.000Z")
-
-const TONE = { status: "confirmed", evidence: "Warm", confirmed_by: "Lan", confirmed_at: NOW.toISOString() } as const
+const TONE = { status: "confirmed", evidence: "Warm", confirmed_by: "Lan", confirmed_at: "2026-10-01T00:01:05.000Z" } as const
 
 const build = async () => {
-    const clock = new FakeClock(NOW)
     const catalog = mock<MessageCatalog>({ get: jest.fn((key: string) => `[${key}]`) })
-    const generations = mock<DirectGenerationService>()
-    generations.run.mockResolvedValue({
+    const generations = mock<GenerationsService>()
+    generations.generate.mockResolvedValue({
         ok: true,
         output: MODEL_ANSWER,
         generationId: "gen-1",
@@ -142,28 +140,23 @@ const build = async () => {
     messages.find.mockResolvedValue(lineOf())
     messages.ofSession.mockResolvedValue([lineOf({ id: "m-1", body: "Hi" }), lineOf()])
     const modules = mock<ModulesService>()
-    modules.findByKey.mockResolvedValue(CHATBOT_MODULE)
+    modules.find.mockResolvedValue(CHATBOT_MODULE)
     const cards = mock<SetupCardsService>()
     cards.openGapsOf.mockResolvedValue([])
     const facts = mock<BrainFactsService>()
     facts.forView.mockResolvedValue([])
     facts.search.mockResolvedValue([])
-    const logger = mock<Logger>({ error: jest.fn() })
-    const graph = mock<SetupGraphService>({ gapOf: jest.fn().mockResolvedValue(null) })
     const moduleRef = await Test.createTestingModule({
         providers: [
             SetupTurnService,
             { provide: MESSAGE_CATALOG, useValue: catalog },
-            { provide: DirectGenerationService, useValue: generations },
+            { provide: GenerationsService, useValue: generations },
             { provide: InstallationRecordsService, useValue: installations },
             { provide: SetupSessionsService, useValue: sessions },
             { provide: SetupMessagesService, useValue: messages },
             { provide: ModulesService, useValue: modules },
             { provide: SetupCardsService, useValue: cards },
             { provide: BrainFactsService, useValue: facts },
-            { provide: LOGGER, useValue: logger },
-            { provide: SetupGraphService, useValue: graph },
-            { provide: CLOCK, useValue: clock },
         ],
     }).compile()
     return {
@@ -175,27 +168,34 @@ const build = async () => {
         messages,
         cards,
         facts,
-        logger,
         catalog,
         modules,
-        graph,
-        clock,
     }
 }
 
 describe("SetupTurnService", () => {
-    it("leaves a payload of another shape alone", async () => {
+    it("refuses a payload of another shape with a typed error (the job's declaration refuses it before this)", async () => {
         const { service, sessions } = await build()
 
-        await service.run({ workspaceId: "ws-1" })
+        await expect(service.run(claimedAiJob({ workspaceId: "ws-1" }))).rejects.toMatchObject({
+            code: ModulesErrorCode.SetupTurnPayloadInvalid,
+        })
 
         expect(sessions.find).not.toHaveBeenCalled()
+    })
+
+    it("keys the model call by the job, so a turn run again never asks twice", async () => {
+        const { service, generations } = await build()
+
+        await service.run(JOB)
+
+        expect(generations.generate).toHaveBeenCalledWith(expect.objectContaining({ effectKey: "job-1:turn", purpose: "setup_chat" }))
     })
 
     it("merges what the model learned into the draft, proposes its writes and posts its reply", async () => {
         const { service, stored, messages, cards } = await build()
 
-        await service.run(PAYLOAD)
+        await service.run(JOB)
 
         expect(stored.current.draft).toEqual({
             summary: "A bakery in Hanoi.",
@@ -213,9 +213,9 @@ describe("SetupTurnService", () => {
         const { service, messages, generations } = await build()
         messages.ofSession.mockResolvedValue([lineOf(), lineOf({ id: "m-3", role: "assistant", body: "Done" })])
 
-        await service.run(PAYLOAD)
+        await service.run(JOB)
 
-        expect(generations.run).not.toHaveBeenCalled()
+        expect(generations.generate).not.toHaveBeenCalled()
         expect(messages.post.mock.calls).toEqual([])
     })
 })
@@ -223,7 +223,7 @@ describe("SetupTurnService", () => {
 describe("SetupTurnService > a failed model call", () => {
     it("merges into the gates as they are at save time, so a gate confirmed during the model call survives", async () => {
         const { service, stored, generations } = await build()
-        generations.run.mockImplementation(() => {
+        generations.generate.mockImplementation(() => {
             stored.current = sessionOf({
                 gateEvidence: {
                     scope: { status: "confirmed", evidence: "Answer customers" },
@@ -233,7 +233,7 @@ describe("SetupTurnService > a failed model call", () => {
             return Promise.resolve({ ok: true, output: MODEL_ANSWER, generationId: "gen-1", timings: {}, usage: null })
         })
 
-        await service.run(PAYLOAD)
+        await service.run(JOB)
 
         expect(stored.current.gateEvidence).toEqual({
             scope: { status: "confirmed", evidence: "Answer customers" },
@@ -242,25 +242,25 @@ describe("SetupTurnService > a failed model call", () => {
         expect(stored.current.draft.summary).toBe("A bakery in Hanoi.")
     })
 
-    it.each(["quota", "not_configured", "engine_offline"] as const)(
+    it.each(["quota", "not_configured"] as const)(
         "posts the own message of a %s refusal at once and keeps the draft",
         async (reason) => {
             const { service, generations, sessions, messages } = await build()
-            generations.run.mockResolvedValue({ ok: false, reason, message: "Own message." })
+            generations.generate.mockResolvedValue({ ok: false, reason, message: "Own message." })
 
-            await expect(service.run(PAYLOAD)).resolves.toBeUndefined()
+            await expect(service.run(JOB)).resolves.toBeUndefined()
 
             expect(sessions.change).not.toHaveBeenCalled()
             expect(messages.post.mock.calls).toEqual(postOf("Own message."))
         },
     )
 
-    it.each(["error", "timeout"] as const)("throws on a %s so the queue attempts the turn again", async (reason) => {
+    it.each(["error", "timeout"] as const)("throws a typed transient error on a %s so the job's ladder attempts the turn again", async (reason) => {
         const { service, generations, sessions, messages, cards } = await build()
-        generations.run.mockResolvedValue({ ok: false, reason, message: "NIVO is busy, try again." })
+        generations.generate.mockResolvedValue({ ok: false, reason, message: "NIVO is busy, try again." })
 
-        await expect(service.run(PAYLOAD)).rejects.toMatchObject({
-            code: ModulesErrorCode.SetupTurnTransient,
+        await expect(service.run(JOB)).rejects.toMatchObject({
+            code: ModulesErrorCode.SetupTurnUnavailable,
             params: { reason },
         })
 
@@ -269,37 +269,13 @@ describe("SetupTurnService > a failed model call", () => {
         expect(messages.post.mock.calls).toEqual([])
     })
 
-    it("throws a ModulesError on an empty answer and posts nothing", async () => {
+    it("throws a typed refusal on an empty answer (a dead letter: the same prompt gets the same answer) and posts nothing", async () => {
         const { service, generations, messages } = await build()
-        generations.run.mockResolvedValue({ ok: true, output: "  ", generationId: "gen-1", timings: {}, usage: null })
+        generations.generate.mockResolvedValue({ ok: true, output: "  ", generationId: "gen-1", timings: {}, usage: null })
 
-        await expect(service.run(PAYLOAD)).rejects.toBeInstanceOf(ModulesError)
+        await expect(service.run(JOB)).rejects.toMatchObject({ code: ModulesErrorCode.SetupTurnRefused })
 
         expect(messages.post.mock.calls).toEqual([])
-    })
-})
-
-describe("SetupTurnService > a turn out of time", () => {
-    it("tells the owner NIVO is busy, without a model call, when under 15 s of the budget are left", async () => {
-        const { service, generations, messages, clock } = await build()
-        clock.set(new Date("2026-10-01T00:02:47.000Z"))
-
-        await service.run(PAYLOAD)
-
-        expect(generations.run).not.toHaveBeenCalled()
-        expect(messages.post.mock.calls).toEqual(postOf("[generation.busy]"))
-    })
-
-    it("tells the owner NIVO is busy at once when a transient failure leaves no room for another attempt", async () => {
-        const { service, generations, messages, clock } = await build()
-        generations.run.mockImplementation(() => {
-            clock.set(new Date("2026-10-01T00:02:31.000Z"))
-            return Promise.resolve({ ok: false, reason: "error", message: "NIVO is busy, try again." })
-        })
-
-        await expect(service.run(PAYLOAD)).resolves.toBeUndefined()
-
-        expect(messages.post.mock.calls).toEqual(postOf("[generation.busy]"))
     })
 })
 
@@ -328,39 +304,39 @@ describe("SetupTurnService facts on record", () => {
         facts.forView.mockResolvedValue([factOf()])
         facts.search.mockResolvedValue([factOf()])
 
-        await service.run(PAYLOAD)
+        await service.run(JOB)
 
         expect(facts.forView).toHaveBeenCalledWith("ws-1", "internal", "chatbot", "inst-1", 500)
         expect(facts.search).toHaveBeenCalledWith("ws-1", "internal", "chatbot", "inst-1", "We open 7 to 21", 30)
-        expect(JSON.stringify(generations.run.mock.calls[0])).toContain("- Shop - Hours: 8 to 21")
+        expect(JSON.stringify(generations.generate.mock.calls[0])).toContain("- Shop - Hours: 8 to 21")
     })
 
     it("reads the shared scope for a single instance", async () => {
         const { service, facts, installations } = await build()
         installations.find.mockResolvedValue(installationOf({ isMulti: false }))
 
-        await service.run(PAYLOAD)
+        await service.run(JOB)
 
         expect(facts.forView).toHaveBeenCalledWith("ws-1", "internal", "chatbot", null, 500)
     })
 
-    it("still answers when the read fails", async () => {
-        const { service, facts, logger, messages } = await build()
-        facts.forView.mockRejectedValue(new Error("down"))
+    it("throws when the read fails (the runner judges it) and answers nothing", async () => {
+        const { service, facts, messages } = await build()
+        const down = new Error("down")
+        facts.forView.mockRejectedValue(down)
 
-        await service.run(PAYLOAD)
+        await expect(service.run(JOB)).rejects.toBe(down)
 
-        expect(logger.error).toHaveBeenCalledTimes(1)
-        expect(messages.post).toHaveBeenCalledTimes(1)
+        expect(messages.post).not.toHaveBeenCalled()
     })
 })
 
 describe("SetupTurnService conflict notes", () => {
     it("appends one note when a write differs from the record and the reply does not name it", async () => {
         const { service, facts, generations, messages, catalog, modules } = await build()
-        modules.findByKey.mockResolvedValue(WRITES_MODULE)
+        modules.find.mockResolvedValue(WRITES_MODULE)
         facts.forView.mockResolvedValue([factOf()])
-        generations.run.mockResolvedValue({
+        generations.generate.mockResolvedValue({
             ok: true,
             output: answerWith("Noted.", [writeOf("Hours", "9 to 17")]),
             generationId: "gen-1",
@@ -368,7 +344,7 @@ describe("SetupTurnService conflict notes", () => {
             usage: null,
         })
 
-        await service.run(PAYLOAD)
+        await service.run(JOB)
 
         expect(catalog.get).toHaveBeenCalledWith(
             "setup.conflictNote",
@@ -380,9 +356,9 @@ describe("SetupTurnService conflict notes", () => {
 
     it("appends nothing when the reply names the current value", async () => {
         const { service, facts, generations, messages, modules } = await build()
-        modules.findByKey.mockResolvedValue(WRITES_MODULE)
+        modules.find.mockResolvedValue(WRITES_MODULE)
         facts.forView.mockResolvedValue([factOf()])
-        generations.run.mockResolvedValue({
+        generations.generate.mockResolvedValue({
             ok: true,
             output: answerWith("The record says 8 to 21, which holds?", [writeOf("Hours", "9 to 17")]),
             generationId: "gen-1",
@@ -390,20 +366,20 @@ describe("SetupTurnService conflict notes", () => {
             usage: null,
         })
 
-        await service.run(PAYLOAD)
+        await service.run(JOB)
 
         expect(messages.post.mock.calls[0]?.[0]).toMatchObject({ body: "The record says 8 to 21, which holds?" })
     })
 
     it("appends at most two notes", async () => {
         const { service, facts, generations, messages, modules } = await build()
-        modules.findByKey.mockResolvedValue(WRITES_MODULE)
+        modules.find.mockResolvedValue(WRITES_MODULE)
         facts.forView.mockResolvedValue([
             factOf(),
             factOf({ id: "f-2", attribute: "phone", attributeLabel: "Phone", value: "111" }),
             factOf({ id: "f-3", attribute: "city", attributeLabel: "City", value: "Hue" }),
         ])
-        generations.run.mockResolvedValue({
+        generations.generate.mockResolvedValue({
             ok: true,
             output: answerWith("Noted.", [writeOf("Hours", "9"), writeOf("Phone", "222"), writeOf("City", "Hanoi")]),
             generationId: "gen-1",
@@ -411,7 +387,7 @@ describe("SetupTurnService conflict notes", () => {
             usage: null,
         })
 
-        await service.run(PAYLOAD)
+        await service.run(JOB)
 
         expect(messages.post.mock.calls[0]?.[0]).toMatchObject({
             body: "Noted.\n\n[setup.conflictNote]\n\n[setup.conflictNote]",
@@ -424,76 +400,27 @@ describe("SetupTurnService", () => {
         const { service, sessions, generations } = await build()
         sessions.find.mockResolvedValue(sessionOf({ status: "applied" }))
 
-        await service.run(PAYLOAD)
+        await service.run(JOB)
 
-        expect(generations.run).not.toHaveBeenCalled()
+        expect(generations.generate).not.toHaveBeenCalled()
     })
 
     it("leaves a turn whose installation is gone alone", async () => {
         const { service, installations, generations } = await build()
         installations.find.mockResolvedValue(null)
 
-        await service.run(PAYLOAD)
+        await service.run(JOB)
 
-        expect(generations.run).not.toHaveBeenCalled()
+        expect(generations.generate).not.toHaveBeenCalled()
     })
 
     it("posts nothing when the draft closed while the model answered", async () => {
         const { service, sessions, messages, cards } = await build()
         sessions.change.mockResolvedValue(null)
 
-        await service.run(PAYLOAD)
+        await service.run(JOB)
 
         expect(cards.propose).not.toHaveBeenCalled()
         expect(messages.post.mock.calls).toEqual([])
-    })
-})
-
-describe("SetupTurnService > a vague flow", () => {
-    it("tells the model to ask about the first vague place of the flow and nothing else, when there is one", async () => {
-        const { service, generations, graph } = await build()
-        graph.gapOf.mockResolvedValue("boundary")
-
-        await service.run(PAYLOAD)
-
-        expect(graph.gapOf).toHaveBeenCalledWith("ws-1", "inst-1")
-        expect(generations.run.mock.calls[0]?.[0].messages[0]?.content).toContain("The agent flow has one vague place")
-    })
-})
-
-describe("SetupTurnService > giveUp", () => {
-    it("posts the busy sentence in the language of the job once the attempts are used up", async () => {
-        const { service, messages, catalog } = await build()
-
-        await service.giveUp(PAYLOAD)
-
-        expect(catalog.get).toHaveBeenCalledWith("generation.busy", {}, "en")
-        expect(messages.post.mock.calls).toEqual(postOf("[generation.busy]"))
-    })
-
-    it("posts nothing when the message was answered already", async () => {
-        const { service, messages } = await build()
-        messages.ofSession.mockResolvedValue([lineOf(), lineOf({ id: "m-3", role: "assistant", body: "Done" })])
-
-        await service.giveUp(PAYLOAD)
-
-        expect(messages.post.mock.calls).toEqual([])
-    })
-
-    it("posts nothing when the draft closed", async () => {
-        const { service, sessions, messages } = await build()
-        sessions.find.mockResolvedValue(sessionOf({ status: "applied" }))
-
-        await service.giveUp(PAYLOAD)
-
-        expect(messages.post.mock.calls).toEqual([])
-    })
-
-    it("leaves a payload of another shape alone", async () => {
-        const { service, sessions } = await build()
-
-        await service.giveUp({ workspaceId: "ws-1" })
-
-        expect(sessions.find).not.toHaveBeenCalled()
     })
 })

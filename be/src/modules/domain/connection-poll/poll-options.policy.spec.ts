@@ -42,7 +42,6 @@ describe("pollOptionsOf the scheduler", () => {
             POLL_UNAVAILABLE_RECHECK: "12h",
             POLL_BATCH: "10",
             POLL_LEASE: "5m",
-            POLL_MAX_INLINE_WAIT: "2s",
             POLL_BACKFILL_CHUNK_PAGES: "4",
         })
 
@@ -61,7 +60,6 @@ describe("pollOptionsOf the scheduler", () => {
             unavailableRecheckMs: 43_200_000,
             batchSize: 10,
             leaseMs: 300_000,
-            maxInlineWaitMs: 2000,
             backfillChunkPages: 4,
         })
     })

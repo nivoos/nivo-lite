@@ -1,4 +1,4 @@
-import { Alert, Form, Input, Stack, Text, Textarea } from "@starci/grammar/common"
+import { Alert, Badge, Form, Input, Stack, Text, Textarea } from "@starci/grammar/common"
 import type { PublicBrainCopy, PublicDraftView, PublicFormView } from "@/modules/types"
 
 /** What the body of the open public document draws and calls. */
@@ -12,6 +12,9 @@ interface PublicDraftBodyProps {
     readonly onSubmit: () => void
 }
 
+/** The description of the note, only when it has one. */
+const descriptionOf = (description: string | null) => (description === null ? {} : { description })
+
 /**
  * The body of the open public document: why it waits, then the two fields the owner edits (the name, the draft customers will read),
  * where it came from, what NIVO left out, who approved it and the text customers read now. Inert while NIVO is still drafting.
@@ -19,13 +22,18 @@ interface PublicDraftBodyProps {
 export const PublicDraftBody = (props: PublicDraftBodyProps) => {
     const { draft, form, copy } = props
     const isDisabled = form.isBusy || props.isLoading || !draft.canEdit
-    const description = draft.note?.description ?? null
-    const noteDescription = description === null ? {} : { description }
     return (
         <Form label={copy.titleLabel} onSubmit={props.onSubmit} isPending={form.isBusy}>
-            <Stack gap="section">
+            <Stack gap="row">
+                <Badge tone={draft.badge.tone} isLoading={props.isLoading}>
+                    {draft.badge.label}
+                </Badge>
                 {draft.note === null ? null : (
-                    <Alert tone={draft.note.tone} title={draft.note.title} {...noteDescription} />
+                    <Alert
+                        tone={draft.note.tone}
+                        title={draft.note.title}
+                        {...descriptionOf(draft.note.description)}
+                    />
                 )}
                 <Input
                     id="public-doc-title"
@@ -47,7 +55,7 @@ export const PublicDraftBody = (props: PublicDraftBodyProps) => {
                     onValueChange={props.onBody}
                 />
                 {draft.sources.length === 0 ? null : (
-                    <Stack gap="row">
+                    <Stack gap="inline">
                         <Text isStrong isLoading={props.isLoading}>
                             {copy.sourcesLabel}
                         </Text>

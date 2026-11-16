@@ -10,7 +10,7 @@ export const evaluatedValues = (values: unknown): Record<string, unknown> =>
  * The calls a double saw with each entity class named by its class name; the argument at `evaluated` (the changes of an update,
  * the rows of an upsert) has its function expressions run, so the SQL they yield is compared and the expressions are covered.
  */
-export const evaluatedCalls = (calls: ReadonlyArray<ReadonlyArray<unknown>>, evaluated?: number): unknown =>
+export const evaluatedCalls = (calls: ReadonlyArray<ReadonlyArray<unknown>>, evaluated?: number): ReadonlyArray<ReadonlyArray<unknown>> =>
     calls.map((call) =>
         call.map((argument, index) => {
             if (index === 0 && typeof argument === "function") return argument.name

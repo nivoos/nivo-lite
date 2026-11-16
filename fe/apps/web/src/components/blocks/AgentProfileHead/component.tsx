@@ -1,5 +1,7 @@
 import {
     Badge,
+    Button,
+    Cluster,
     DropdownMenu,
     IconButton,
     Page,
@@ -32,6 +34,8 @@ export interface AgentProfileHeadBaseProps {
         readonly crumbLabel: string
         /** The heading's menu: its accessible name and the entry that opens the picture-and-name dialog (a link: the dialog is open while the address says so). */
         readonly menu: { readonly label: string; readonly identityLabel: string; readonly identityHref: string }
+        /** The command that opens the agent's own page (its label and address); null while the agent has no instance. */
+        readonly open: { readonly label: string; readonly href: string } | null
         /** The heading once the agent arrived, or the placeholder while it has not. */
         readonly head: ProfileHeadView
         /** True while the agent is unresolved: the heading draws its measured placeholders. */
@@ -60,7 +64,13 @@ export const AgentProfileHeadBase = (props: AgentProfileHeadBaseProps) => {
                     </Badge>
                 )),
                 actions: (
-                    <DropdownMenu
+                    <Cluster gap="inline" wrap={false} align="center">
+                        {view.open === null ? null : (
+                            <Button intent="neutral" size="sm" endArrow href={view.open.href}>
+                                {view.open.label}
+                            </Button>
+                        )}
+                        <DropdownMenu
                         placement="bottom end"
                         entries={[
                             {
@@ -77,6 +87,7 @@ export const AgentProfileHeadBase = (props: AgentProfileHeadBaseProps) => {
                             />
                         }
                     />
+                    </Cluster>
                 ),
             }}
         >

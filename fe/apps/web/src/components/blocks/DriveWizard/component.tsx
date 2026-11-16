@@ -1,4 +1,4 @@
-import type { DataSlot, SlotLabels } from "@/modules/types"
+import type { DataSlot, SlotLabels, WizardPhases } from "@/modules/types"
 import { SlotView } from "@nivo-lite/agent-sdk/client"
 import { Alert, Text, Stack } from "@starci/grammar/common"
 import type { ComponentProps } from "react"
@@ -34,6 +34,7 @@ export interface DriveWizardBaseProps {
         readonly title: string
         readonly stepLabel: string
         readonly steps: ReadonlyArray<string>
+        readonly phases: WizardPhases
         /** 0 asks for the read access, 1 chooses documents, 2 is the landing after something was added. */
         readonly index: number
         /** The negative sentence when Google did not grant, null otherwise. */
@@ -75,7 +76,11 @@ const renderDriveWizard = (props: DriveWizardBaseProps, isLoading: boolean) => {
     const view = props.props
     const text = view.text
     return (
-        <WizardFrame {...frameOf(view)} footer={<WizardFooter actions={actionsOf(props)} isLoading={isLoading} />}>
+        <WizardFrame
+            {...frameOf(view)}
+            phases={view.phases}
+            footer={<WizardFooter actions={actionsOf(props)} isLoading={isLoading} />}
+        >
             {view.index === 0 ? (
                 <WizardConsentCopy
                     title={text.allowTitle}

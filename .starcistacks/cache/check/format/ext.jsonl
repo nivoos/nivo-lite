@@ -1,0 +1,1 @@
+{"findings":[{"column":0,"line":0,"message":"ext/manifest.json is not formatted by prettier; run `npm run format`","path":"ext/manifest.json","rule":"HFS_FORMAT"}],"hash":"cbed21644a6f9acf56a4edc544d4dc49d47ca2add86d4df1f98789db173bdac1","path":"ext/manifest.json","step":"prettier"}

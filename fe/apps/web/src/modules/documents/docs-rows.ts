@@ -84,8 +84,9 @@ export const nivoMatching = (
     )
 }
 
-/** The chip of a row: where the document stands; while a worker is on it the percent follows the words. */
+/** The chip of a row: the state of its chain of jobs when it runs, waits to retry or needs a person; else where the document stands, with the percent after the words while a worker is on it. */
 export const docChipOf = (row: DocumentRowView): DocChipView | null => {
+    if (row.job !== undefined) return { label: row.job.label, tone: row.job.tone, isDot: row.job.isDot }
     const first = row.badges[0]
     if (first === undefined) return null
     return row.progress === undefined
@@ -97,7 +98,7 @@ export const docChipOf = (row: DocumentRowView): DocChipView | null => {
 export const docRowOf = (source: KnowledgeDocument, row: DocumentRowView): DocRowView => ({
     id: source.id,
     title: source.title,
-    line: row.lines[0] ?? "",
+    line: [row.lines[0] ?? "", row.job?.detail ?? ""].filter((part) => part !== "").join(" · "),
     glyph: docGlyphOf(source),
     chip: docChipOf(row),
 })

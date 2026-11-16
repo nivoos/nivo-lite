@@ -6,9 +6,9 @@ import { CLOCK } from "@modules/platform/clock"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
 import type { KnowledgeQueue } from "@modules/queues/knowledge"
 import { KNOWLEDGE_QUEUE_PRODUCER } from "@modules/queues/knowledge"
+import { VectorSyncService } from "@modules/domain/vector-sync"
 import { row } from "@tests/fixtures/builders/knowledge-sources.builder"
 import { KnowledgeSourcesErrorCode } from "./errors/knowledge-sources.error"
-import { KnowledgeProgressService } from "./knowledge-progress.service"
 import { PublishedSourcesService } from "./published-sources.service"
 import { KnowledgeSourceEntity } from "./persistence/entities"
 import { NOW } from "./source-input.policy"
@@ -20,9 +20,9 @@ const codes = KnowledgeSourcesErrorCode
 const input = { title: " Opening hours ", content: " Open 8 to 21 " }
 
 const build = async (em: MockEntityManager) => {
+    const vectorSync = mock<VectorSyncService>()
     const queue = mock<KnowledgeQueue>()
     const quota = mock<SourceQuotaService>()
-    const progress = mock<KnowledgeProgressService>()
     quota.measure.mockResolvedValue(14)
     const moduleRef = await Test.createTestingModule({
         providers: [
@@ -31,10 +31,10 @@ const build = async (em: MockEntityManager) => {
             { provide: CLOCK, useValue: new FakeClock(AT) },
             { provide: KNOWLEDGE_QUEUE_PRODUCER, useValue: queue },
             { provide: SourceQuotaService, useValue: quota },
-            { provide: KnowledgeProgressService, useValue: progress },
+            { provide: VectorSyncService, useValue: vectorSync },
         ],
     }).compile()
-    return { service: moduleRef.get(PublishedSourcesService), queue, quota, progress }
+    return { service: moduleRef.get(PublishedSourcesService), queue, quota, vectorSync }
 }
 
 describe("PublishedSourcesService publish", () => {
@@ -42,11 +42,12 @@ describe("PublishedSourcesService publish", () => {
         const tx = fakeTransaction(
             mockEntityManager({ insert: [KnowledgeSourceEntity, { identifiers: [{ id: "s1" }] }] }),
         )
-        const { service, queue, quota, progress } = await build(tx.em)
+        const { service, queue, quota } = await build(tx.em)
 
         await expect(service.publish(WS, "u1", "s1", input)).resolves.toEqual({ id: "s1" })
 
-        expect(quota.admit).toHaveBeenCalledWith(expect.anything(), WS, 14)
+        // An approved public document is held to the PUBLIC area's cap.
+        expect(quota.admit).toHaveBeenCalledWith(expect.anything(), WS, 14, "public")
         expect(tx.em.insert).toHaveBeenCalledWith(KnowledgeSourceEntity, {
             id: "s1",
             workspaceId: WS,
@@ -67,7 +68,6 @@ describe("PublishedSourcesService publish", () => {
             createdBy: "u1",
         })
         expect(queue.enqueueIndex).toHaveBeenCalledWith({ sourceId: "s1", workspaceId: WS }, expect.anything())
-        expect(progress.announce).toHaveBeenCalledWith(WS, "s1")
         expect(tx.commits).toBe(1)
     })
 
@@ -94,7 +94,7 @@ describe("PublishedSourcesService publish", () => {
 describe("PublishedSourcesService replace", () => {
     it("writes the new text over an idle public source and queues it to be read again", async () => {
         const tx = fakeTransaction(mockEntityManager({ update: [KnowledgeSourceEntity, { affected: 1 }] }))
-        const { service, queue, progress } = await build(tx.em)
+        const { service, queue } = await build(tx.em)
 
         await expect(service.replace(WS, "s1", input)).resolves.toEqual({ id: "s1" })
 
@@ -124,7 +124,6 @@ describe("PublishedSourcesService replace", () => {
             expect.anything(),
             new Date(AT).getTime(),
         )
-        expect(progress.announce).toHaveBeenCalledWith(WS, "s1")
     })
 
     it("asks to try again while a worker is on the source", async () => {
@@ -168,10 +167,21 @@ describe("PublishedSourcesService withdraw", () => {
     })
 })
 
+describe("PublishedSourcesService withdraw and the vector index", () => {
+    it("writes the vector index's sync event through the manager the delete ran on (the caller's transaction)", async () => {
+        const tx = fakeTransaction(mockEntityManager({ delete: [KnowledgeSourceEntity, { affected: 1 }] }))
+        const { service, vectorSync } = await build(tx.em)
+
+        await service.withdraw(WS, "s1", tx.em)
+
+        expect(vectorSync.changedSource).toHaveBeenCalledWith(WS, "s1", tx.em)
+    })
+})
+
 describe("PublishedSourcesService caller transaction", () => {
     it("replaces the approved source through the caller's manager without nesting or announcing before commit", async () => {
         const tx = fakeTransaction(mockEntityManager({ update: [KnowledgeSourceEntity, { affected: 1 }] }))
-        const { service, queue, progress } = await build(tx.em)
+        const { service, queue } = await build(tx.em)
 
         await tx.em.transaction(async (manager) => {
             await expect(service.replace(WS, "s1", input, manager)).resolves.toEqual({ id: "s1" })
@@ -184,33 +194,28 @@ describe("PublishedSourcesService caller transaction", () => {
 
         expect(tx.em.transaction).toHaveBeenCalledTimes(1)
         expect(tx.commits).toBe(1)
-        expect(progress.announce).not.toHaveBeenCalled()
     })
 
     it("refuses a caller-managed replacement with no affected count and no source, before any job", async () => {
         const em = mockEntityManager({ update: [KnowledgeSourceEntity, {}], findOne: [KnowledgeSourceEntity, null] })
-        const { service, queue, progress } = await build(em)
+        const { service, queue } = await build(em)
 
         await expect(service.replace(WS, "s1", input, em)).rejects.toMatchObject({ code: codes.SourceNotFound })
 
         expect(em.transaction).not.toHaveBeenCalled()
         expect(queue.enqueueIndex).not.toHaveBeenCalled()
-        expect(progress.announce).not.toHaveBeenCalled()
     })
 
-    it("uses the approval transaction for source and queue writes, announcing only after its caller commits", async () => {
+    it("uses the approval transaction for source and queue writes: nothing is written outside it", async () => {
         const tx = fakeTransaction(
             mockEntityManager({ insert: [KnowledgeSourceEntity, { identifiers: [{ id: "s1" }] }] }),
         )
-        const { service, queue, progress } = await build(tx.em)
+        const { service, queue } = await build(tx.em)
 
         await tx.em.transaction((manager) => service.publish(WS, "u1", "s1", input, manager))
 
         expect(tx.em.transaction).toHaveBeenCalledTimes(1)
         expect(tx.commits).toBe(1)
         expect(queue.enqueueIndex).toHaveBeenCalledWith({ sourceId: "s1", workspaceId: WS }, expect.anything())
-        expect(progress.announce).not.toHaveBeenCalled()
-        await service.announce(WS, "s1")
-        expect(progress.announce).toHaveBeenCalledWith(WS, "s1")
     })
 })

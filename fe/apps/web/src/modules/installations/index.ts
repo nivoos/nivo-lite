@@ -1,4 +1,7 @@
 export { allGatesConfirmed, gateEntry, gateHint, gateLabel, gatesOf, snapshotOf } from "./installations.gates"
+export { toInstallations } from "./installations.wire"
+export { catalogRolesOf } from "./installations.roles"
+export type { CatalogRole } from "./installations.roles"
 export { cleanInstanceName, instanceNameKey, instancesOf, nextInstanceName } from "./installations.instances"
 export {
     displayNameOf,
@@ -7,12 +10,18 @@ export {
     agentLifecycleTone,
     agentSubtitleOf,
     isSetupPending,
-    setupLabelKey,
     foldText,
-    installationLifecycleOf,
 } from "./installations.status"
 export type { AgentLifecycle } from "./installations.status"
-export { IDENTITY_PARAM, IDENTITY_QUERY, OWNER_SETUP_NOTICE, agentHref, agentListHref } from "./installations.routes"
+export {
+    IDENTITY_PARAM,
+    IDENTITY_QUERY,
+    OWNER_SETUP_NOTICE,
+    agentHref,
+    agentListHref,
+    setupGeneralHref,
+    workflowsHref,
+} from "./installations.routes"
 export type { AgentTab } from "./installations.routes"
 export type {
     ContextVersion,
@@ -22,8 +31,6 @@ export type {
     Installation,
     InstallationConnectionNeed,
     InstallationLifecycle,
-    InstallationStatus,
-    OperatingMode,
     SetupFact,
     SetupMessage,
     SetupProgress,

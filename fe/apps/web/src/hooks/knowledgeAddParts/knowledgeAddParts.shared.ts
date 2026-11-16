@@ -1,5 +1,7 @@
+import type { ModuleChoices } from "@/modules/catalog"
 import type { useFormatter, useTranslations } from "next-intl"
-import { AGENT_MODULES, batchBytesOf, queueRowOf, type InstanceOption } from "@/modules/documents"
+import { batchBytesOf, queueRowOf, type InstanceOption } from "@/modules/documents"
+import type { AddAreaView } from "@/modules/types"
 import type { AddDocumentsView, AddMode, BatchOptions, FaqEntry } from "@/hooks/knowledgeAddTypes"
 
 type Translate = ReturnType<typeof useTranslations<"knowledge">>
@@ -127,32 +129,26 @@ export type BuildOptionsViewResult = {
     readonly module: string
     readonly moduleOptions: readonly [
         { readonly id: "all"; readonly label: string },
-        ...(
-            | {
-                  id:
-                      | "accounting"
-                      | "chatbot"
-                      | "lead_gen"
-                      | "sales"
-                      | "shifts"
-                      | "booking"
-                      | "inventory"
-                      | "loyalty"
-                      | "video"
-                      | "content"
-                      | "hiring"
-                  label: string
-              }
-            | { id: string; label: string }
-        )[],
+        ...ModuleChoices,
     ]
 }
+
+/** Builds the choice of the area the batch goes to: internal first (the default), then public, each with who reads it. */
+export const buildAreaView = (t: Translate, options: BatchOptions): AddAreaView => ({
+    label: t("areaLabel"),
+    items: [
+        { id: "internal", title: t("areaInternal"), subtitle: t("areaInternalNote") },
+        { id: "public", title: t("areaPublic"), subtitle: t("areaPublicNote") },
+    ],
+    value: options.visibility,
+})
 
 /** Builds the options section of the drawer. */
 export const buildOptionsView = (
     t: Translate,
     options: BatchOptions,
     instances: ReadonlyArray<InstanceOption>,
+    modules: ModuleChoices,
 ): BuildOptionsViewResult =>
     ({
         title: t("optionsTitle"),
@@ -166,7 +162,7 @@ export const buildOptionsView = (
         module: options.moduleValue,
         moduleOptions: [
             { id: "all", label: t("moduleAll") },
-            ...AGENT_MODULES.map((key) => ({ id: key, label: t(`module_${key}`) })),
+            ...modules,
             ...instances.map((one) => ({ id: `inst:${one.id}`, label: one.label })),
         ],
     }) as const

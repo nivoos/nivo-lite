@@ -1,5 +1,7 @@
+import type { AgentGraphRead } from "./useAgentGraphRead"
+import type { AgentGraphUiView } from "./useAgentGraphUi"
 import type { useQueryAgentGraphRunSwr, useQueryAgentGraphSwr, useQueryApproverDirectorySwr } from "@/hooks/swr"
-import { parseAgentGraphTrace, type AgentGraphSetupState, type AgentGraphWire } from "@/modules/agent-graph"
+import { parseAgentGraphTrace, type AgentGraphWire } from "@/modules/agent-graph"
 import type {
     AgentGraphAction,
     AgentGraphCommands,
@@ -10,10 +12,10 @@ import type {
 } from "@/modules/types"
 
 /** The tabs of the pane beside the graph, in the order they are offered. */
-export const SIDE_TABS: ReadonlyArray<AgentGraphSideTab> = ["chat", "detail", "proposals", "versions"]
+export const SIDE_TABS: ReadonlyArray<AgentGraphSideTab> = ["chat", "detail"]
 
 /** The views the phone offers in place of two panes, in the order they are offered. */
-export const PHONE_VIEWS: ReadonlyArray<AgentGraphPhoneView> = ["checklist", "graph", "chat", "proposals", "versions"]
+export const PHONE_VIEWS: ReadonlyArray<AgentGraphPhoneView> = ["checklist", "graph", "chat"]
 
 /** Runs the command an action names. */
 export const performAgentGraphAction = (commands: AgentGraphCommands, action: AgentGraphAction): void => {
@@ -26,38 +28,13 @@ export const performAgentGraphAction = (commands: AgentGraphCommands, action: Ag
             return commands.phoneView(action.value)
         case "openNode":
             return commands.openNode(action.value)
-        case "mode":
-            return commands.mode(action.value)
-        case "restore":
-            return commands.restore(action.value)
-        case "edit":
-            return commands.edit(action.value)
-        case "form":
-            return commands.change(action.change)
-        case "adderPick":
-            return commands.pickAdder(action.field, action.value)
-        case "addDecide":
-            return commands.addDecide(action.action, action.fact)
-        case "decide":
-            return commands.decide(action.value, action.isConfirmed)
         case "closeDrawer":
             return commands.closeDrawer()
-        case "save":
-            return commands.save()
-        case "cancel":
-            return commands.cancel()
-        case "publish":
-            return commands.publish()
         case "trace":
             return commands.trace()
         case "untrace":
             return commands.untrace()
     }
-}
-
-/** The checklist of the setup and the command that applies it: "Publish and run" does the checklist and the map in one press. */
-export interface AgentGraphSetup extends AgentGraphSetupState {
-    readonly apply: () => Promise<void>
 }
 
 /** The run a work item left on the graph: its decision, version, outcome and the steps of its trace; null while none is read. */
@@ -103,4 +80,21 @@ export const parsedGraphReadOf = (
     error: graph.error ?? (wire === null ? new Error("The agent graph payload is invalid") : undefined),
     isLoading: graph.isLoading,
     isValidating: graph.isValidating,
+})
+
+/**
+ * The commands of the graph panes: select and open a node, switch the tab, trace a run. The graph is read only (a shop never edits
+ * a graph): nothing here writes.
+ */
+export const agentGraphCommandsOf = (
+    read: AgentGraphRead | undefined,
+    state: AgentGraphUiView,
+): AgentGraphCommands => ({
+    select: state.select,
+    sideTab: state.sideTab,
+    phoneView: state.phoneView,
+    openNode: state.openNode,
+    closeDrawer: state.closeDrawer,
+    untrace: state.untrace,
+    trace: () => state.trace(read?.data.runs[0]?.id ?? ""),
 })

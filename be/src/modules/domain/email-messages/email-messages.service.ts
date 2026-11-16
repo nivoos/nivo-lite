@@ -48,17 +48,4 @@ export class EmailMessagesService {
         if (via !== null) where.via = via
         return this.entityManager.count(EmailMessageEntity, { where })
     }
-
-    /** True when a customer email waiting for the decision on this work item is already written down. */
-    async isWaitingFor(workspaceId: string, workItemId: string): Promise<boolean> {
-        const row = await this.entityManager
-            .createQueryBuilder(EmailMessageEntity, "email")
-            .select("email.id")
-            .where("email.workspaceId = :workspaceId", { workspaceId })
-            .andWhere("email.status = 'waiting_decision'")
-            .andWhere("email.refs ->> 'work_item_id' = :workItemId", { workItemId })
-            .limit(1)
-            .getOne()
-        return row !== null
-    }
 }

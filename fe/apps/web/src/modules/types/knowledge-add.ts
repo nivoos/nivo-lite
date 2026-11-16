@@ -48,6 +48,13 @@ interface AddNoteView {
     readonly contentError?: string | undefined
 }
 
+/** The choice of the area a batch is added to: its name, the two areas with the line that says who reads each, and the one chosen. */
+export interface AddAreaView {
+    readonly label: string
+    readonly items: ReadonlyArray<{ readonly id: string; readonly title: string; readonly subtitle: string }>
+    readonly value: string
+}
+
 /** The words and values of the options of the batch. */
 interface AddOptionsView {
     readonly title: string
@@ -105,9 +112,11 @@ export interface KnowledgeAddDrawerView {
         readonly mode: string
         readonly files: AddFilesView
         readonly note: AddNoteView
-        /** Says that what is added here is internal: customers and the chatbot cannot read it. */
-        readonly internalNote: string
+        /** The area the owner chooses for what is added: who reads it. One row per area, one checked. */
+        readonly area: AddAreaView
         readonly summary: AddSummaryView | null
+        /** A file refused for room (the 50 MB of the brain, or the plan's storage): neutral words and the way to the documents; null when none was. */
+        readonly refusal: (AddSummaryView & { readonly body: string }) | null
         /** How much of the raw document allowance is used; nothing is drawn for it while undefined. */
         readonly usage: AddUsageView | undefined
         readonly options: AddOptionsView
@@ -118,6 +127,7 @@ export interface KnowledgeAddDrawerView {
         readonly close: () => void
         readonly connectDrive: () => void
         readonly seeQuestions: () => void
+        readonly seeDocuments: () => void
         readonly setMode: (value: string) => void
         readonly addFiles: (files: Array<File>) => void
         readonly setLink: (id: string, value: string) => void
@@ -135,6 +145,7 @@ export interface KnowledgeAddDrawerView {
         readonly setTopic: (value: string) => void
         readonly setTags: (value: string) => void
         readonly setModule: (value: string | null) => void
+        readonly setArea: (value: string) => void
         readonly submit: () => void
     }
 }

@@ -1,4 +1,5 @@
-export { CHAT_FILES_ERROR_KINDS } from "./errors/chat-files.error"
-export { CHAT_FILES_MESSAGES } from "./messages/chat-files.messages"
 export { ChatFilesModule } from "./chat-files.module"
-export { chatFilesEntities } from "./persistence/entities"
+export { CustomerFilesService } from "./customer-files.service"
+export { isCustomerFileRef, partFileOf, unreadFileOf } from "./customer-files.policy"
+export type { CustomerAttachment } from "./chat-files.contracts"
+export { withPicturesNotSeen, type CustomerFile, type FileNotKept } from "./customer-files.policy"

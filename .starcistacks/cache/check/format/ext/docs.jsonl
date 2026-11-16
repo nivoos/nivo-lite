@@ -1,0 +1,8 @@
+{"findings":[],"hash":"460a9377e9d3dac1308c439444ef56fc031fb05016231814b6fb3da79064a92a","path":"ext/docs/NIVO-EXT-1.md","step":"prettier"}
+{"findings":[],"hash":"2c4ecd26d24634ad48b98ad31613e32e0273864d8ca4c2a5ae31da9907befdce","path":"ext/docs/NIVO-GRAPHS-1.md","step":"prettier"}
+{"findings":[],"hash":"0e3793c53738abe0db4ce1334b7afe9808f8c00a83f66d142d66903e456dfd05","path":"ext/docs/NIVO-NAMES-1.md","step":"prettier"}
+{"findings":[],"hash":"b680419301103d7057bb15fa79d8fa1b76f881990ccf473b87510302b7bb9950","path":"ext/docs/NIVO-NAMES-2.md","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"ext/docs/NIVO-NODES-1.md is not formatted by prettier; run `npm run format`","path":"ext/docs/NIVO-NODES-1.md","rule":"HFS_FORMAT"}],"hash":"fdff438932bf7814472aa8009e9e51487215dd49f68ab991dfcc14722daa33b7","path":"ext/docs/NIVO-NODES-1.md","step":"prettier"}
+{"findings":[],"hash":"5b62942c92b732895dfadcdf69ae9936673d63c7545785ae2855c5e11836cd4e","path":"ext/docs/NIVO-TIERS-1.md","step":"prettier"}
+{"findings":[],"hash":"fed8bdc7e7c75acca21ce47e528c81211fbaaab2e08a3247e517e9f88da0e00e","path":"ext/docs/NIVO-TOOLS-1.md","step":"prettier"}
+{"findings":[{"column":0,"line":0,"message":"ext/docs/PACKAGES-TO-FOLD.md is not formatted by prettier; run `npm run format`","path":"ext/docs/PACKAGES-TO-FOLD.md","rule":"HFS_FORMAT"}],"hash":"cffcb3780ed98cdd861f1d38cb6f834d4cf13406644cb42ea868a34af62bfab3","path":"ext/docs/PACKAGES-TO-FOLD.md","step":"prettier"}

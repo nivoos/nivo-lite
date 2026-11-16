@@ -135,14 +135,13 @@ export class AdminDirectoryService {
         const nowMs = this.clock.now().getTime()
         const workspace = await this.reads.workspace(workspaceId)
         if (workspace === undefined) throw new PlatformAdminError({ code: PlatformAdminErrorCode.WorkspaceNotFound })
-        const [members, invites, orders, billingEvents, installs, versions, syncs] = await Promise.all([
+        const [members, invites, orders, billingEvents, installs, versions] = await Promise.all([
             this.reads.members(workspaceId),
             this.reads.pendingInvites(workspaceId),
             this.reads.orders(workspaceId),
             this.reads.billingEvents(workspaceId),
             this.reads.installs(workspaceId),
             this.reads.contextVersions(workspaceId),
-            this.reads.agentSync(workspaceId),
         ])
         const [connections, errors, sources, stats, quota, override] = await Promise.all([
             this.reads.connections(workspaceId),
@@ -167,13 +166,13 @@ export class AdminDirectoryService {
             },
             credits: creditsFrom(quota, override),
             members: members.map((member) => toMember(member, emails.get(member.user_id) ?? null)),
-            invites: invites.map((row) => toInvite(row)),
-            orders: orders.map((row) => toOrder(row)),
-            transfers: transfers.map((row) => toTransfer(row)),
-            billingEvents: billingEvents.map((row) => toBillingEvent(row)),
-            modules: this.workspaceModules(installs, versions, syncs),
+            invites: invites.map((item) => toInvite(item)),
+            orders: orders.map((item) => toOrder(item)),
+            transfers: transfers.map((item) => toTransfer(item)),
+            billingEvents: billingEvents.map((item) => toBillingEvent(item)),
+            modules: this.workspaceModules(installs, versions),
             connections: connections.map((connection) => toConnection(connection, nowMs)),
-            errors: errors.map((row) => toError(row)),
+            errors: errors.map((item) => toError(item)),
             knowledgeTotal: sources.length,
             knowledge: knowledgeByKind(sources),
             activity: {
@@ -207,11 +206,11 @@ export class AdminDirectoryService {
         ]
         const names = referenced.length === 0 ? [] : await this.reads.workspaceNames(referenced)
         return {
-            signups: signups.map((row) => toSignupDay(row)),
-            transfers: transfers.map((row) => toPlatformTransfer(row)),
+            signups: signups.map((item) => toSignupDay(item)),
+            transfers: transfers.map((item) => toPlatformTransfer(item)),
             transferCounts: tally(transfers.map((transfer) => transfer.status)),
-            billingEvents: billingEvents.map((row) => toPlatformBillingEvent(row)),
-            errors: errors.map((row) => toPlatformError(row)),
+            billingEvents: billingEvents.map((item) => toPlatformBillingEvent(item)),
+            errors: errors.map((item) => toPlatformError(item)),
             errorScopes: scopes,
             audits,
             workspaceNames: names,
@@ -228,30 +227,17 @@ export class AdminDirectoryService {
     private workspaceModules(
         installs: ReadonlyArray<R.InstallFacts>,
         versions: ReadonlyArray<R.ContextVersionFacts>,
-        syncs: ReadonlyArray<R.AgentSyncFacts>,
     ): Array<AdminModule> {
         return installs.map((install): AdminModule => {
             const version = versions.find((candidate) => candidate.id === install.active_context_version_id)
-            const sync = syncs.find((candidate) => candidate.installation_id === install.id)
             return {
                 id: install.id,
                 key: install.module_key,
                 status: install.status,
                 operatingMode: install.operating_mode,
                 live: install.live_enabled,
-                processor: install.processor === "openclaw" ? "openclaw" : "nivo",
                 contextVersion: version?.version ?? null,
                 contextAppliedAt: isoOrNull(version?.applied_at ?? null),
-                sync:
-                    sync === undefined
-                        ? null
-                        : {
-                              agentId: sync.agent_id,
-                              contextVersion: sync.context_version,
-                              checkedAt: iso(sync.checked_at),
-                              status: sync.status,
-                              error: sync.error,
-                          },
             }
         })
     }

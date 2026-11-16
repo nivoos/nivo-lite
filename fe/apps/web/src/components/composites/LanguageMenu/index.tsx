@@ -1,5 +1,5 @@
 import type { ReactElement } from "react"
-import { type DropdownMenuEntry, Button, DropdownMenu, Icon, IconButton } from "@starci/grammar/common"
+import { type DropdownMenuEntry, Button, DropdownMenu, IconButton } from "@starci/grammar/common"
 import { nivoIconSource } from "../../leaves/Icon"
 import { NAME_ONLY_CLASS_NAME, PHONE_ONLY_CLASS_NAME } from "./classNames"
 
@@ -69,7 +69,6 @@ export const LanguageMenu = (props: LanguageMenuProps): ReactElement => {
                             intent="dismiss"
                             size="md"
                             isDisabled={props.isDisabled}
-                            startContent={<Icon source={nivoIconSource("locale", "leading")} usage="leading" />}
                         >
                             {chosen}
                         </Button>

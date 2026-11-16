@@ -1,34 +1,52 @@
-import { Injectable } from "@nestjs/common"
+import { Injectable, Optional } from "@nestjs/common"
+import { TOOL } from "@nivo-lite/agent-sdk/names"
 import { ConnectionBindingsReadService, type ConnectionRecord } from "@modules/domain/connections"
 import {
-    type GatewayJson,
-    type NativeAdapter,
-    type NativeCaller,
-    type NativeConnectorManifest,
+    AgentAccountsService,
     argumentsOf,
+    reaskSeenOf,
     unknownTool,
-} from "@modules/domain/mcp-gateway"
+    type ToolJson,
+    type NativeToolFamily,
+    type NativeCaller,
+    type ToolManifest,
+} from "@modules/domain/tools"
 import { BankTransactionsRegistryService, type BankTransactionsPort } from "@modules/domain/provider-registry"
 import {
     BANK_TRANSACTIONS_INPUT_SCHEMA,
     BANK_TRANSACTIONS_SCHEMA,
     type BankTransactionsArgs,
-} from "./payment-native.schema"
+} from "./bank-native.schema"
 import { nativeRefusal } from "./native-refusal.policy"
 import { NativeViewService } from "./native-view.service"
+
+/** The full name of the tool this adapter serves, as the rights catalogue names it. */
+const BANK_TRANSACTIONS_TOOL: string = TOOL.bankTransactionList
 
 /** The most bank feeds of one provider a list looks across. */
 const FEEDS_MAX = 20
 
+/** A movement as far as its ordering reads it: the instant it occurred at. */
+interface DatedMovement {
+    /** When the movement occurred, ISO. */
+    readonly occurredAt: string
+}
+
+/** Orders two movements newest first, by the instant each occurred at. */
+const newestFirst = (left: DatedMovement, right: DatedMovement): number => {
+    if (left.occurredAt < right.occurredAt) return 1
+    return left.occurredAt > right.occurredAt ? -1 : 0
+}
+
 /** The bank capability: named by what it does, never by the provider that answers it. */
-export const BANK_MANIFEST: NativeConnectorManifest = {
+export const BANK_MANIFEST: ToolManifest = {
     key: "bank",
+    namespace: "nivo.tool.bank",
     name: "Bank",
-    kind: "native",
     contractVersion: "bank-native@1",
     tools: [
         {
-            name: "transactions",
+            name: "transaction.list",
             description:
                 "The bank transactions of the workspace bank feed in a time window, money in and money out, newest first, read from the provider.",
             scope: "read",
@@ -41,56 +59,106 @@ export const BANK_MANIFEST: NativeConnectorManifest = {
     ],
 }
 
+/**
+ * The accounts a read covers once the tool runner handed it one account: that account alone, when the caller may read it (or no right
+ * judges the caller); the accounts as they were when no account was handed.
+ */
+const narrowedTo = (
+    allowed: ReadonlyArray<string> | null,
+    connectionId: string | undefined,
+): ReadonlyArray<string> | null => {
+    if (connectionId === undefined) return allowed
+    return allowed === null ? [connectionId] : allowed.filter((id) => id === connectionId)
+}
+
 @Injectable()
 /**
- * `bank.transactions` for a workspace, for internal callers only: the first live, non-test bank feed whose provider registered a
- * transaction list answers. A workspace with none, or whose feed cannot be read yet, is not connected.
+ * `nivo.tool.bank.transaction.list` for a workspace, for internal callers only: the live, non-test bank feeds of the first provider that registered
+ * a transaction list answer. An agent reads every account it holds the ability to read transactions on (each movement names its
+ * account); the engine's own caller reads every live feed. A workspace with none, or whose feed cannot be read yet, is not connected.
  */
-export class BankNativeService implements NativeAdapter {
-    readonly manifest: NativeConnectorManifest = BANK_MANIFEST
+export class BankNativeService implements NativeToolFamily {
+    readonly manifest: ToolManifest = BANK_MANIFEST
 
     constructor(
         private readonly views: NativeViewService,
         private readonly bindings: ConnectionBindingsReadService,
         private readonly providers: BankTransactionsRegistryService,
+        @Optional() private readonly abilities?: AgentAccountsService,
     ) {}
 
-    /** Runs `transactions`; any other tool is unknown. */
-    async invoke(workspaceId: string, tool: string, args: GatewayJson, caller: NativeCaller): Promise<GatewayJson> {
+    /** Runs `transaction.list`; any other tool is unknown. */
+    async invoke(workspaceId: string, tool: string, args: ToolJson, caller: NativeCaller): Promise<ToolJson> {
         await this.views.internalOf(workspaceId, caller)
-        if (tool !== "transactions") throw unknownTool(tool)
+        if (tool !== "transaction.list") throw unknownTool(tool)
         const input = argumentsOf(tool, BANK_TRANSACTIONS_SCHEMA, args)
-        const answer = await this.firstAnswer(workspaceId, this.providers.all(), input)
+        const allowed = narrowedTo(await this.allowedOf(workspaceId, caller), caller.connectionId)
+        const providers = this.providers.providers().filter((provider) => caller.provider === undefined || provider === caller.provider)
+        const answer = await this.firstAnswer(workspaceId, providers, input, allowed)
         if (answer === undefined) throw nativeRefusal("not_connected")
         return answer
     }
 
-    /** The answer of the first provider that has a readable live feed in the workspace. */
+    /**
+     * The answer of the first provider that has a readable live feed in the workspace, over every such feed the caller may read: the
+     * movements of each account, each naming its account (`connectionId`, `account`), newest first.
+     */
     private async firstAnswer(
         workspaceId: string,
-        ports: ReadonlyArray<BankTransactionsPort>,
+        providers: ReadonlyArray<string>,
         input: BankTransactionsArgs,
-    ): Promise<GatewayJson | undefined> {
-        const [port, ...rest] = ports
-        if (port === undefined) return undefined
-        const connection = await this.liveFeed(workspaceId, port.provider)
-        const transactions =
-            connection === undefined
-                ? undefined
-                : await port.transactions(connection, {
-                      since: input.since === undefined ? undefined : new Date(input.since),
-                      until: input.until === undefined ? undefined : new Date(input.until),
-                      limit: input.limit,
-                  })
-        return transactions === undefined
-            ? this.firstAnswer(workspaceId, rest, input)
-            : { provider: port.provider, transactions: [...transactions] }
+        allowed: ReadonlyArray<string> | null,
+    ): Promise<ToolJson | undefined> {
+        const [provider, ...rest] = providers
+        if (provider === undefined) return undefined
+        const feeds = await this.liveFeeds(workspaceId, provider, allowed)
+        const read = await Promise.all(
+            feeds.map(async (connection) => {
+                // Each account through the one switch: a sandbox feed answers from its fixtures (lane concept provider-sandbox).
+                const port: BankTransactionsPort | undefined = this.providers.portFor(connection)
+                const transactions = await port?.transactions(connection, {
+                    since: input.since === undefined ? undefined : new Date(input.since),
+                    until: input.until === undefined ? undefined : new Date(input.until),
+                    limit: input.limit,
+                })
+                return transactions?.map((movement) => ({
+                    ...movement,
+                    connectionId: connection.id,
+                    account: connection.name,
+                }))
+            }),
+        )
+        const readable = read.filter((movements) => movements !== undefined)
+        if (readable.length === 0) return this.firstAnswer(workspaceId, rest, input, allowed)
+        const transactions = readable
+            .flat()
+            .toSorted(newestFirst)
+            .slice(0, input.limit)
+        return { provider, transactions }
     }
 
-    private async liveFeed(workspaceId: string, provider: string): Promise<ConnectionRecord | undefined> {
+    /**
+     * The live, non-test bank feeds of a provider the caller may read: every one for the engine's own caller (and where no rights are
+     * bound), else only the accounts on which the calling agent holds the ability to read transactions. The read covers every feed it
+     * may read (an `each` read, ARCH-REVIEW 2026-11-12 S7): never the first feed alone.
+     */
+    private async liveFeeds(
+        workspaceId: string,
+        provider: string,
+        allowed: ReadonlyArray<string> | null,
+    ): Promise<ReadonlyArray<ConnectionRecord>> {
         const feeds = await this.bindings.ofProvider(workspaceId, provider, FEEDS_MAX)
-        const live = feeds.find((feed) => feed.status !== "disconnected")
-        const record = live === undefined ? undefined : await this.bindings.recordOf(workspaceId, live.id)
-        return record?.environment === "live" ? record : undefined
+        const open = feeds.filter((feed) => feed.status !== "disconnected")
+        const wanted = allowed === null ? open : open.filter((feed) => allowed.includes(feed.id))
+        const records = await Promise.all(wanted.map((feed) => this.bindings.recordOf(workspaceId, feed.id)))
+        return records.flatMap((record) => (record?.environment === "live" ? [record] : []))
+    }
+
+    /** The accounts the caller may read, or null when no account right judges it (the engine's own caller, an app with no rights). */
+    private async allowedOf(workspaceId: string, caller: NativeCaller): Promise<ReadonlyArray<string> | null> {
+        if (this.abilities === undefined || caller.engine === true) return null
+        const seen = reaskSeenOf(caller)
+        if (seen === undefined) return this.abilities.accountsOfAgent(workspaceId, caller.agentId, BANK_TRANSACTIONS_TOOL)
+        return this.abilities.accountsOfAgent(workspaceId, caller.agentId, BANK_TRANSACTIONS_TOOL, seen)
     }
 }

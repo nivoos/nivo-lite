@@ -46,16 +46,12 @@ export const sourceOfRef = (ref: NodeInputRef): string => ref.$ref.split(".", 1)
 const refsOf = (binding: NodeInputBinding): ReadonlyArray<NodeInputRef> => {
     if (isInputRef(binding)) return [binding]
     if (typeof binding !== "object" || binding === null) return []
-    return Object.values(binding).flatMap((inner) => refsOf(inner))
+    return Object.values(binding).flatMap((entry) => refsOf(entry))
 }
 
 /** The sources the bindings reference, at any depth, once each. */
 export const inputSourcesOf = (bindings: NodeInputBindings): ReadonlyArray<string> => [
-    ...new Set(
-        Object.values(bindings)
-            .flatMap((binding) => refsOf(binding))
-            .map((ref) => sourceOfRef(ref)),
-    ),
+    ...new Set(Object.values(bindings).flatMap((entry) => refsOf(entry)).map((entry) => sourceOfRef(entry))),
 ]
 
 /** The value of one reference: null when its source or path is missing, so a run never stops on an absent value. */

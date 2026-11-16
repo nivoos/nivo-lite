@@ -4,8 +4,9 @@
 #
 #   docker build -f be/apps/mcp/Dockerfile -t nivo-lite/mcp:<tag> .
 #
-# It follows the image canon (knowledge/hfs/docker.md) and diverges from it nowhere. No secret is built in: credentials are
-# mounted at run time and .dockerignore keeps them out of the build context.
+# It follows the image canon (knowledge/hfs/docker.md) with no divergence: the runtime holds no media tool (NIVO processes no video, audio or
+# image with a native program; the providers do it). No secret is built in: credentials are mounted at run time and .dockerignore keeps them
+# out of the build context.
 
 FROM node:22.14.0-alpine3.21 AS manifests
 WORKDIR /app
@@ -15,12 +16,7 @@ COPY packages packages
 # The install stages hold manifests only, so a workspace `prepare` (it builds dist from sources) has nothing to compile; npm runs it for workspace
 # links even under --ignore-scripts. Drop it from these throwaway manifest copies; the build stages copy the sources and manifests back.
 RUN find fe packages -type f ! -name package.json -delete \
- && find fe packages -name package.json -exec node -e \
- "const fs=require('fs');\
-const f=process.argv[1];\
-const p=JSON.parse(fs.readFileSync(f,'utf8'));\
-if(p.scripts&&p.scripts.prepare){delete p.scripts.prepare;fs.writeFileSync(f,JSON.stringify(p,null,2))}" \
- {} \;
+ && find fe packages -name package.json -exec node -e "const fs=require('fs');const f=process.argv[1];const p=JSON.parse(fs.readFileSync(f,'utf8'));if(p.scripts&&p.scripts.prepare){delete p.scripts.prepare;fs.writeFileSync(f,JSON.stringify(p,null,2))}" {} \;
 
 FROM node:22.14.0-alpine3.21 AS build
 WORKDIR /app

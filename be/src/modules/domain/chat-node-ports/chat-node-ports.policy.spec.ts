@@ -1,17 +1,18 @@
 import { Test } from "@nestjs/testing"
 import {
     NODE_ROWS_MAX,
-    channelBusy,
     placeholderRecipient,
     recipientRefused,
     recipientLinked,
     cutFields,
     limitOf,
     matchesWhere,
-    handledByOf,
+    sendRightOf,
     textWithLinks,
+    verdictOf,
+    outboundOf,
 } from "./chat-node-ports.policy"
-import { channelSendSchema, proposeReplySchema } from "./chat-node-ports.schema"
+import { customerMessageSendSchema } from "./chat-node-ports.schema"
 
 const SUBJECT = Symbol("chat-node-ports.policy")
 
@@ -28,7 +29,9 @@ const build = async () => {
                     limitOf,
                     matchesWhere,
                     textWithLinks,
-                    handledByOf,
+                    outboundOf,
+                    sendRightOf,
+                    verdictOf,
                 },
             },
         ],
@@ -66,11 +69,10 @@ describe("chat-node-ports policy recipients and links", () => {
     })
 
     it("puts attachments as links under the text", () => {
-        expect(policy.textWithLinks({ conversationId: "c", text: "Hi" })).toBe("Hi")
+        expect(policy.textWithLinks({ text: "Hi" })).toBe("Hi")
         expect(
             policy.textWithLinks({
-                conversationId: "c",
-                text: "Hi",
+                    text: "Hi",
                 attachments: [{ url: "https://x/y", name: "Menu" }],
             }),
         ).toBe("Hi\nMenu: https://x/y")
@@ -99,31 +101,100 @@ describe("chat-node-ports policy recipients and links", () => {
         expect(policy.recipientRefused(null)).toBe(false)
     })
 
-    it("admits a conversation id and a text, and refuses anything else", () => {
-        expect(channelSendSchema.safeParse({ conversationId: "c", text: "t" }).success).toBe(true)
-        expect(channelSendSchema.safeParse({ conversationId: "", text: "t" }).success).toBe(false)
-        expect(channelSendSchema.safeParse({ conversationId: "c" }).success).toBe(false)
+    it("admits a customer send with the words alone (the run's own person) or with the person, channel and account named, and refuses empty words", () => {
+        expect(customerMessageSendSchema.safeParse({ text: "t" }).success).toBe(true)
+        expect(customerMessageSendSchema.safeParse({ contactId: "k", text: "t", channel: "zalo", accountId: "z1" }).success).toBe(true)
+        expect(customerMessageSendSchema.safeParse({ contactId: "k", text: "" }).success).toBe(false)
+        expect(customerMessageSendSchema.safeParse({ contactId: "", text: "t" }).success).toBe(false)
+        const tooMany = Array.from({ length: 11 }, (_, index) => ({ url: `https://img.example/${String(index)}.png`, caption: "" }))
+        expect(customerMessageSendSchema.safeParse({ text: "t", images: tooMany }).success).toBe(false)
     })
 
-    it("reads who holds a conversation record: a name, else nobody", () => {
-        expect(policy.handledByOf({ handledBy: "Thu Ha" })).toBe("Thu Ha")
-        expect(policy.handledByOf({ handledBy: null })).toBeNull()
-        expect(policy.handledByOf({})).toBeNull()
+    it("names no conversation: the id of one is dropped from the payload", () => {
+        expect(customerMessageSendSchema.safeParse({ conversationId: "c", text: "t" }).data).toEqual({ text: "t" })
     })
 
-    it("admits a draft of a conversation id, words and what was asked, and refuses anything else", () => {
-        expect(proposeReplySchema.safeParse({ conversationId: "c", text: "t", asked: "q" }).success).toBe(true)
-        expect(proposeReplySchema.safeParse({ conversationId: "c", text: "", asked: "q" }).success).toBe(false)
-        expect(proposeReplySchema.safeParse({ conversationId: "c", text: "t" }).success).toBe(false)
+    it("lets the calling agent's attachment to the channel's provider decide the send; the mode is the door's, never a draft here", () => {
+        const allow = { kind: "allow", provider: "zalo_oa", ability: "customer.send" } as const
+        const refuse = { reason: "not_attached", ability: "customer.send", providers: ["zalo_oa"] }
+        expect(policy.sendRightOf(allow)).toEqual({ kind: "send" })
+        expect(policy.sendRightOf({ kind: "refuse", ...refuse })).toEqual({
+            kind: "refused",
+            facts: { provider: "zalo_oa", ability: "customer.send", reason: "not_attached" },
+        })
+        expect(policy.sendRightOf(null)).toEqual({ kind: "send" })
+    })
+
+    it("reads the verdict of a delivery receipt", () => {
+        expect(policy.verdictOf({ delivered: true, outcome: "acknowledged" })).toBe("delivered")
+        expect(policy.verdictOf({ delivered: false, outcome: "rejected" })).toBe("not_delivered")
+        expect(policy.verdictOf({ delivered: false, outcome: "ambiguous" })).toBe("unknown")
     })
 })
 
-describe("channelBusy", () => {
-    it("is true for the Zalo refusals that say the channel is not taking messages for now, false for every other verdict", () => {
-        expect(channelBusy("zalo_quota")).toBe(true)
-        expect(channelBusy("zalo_night_hours")).toBe(true)
-        for (const failure of ["zalo_window_expired", "zalo_token", "zalo_error", "channel_plan", null]) {
-            expect(channelBusy(failure)).toBe(false)
+describe("chat-node-ports policy outbound", () => {
+    let policy: typeof import("./chat-node-ports.policy")
+
+    beforeAll(async () => {
+        policy = await build()
+    })
+
+    it("sends the image files of a Zalo message as pictures after the text and keeps the other files as links", () => {
+        const send = {
+            text: "Hi",
+            attachments: [
+                { url: "https://x/a.jpg", name: "A", contentType: "image/jpeg" },
+                { url: "https://x/menu.pdf", name: "Menu", contentType: "application/pdf" },
+                { url: "https://x/b", name: "B" },
+            ],
         }
+
+        expect(policy.outboundOf(send, "zalo")).toEqual({
+            text: "Hi\nMenu: https://x/menu.pdf\nB: https://x/b",
+            images: [{ url: "https://x/a.jpg", caption: "A" }],
+        })
+    })
+
+    it("keeps every file a link on Telegram, which shows only the images field", () => {
+        const send = {
+            text: "Hi",
+            attachments: [{ url: "https://x/a.jpg", name: "A", contentType: "image/jpeg" }],
+        }
+
+        expect(policy.outboundOf(send, "telegram")).toEqual({ text: "Hi\nA: https://x/a.jpg", images: [] })
+    })
+
+    const captioned = [
+        { url: "https://x/1.jpg", caption: "Basket\n2.000 VND" },
+        { url: "https://x/2.jpg", caption: "Pot\n1.000 VND" },
+    ]
+
+    it("passes the captioned images as pictures on Zalo and on Telegram", () => {
+        const send = { text: "Hi", images: captioned }
+
+        expect(policy.outboundOf(send, "zalo")).toEqual({ text: "Hi", images: captioned })
+        expect(policy.outboundOf(send, "telegram")).toEqual({ text: "Hi", images: captioned })
+    })
+
+    it("puts the captioned images under the text as links on a channel that cannot show pictures", () => {
+        const send = { text: "Hi", images: captioned }
+
+        expect(policy.outboundOf(send, "website")).toEqual({
+            text: "Hi\nBasket - 2.000 VND: https://x/1.jpg\nPot - 1.000 VND: https://x/2.jpg",
+            images: [],
+        })
+    })
+
+    it("keeps a caller that sends no images exactly as before", () => {
+        expect(policy.outboundOf({ text: "Hi" }, "zalo")).toEqual({ text: "Hi", images: [] })
+        expect(policy.outboundOf({ text: "Hi" }, "website")).toEqual({ text: "Hi", images: [] })
+    })
+
+    it("admits images with a caption and refuses more than ten", () => {
+        const base = { text: "t" }
+        expect(customerMessageSendSchema.safeParse({ ...base, images: captioned }).success).toBe(true)
+        expect(customerMessageSendSchema.safeParse({ ...base, images: [{ url: "", caption: "x" }] }).success).toBe(false)
+        const eleven = Array.from({ length: 11 }, () => captioned[0])
+        expect(customerMessageSendSchema.safeParse({ ...base, images: eleven }).success).toBe(false)
     })
 })

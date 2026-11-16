@@ -1,3 +1,4 @@
+import type { EntityManager } from "typeorm"
 /** Format of a source: what the owner pasted or uploaded. */
 export type SourceKind = "text" | "faq" | "file" | "url"
 
@@ -38,21 +39,38 @@ export const KNOWLEDGE_UPLOAD_MIME: ReadonlyMap<string, string> = new Map([
     ["md", "text/markdown"],
     ["markdown", "text/markdown"],
     ["csv", "text/csv"],
+    ["tsv", "text/tab-separated-values"],
+    ["html", "text/html"],
+    ["htm", "text/html"],
+    ["jpg", "image/jpeg"],
+    ["jpeg", "image/jpeg"],
+    ["png", "image/png"],
+    ["webp", "image/webp"],
+    ["gif", "image/gif"],
+    ["heic", "image/heic"],
+    ["heif", "image/heif"],
 ])
 
-/** The largest uploaded document, in bytes: 50 MB. */
-export const MAX_UPLOAD_BYTES: number = 50 * 1024 * 1024
+/** The extensions of old binary Office files: refused at the upload door with the advice to save them again as .docx or .xlsx. */
+export const LEGACY_OFFICE_EXTENSIONS: ReadonlySet<string> = new Set(["doc", "xls", "ppt"])
 
-/** The most raw document data one workspace may index in total, in bytes: 50 MB. */
-export const WORKSPACE_SOURCE_BYTES: number = 50 * 1024 * 1024
+/**
+ * The Second Brain's documents limit (owner 2026-11-11: second brain data is its own limit for all workspaces, apart from the plan's
+ * storage; the number: 50 MB on 2026-11-11, 20 MB then 10 MB on 2026-11-12): the raw bytes of a workspace's Second Brain sources (files
+ * and pasted text) are at most this in total, the SAME for every workspace whatever its plan. It is not the plan's storage: that quota
+ * (`plans.storage_gb`, e.g. Pro 20 GB) is the workspace's general storage, checked by `EntitlementsService.requireStorageFor` over
+ * every stored object, and stays as it was. A Second Brain upload must pass both. Changing the number is this one line.
+ */
+export const BRAIN_DOCUMENTS_BYTES: number = 10 * 1024 * 1024
 
-/** How much of its raw document allowance a workspace has used. */
-export interface KnowledgeUsage {
-    /** The raw bytes its sources hold now. */
-    readonly usedBytes: number
-    /** The most raw bytes it may hold. */
-    readonly limitBytes: number
-}
+/**
+ * The limit of ONE of the Second Brain's two upload areas (owner 2026-11-12: PUBLIC documents and INTERNAL documents, 5 MB each, 10 MB in
+ * total): the raw bytes of the sources whose `visibility` is that area. Two areas of this size are the whole limit above.
+ */
+export const BRAIN_AREA_BYTES: number = 5 * 1024 * 1024
+
+/** The largest uploaded document, in bytes: 50 MB, and never more than one area of the Second Brain may hold (5 MB today). */
+export const MAX_UPLOAD_BYTES: number = Math.min(50 * 1024 * 1024, BRAIN_AREA_BYTES)
 
 /** The storage path of an uploaded file, or null for a source that has none. */
 export type MaybeStoragePath = string | null
@@ -81,7 +99,56 @@ export enum StoredNote {
     NeedsOcr = "KNOWLEDGE_NOTE_NEEDS_OCR",
     /** The text is the same as a document the workspace already holds for the same readers: it was not read, embedded or filed again. */
     Duplicate = "KNOWLEDGE_NOTE_DUPLICATE",
+    /** The file is locked with a password. */
+    PasswordProtected = "KNOWLEDGE_NOTE_PASSWORD_PROTECTED",
+    /** A Word or Excel file of the old binary format (.doc, .xls): it must be saved again as .docx or .xlsx. */
+    LegacyOffice = "KNOWLEDGE_NOTE_LEGACY_OFFICE",
+    /** The library that reads this kind of file is not installed on the server. */
+    ReaderUnavailable = "KNOWLEDGE_NOTE_READER_UNAVAILABLE",
+    /** The file is pictures only and the AI that transcribes pictures could not be reached. */
+    TranscriptionUnavailable = "KNOWLEDGE_NOTE_TRANSCRIPTION_UNAVAILABLE",
+    /** The file is pictures only and the workspace has no AI allowance left to transcribe them. */
+    NoCreditsForTranscription = "KNOWLEDGE_NOTE_NO_CREDITS_TRANSCRIPTION",
+    /** The file is not of a kind a document can be read from. */
+    TypeUnsupported = "KNOWLEDGE_NOTE_TYPE_UNSUPPORTED",
 }
+
+/** One part of a document its last reading could not read whole, as the second-brain page shows it. */
+export interface ReadingWarning {
+    /** The note's code (`DOCUMENT_PAGE_UNREADABLE`, `DOCUMENT_PAGE_TRANSCRIBED`, `DOCUMENT_PAGES_OVER_LIMIT`, `DOCUMENT_ROWS_OVER_LIMIT`, `DOCUMENT_PLACE_EMPTY`). */
+    readonly code: string
+    /** The page number, sheet name or slide number, or null for the whole document. */
+    readonly place: string | null
+    /** The count the note names, or null. */
+    readonly count: number | null
+    /** The note in plain Vietnamese, e.g. the sentence "Page 3 could not be read." */
+    readonly message: string
+}
+
+/** How the last reading of a file or link went, stored in `knowledge_sources.reading`. */
+export interface SourceReading {
+    /** The reader that read it: text, markdown, csv, tsv, html, pdf, docx, xlsx, pptx, image, heic, link. */
+    readonly reader: string
+    /** How many pages (PDF, picture) or slides it has, or null. */
+    readonly pageCount: number | null
+    /** How many sheets a workbook has, or null. */
+    readonly sheetCount: number | null
+    /** True when any of its text was transcribed by the AI from a picture. */
+    readonly transcribed: boolean
+    /** The parts it could not read whole. */
+    readonly warnings: ReadonlyArray<ReadingWarning>
+    /** The stored code of why the file was refused, or null when it was read. */
+    readonly refusal: string | null
+    /** Why it was refused, in plain Vietnamese, or null when it was read. */
+    readonly reason: string | null
+    /** When it was read, ISO 8601. */
+    readonly readAt: string
+    /** The stored object that was read (a file source), or null: a retry of the same object reuses a transcription instead of paying again. */
+    readonly path: string | null
+}
+
+/** A reading, or null when the document has none. */
+export type MaybeReading = SourceReading | null
 
 /** What a person adds: a note, a Q&A list, an uploaded file or a link. */
 export interface AddSourceInput {
@@ -103,7 +170,7 @@ export interface AddSourceInput {
     readonly module?: string | undefined
     /** The agent instance that alone reads the document; omitted = every instance. */
     readonly installationId?: string | undefined
-    /** public or internal, as the owner chose; a source without one is refused. */
+    /** The area the member uploads into, `public` or `internal`; internal when omitted. */
     readonly visibility?: string | undefined
     /** Where it came from: a folder, a ZIP, the Google Picker. */
     readonly origin?: string | undefined
@@ -121,7 +188,7 @@ export interface UpdateSourceInput {
     readonly tags?: ReadonlyArray<string> | undefined
     /** A new module; an empty text means every module. */
     readonly module?: string | undefined
-    /** public or internal. */
+    /** The area to move the document to, `public` or `internal` (the MOVE: its passages and truths follow). */
     readonly visibility?: string | undefined
 }
 
@@ -131,6 +198,51 @@ export interface ReindexInput {
     readonly sourceId: string
     /** The new text; omitted keeps the text. */
     readonly content?: string | undefined
+    /** A new upload of the same document (`<workspaceId>/<uuid>/<filename>`), for a file source; omitted keeps the file. */
+    readonly storagePath?: string | undefined
+}
+
+/** One source of one workspace. */
+export interface SourceKey {
+    /** The workspace that owns it. */
+    readonly workspaceId: string
+    /** The source. */
+    readonly sourceId: string
+}
+
+/** A new upload of a document: its object and its size. */
+export interface NewUpload {
+    /** The object. */
+    readonly path: string
+    /** Its size in bytes. */
+    readonly bytes: number
+}
+
+/** A new upload, or null when none was given. */
+export type MaybeNewUpload = NewUpload | null
+
+/** The path of a new upload the browser may not have given. */
+export type OptionalUploadPath = string | undefined
+
+/** The size in bytes the browser may not have said. */
+export type OptionalSizeBytes = number | undefined
+
+/** The columns a new upload writes on its source (empty without one). */
+export interface ReplacementColumns {
+    /** The new object. */
+    readonly storagePath?: string
+    /** Its size in bytes. */
+    readonly sizeBytes?: number
+    /** Cleared, so the index job reads the new file instead of keeping the text it knew. */
+    readonly contentHash?: null
+}
+
+/** What a new upload changes on the file of a source, and the object it replaces. */
+export interface FileReplacement {
+    /** The columns to write. */
+    readonly columns: ReplacementColumns
+    /** The old object, to remove once the change is written; null when there is none (no upload, or the same object again). */
+    readonly replaced: string | null
 }
 
 /** The identity of a source that was just written. */
@@ -245,7 +357,7 @@ export interface SourceSummary {
     readonly origin: string | null
     /** 0-100 while a worker is on it. */
     readonly progress: number
-    /** The stage the document is at (read, chunk, embed, store, facts, or critic while the critic checks its dossier), or null when none is. */
+    /** The stage the document is at (read, chunk, embed, store, facts, or critic while the critic checks it), or null when none is. */
     readonly stage: "read" | "chunk" | "embed" | "store" | "facts" | "critic" | null
     /** Passages of the stage that are done, or null. */
     readonly stageDone: number | null
@@ -263,6 +375,8 @@ export interface SourceSummary {
 export interface SourceDetail extends SourceSummary {
     /** The text (the address of a link source until it is read). */
     readonly content: string
+    /** How its last reading went, or null when it has none (a note, or a document read before readings were kept); absent where not read. */
+    readonly reading?: MaybeReading
 }
 
 /** Who may read a document: anyone (public) or the team only (internal); a customer-facing view never counts internal ones. */
@@ -279,6 +393,9 @@ export interface ReadableScope {
     /** customer reads public documents only; internal reads both. */
     readonly audience: "customer" | "internal"
 }
+
+/** An indexed document an agent view may list, without its text. */
+export type ReadableSummary = Omit<ReadableSource, "content">
 
 /** An indexed document an agent may read, with its text. */
 export interface ReadableSource {
@@ -318,6 +435,26 @@ export interface ProfileSourceInput {
     readonly content: string
 }
 
+/** One text document of a workspace that carries an origin, as a configuration seed lists it. */
+export interface ProfileDocument {
+    /** The source id. */
+    readonly id: string
+    /** The origin that marks the run that kept it, e.g. `seed:<profile>`. */
+    readonly origin: string
+    /** The title; the key together with the origin. */
+    readonly title: string
+    /** The topic label, or null. */
+    readonly topic: string | null
+    /** The module that reads it; null = every module. */
+    readonly module: string | null
+    /** Who may read it. */
+    readonly visibility: "public" | "internal"
+    /** The markdown text. */
+    readonly content: string
+    /** When the row was created: the oldest row of a key is the one a seed finds again. */
+    readonly createdAt: Date
+}
+
 /** What keeping one document did: a new row, a changed text queued again, or nothing. */
 export type ProfileSourceOutcome = "inserted" | "requeued" | "unchanged"
 
@@ -345,12 +482,28 @@ export interface SourceCategory {
     readonly sizeBytes: number
 }
 
-/** How many documents a category holds for one dossier reference: the leading number of a title, or a `dossier:<n>` tag. */
-export interface DossierDocumentCount {
-    /** The topic label (the category) of the documents. */
-    readonly topic: string
-    /** The dossier reference, without leading zeros. */
-    readonly ref: string
-    /** How many documents name that reference. */
-    readonly documentCount: number
+/** The write of the next step's job (or of what it needs), made in the same transaction as the change that ends this step. */
+export type NextStepWrite = (tx: EntityManager) => Promise<void>
+
+/** The stages a source passes while it is taken in, in order; the table holds them under a CHECK. The last, `critic`, is worn by a ready document while the critic checks it. */
+export type SourceStage = "read" | "chunk" | "embed" | "store" | "facts" | "critic"
+
+/** What a writer changes about a source: only the columns it names are written. */
+export interface ProgressChange {
+    /** The new status. */
+    readonly status?: SourceStatus
+    /** The new progress, 0 to 100 (rounded and clamped). */
+    readonly progress?: number
+    /** The stage, or null to clear it. */
+    readonly stage?: SourceStage | null
+    /** Passages done in the stage, or null to clear. */
+    readonly done?: number | null
+    /** Passages of the stage in all, or null to clear. */
+    readonly total?: number | null
+    /** The stored code or note, or null to clear it. */
+    readonly error?: string | null
+    /** How many passages are stored. */
+    readonly chunkCount?: number
+    /** The hash of the text now complete. */
+    readonly contentHash?: string
 }

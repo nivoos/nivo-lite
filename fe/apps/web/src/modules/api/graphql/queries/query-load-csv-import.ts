@@ -1,6 +1,6 @@
 import { gql, type ApolloClient, type TypedDocumentNode } from "@apollo/client"
-import { createAuthApolloClient } from "../clients"
-import type { InputVariables, QueryParams, WireInput } from "../types"
+import { createAuthApolloClient, type InputVariables, type QueryParams, type WireInput } from "@nivo-lite/api"
+import { webApiTransport } from "@/modules/api-transport"
 import type { LoadCsvImportQuery, LoadCsvImportQueryVariables } from "../__generated__/graphql"
 
 /** The variables of the `loadCsvImport` query. */
@@ -44,7 +44,7 @@ export const queryLoadCsvImport = async ({
     request,
     signal,
 }: QueryLoadCsvImportParams): Promise<ApolloClient.QueryResult<QueryLoadCsvImportResponse>> => {
-    const apollo = createAuthApolloClient({ signal })
+    const apollo = createAuthApolloClient(webApiTransport, { signal })
     return apollo.query({
         query: queryMap[query],
         variables: { input: request },

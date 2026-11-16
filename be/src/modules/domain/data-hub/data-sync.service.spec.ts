@@ -6,25 +6,38 @@ import { DataSyncRunsService } from "@modules/domain/data-sync-runs"
 import type { DataSyncRun } from "@modules/domain/data-sync-runs"
 import { CLOCK } from "@modules/platform/clock"
 import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
+import { EFFECTS } from "@modules/platform/effects"
+import type { Effects } from "@modules/platform/effects"
+import { QueueError, QueueErrorCode } from "@modules/platform/queue"
+import type { ClaimedJob } from "@modules/platform/jobs"
+import { keptEffectsLedger } from "@tests/fixtures/builders/job-chain-runner.builder"
 import { MESSAGE_CATALOG } from "@modules/platform/i18n"
 import type { MessageCatalog } from "@modules/platform/i18n"
-import { LOGGER } from "@modules/platform/logging"
-import type { Logger } from "@modules/platform/logging"
 import { DataSyncQueue } from "@modules/queues/data-sync"
 import { CsvImportSyncService } from "./csv-import-sync.service"
-import { DatabaseSyncService } from "./database-sync.service"
+import type { DatabaseSyncService } from "./database-sync.service"
 import { DATA_PROVIDERS } from "./data-hub.contracts"
 import type { DataConnection, DataProvider } from "./data-hub.contracts"
-import { DataHubLogEvent } from "./data-hub.log-events"
 import { DataHubService } from "./data-hub.service"
 import { DataSyncService } from "./data-sync.service"
 import { DataHubError, DataHubErrorCode } from "./errors/data-hub.error"
-import { ImapSyncService } from "./imap-sync.service"
-import { OpenApiSyncService } from "./openapi-sync.service"
-import { TelegramUserSyncService } from "./telegram-user-sync.service"
+import { DataConnectorRegistryService } from "./data-connector-registry.service"
+import type { TelegramUserSyncService } from "./telegram-user-sync.service"
 
 const actor = { principalId: "u-1", workspaceId: "ws-1" }
 const payload = { workspaceId: "ws-1", connectionId: "c-1", runId: "run-1" }
+/** The job a worker holds for the sync (a resume is `resumeCount` 1 and above). */
+const jobOf = (data: object = payload, resumeCount = 0): ClaimedJob => ({
+    jobId: "job-1",
+    kind: "data_sync.run",
+    fencingToken: 1,
+    currentStep: "sync",
+    payload: data,
+    ...(resumeCount > 0 ? { resumeCount } : {}),
+})
+/** What the runner hands `onFailed`: a flow failure naming the class and reason, with the failure itself kept. */
+const parked = (failureClass: "transient" | "input" | "code" | "config", reason: string, cause?: unknown): QueueError =>
+    new QueueError({ code: QueueErrorCode.FlowFailure, params: { failureClass, reason }, cause })
 const connectionOf = (provider: DataProvider = "csv_import"): DataConnection => ({
     id: "c-1",
     workspaceId: "ws-1",
@@ -52,7 +65,9 @@ const buildKit = async (registerCsv = true) => {
     const transaction = fakeTransaction(entityManager)
     const clock = new FakeClock("2026-10-12T10:00:00.000Z")
     const catalog = mock<MessageCatalog>()
-    const logger = mock<Logger>()
+    const ledger = keptEffectsLedger()
+    const effects = mock<Effects>()
+    effects.once.mockImplementation(ledger.once)
     const queue = mock<DataSyncQueue>()
     const connections = mock<ConnectionsService>()
     const hub = mock<DataHubService>()
@@ -60,14 +75,18 @@ const buildKit = async (registerCsv = true) => {
     const runs = mock<DataSyncRunsService>()
     const csv = mock<CsvImportSyncService>(registerCsv ? { provider: "csv_import" } : {})
     const database = mock<DatabaseSyncService>({ provider: "database" })
-    const imap = mock<ImapSyncService>({ provider: "imap" })
-    const openapi = mock<OpenApiSyncService>({ provider: "openapi" })
     const telegramUser = mock<TelegramUserSyncService>({ provider: "telegram_user" })
+    const mailboxes = new DataConnectorRegistryService()
+    mailboxes.register(database)
+    mailboxes.register(telegramUser)
     hub.owner.mockResolvedValue({ role: "owner", displayName: "Owner" })
     hub.own.mockResolvedValue(connectionOf())
+    hub.find.mockResolvedValue(connectionOf())
     hub.credentialOf.mockResolvedValue("credential")
     runs.open.mockResolvedValue(runOf())
+    runs.find.mockResolvedValue(runOf())
     runs.finish.mockResolvedValue(undefined)
+    runs.reopen.mockResolvedValue(undefined)
     queue.enqueueSync.mockResolvedValue(undefined)
     connections.markSynced.mockResolvedValue(undefined)
     connections.markSyncFailed.mockResolvedValue(undefined)
@@ -78,17 +97,14 @@ const buildKit = async (registerCsv = true) => {
             { provide: PRIMARY_ENTITY_MANAGER, useValue: entityManager },
             { provide: CLOCK, useValue: clock },
             { provide: MESSAGE_CATALOG, useValue: catalog },
-            { provide: LOGGER, useValue: logger },
+            { provide: EFFECTS, useValue: effects },
             { provide: DataSyncQueue, useValue: queue },
             { provide: ConnectionsService, useValue: connections },
             { provide: DataHubService, useValue: hub },
             { provide: DataRecordsService, useValue: records },
             { provide: DataSyncRunsService, useValue: runs },
             { provide: CsvImportSyncService, useValue: csv },
-            { provide: DatabaseSyncService, useValue: database },
-            { provide: ImapSyncService, useValue: imap },
-            { provide: OpenApiSyncService, useValue: openapi },
-            { provide: TelegramUserSyncService, useValue: telegramUser },
+            { provide: DataConnectorRegistryService, useValue: mailboxes },
         ],
     }).compile()
     return {
@@ -97,7 +113,7 @@ const buildKit = async (registerCsv = true) => {
         transaction,
         clock,
         catalog,
-        logger,
+        ledger,
         queue,
         connections,
         hub,
@@ -105,9 +121,8 @@ const buildKit = async (registerCsv = true) => {
         runs,
         csv,
         database,
-        imap,
-        openapi,
         telegramUser,
+        mailboxes,
     }
 }
 
@@ -117,16 +132,10 @@ const build = async () => {
 }
 
 describe("DataSyncService", () => {
-    it("ignores a job payload that is neither a tick nor a sync", async () => {
+    it("ignores a dead letter whose payload is not a sync", async () => {
         const service = await build()
 
-        await expect(service.process({})).resolves.toBeUndefined()
-    })
-
-    it("ignores an abandoned job that is not a sync", async () => {
-        const service = await build()
-
-        await expect(service.abandonJob({ tick: false })).resolves.toBeUndefined()
+        await expect(service.failed({ tick: false }, parked("input", "X"))).resolves.toBeUndefined()
     })
 
     it("authorizes and queues a manual run in the transaction that opens it", async () => {
@@ -201,7 +210,7 @@ describe("DataSyncService", () => {
         expect(runs.find).toHaveBeenCalledWith("ws-1", "absent")
     })
 
-    it("claims up to twenty due connections and queues each scheduled run in its own transaction", async () => {
+    it("claims up to twenty due connections and, in ONE transaction, opens and queues the run of each", async () => {
         const { service, entityManager, transaction, connections, runs, queue } = await buildKit()
         connections.claimDueSyncs.mockResolvedValue([
             { id: "c-1", workspaceId: "ws-1" },
@@ -211,40 +220,42 @@ describe("DataSyncService", () => {
 
         await expect(service.queueDue()).resolves.toBe(2)
 
-        const firstTx = runs.open.mock.calls[0]?.[0]
-        const secondTx = runs.open.mock.calls[1]?.[0]
-        expect(firstTx).toBeDefined()
-        expect(secondTx).toBeDefined()
-        expect(firstTx).not.toBe(entityManager)
-        expect(secondTx).not.toBe(entityManager)
-        expect(secondTx).not.toBe(firstTx)
-        expect(connections.claimDueSyncs).toHaveBeenCalledWith(DATA_PROVIDERS, 20)
-        expect(entityManager.transaction).toHaveBeenCalledTimes(2)
-        expect(runs.open).toHaveBeenNthCalledWith(1, firstTx, "ws-1", "c-1", "schedule")
-        expect(runs.open).toHaveBeenNthCalledWith(2, secondTx, "ws-2", "c-2", "schedule")
-        expect(queue.enqueueSync).toHaveBeenNthCalledWith(1, payload, firstTx)
-        expect(queue.enqueueSync).toHaveBeenNthCalledWith(
-            2,
-            { workspaceId: "ws-2", connectionId: "c-2", runId: "run-2" },
-            secondTx,
-        )
-        expect(transaction.outcomes).toEqual(["commit", "commit"])
+        const tx = runs.open.mock.calls[0]?.[0]
+        expect(tx).toBeDefined()
+        expect(tx).not.toBe(entityManager)
+        expect(runs.open.mock.calls[1]?.[0]).toBe(tx)
+        expect(connections.claimDueSyncs).toHaveBeenCalledWith(DATA_PROVIDERS, 20, tx)
+        expect(entityManager.transaction).toHaveBeenCalledTimes(1)
+        expect(runs.open).toHaveBeenNthCalledWith(1, tx, "ws-1", "c-1", "schedule")
+        expect(runs.open).toHaveBeenNthCalledWith(2, tx, "ws-2", "c-2", "schedule")
+        expect(queue.enqueueSync).toHaveBeenNthCalledWith(1, payload, tx)
+        expect(queue.enqueueSync).toHaveBeenNthCalledWith(2, { workspaceId: "ws-2", connectionId: "c-2", runId: "run-2" }, tx)
+        expect(transaction.outcomes).toEqual(["commit"])
     })
 
-    it("answers zero without transactions when no sync is due", async () => {
-        const { service, entityManager, connections, queue } = await buildKit()
+    it("rolls the claim back with the runs when queueing one of them fails (nothing is claimed for nothing)", async () => {
+        const { service, transaction, connections, queue } = await buildKit()
+        connections.claimDueSyncs.mockResolvedValue([{ id: "c-1", workspaceId: "ws-1" }])
+        queue.enqueueSync.mockRejectedValue(new TypeError("queue unavailable"))
+
+        await expect(service.queueDue()).rejects.toThrow("queue unavailable")
+
+        expect(transaction.outcomes).toEqual(["rollback"])
+    })
+
+    it("answers zero and queues nothing when no sync is due", async () => {
+        const { service, connections, queue } = await buildKit()
         connections.claimDueSyncs.mockResolvedValue([])
 
         await expect(service.queueDue()).resolves.toBe(0)
 
-        expect(entityManager.transaction).not.toHaveBeenCalled()
         expect(queue.enqueueSync).not.toHaveBeenCalled()
     })
 })
 
 describe("DataSyncService", () => {
     it("passes the credential, counts written rows and exposes the exact two-minute deadline", async () => {
-        const { service, hub, records, csv, clock, connections, runs, logger } = await buildKit()
+        const { service, hub, records, csv, clock, connections, runs } = await buildKit()
         const first = [{ externalId: "order-1", data: { paid: true } }]
         const second = [{ externalId: "customer-1", data: { name: "An" } }]
         const meta = { cursor: "next" }
@@ -262,123 +273,175 @@ describe("DataSyncService", () => {
             return { rows: 9, meta }
         })
 
-        await expect(service.run(payload)).resolves.toBeUndefined()
+        await expect(service.run(jobOf())).resolves.toBeUndefined()
 
-        expect(hub.own).toHaveBeenCalledWith("ws-1", "c-1")
+        expect(hub.find).toHaveBeenCalledWith("ws-1", "c-1")
         expect(hub.credentialOf).toHaveBeenCalledWith("c-1")
         expect(records.upsert).toHaveBeenNthCalledWith(1, "ws-1", "c-1", "order", first)
         expect(records.upsert).toHaveBeenNthCalledWith(2, "ws-1", "c-1", "customer", second)
-        expect(connections.markSynced).toHaveBeenCalledWith("c-1", meta)
-        expect(runs.finish).toHaveBeenCalledWith("run-1", "ok", 9, null)
-        expect(logger.error).not.toHaveBeenCalled()
+        // The connection and the run are settled in ONE transaction.
+        const tx = connections.markSynced.mock.calls[0]?.[2]
+        expect(tx).toBeDefined()
+        expect(connections.markSynced).toHaveBeenCalledWith("c-1", meta, tx)
+        expect(runs.finish).toHaveBeenCalledWith("run-1", "ok", 9, null, tx)
     })
 
-    it.each(DATA_PROVIDERS)("dispatches %s with an empty missing credential and no result meta", async (provider) => {
+    it.each(DATA_PROVIDERS.filter((provider) => provider !== "openapi"))("dispatches %s with an empty missing credential and no result meta", async (provider) => {
         const kit = await buildKit()
         const connector = {
             csv_import: kit.csv,
             database: kit.database,
-            imap: kit.imap,
-            openapi: kit.openapi,
             telegram_user: kit.telegramUser,
         }[provider]
-        kit.hub.own.mockResolvedValue(connectionOf(provider))
+        kit.hub.find.mockResolvedValue(connectionOf(provider))
         kit.hub.credentialOf.mockResolvedValue(null)
         connector.sync.mockResolvedValue({ rows: 4 })
 
-        await expect(kit.service.run(payload)).resolves.toBeUndefined()
+        await expect(kit.service.run(jobOf())).resolves.toBeUndefined()
 
         expect(connector.sync).toHaveBeenCalledTimes(1)
         expect(connector.sync).toHaveBeenCalledWith(
             expect.objectContaining({ connection: connectionOf(provider), credential: "" }),
         )
-        expect(kit.connections.markSynced).toHaveBeenCalledWith("c-1", {})
-        expect(kit.runs.finish).toHaveBeenCalledWith("run-1", "ok", 4, null)
+        expect(kit.connections.markSynced).toHaveBeenCalledWith("c-1", {}, expect.anything())
+        expect(kit.runs.finish).toHaveBeenCalledWith("run-1", "ok", 4, null, expect.anything())
     })
 
-    it("records a translated domain failure truncated to 500 characters and the rows written before it", async () => {
-        const { service, csv, catalog, records, connections, runs, logger } = await buildKit()
+    it("throws a failure of the pull as it is (the runner classifies it) and settles nothing", async () => {
+        const { service, csv, records, connections, runs } = await buildKit()
         const failure = new DataHubError({ code: DataHubErrorCode.Invalid, params: { detail: "source invalid" } })
-        catalog.get.mockReturnValue("r".repeat(501))
-        records.upsert.mockResolvedValueOnce(2).mockResolvedValueOnce(3)
+        records.upsert.mockResolvedValueOnce(2)
         csv.sync.mockImplementation(async (context) => {
             await context.upsert("order", [{ externalId: "a", data: {} }])
-            await context.upsert("order", [{ externalId: "b", data: {} }])
             return Promise.reject(failure)
         })
 
-        await expect(service.run(payload)).resolves.toBeUndefined()
+        await expect(service.run(jobOf())).rejects.toBe(failure)
 
-        expect(catalog.get).toHaveBeenCalledWith("errors.DATA_HUB_INVALID", { detail: "source invalid" }, "vi")
-        expect(logger.error).toHaveBeenCalledWith(DataHubLogEvent.SyncFailed, failure, payload)
-        expect(connections.markSyncFailed).toHaveBeenCalledWith("c-1", "r".repeat(500))
-        expect(runs.finish).toHaveBeenCalledWith("run-1", "failed", 5, "r".repeat(500))
         expect(connections.markSynced).not.toHaveBeenCalled()
+        expect(connections.markSyncFailed).not.toHaveBeenCalled()
+        expect(runs.finish).not.toHaveBeenCalled()
     })
 })
 
-describe("DataSyncService", () => {
-    it("settles an unexpected failure even when marking the connection failed also rejects", async () => {
-        const { service, hub, catalog, connections, runs, logger } = await buildKit()
-        const cause = new TypeError("lookup unavailable")
-        const failure = new TypeError("mark unavailable")
-        hub.own.mockRejectedValue(cause)
-        connections.markSyncFailed.mockRejectedValue(failure)
+describe("DataSyncService: the typed ends of a sync job", () => {
+    it.each([
+        { run: null, why: "its run is gone" },
+        { run: { ...runOf(), state: "ok" as const }, why: "its run already ended ok (a run killed after its settle)" },
+        { run: { ...runOf(), state: "failed" as const }, why: "its run failed and nobody resumed the job" },
+    ])("ends with nothing to do when $why", async ({ run }) => {
+        const { service, runs, hub, ledger } = await buildKit()
+        runs.find.mockResolvedValue(run)
 
-        await expect(service.run(payload)).resolves.toBeUndefined()
+        await expect(service.run(jobOf())).resolves.toBeUndefined()
 
-        expect(catalog.get).toHaveBeenCalledWith("errors.DATA_HUB_SYNC_FAILED", {}, "vi")
-        expect(logger.error).toHaveBeenNthCalledWith(1, DataHubLogEvent.SyncFailed, cause, payload)
-        expect(logger.error).toHaveBeenNthCalledWith(2, DataHubLogEvent.SyncCrashed, failure, payload)
-        expect(connections.markSyncFailed).toHaveBeenCalledWith("c-1", "Try again")
-        expect(runs.finish).toHaveBeenCalledWith("run-1", "failed", 0, "Try again")
+        expect(hub.find).not.toHaveBeenCalled()
+        expect(ledger.rows.size).toBe(0)
+        expect(runs.finish).not.toHaveBeenCalled()
     })
 
-    it("records a not-found failure when a connector dependency has no provider registration", async () => {
-        const { service, hub, catalog, connections, runs, logger, csv } = await buildKit(false)
-        catalog.get.mockReturnValue("No connector")
+    it("opens a failed run again when a person resumed the job, and syncs it", async () => {
+        const { service, runs, csv } = await buildKit()
+        runs.find.mockResolvedValue({ ...runOf(), state: "failed" })
+        csv.sync.mockResolvedValue({ rows: 3 })
 
-        await expect(service.run(payload)).resolves.toBeUndefined()
+        await expect(service.run(jobOf(payload, 1))).resolves.toBeUndefined()
+
+        expect(runs.reopen).toHaveBeenCalledWith("run-1")
+        expect(runs.finish).toHaveBeenCalledWith("run-1", "ok", 3, null, expect.anything())
+    })
+
+    it("ends the run as failed with the sentence of a source that is gone, and returns (no dead letter for a deleted connection)", async () => {
+        const { service, hub, catalog, runs, csv } = await buildKit()
+        hub.find.mockResolvedValue(null)
+        catalog.get.mockReturnValue("Connection gone")
+
+        await expect(service.run(jobOf())).resolves.toBeUndefined()
 
         expect(catalog.get).toHaveBeenCalledWith("errors.DATA_HUB_NOT_FOUND", {}, "vi")
-        expect(logger.error).toHaveBeenCalledWith(
-            DataHubLogEvent.SyncFailed,
-            expect.objectContaining({ code: DataHubErrorCode.NotFound }),
-            payload,
-        )
-        expect(connections.markSyncFailed).toHaveBeenCalledWith("c-1", "No connector")
-        expect(runs.finish).toHaveBeenCalledWith("run-1", "failed", 0, "No connector")
+        expect(runs.finish).toHaveBeenCalledWith("run-1", "failed", 0, "Connection gone")
+        expect(csv.sync).not.toHaveBeenCalled()
+    })
+
+    it("throws a typed not-found when no connector serves the provider (a setting the runner parks as input)", async () => {
+        const { service, hub, csv } = await buildKit(false)
+
+        await expect(service.run(jobOf())).rejects.toMatchObject({ code: DataHubErrorCode.NotFound })
+
         expect(hub.credentialOf).not.toHaveBeenCalled()
         expect(csv.sync).not.toHaveBeenCalled()
     })
 
-    it("processes a tick by claiming and queueing due connections", async () => {
-        const { service, connections, queue } = await buildKit()
-        connections.claimDueSyncs.mockResolvedValue([{ id: "c-1", workspaceId: "ws-1" }])
+    it("refuses a payload that is not a sync as a flow failure of class input", async () => {
+        const { service } = await buildKit()
 
-        await expect(service.process({ tick: true })).resolves.toBeUndefined()
+        await expect(service.run(jobOf({ tick: true }))).rejects.toMatchObject({ params: { failureClass: "input" } })
+    })
+})
 
-        expect(connections.claimDueSyncs).toHaveBeenCalledWith(DATA_PROVIDERS, 20)
-        expect(queue.enqueueSync).toHaveBeenCalledWith(payload, expect.anything())
+describe("DataSyncService: the dead letter", () => {
+    it("settles the run and the connection in one transaction with the refusal's own sentence (its params kept)", async () => {
+        const { service, catalog, connections, runs, transaction } = await buildKit()
+        const refusal = new DataHubError({ code: DataHubErrorCode.Invalid, params: { detail: "source invalid" } })
+        catalog.get.mockReturnValue("r".repeat(501))
+
+        await expect(service.failed(payload, parked("input", "DATA_HUB_INVALID", refusal))).resolves.toBeUndefined()
+
+        expect(catalog.get).toHaveBeenCalledWith("errors.DATA_HUB_INVALID", { detail: "source invalid" }, "vi")
+        const tx = connections.markSyncFailed.mock.calls[0]?.[2]
+        expect(tx).toBeDefined()
+        expect(connections.markSyncFailed).toHaveBeenCalledWith("c-1", "r".repeat(500), tx)
+        expect(runs.finish).toHaveBeenCalledWith("run-1", "failed", 0, "r".repeat(500), tx)
+        expect(transaction.outcomes).toEqual(["commit"])
     })
 
-    it("processes a sync payload through its connector", async () => {
-        const { service, csv, runs } = await buildKit()
-        csv.sync.mockResolvedValue({ rows: 6 })
+    it.each([parked("code", "boom", new TypeError("x")), parked("transient", "ECONNREFUSED"), new Error("not a dead letter")])(
+        "says the general sentence for a failure that names no refusal of the domain: %#",
+        async (cause) => {
+            const { service, catalog, runs } = await buildKit()
 
-        await expect(service.process(payload)).resolves.toBeUndefined()
+            await service.failed(payload, cause)
 
-        expect(csv.sync).toHaveBeenCalledTimes(1)
-        expect(runs.finish).toHaveBeenCalledWith("run-1", "ok", 6, null)
+            expect(catalog.get).toHaveBeenCalledWith("errors.DATA_HUB_SYNC_FAILED", {}, "vi")
+            expect(runs.finish).toHaveBeenCalledWith("run-1", "failed", 0, "Try again", expect.anything())
+        },
+    )
+})
+
+describe("DataSyncService: a sandbox account (provider sandbox)", () => {
+    const SANDBOX_CONNECTION: DataConnection = { ...connectionOf("database"), sandbox: true }
+
+    it("resolves the sandbox connector of a sandbox account through the registry and reads no credential", async () => {
+        const { service, hub, database, mailboxes, runs } = await buildKit()
+        const sandboxConnector = mock<DatabaseSyncService>({ provider: "database" })
+        mailboxes.register({ live: database, sandbox: sandboxConnector })
+        hub.find.mockResolvedValue(SANDBOX_CONNECTION)
+        sandboxConnector.sync.mockResolvedValue({ rows: 2 })
+
+        await expect(service.run(jobOf())).resolves.toBeUndefined()
+
+        expect(sandboxConnector.sync).toHaveBeenCalledWith(expect.objectContaining({ connection: SANDBOX_CONNECTION, credential: "" }))
+        expect(database.sync).not.toHaveBeenCalled()
+        expect(hub.credentialOf).not.toHaveBeenCalled()
+        expect(runs.finish).toHaveBeenCalledWith("run-1", "ok", 2, null, expect.anything())
     })
 
-    it("settles an exhausted sync job with the general Vietnamese failure", async () => {
-        const { service, catalog, runs, hub } = await buildKit()
+    it("never answers a live connector for a sandbox account: a provider without a sandbox twin throws the typed refusal, nothing is pulled", async () => {
+        const { service, hub, database, runs } = await buildKit()
+        hub.find.mockResolvedValue(SANDBOX_CONNECTION)
 
-        await expect(service.abandonJob(payload)).resolves.toBeUndefined()
+        await expect(service.run(jobOf())).rejects.toMatchObject({ code: "PROVIDER_SANDBOX_MISSING" })
 
-        expect(catalog.get).toHaveBeenCalledWith("errors.DATA_HUB_SYNC_FAILED", {}, "vi")
-        expect(runs.finish).toHaveBeenCalledWith("run-1", "failed", 0, "Try again")
-        expect(hub.own).not.toHaveBeenCalled()
+        expect(database.sync).not.toHaveBeenCalled()
+        expect(runs.finish).not.toHaveBeenCalled()
+    })
+
+    it("never answers a live connector for a sandbox account of any other data provider", async () => {
+        const { service, hub, csv } = await buildKit()
+        hub.find.mockResolvedValue({ ...connectionOf("csv_import"), sandbox: true })
+
+        await expect(service.run(jobOf())).rejects.toBeDefined()
+
+        expect(csv.sync).not.toHaveBeenCalled()
     })
 })

@@ -2,6 +2,7 @@
 
 import { useCallback, useState, type Dispatch, type SetStateAction } from "react"
 import { useAddQueue, useQueueActions } from "@/hooks/knowledge"
+import { DEFAULT_UPLOAD_AREA } from "@/modules/documents"
 import { DRIVE_ORIGIN, isReadableDriveFile, type DriveListing } from "./drive.shared"
 import { useDriveListing } from "./useDriveListing"
 
@@ -31,6 +32,7 @@ const useDriveAdd = (input: DriveAddInput) => {
             DRIVE_ORIGIN,
         )
         const sent = await queue.sendAll(items, {
+            visibility: DEFAULT_UPLOAD_AREA,
             topic: null,
             tags: [],
             module: null,

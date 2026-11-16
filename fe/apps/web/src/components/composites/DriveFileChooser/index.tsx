@@ -1,6 +1,9 @@
 import { Alert, Button, Input, Grid } from "@starci/grammar/common"
 import { DriveListingBand, type DriveListingBandProps } from "@/components/branches/DriveListingBand"
 
+/** The `isLoading` prop, spread only when the caller states it (an absent flag stays absent). */
+const loadingOf = (isLoading: boolean | undefined) => (isLoading === undefined ? {} : { isLoading })
+
 /** Props for {@link DriveFileChooser}. */
 type DriveFileChooserProps = {
     readonly props: {
@@ -37,17 +40,20 @@ type DriveFileChooserProps = {
  */
 export const DriveFileChooser = (props: DriveFileChooserProps) => {
     const { link, listing } = props.props
-    const loading = props.props.isLoading === undefined ? {} : { isLoading: props.props.isLoading }
     return (
         <>
             {props.props.pickLabel === undefined ? null : (
-                <Button {...loading} intent="neutral" onPress={props.on.pick}>
+                <Button
+                    {...loadingOf(props.props.isLoading)}
+                    intent="neutral"
+                    onPress={props.on.pick}
+                >
                     {props.props.pickLabel}
                 </Button>
             )}
             <Grid kind="form" columns={1}>
                 <Input
-                    {...loading}
+                    {...loadingOf(props.props.isLoading)}
                     id="drive-folder-link"
                     name="driveFolderLink"
                     label={link.label}
@@ -58,7 +64,7 @@ export const DriveFileChooser = (props: DriveFileChooserProps) => {
                 />
             </Grid>
             <Button
-                {...loading}
+                {...loadingOf(props.props.isLoading)}
                 intent="neutral"
                 isPending={link.isReading}
                 isDisabled={link.value.trim() === ""}
@@ -68,7 +74,7 @@ export const DriveFileChooser = (props: DriveFileChooserProps) => {
             </Button>
             {props.props.error === "" ? null : (
                 <Alert
-                    {...loading}
+                    {...loadingOf(props.props.isLoading)}
                     tone="negative"
 
                     title={props.props.error}
@@ -76,13 +82,19 @@ export const DriveFileChooser = (props: DriveFileChooserProps) => {
             )}
             {props.props.added === "" ? null : (
                 <Alert
-                    {...loading}
+                    {...loadingOf(props.props.isLoading)}
                     tone="affirmative"
 
                     title={props.props.added}
                 />
             )}
-            {listing === undefined ? null : <DriveListingBand {...loading} listing={listing} on={props.on} />}
+            {listing === undefined ? null : (
+                <DriveListingBand
+                    {...loadingOf(props.props.isLoading)}
+                    listing={listing}
+                    on={props.on}
+                />
+            )}
         </>
     )
 }

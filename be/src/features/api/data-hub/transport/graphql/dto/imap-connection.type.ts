@@ -39,9 +39,9 @@ export class ImapConnectionType {
     @Field(() => Int)
     sinceDays!: number
 
-    /** Minutes between scheduled syncs; null is manual only. */
-    @Field(() => Int, { nullable: true })
-    syncEveryMinutes!: number | null
+    /** The provider of the account: `imap` (an inbound half standing alone) or `smtp` (a mailbox that also sends). */
+    @Field(() => String)
+    provider!: string
 
     /** Agents that hold a grant on this mailbox. */
     @Field(() => [ID])

@@ -133,7 +133,7 @@ export class SetupChatService {
         const member = await this.members.require(principalId, workspaceId, GOVERNORS)
         const session = await this.draftOf(workspaceId, sessionId)
         const installation = await this.installationOf(workspaceId, session.installationId)
-        const module = await this.modules.findByKey(installation.moduleKey)
+        const module = await this.modules.find(installation.moduleKey)
         if (!module.gates.some((gate) => gate.key === gateKey)) {
             throw new ModulesError({ code: ModulesErrorCode.GateUnknown })
         }
@@ -156,18 +156,17 @@ export class SetupChatService {
 
     /**
      * Applies the open draft: a new immutable context version becomes the one in use and the agent of the installation runs on it right
-     * away (its instructions and notes carry the confirmed setup, its OpenClaw copy is synced). Answers the number of the version.
+     * away (its instructions and notes carry the confirmed setup). Answers the number of the version.
      */
     async apply(principalId: string, workspaceId: string, installationId: string, locale: Locale): Promise<number> {
         const member = await this.members.require(principalId, workspaceId, GOVERNORS)
         const installation = await this.installationOf(workspaceId, installationId)
         if (installation.status === "removed") throw new ModulesError({ code: ModulesErrorCode.InstallationRemoved })
-        const module = await this.modules.findByKey(installation.moduleKey)
+        const module = await this.modules.find(installation.moduleKey)
         const draft = await this.openDraft(installation, locale)
         if (!allGatesConfirmed(module, draft.gateEvidence)) {
             throw new ModulesError({ code: ModulesErrorCode.GatesUnconfirmed })
         }
-        await this.graph.requireWhole(workspaceId, installation.id)
         const snapshot = snapshotOf(draft.draft, draft.gateEvidence)
         const last = await this.versions.latest(installation.id)
         if (last !== null && installation.activeContextVersionId === last.id && sameSnapshot(last.snapshot, snapshot)) {
@@ -201,7 +200,6 @@ export class SetupChatService {
             contextVersionId: created.id,
         }
         await this.graph.publish(applier)
-        await this.graph.proposeContracts(applier)
         await this.readiness.settle(workspaceId, installation.id)
         if (installation.agentId !== null) {
             await this.writeAgentTexts(
@@ -249,7 +247,7 @@ export class SetupChatService {
         session: SetupSessionRecord,
         locale: Locale,
     ): Promise<void> {
-        const module = await this.modules.findByKey(installation.moduleKey)
+        const module = await this.modules.find(installation.moduleKey)
         const typeName = module.name[locale]
         await this.messages.post({
             workspaceId: installation.workspaceId,

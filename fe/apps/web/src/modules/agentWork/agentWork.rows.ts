@@ -1,4 +1,4 @@
-import type { AgentWorkGoalView, AgentWorkPreset, AgentWorkTaskView, AgentWorkTriggerView } from "@/modules/types"
+import type { AgentWorkPreset, AgentWorkTaskView, AgentWorkTriggerView } from "@/modules/types"
 import { maskPhones } from "@/modules/utils"
 import {
     presetOf,
@@ -6,11 +6,10 @@ import {
     workItemHrefOf,
     type AgentWorkContext,
     type AgentWorkTranslator,
-    type GoalWire,
     type TaskWire,
     type TriggerWire,
 } from "./agentWork.wire"
-import { eventWord, goalSourceWord, goalStatusWord, plainText, taskStatusWord, waitingOnWord } from "./agentWork.words"
+import { eventWord, plainText, taskStatusWord, waitingOnWord } from "./agentWork.words"
 
 /** The sentence a preset reads as. */
 const presetSentence = (t: AgentWorkTranslator, preset: AgentWorkPreset | null, atTime: string): string => {
@@ -35,10 +34,9 @@ export const toTriggerView = (wire: TriggerWire, context: AgentWorkContext): Age
         wire.kind === "event"
             ? context.t("triggerEvent", { event: eventWord(context.t, wire.eventName) })
             : presetSentence(context.t, preset, atTime)
-    const hasProbe = wire.probeKey !== null && wire.probeKey !== undefined
     return {
         id: wire.id,
-        sentence: hasProbe ? context.t("triggerWithProbe", { when }) : when,
+        sentence: when,
         nextRunLabel: wire.enabled ? nextOf(context, wire.nextRunAt) : "",
         isEnabled: wire.enabled,
         isRemovable: wire.seedKey === null || wire.seedKey === undefined,
@@ -47,21 +45,6 @@ export const toTriggerView = (wire: TriggerWire, context: AgentWorkContext): Age
         atTime,
         timeZone: wire.timeZone,
         eventName: wire.eventName ?? "",
-        probeKey: wire.probeKey ?? "",
-    }
-}
-
-/** One goal in words. */
-export const toGoalView = (wire: GoalWire, context: AgentWorkContext): AgentWorkGoalView => {
-    const due = relative(context, wire.dueAt)
-    return {
-        id: wire.id,
-        title: maskPhones(plainText(context.t, wire.title)),
-        detail: maskPhones(plainText(context.t, wire.detail)),
-        statusLabel: goalStatusWord(context.t, wire.status),
-        dueLabel: due === "" ? "" : context.t("goalDue", { when: due }),
-        isOpen: wire.status === "active" || wire.status === "paused",
-        source: goalSourceWord(context.t, wire.source),
     }
 }
 
@@ -74,11 +57,22 @@ const waitLabelOf = (wire: TaskWire, context: AgentWorkContext): string => {
     return next === "" ? "" : t("waitNext", { next })
 }
 
+/** The title the engine gives a due care step ("care due <time>"): the time it is due. */
+const CARE_DUE = /^care due (.+)$/u
+
+/** The title and the line under it of a task: a due care step says a sentence and when it is due, any other task its own words. */
+const taskWordsOf = (wire: TaskWire, context: AgentWorkContext): { readonly title: string; readonly detail: string } => {
+    const care = CARE_DUE.exec(wire.title)
+    if (care === null)
+        return { title: maskPhones(plainText(context.t, wire.title)), detail: maskPhones(plainText(context.t, wire.detail)) }
+    const when = relative(context, care[1])
+    return { title: context.t("taskCareDue"), detail: when === "" ? "" : context.t("taskCareDueWhen", { when }) }
+}
+
 /** One task in words, with what it waits for and the way to its work item. */
 export const toTaskView = (wire: TaskWire, context: AgentWorkContext): AgentWorkTaskView => ({
     id: wire.id,
-    title: maskPhones(plainText(context.t, wire.title)),
-    detail: maskPhones(plainText(context.t, wire.detail)),
+    ...taskWordsOf(wire, context),
     statusLabel: taskStatusWord(context.t, wire.status),
     waitLabel: waitLabelOf(wire, context),
     workItemHref: workItemHrefOf(context, wire.workItemId),

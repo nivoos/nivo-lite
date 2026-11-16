@@ -1,13 +1,37 @@
-import { INBOX, InboxService } from "@modules/platform/inbox"
-import { Module, type DynamicModule } from "@nestjs/common"
+import { Module, type DynamicModule, type OnModuleInit } from "@nestjs/common"
+import { CustomerSendRegistryService, TelegramCustomerSendService } from "@modules/domain/channels"
+import { AccountDataAdmissionsService } from "@modules/domain/account-data"
+import { triggerDeclarations } from "@modules/domain/provider-triggers"
+import { SandboxCatalogueRegistryService } from "@modules/domain/provider-sandbox"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./telegram-inbox.module-definition"
 import { TELEGRAM_RECEIPT_PROCESSOR } from "./telegram-inbox.decorators"
 import { TelegramDeliveryService } from "./telegram-delivery.service"
+import { TelegramFilesService } from "./telegram-files.service"
 import { TelegramInboxService } from "./telegram-inbox.service"
+import { telegramUpdate } from "./telegram.data-types"
+import { TELEGRAM_TRIGGERS } from "./telegram-message.trigger"
+import { TELEGRAM_SANDBOX_CATALOGUE } from "./telegram-sandbox.catalogue"
+import { TELEGRAM_SEND_SANDBOX_CATALOGUE } from "./telegram-sandbox-send.catalogue"
+import { TelegramSandboxSendService } from "./telegram-sandbox-send.service"
 
 @Module({})
-/** The durable inbox of the telegram-inbox webhook, over the primary PostgreSQL connection. */
-export class TelegramInboxModule extends ConfigurableModuleClass {
+/**
+ * The Telegram webhook door and its deferred consumer, keeping every update in the connection's account data. Telegram has no provider
+ * module of its own: its message trigger is declared here, beside the update's data types, and registered at boot, together with its
+ * customer send (the live bot route and its sandbox twin, on the customer-send registry) and its sandbox catalogue.
+ */
+export class TelegramInboxModule extends ConfigurableModuleClass implements OnModuleInit {
+    constructor(
+        private readonly sends: CustomerSendRegistryService,
+        private readonly sendLive: TelegramCustomerSendService,
+        private readonly sendSandbox: TelegramSandboxSendService,
+        private readonly catalogues: SandboxCatalogueRegistryService,
+        private readonly admissions: AccountDataAdmissionsService,
+        private readonly inbox: TelegramInboxService,
+    ) {
+        super()
+    }
+
     /** Registers the capability once in the API app. */
     static register(options: typeof OPTIONS_TYPE): DynamicModule {
         const base = super.register(options)
@@ -15,12 +39,22 @@ export class TelegramInboxModule extends ConfigurableModuleClass {
             ...base,
             providers: [
                 ...(base.providers ?? []),
-                { provide: INBOX, useClass: InboxService },
                 TelegramInboxService,
+                TelegramFilesService,
                 TelegramDeliveryService,
+                TelegramSandboxSendService,
                 { provide: TELEGRAM_RECEIPT_PROCESSOR, useExisting: TelegramInboxService },
             ],
             exports: [TelegramInboxService, TelegramDeliveryService],
         }
+    }
+
+    /** Registers the bot's update admission, its message trigger, its customer send (live and sandbox) and its sandbox catalogue once. */
+    onModuleInit(): void {
+        this.sends.register({ live: this.sendLive, sandbox: this.sendSandbox })
+        this.catalogues.register(TELEGRAM_SANDBOX_CATALOGUE)
+        this.catalogues.register(TELEGRAM_SEND_SANDBOX_CATALOGUE)
+        this.admissions.register(telegramUpdate.name, (tx, row) => this.inbox.admitUpdate(tx, row))
+        triggerDeclarations.register(...TELEGRAM_TRIGGERS)
     }
 }

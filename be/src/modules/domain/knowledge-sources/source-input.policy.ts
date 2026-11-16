@@ -1,13 +1,20 @@
+import { IsNull, Not, type FindOptionsWhere } from "typeorm"
 import type { QueryDeepPartialEntity } from "typeorm/query-builder/QueryPartialEntity"
 import { ok, refused, type Outcome } from "@modules/platform/primitives"
 import { KnowledgeSourcesErrorCode } from "./errors/knowledge-sources.error"
 import {
+    LEGACY_OFFICE_EXTENSIONS,
     MAX_SOURCE_CHARS,
+    MAX_UPLOAD_BYTES,
+    PUBLIC_DOCUMENT_ORIGIN,
     SOURCE_KINDS,
     type AddSourceInput,
+    type DocumentVisibility,
+    type ProgressChange,
     type SourceKind,
     type UpdateSourceInput,
 } from "./knowledge-sources.contracts"
+import { DOCUMENT_AREAS, type MaybeSourceMove, type MaybeWholeDocument } from "./source-areas.contracts"
 import type { KnowledgeSourceEntity } from "./persistence/entities"
 
 /** A new source after its input was checked and tidied. */
@@ -30,8 +37,8 @@ export interface NormalizedSource {
     readonly module: string | null
     /** The agent instance, or null for every instance. */
     readonly installationId: string | null
-    /** Always internal: a document becomes public only as a separate public document an owner approved. */
-    readonly visibility: "internal"
+    /** The area the member uploads it into (owner 2026-11-12: "what you upload is what you get"); internal when none is given. */
+    readonly visibility: DocumentVisibility
     /** Where it came from. */
     readonly origin: string | null
 }
@@ -46,8 +53,8 @@ export interface NormalizedUpdate {
     readonly tags: ReadonlyArray<string> | null
     /** The new module. */
     readonly module: string | null
-    /** The new visibility. A change a person asks for through the API is never public (see `normalizeUpdate`); a trusted seed may make a document public. */
-    readonly visibility: "public" | "internal" | null
+    /** The area to move the document to (the MOVE); null keeps it. */
+    readonly visibility: DocumentVisibility | null
 }
 
 /** The database instant of a write, for the `updated_at` column. */
@@ -76,6 +83,39 @@ export const metaChanges = (change: NormalizedUpdate): QueryDeepPartialEntity<Kn
     ...(change.visibility === null ? {} : { visibility: change.visibility }),
     updatedAt: NOW,
 })
+
+/** The rows of a source the generic doors may change: any but an approved public document (its own approval flow changes it). */
+export const genericSourceOf = (
+    workspaceId: string,
+    sourceId: string,
+): Array<FindOptionsWhere<KnowledgeSourceEntity>> => [
+    { id: sourceId, workspaceId, origin: IsNull() },
+    { id: sourceId, workspaceId, origin: Not(PUBLIC_DOCUMENT_ORIGIN) },
+]
+
+/** Whether a metadata change moves who reads a source's passages (audience or module): the vector index must follow it. */
+export const changesReaders = (changes: QueryDeepPartialEntity<KnowledgeSourceEntity>): boolean =>
+    changes.visibility !== undefined || changes.module !== undefined
+
+/** The area a visibility names, or null when it names none (absent, or another word). */
+export const areaOf = (visibility: string | undefined): DocumentVisibility | null =>
+    DOCUMENT_AREAS.find((area) => area === visibility) ?? null
+
+/**
+ * The move a written change makes, or null: a change that names an area moves the whole document (first source and parts) from the
+ * area it was in to that one, by the member who asked. The same area again is a move too, so a move that stopped half way (its truths)
+ * is finished by asking again.
+ */
+export const moveOf = (whole: MaybeWholeDocument, change: NormalizedUpdate, movedBy: string): MaybeSourceMove => {
+    if (whole === null || change.visibility === null) return null
+    return {
+        sourceIds: whole.ids,
+        title: change.title ?? whole.title,
+        from: areaOf(whole.visibility) ?? "internal",
+        to: change.visibility,
+        movedBy,
+    }
+}
 
 /** The result of checking the input of a new source. */
 export type NormalizedSourceOutcome = Outcome<NormalizedSource, KnowledgeSourcesErrorCode>
@@ -147,7 +187,6 @@ const inputRefusal = (workspaceId: string, kind: SourceKind, body: SourceBody): 
 export const normalizeSource = (workspaceId: string, input: AddSourceInput): NormalizedSourceOutcome => {
     const kind = SOURCE_KINDS.find((candidate) => candidate === input.kind)
     if (kind === undefined) return refused(KnowledgeSourcesErrorCode.SourceKindUnknown)
-    if (input.visibility === "public") return refused(KnowledgeSourcesErrorCode.PublicByApproval)
     const url = (input.url ?? "").trim()
     const path = (input.storagePath ?? "").trim()
     const content = (input.content ?? "").trim()
@@ -166,22 +205,21 @@ export const normalizeSource = (workspaceId: string, input: AddSourceInput): Nor
         tags: tagsOf(input.tags),
         module: textOrNull(input.module, 40),
         installationId: textOrNull(input.installationId, 40),
-        visibility: "internal",
+        visibility: areaOf(input.visibility) ?? "internal",
         origin: textOrNull(input.origin, 300),
     })
 }
 
-/** Tidies a change of metadata; a change to public is refused, since no internal document is moved to public through the API. */
+/** Tidies a change of metadata; a visibility is an area to move the document to (the MOVE), anything else in its place is refused. */
 export const normalizeUpdate = (input: UpdateSourceInput): Outcome<NormalizedUpdate, KnowledgeSourcesErrorCode> => {
-    if (input.visibility !== undefined && input.visibility !== "internal") {
-        return refused(KnowledgeSourcesErrorCode.PublicByApproval)
-    }
+    const area = areaOf(input.visibility)
+    if (input.visibility !== undefined && area === null) return refused(KnowledgeSourcesErrorCode.VisibilityUnknown)
     return ok({
         title: input.title === undefined ? null : input.title.trim().slice(0, 160) || "Untitled",
         topic: input.topic === undefined ? null : input.topic.trim().slice(0, 80),
         tags: input.tags === undefined ? null : tagsOf(input.tags),
         module: input.module === undefined ? null : input.module.trim().slice(0, 40),
-        visibility: input.visibility === undefined ? null : "internal",
+        visibility: area,
     })
 }
 
@@ -209,3 +247,48 @@ export const safeFileName = (name: string): string => {
     const trimmed = base.slice(start, end)
     return (trimmed === "" ? "file" : trimmed).slice(-120)
 }
+
+/** The new upload of a file to read again, checked: inside its workspace; null when none was given. */
+export const replacementUpload = (
+    workspaceId: string,
+    path: string | undefined,
+): Outcome<string | null, KnowledgeSourcesErrorCode> => {
+    if (path === undefined) return ok(null)
+    const trimmed = path.trim()
+    return pathInside(workspaceId, trimmed) ? ok(trimmed) : refused(KnowledgeSourcesErrorCode.StoragePathInvalid)
+}
+
+/** Megabytes with one decimal, as the refusal prints them. */
+const megabytes = (bytes: number): number => Math.round((bytes / (1024 * 1024)) * 10) / 10
+
+/**
+ * Whether a file may be uploaded at all, before any byte moves: it needs a name, an old binary Office file is refused with the advice to save it again,
+ * and a file the browser says is larger than one document may be is refused with both sizes. The size is checked again on add.
+ */
+export const uploadVerdict = (filename: string, sizeBytes: number | null): Outcome<null, KnowledgeSourcesErrorCode> => {
+    if (filename.trim() === "") return refused(KnowledgeSourcesErrorCode.FileNameRequired)
+    const extension = /\.([a-z0-9]+)$/iu.exec(filename.trim())?.[1]?.toLowerCase() ?? ""
+    if (LEGACY_OFFICE_EXTENSIONS.has(extension)) return refused(KnowledgeSourcesErrorCode.LegacyOffice)
+    if (sizeBytes !== null && sizeBytes > MAX_UPLOAD_BYTES) {
+        return refused(KnowledgeSourcesErrorCode.FileTooLarge, {
+            size: megabytes(sizeBytes),
+            max: megabytes(MAX_UPLOAD_BYTES),
+        })
+    }
+    return ok(null)
+}
+
+/** The percent of a source while its passages get their vectors: embedding fills 25 to 80. */
+export const embedPercent = (done: number, total: number): number => (total <= 0 ? 25 : 25 + (55 * done) / total)
+
+/** The columns a change writes, named as the entity names them; a field the change does not name is left out. */
+export const columnsOf = (change: ProgressChange): Partial<KnowledgeSourceEntity> => ({
+    ...(change.status === undefined ? {} : { status: change.status }),
+    ...(change.progress === undefined ? {} : { progress: Math.max(0, Math.min(100, Math.round(change.progress))) }),
+    ...(change.stage === undefined ? {} : { stage: change.stage }),
+    ...(change.done === undefined ? {} : { stageDone: change.done }),
+    ...(change.total === undefined ? {} : { stageTotal: change.total }),
+    ...(change.error === undefined ? {} : { error: change.error }),
+    ...(change.chunkCount === undefined ? {} : { chunkCount: change.chunkCount }),
+    ...(change.contentHash === undefined ? {} : { contentHash: change.contentHash }),
+})

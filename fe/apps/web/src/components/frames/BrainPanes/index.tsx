@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { Badge, IconTile, Page, Pane, PaneGrid } from "@starci/grammar/common"
 import { BrainHeaderActions, brainHeaderTabs } from "@/components/composites/BrainHeaderActions"
+import { brainHeaderSubTabs } from "@/components/composites/BrainKnowledgeChips"
 import { PaneBlank } from "@/components/composites/PaneBlank"
 import { PaneHead } from "@/components/composites/PaneHead"
 import { BrainNotice } from "@/components/composites/BrainNotice"
@@ -30,7 +31,6 @@ interface BrainPanesEntry {
 
 /** What the panes do. */
 interface BrainPanesOn {
-    readonly reviewAll: () => void
     readonly selectTab: (id: string) => void
     readonly back: () => void
     readonly retry: () => void
@@ -100,9 +100,9 @@ const Blank = (props: BlankProps) => (
 )
 
 /**
- * The page of a Second Brain list tab: the header with its one tab strip, then the panes (the list the whole height, the head band
- * over the main pane, the opened entry). A phone shows the list, or the opened entry with a way back. A read that settled to a
- * notice (nothing yet, or failed) puts the notice across the whole page instead.
+ * The page of a Second Brain list tab: the header with its tab strip, the chips of the knowledge tab across the top, then the panes
+ * (the list the whole height, the head band over the main pane, the opened entry). A phone shows the list, or the opened entry with a
+ * way back. A read that settled to a notice (nothing yet, or failed) puts the notice across the whole page instead.
  */
 export const BrainPanes = <Entry extends BrainPanesEntry>(props: BrainPanesProps<Entry>) => {
     const { copy, slot } = props
@@ -113,14 +113,16 @@ export const BrainPanes = <Entry extends BrainPanesEntry>(props: BrainPanesProps
         ? (props.placeholder[0] ?? null)
         : (items.find((one) => one.id === props.selectedId) ?? null)
     const actions = "isError" in slot ? { review: null, add: null } : props.header.actions
+    const grid = props.grid
     const emptyAction = actions.add === null ? {} : { emptyAction: { label: copy.emptyAction, onAction: props.on.add } }
     return (
         <Page
             chrome="panes"
             header={{
                 ...props.header.heading,
-                actions: <BrainHeaderActions review={actions.review} add={actions.add} onReview={props.on.reviewAll} />,
+                actions: <BrainHeaderActions add={isWhole ? null : actions.add} />,
                 tabs: brainHeaderTabs({ tabs: props.header.tabs, onSelect: props.on.selectTab }),
+                ...brainHeaderSubTabs(props.header.chips),
             }}
             measure="product"
         >
@@ -128,13 +130,14 @@ export const BrainPanes = <Entry extends BrainPanesEntry>(props: BrainPanesProps
                 label={copy.grid}
                 role="tabpanel"
                 id={props.panelId}
-                areas={props.grid.areas}
-                columns={props.grid.columns}
-                rows={props.grid.rows}
+                areas={grid.areas}
+                columns={grid.columns}
+                rows={grid.rows}
             >
                 {isWhole ? (
-                    <Pane area="main" label={copy.detail}>
+                    <Pane area="main" scroll label={copy.detail}>
                         <BrainNotice
+                            ariaLabel={copy.detail}
                             slot={slot}
                             placeholder={props.placeholder}
                             labels={props.slotLabels}
@@ -162,7 +165,7 @@ export const BrainPanes = <Entry extends BrainPanesEntry>(props: BrainPanesProps
                     </Pane>
                 )}
                 {!isWhole && entry === null ? (
-                    <Pane area="main" label={copy.detail}>
+                    <Pane area="main" surface label={copy.detail}>
                         <Blank copy={copy} isFiltered={props.isFiltered} />
                     </Pane>
                 ) : null}

@@ -5,6 +5,7 @@ import {
 } from "@tests/fixtures/builders/entity-query-builder-fake.builder"
 import type { MockEntityManager } from "@starci/jest-preset"
 
+
 /** The answer of an insert that stored these ids. */
 export const stored = (...ids: Array<string>): QueryBuilderAnswers => ({ execute: { raw: ids.map((id) => ({ id })) } })
 

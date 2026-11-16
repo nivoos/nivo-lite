@@ -1,6 +1,6 @@
 import { gql, type ApolloClient, type TypedDocumentNode } from "@apollo/client"
-import { createAuthApolloClient } from "../clients"
-import type { InputVariables, MutateParams, WireInput } from "../types"
+import { createAuthApolloClient, type InputVariables, type MutateParams, type WireInput } from "@nivo-lite/api"
+import { webApiTransport } from "@/modules/api-transport"
 import type { RequestChatFileUploadMutation, RequestChatFileUploadMutationVariables } from "../__generated__/graphql"
 
 /** Generated input of the RequestChatFileUpload mutation. */
@@ -49,7 +49,7 @@ export const mutateRequestChatFileUpload = async ({
     signal,
     headers,
 }: MutateRequestChatFileUploadParams): Promise<ApolloClient.MutateResult<MutateRequestChatFileUploadResponse>> => {
-    const apollo = createAuthApolloClient({ signal, headers })
+    const apollo = createAuthApolloClient(webApiTransport, { signal, headers })
     return apollo.mutate({
         mutation: mutationMap[mutation],
         variables: { input: request },

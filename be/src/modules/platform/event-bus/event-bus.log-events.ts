@@ -8,6 +8,8 @@ export enum EventBusLogEvent {
     ParseFailed = "event-bus.parse.failed",
     /** A read of a consumer's queue failed; the loop reads again after its idle pause. */
     ReadFailed = "event-bus.read.failed",
+    /** A buried delivery's item for a person could not be raised; the message stays in the dead-letter queue and an operator finds it there. */
+    DeadLetterNotRaised = "event-bus.dead-letter.not-raised",
     /** Consumers are off in this app: subscriptions are kept but no queue is read. */
     ConsumersDisabled = "event-bus.consumers.disabled",
 }

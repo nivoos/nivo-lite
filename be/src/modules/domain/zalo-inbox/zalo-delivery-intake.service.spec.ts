@@ -34,10 +34,10 @@ describe("ZaloDeliveryIntakeService", () => {
             return Promise.resolve(undefined)
         })
 
-        await service.accept(BODY, "c-1")
+        await service.accept(BODY, "c-1", "proven")
 
         expect(order).toEqual(["receipt", "schedule"])
-        expect(inbox.acceptZaloDelivery).toHaveBeenCalledWith(BODY, "c-1")
+        expect(inbox.acceptZaloDelivery).toHaveBeenCalledWith(BODY, "c-1", "proven")
         expect(schedule.recordWebhook).toHaveBeenCalledWith("c-1")
     })
 
@@ -46,7 +46,7 @@ describe("ZaloDeliveryIntakeService", () => {
         const failure = new Error("inbox unavailable")
         inbox.acceptZaloDelivery.mockRejectedValue(failure)
 
-        await expect(service.accept(BODY, "c-1")).rejects.toBe(failure)
+        await expect(service.accept(BODY, "c-1", "unproven")).rejects.toBe(failure)
 
         expect(schedule.recordWebhook).not.toHaveBeenCalled()
     })

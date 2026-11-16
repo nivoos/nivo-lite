@@ -8,6 +8,7 @@ import {
     type ZaloChatMessage,
     type ZaloData,
     type ZaloMethod,
+    type ZaloOaProfile,
     type ZaloTokens,
     type ZaloUserProfile,
     type ZnsMessage,
@@ -24,6 +25,9 @@ const TOKEN_PATH = "/v4/oa/access_token"
 
 /** The OA v3 consultation message path: text and attachments alike. */
 const CS_PATH = "/v3.0/oa/message/cs"
+
+/** The OA's own profile (Open API v2.0): its id and display name. */
+const OA_PROFILE_PATH = "/v2.0/oa/getoa"
 
 /** The ZNS template message path of the business host. */
 const ZNS_PATH = "/message/template"
@@ -107,6 +111,12 @@ export class ZaloClient {
             [RENEWAL_GRANT_FIELD]: renewalToken,
             app_id: appId,
             grant_type: "refresh_token",
+        }).catch((cause: unknown) => {
+            // Zalo answered with its numeric refusal (not a network failure, not a bad gateway): it is the credential's, so the poll classifies it as an auth failure.
+            if (cause instanceof ZaloError && cause.code === ZaloErrorCode.Rejected && typeof cause.params.zaloCode === "number") {
+                throw new ZaloError({ code: ZaloErrorCode.TokenRefreshRefused, params: cause.params, cause })
+            }
+            throw cause
         })
     }
 
@@ -167,6 +177,15 @@ export class ZaloClient {
             name: typeof name === "string" ? name.trim() : "",
             avatarUrl: typeof avatar === "string" ? avatar.trim() : "",
         }
+    }
+
+    /**
+     * What Zalo says of the OA the token belongs to (Open API v2.0 `getoa`): its id and display name, each trimmed, an empty text when
+     * Zalo does not say. The name labels the connected account ("Tiem hoa NIVO"); any failure is a ZaloError like every call.
+     */
+    async oaProfile(accessToken: string): Promise<ZaloOaProfile> {
+        const data = await this.call(accessToken, "GET", OA_PROFILE_PATH)
+        return { oaId: scalarOf(data, "oa_id").trim(), name: typeof data.name === "string" ? data.name.trim() : "" }
     }
 
     /** The customer's display name, or an empty text when Zalo does not say: the name only labels the conversation. */

@@ -37,7 +37,7 @@ export interface AgentIdentityView {
 
 /**
  * The display identity of an agent a manager edits on its profile, like a person's: the name (free text, the @handle stays) and
- * the picture. Each save is toasted, then the profile and the Office board read the agent again.
+ * the picture. Each save is toasted, then the profile and the agent list read the agent again.
  */
 export const useAgentIdentity = (agentId: string): AgentIdentityView => {
     const t = useTranslations("agentProfile")

@@ -25,13 +25,9 @@ export class CredentialGuard implements CanActivate {
         const request = requestOf(context)
         request.credentialPrincipal = undefined
         let authorization = request.headers.authorization ?? ""
-        let resourceId = typeof request.params?.id === "string" ? request.params.id : undefined
+        const resourceId = typeof request.params?.id === "string" ? request.params.id : undefined
         if (metadata.kind === "link-token") {
             authorization = GqlExecutionContext.create(context).getArgs<CredentialArgumentsInput>().input?.token ?? ""
-        } else if (metadata.kind === "posting") {
-            const input = GqlExecutionContext.create(context).getArgs<CredentialArgumentsInput>().input
-            authorization = typeof input?.ws === "string" ? input.ws : ""
-            resourceId = typeof input?.job === "string" ? input.job : ""
         }
         const principal = await this.authenticator.authenticate(metadata, authorization, resourceId)
         if (principal.kind !== metadata.kind || !principal.subject || !principal.workspaceId) {

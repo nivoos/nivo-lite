@@ -6,10 +6,10 @@ import { BrainFactsReadService } from "./brain-facts-read.service"
 import type { FactRecord, MaintenanceResult, WithdrawnFacts } from "./brain-facts.contracts"
 import { BrainFactsError, BrainFactsErrorCode } from "./errors/brain-facts.error"
 import { RETURNED, returnedFacts } from "./fact-columns.policy"
-import { factStandsIn } from "./fact-evidence.policy"
-import { foldedText } from "./fact-key.policy"
+import { NOTHING_STANDS, evidenceAfterChange, type UnchangedPassages } from "./fact-evidence.policy"
 import { toFactRecord } from "./fact-record.mapper"
-import { SUPERSEDE, decisionOf } from "./fact-write.policy"
+import { DEFAULT_VALID_TO, SUPERSEDE, decisionOf, nextVersion } from "./fact-write.policy"
+import { BrainFactRelationsService } from "./brain-fact-relations.service"
 import { BrainFactEntity } from "./persistence/entities"
 
 /** Who acts for the brain itself when no person decides. */
@@ -21,6 +21,7 @@ export class BrainFactsMaintenanceService {
     constructor(
         @InjectPrimaryEntityManager() private readonly entityManager: EntityManager,
         private readonly reads: BrainFactsReadService,
+        private readonly relations: BrainFactRelationsService,
     ) {}
 
     /**
@@ -28,15 +29,20 @@ export class BrainFactsMaintenanceService {
      * sources also support only loses this document from its evidence. Answers the ids of active document facts left with no evidence.
      */
     async withdrawSource(workspaceId: string, sourceId: string, note: string): Promise<ReadonlyArray<string>> {
-        return (await this.withdrawChanged(workspaceId, sourceId, note, "")).orphans
+        return (await this.withdrawChanged(workspaceId, sourceId, note, NOTHING_STANDS)).orphans
     }
 
-    /** Takes back what a changed document no longer says: a fact whose quote is in `unchanged`, the text of its unchanged passages, stays as it is. */
+    /**
+     * Takes back what a changed document no longer says, chunk by chunk: a piece of evidence read from a passage whose hash is among the
+     * unchanged ones stays (older evidence without a hash: when its quote is in the unchanged text), and a fact none of whose pieces
+     * changed is not touched at all. Only the facts born from changed chunks lose evidence, are rejected (a proposal left with none) or
+     * become orphans (an active document fact left with none).
+     */
     async withdrawChanged(
         workspaceId: string,
         sourceId: string,
         note: string,
-        unchanged: string,
+        unchanged: UnchangedPassages,
     ): Promise<WithdrawnFacts> {
         const rows = await this.entityManager
             .createQueryBuilder(BrainFactEntity, "f")
@@ -50,10 +56,12 @@ export class BrainFactsMaintenanceService {
             .limit(2000)
             .getMany()
         const orphans: Array<string> = []
-        const folded = foldedText(unchanged)
-        const taken = rows.map((row) => toFactRecord(row)).filter((fact) => !factStandsIn(fact, sourceId, folded))
-        await eachInOrder(taken, async (fact) => {
-            const rest = fact.evidence.filter((item) => !(item.kind === "document" && item.ref === sourceId))
+        const taken = rows
+            .map((item) => toFactRecord(item))
+            .map((fact) => ({ fact, after: evidenceAfterChange(fact, sourceId, unchanged) }))
+            .filter(({ after }) => after.touched)
+        await eachInOrder(taken, async ({ fact, after }) => {
+            const { rest } = after
             if (fact.status === "proposed" && rest.length === 0) {
                 await this.reject(workspaceId, fact.id, note)
                 return
@@ -77,29 +85,24 @@ export class BrainFactsMaintenanceService {
                 where: { workspaceId, status: "scheduled", validFrom: Raw((column) => `${column} <= now()`) },
                 take: 200,
             })
-        ).map((row) => toFactRecord(row))
+        ).map((item) => toFactRecord(item))
         const activated: Array<FactRecord> = []
         await eachInOrder(due, async (fact) => {
-            const current = await this.reads.keyed(
-                this.entityManager,
-                workspaceId,
-                fact.subjectKey,
-                fact.attribute,
-                "active",
-                fact.installationId,
-            )
+            const current = await this.replacedBy(workspaceId, fact)
             await eachInOrder(current, (old) =>
                 this.entityManager.update(BrainFactEntity, { workspaceId, id: old.id, status: "active" }, SUPERSEDE),
             )
             const promoted = await this.entityManager
                 .createQueryBuilder(BrainFactEntity, "bf")
                 .update()
-                .set({ status: "active" })
+                .set({ status: "active", version: nextVersion(current[0]), validTo: () => DEFAULT_VALID_TO })
                 .where({ workspaceId, id: fact.id, status: "scheduled" })
                 .returning(RETURNED)
                 .execute()
             const [row] = returnedFacts(promoted.raw)
-            if (row !== undefined) activated.push(toFactRecord(row))
+            if (row === undefined) return
+            activated.push(toFactRecord(row))
+            await eachInOrder(current, (old) => this.relations.carry(this.entityManager, workspaceId, old.id, fact.id))
         })
         const expired = await this.entityManager
             .createQueryBuilder(BrainFactEntity, "bf")
@@ -109,6 +112,27 @@ export class BrainFactsMaintenanceService {
             .returning("id")
             .execute()
         return { activated, expired: Array.isArray(expired.raw) ? expired.raw.length : 0 }
+    }
+
+    /**
+     * The values in force a scheduled fact takes over from when its start comes: the fact its approval named as the one it replaces
+     * (`supersedesId`: the value in force of its key, or the fact of another key a confirmed same-meaning proposal merges over), while it
+     * is still active, then every other active value of its own key and scope. So the replaced value ends exactly when the new one
+     * starts (its end was set to that start on approval) and is closed as history with its relations carried, never left in force.
+     */
+    private async replacedBy(workspaceId: string, fact: FactRecord): Promise<ReadonlyArray<FactRecord>> {
+        const keyed = await this.reads.keyed(
+            this.entityManager,
+            workspaceId,
+            fact.subjectKey,
+            fact.attribute,
+            "active",
+            fact.installationId,
+        )
+        const namedId = fact.supersedesId
+        if (namedId === null || keyed.some((one) => one.id === namedId)) return keyed
+        const named = await this.reads.fetch(this.entityManager, workspaceId, namedId)
+        return named?.status === "active" ? [named, ...keyed] : keyed
     }
 
     /** Turns a waiting proposal down in one atomic statement; refuses when it is no longer waiting. */

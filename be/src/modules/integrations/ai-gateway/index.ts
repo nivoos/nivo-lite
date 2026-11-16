@@ -1,2 +1,5 @@
 export { parseAiGatewayConfig } from "./ai-gateway.config"
 export { AiGatewayModule } from "./ai-gateway.module"
+export { WORK_ATTEMPT_TIMEOUT_MS, chatProfileRoutes } from "./ai-gateway-router.mapper"
+export { MODEL_PROFILES, profileWireOf } from "./ai-gateway-profiles.policy"
+export type { ModelProfile } from "./ai-gateway-profiles.policy"

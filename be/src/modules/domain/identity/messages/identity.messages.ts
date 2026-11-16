@@ -15,6 +15,7 @@ export const IDENTITY_MESSAGES: MessageBundle = {
         "errors.IDENTITY_TOO_MANY_ATTEMPTS": "Bạn thử quá nhiều lần. Hãy đợi một lúc rồi thử lại.",
         "errors.IDENTITY_EMAIL_NOT_CONFIRMED": "Hãy xác nhận email qua liên kết chúng tôi đã gửi trước khi đăng nhập.",
         "errors.IDENTITY_ACCOUNT_NOT_FOUND": "Không tìm thấy tài khoản.",
+        "errors.IDENTITY_CONFIG_EFFECTS_MISSING": "Ứng dụng này không gửi được thư mời đúng một lần.",
     },
     en: {
         "errors.IDENTITY_UNAUTHENTICATED": "You need to sign in to do this.",
@@ -28,5 +29,6 @@ export const IDENTITY_MESSAGES: MessageBundle = {
         "errors.IDENTITY_TOO_MANY_ATTEMPTS": "Too many attempts. Wait a while and try again.",
         "errors.IDENTITY_EMAIL_NOT_CONFIRMED": "Confirm your email through the link we sent before signing in.",
         "errors.IDENTITY_ACCOUNT_NOT_FOUND": "Account not found.",
+        "errors.IDENTITY_CONFIG_EFFECTS_MISSING": "This app cannot send an invitation mail exactly once.",
     },
 }
