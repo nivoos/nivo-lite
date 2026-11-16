@@ -46,6 +46,8 @@ export interface StoredRun {
     readonly waitWorkItemId: string | null
     /** The deadline of that wait, or null. */
     readonly waitDeadlineAt: string | null
+    /** When the run parked on a `wait` (an event: a message, a payment, a record), ISO 8601, or null while it does not wait on one. */
+    readonly waitSince?: string | null
     /** The steps written so far: the next ordinal. */
     readonly stepSeq: number
     /** When it started. */

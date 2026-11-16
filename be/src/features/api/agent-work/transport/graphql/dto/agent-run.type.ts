@@ -70,6 +70,10 @@ export class AgentRunRowType {
     /** Whether the run serves a customer conversation (a person may tell that customer one line when ending it). */
     @Field()
     hasCustomer!: boolean
+
+    /** Whether the run is in flight but parked (waits for an event, a person, a timer, or is paused): no step of it executes now. */
+    @Field()
+    parked!: boolean
 }
 
 @ObjectType()

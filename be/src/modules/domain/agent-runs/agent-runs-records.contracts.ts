@@ -37,6 +37,10 @@ export interface RunRecord {
     readonly resumeAttempts: number
     /** The earliest the machine may resume it again, or null. */
     readonly resumeNotBefore: Date | null
+    /** When the run parked on a `wait` (an event: a customer's message, a payment, a record), or null while it waits on none. */
+    readonly waitSince?: Date | null
+    /** The work item (a person's decision) the run waits on, or null. */
+    readonly waitWorkItemId?: string | null
     /** When the run ended or parked, or null. */
     readonly endedAt: Date | null
     /** When the run started, or null for a record that holds none. */

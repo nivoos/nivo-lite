@@ -119,6 +119,8 @@ export const runRecordOf = (row: StoredRun): RunRecord => {
         parkedBuild: textOrNull(data, "parkedBuild"),
         resumeAttempts: intOf(data, "resumeAttempts"),
         resumeNotBefore: dateOrNull(data, "resumeNotBefore"),
+        waitSince: dateOrNull(data, "waitSince"),
+        waitWorkItemId: textOrNull(data, "waitWorkItemId"),
         endedAt: dateOrNull(data, "endedAt"),
         startedAt: dateOrNull(data, "startedAt"),
         stepSeq: intOf(data, "stepSeq"),

@@ -64,6 +64,7 @@ export const storedRunOf = (row: AgentRunEntity): StoredRun => ({
     resumeReason: row.resumeReason,
     waitWorkItemId: row.waitWorkItemId,
     waitDeadlineAt: isoOf(row.waitDeadlineAt),
+    waitSince: isoOf(row.waitSince ?? null),
     stepSeq: row.stepSeq,
     startedAt: row.startedAt.toISOString(),
     endedAt: isoOf(row.endedAt),

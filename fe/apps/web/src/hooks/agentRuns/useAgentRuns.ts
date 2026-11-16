@@ -6,15 +6,8 @@ import { slotOfSwr } from "@/hooks/slot"
 import { useQueryAgentRunWorkflowsSwr, useQueryAgentRunsSwr, useQueryAgentWorkflowsSwr } from "@/hooks/swr"
 import { NO_FILTER, pinnedRunsOf, runsViewOf } from "@/modules/agentRuns"
 import type { DataSlot, RunsFilter, RunsView } from "@/modules/types"
-import { POLL_MAX_MS, unchangedAfter, type PollMemory } from "./runPoll"
+import { boardPollMsOf, unchangedAfter, type PollMemory, type PolledBoard } from "./runPoll"
 import { useRunContext } from "./useRunContext"
-
-/**
- * The runs are read again every 5 seconds while one runs or waits for its place, and every 30 seconds otherwise; after reads that change
- * nothing the wait doubles (to 60 s); a hidden tab reads nothing.
- */
-const BUSY_MS = 5_000
-const IDLE_MS = 30_000
 
 /** The pin read takes at most this many runs. */
 const PIN_LIMIT = 100
@@ -29,14 +22,30 @@ export interface AgentRunsData {
 
 /** What changed on a board, as text: a run that only grew longer is not a change. */
 const boardSignatureOf = (
-    latest: { readonly runs: ReadonlyArray<{ readonly id: string; readonly status: string; readonly stepNumber: number; readonly errorCode?: string | null | undefined }> } | undefined,
-): string => (latest?.runs ?? []).map((run) => `${run.id}:${run.status}:${run.stepNumber}:${run.errorCode ?? ""}`).join("|")
+    latest:
+        | {
+              readonly runs: ReadonlyArray<{
+                  readonly id: string
+                  readonly status: string
+                  readonly stepNumber: number
+                  readonly errorCode?: string | null | undefined
+                  readonly parked?: boolean | null | undefined
+              }>
+          }
+        | undefined,
+): string =>
+    (latest?.runs ?? [])
+        .map(
+            (run) =>
+                `${run.id}:${run.status}:${run.stepNumber}:${run.errorCode ?? ""}:${run.parked === true ? "w" : ""}`,
+        )
+        .join("|")
 
-/** Whether the board has a run that is being driven or waits for a place. */
-const isBusy = (latest: { readonly runningCount: number; readonly queuedCount: number } | undefined): boolean =>
-    (latest?.runningCount ?? 0) + (latest?.queuedCount ?? 0) > 0
-
-/** The runs of one agent instance, in words, with the filters of the page (workflow, status tab, source and text). */
+/**
+ * The runs of one agent instance, in words, with the filters of the page (workflow, status tab, source and text). The board is read every
+ * 5 seconds only while a run executes a step or waits for its place; while every run in flight is parked (a wait for a customer, a
+ * payment, a person, a timer) it is read every 30 seconds, doubling to 60 after reads that change nothing; a hidden tab reads nothing.
+ */
 export const useAgentRuns = (module: string, installationId: string): AgentRunsData => {
     const context = useRunContext(module, installationId)
     const [filter, setFilter] = useState<RunsFilter>(NO_FILTER)
@@ -45,11 +54,8 @@ export const useAgentRuns = (module: string, installationId: string): AgentRunsD
         { installationId },
         {
             refreshWhenHidden: false,
-            refreshInterval: (latest: Parameters<typeof isBusy>[0] & Parameters<typeof boardSignatureOf>[0]) => {
-                const unchanged = unchangedAfter(memory.current, boardSignatureOf(latest))
-                const base = isBusy(latest) ? BUSY_MS : IDLE_MS
-                return Math.min(POLL_MAX_MS, base * 2 ** Math.min(Math.max(0, unchanged - 2), 6))
-            },
+            refreshInterval: (latest: (PolledBoard & Parameters<typeof boardSignatureOf>[0]) | undefined) =>
+                boardPollMsOf(latest, unchangedAfter(memory.current, boardSignatureOf(latest))),
         },
     )
     const locale = useLocale()

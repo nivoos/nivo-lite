@@ -930,6 +930,7 @@ type AgentRunRowType {
   errorCode: String
   hasCustomer: Boolean!
   id: ID!
+  parked: Boolean!
   queuePosition: Int
   source: String!
   startedAt: String!

@@ -46,6 +46,8 @@ export interface AgentRunRow {
     readonly cancelledAt: string | null
     /** Whether the run serves a customer conversation, whoever started it (the end dialog may then tell the customer one line). */
     readonly hasCustomer: boolean
+    /** Whether the run is in flight but parked (a wait for an event, a person, a timer, a pause): no step of it executes now. */
+    readonly parked: boolean
 }
 
 /** One workflow of the agent with how many runs it has. */

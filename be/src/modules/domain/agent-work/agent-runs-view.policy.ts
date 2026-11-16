@@ -63,6 +63,19 @@ export const sourceOf = (context: Readonly<Record<string, unknown>>): RunSource 
 export const hasCustomerOf = (context: Readonly<Record<string, unknown>>): boolean =>
     typeof context.conversationId === "string" && context.conversationId !== ""
 
+/**
+ * Whether a run in flight is parked, so no step of it executes now: it waits for a person (`waiting`, or a decision it holds), was
+ * paused (`paused`), or runs but is parked on a `wait` (a customer's message, a payment, a change of a record: `waitSince` is set until
+ * it resumes) or on a timer or retry whose moment has not come. A page reads a parked run slowly; only a run that is not parked is
+ * read fast.
+ */
+export const isParkedOf = (run: RunListEntry["run"], status: RunBoardStatus, now: Date): boolean => {
+    if (status === "waiting" || status === "paused") return true
+    if (status !== "running") return false
+    if ((run.waitSince ?? null) !== null || (run.waitWorkItemId ?? null) !== null) return true
+    return run.resumeNotBefore !== null && run.resumeNotBefore.getTime() > now.getTime()
+}
+
 /** The sentence of a work item: what it did, else what it proposed. */
 const sentenceOf = (item: WorkItem): string => item.result?.summary ?? item.proposal.summary
 
@@ -97,6 +110,7 @@ export const rowOf = (entry: RunListEntry, context: AgentRunRowContext): AgentRu
         creditsUsed: creditsUsedShown(context.credits?.get(run.id) ?? 0),
         cancelledAt: run.cancelledAt === null ? null : run.cancelledAt.toISOString(),
         hasCustomer: hasCustomerOf(run.context),
+        parked: isParkedOf(run, status, context.now),
     }
 }
 

@@ -1,5 +1,6 @@
 import { FlowGraph, FlowGraphLegend, Stack } from "@starci/grammar/common"
 import type { ReactElement } from "react"
+import { useSettledMotion } from "@/hooks/motion"
 import type { StepsMapView } from "@/modules/types"
 
 /** The card map of the agent: what it draws, how large, and what pressing a step does. */
@@ -24,19 +25,25 @@ type AgentGraphCanvasProps = {
  */
 export const AgentGraphCanvas = (props: AgentGraphCanvasProps): ReactElement => {
     const isPreview = props.size === "preview"
+    // A run overlay's running spinner turns only for a few seconds after the statuses change (useSettledMotion).
+    const motion = useSettledMotion<HTMLDivElement>(
+        props.map.nodes.map((node) => `${node.id}:${node.status ?? ""}`).join("|"),
+    )
     const graph = (
-        <FlowGraph
-            label={props.label}
-            nodes={props.map.nodes}
-            edges={props.map.edges}
-            layout="steps"
-            statusLabels={props.map.statusLabels}
-            emptyLabel={props.emptyLabel}
-            isLoading={props.isLoading}
-            selectedId={props.selectedId}
-            onNodePress={props.onPress}
-            showControls={!isPreview}
-        />
+        <div ref={motion} style={{ display: "contents" }}>
+            <FlowGraph
+                label={props.label}
+                nodes={props.map.nodes}
+                edges={props.map.edges}
+                layout="steps"
+                statusLabels={props.map.statusLabels}
+                emptyLabel={props.emptyLabel}
+                isLoading={props.isLoading}
+                selectedId={props.selectedId}
+                onNodePress={props.onPress}
+                showControls={!isPreview}
+            />
+        </div>
     )
     if (isPreview) return graph
     return (

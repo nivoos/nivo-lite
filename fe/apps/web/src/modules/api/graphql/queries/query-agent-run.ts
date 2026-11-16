@@ -41,6 +41,7 @@ const query1: TypedDocumentNode<QueryAgentRunResponse, InputVariables<QueryAgent
                 errorCode
                 hasCustomer
                 id
+                parked
                 queuePosition
                 source
                 startedAt
