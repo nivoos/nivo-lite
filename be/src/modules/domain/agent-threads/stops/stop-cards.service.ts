@@ -100,7 +100,7 @@ const headlineKeyOf = (stop: RunStop, state: StopCardState, takenOver: boolean):
 }
 
 /** Engine facts of a permission request that name what it asks (shown in its `approval` part, never as arguments). */
-const APPROVAL_FACTS = new Set(["workItemId", "tool", "account", "ability", "fingerprint", "verdict"])
+const APPROVAL_FACTS = new Set(["workItemId", "tool", "account", "ability", "fingerprint", "verdict", RUN_CLOSED_FACT])
 
 /** Engine facts never shown on a card: keys of the machinery, not words for the founder. */
 const HIDDEN_FACTS = new Set(["workItemId", "fingerprint", "verdict", RUN_CLOSED_FACT])

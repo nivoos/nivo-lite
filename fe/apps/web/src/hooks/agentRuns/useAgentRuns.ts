@@ -1,14 +1,18 @@
 "use client"
 
 import { useLocale } from "next-intl"
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { slotOfSwr } from "@/hooks/slot"
 import { useQueryAgentRunWorkflowsSwr, useQueryAgentRunsSwr, useQueryAgentWorkflowsSwr } from "@/hooks/swr"
 import { NO_FILTER, pinnedRunsOf, runsViewOf } from "@/modules/agentRuns"
 import type { DataSlot, RunsFilter, RunsView } from "@/modules/types"
+import { POLL_MAX_MS, unchangedAfter, type PollMemory } from "./runPoll"
 import { useRunContext } from "./useRunContext"
 
-/** The runs are read again every 5 seconds while one runs or waits for its place, and every 30 seconds otherwise. */
+/**
+ * The runs are read again every 5 seconds while one runs or waits for its place, and every 30 seconds otherwise; after reads that change
+ * nothing the wait doubles (to 60 s); a hidden tab reads nothing.
+ */
 const BUSY_MS = 5_000
 const IDLE_MS = 30_000
 
@@ -23,6 +27,11 @@ export interface AgentRunsData {
     readonly reload: () => void
 }
 
+/** What changed on a board, as text: a run that only grew longer is not a change. */
+const boardSignatureOf = (
+    latest: { readonly runs: ReadonlyArray<{ readonly id: string; readonly status: string; readonly stepNumber: number; readonly errorCode?: string | null | undefined }> } | undefined,
+): string => (latest?.runs ?? []).map((run) => `${run.id}:${run.status}:${run.stepNumber}:${run.errorCode ?? ""}`).join("|")
+
 /** Whether the board has a run that is being driven or waits for a place. */
 const isBusy = (latest: { readonly runningCount: number; readonly queuedCount: number } | undefined): boolean =>
     (latest?.runningCount ?? 0) + (latest?.queuedCount ?? 0) > 0
@@ -31,9 +40,17 @@ const isBusy = (latest: { readonly runningCount: number; readonly queuedCount: n
 export const useAgentRuns = (module: string, installationId: string): AgentRunsData => {
     const context = useRunContext(module, installationId)
     const [filter, setFilter] = useState<RunsFilter>(NO_FILTER)
+    const memory = useRef<PollMemory>({ signature: "", unchanged: 0 })
     const read = useQueryAgentRunsSwr(
         { installationId },
-        { refreshInterval: (latest: Parameters<typeof isBusy>[0]) => (isBusy(latest) ? BUSY_MS : IDLE_MS) },
+        {
+            refreshWhenHidden: false,
+            refreshInterval: (latest: Parameters<typeof isBusy>[0] & Parameters<typeof boardSignatureOf>[0]) => {
+                const unchanged = unchangedAfter(memory.current, boardSignatureOf(latest))
+                const base = isBusy(latest) ? BUSY_MS : IDLE_MS
+                return Math.min(POLL_MAX_MS, base * 2 ** Math.min(Math.max(0, unchanged - 2), 6))
+            },
+        },
     )
     const locale = useLocale()
     const workflows = useQueryAgentWorkflowsSwr({ installationId, locale })

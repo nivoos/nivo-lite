@@ -1,18 +1,16 @@
 "use client"
 
 import { useLocale, useTranslations } from "next-intl"
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { slotOfSwr } from "@/hooks/slot"
 import { useQueryAgentRunSwr, useQueryAgentRunWorkflowsSwr, useQueryAgentRunsSwr } from "@/hooks/swr"
 import { runDetailViewOf, runGraphOf } from "@/modules/agentRuns"
 import { stepsLocaleOf } from "@/modules/workflowSteps"
 import type { DataSlot, RunDetailView } from "@/modules/types"
 import { useRunContext } from "./useRunContext"
+import { runPollMsOf, runSignatureOf, unchangedAfter, type PollMemory, type PolledRun } from "./runPoll"
 import { useRunDecision } from "./useRunDecision"
 import { useRunGraphSource } from "./useRunGraphSource"
-
-/** A run that is being driven is read again every 3 seconds, so its steps and its map move while the page is open. */
-const BUSY_MS = 3_000
 
 /** The page of one run: the read, the step the person selected and the decision it waits on. */
 export interface AgentRunDetailData {
@@ -33,15 +31,24 @@ export const useAgentRunDetail = (module: string, installationId: string, runId:
     const baseContext = useRunContext(module, installationId)
     const decision = useRunDecision(installationId, runId)
     const [selection, setSelection] = useState("")
+    // A run is read again fast (3 s) only while a step executes; parked on a wait it is read every 30 s, slower while nothing changes,
+    // and never while the tab is hidden (a run parked for hours must not keep a page busy).
+    const memory = useRef<PollMemory>({ signature: "", unchanged: 0 })
     const read = useQueryAgentRunSwr(
         { installationId, runId },
         {
-            refreshInterval: (latest: { readonly row: { readonly status: string } } | null | undefined) =>
-                latest?.row.status === "running" || latest?.row.status === "waiting" || latest?.row.status === "paused"
-                    ? BUSY_MS
-                    : 0,
+            refreshWhenHidden: false,
+            refreshInterval: (latest: PolledRun | null | undefined) =>
+                runPollMsOf(latest, unchangedAfter(memory.current, runSignatureOf(latest)), Date.now()),
         },
     )
+    // The page is made again only when the signature of the answer changes, never for a duration that only grew.
+    const stable = useRef<{ signature: string; data: typeof read.data }>({ signature: "", data: undefined })
+    const signature = runSignatureOf(read.data)
+    if (read.data === undefined || stable.current.signature !== signature || stable.current.data === undefined) {
+        stable.current = { signature, data: read.data }
+    }
+    const data = stable.current.data
     const runs = useQueryAgentRunsSwr({ installationId })
     const pins = useQueryAgentRunWorkflowsSwr({ installationId, runIds: [runId] })
     const pin = pins.data?.[0]
@@ -51,16 +58,16 @@ export const useAgentRunDetail = (module: string, installationId: string, runId:
         [source, locale, t],
     )
     const view = useMemo(() => {
-        if (read.data === undefined || read.data === null) return undefined
+        if (data === undefined || data === null) return undefined
         const detail =
             pin === undefined
-                ? read.data
+                ? data
                 : {
-                      ...read.data,
-                      row: { ...read.data.row, versionNumber: pin.version, workflowName: pin.workflowName },
+                      ...data,
+                      row: { ...data.row, versionNumber: pin.version, workflowName: pin.workflowName },
                   }
         return runDetailViewOf(detail, nodes, selection, runs.data, baseContext, locale)
-    }, [read.data, pin, nodes, selection, runs.data, baseContext, locale])
+    }, [data, pin, nodes, selection, runs.data, baseContext, locale])
     const { mutate } = read
     return {
         slot: slotOfSwr<RunDetailView>({ data: view, error: read.error, isLoading: read.isLoading }),
