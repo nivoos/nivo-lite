@@ -101,9 +101,6 @@ services:
   nivo-api:
     image: ghcr.io/starci183/nivo-lite-api@sha256:0000000000000000000000000000000000000000000000000000000000000000
     # environment, `<KEY>_FILE` pointers and the versioned secret grants are added by the generated override (starci app stack render).
-    environment:
-      # A heap cap under the container limit: a real leak ends as one clean restart of the api (OOMKilled / V8 heap error), never as a host-wide squeeze (PROD-OOM).
-      NODE_OPTIONS: --max-old-space-size=1536
     networks:
       edge:
         aliases: [nivo-api]
@@ -132,7 +129,6 @@ services:
       replicas: 1
       # video-cache is a single-host volume: the placement is explicit, a replica is not high availability.
       placement: { constraints: [node.role == manager] }
-      resources: { limits: { memory: 2G } }
       update_config:
         { parallelism: 1, order: stop-first, failure_action: rollback, monitor: 45s, max_failure_ratio: 0, delay: 5s }
       rollback_config: { parallelism: 1, order: stop-first, monitor: 45s }
