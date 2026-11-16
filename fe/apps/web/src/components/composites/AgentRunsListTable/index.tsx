@@ -13,6 +13,7 @@ import {
 import { RunDoorActions } from "@/components/composites/RunDoorActions"
 import { AgentRunStatusMark, nivoIconSource } from "@/components/leaves/Icon"
 import { ALL } from "@/hooks/agentRuns"
+import { useSettledMotion } from "@/hooks/motion"
 import { QUERY_AGENT_RUNS_SWR_KEY } from "@/hooks/swr"
 import type { RunsTableCopy, RunChipView, RunRowView, RunWorkflowView, RunsFilter, RunsView } from "@/modules/types"
 
@@ -145,7 +146,8 @@ const headersOf = (props: AgentRunsListTableProps): ReadonlyArray<HeaderZone> =>
 /**
  * The runs of an agent as one table card: the title with the count of runs as a chip, the status tabs with their count chips, the search
  * with the selects of the workflow and of what triggered the run on the same row, and the table (run, workflow, start, time, result)
- * with its pager; a row opens its run. The empty state is frameless.
+ * with its pager; a row opens its run. The empty state is frameless. The spinner of a running row turns for a few seconds after the
+ * statuses change and then rests, so a board left open on parked runs draws no animation frame (useSettledMotion).
  */
 export const AgentRunsListTable = (props: AgentRunsListTableProps) => {
     const { copy, view } = props.props
@@ -161,48 +163,51 @@ export const AgentRunsListTable = (props: AgentRunsListTableProps) => {
     const current = Math.min(Math.max(page, 1), pageCount)
     const from = (current - 1) * RUNS_PAGE_SIZE
     const shown = view.rows.slice(from, from + RUNS_PAGE_SIZE)
+    const motion = useSettledMotion<HTMLDivElement>(shown.map((row) => `${row.id}:${row.status}`).join("|"))
     return (
-        <SurfaceCard
-            kind="table"
-            label={view.title}
-            count={view.total ?? total}
-            headingLevel={2}
-            isLoading={props.props.isLoading}
-            headers={headersOf(props)}
-            columns={[
-                { id: "run", label: copy.run, width: "fit" },
-                { id: "workflow", label: copy.workflow, width: "fill", truncate: true },
-                { id: "started", label: copy.started, priority: "low", width: "fit" },
-                { id: "duration", label: copy.duration, priority: "low", width: "fit" },
-                { id: "result", label: copy.result, width: "fit" },
-                { id: "actions", label: copy.actions, width: "fit" },
-            ]}
-            rows={shown.map((row) => rowOf(row, t("endConfirm"), reload))}
-            footers={
-                pageCount > 1
-                    ? [
-                          {
-                              kind: "paging" as const,
-                              page: current,
-                              pageCount,
-                              onPage,
-                              labels: {
-                                  nav: copy.pagerLabel,
-                                  previous: copy.previous,
-                                  next: copy.next,
-                                  page: copy.pageLabel,
-                                  summary: copy.summary(from + 1, from + shown.length, total),
+        <div ref={motion} style={{ display: "contents" }}>
+            <SurfaceCard
+                kind="table"
+                label={view.title}
+                count={view.total ?? total}
+                headingLevel={2}
+                isLoading={props.props.isLoading}
+                headers={headersOf(props)}
+                columns={[
+                    { id: "run", label: copy.run, width: "fit" },
+                    { id: "workflow", label: copy.workflow, width: "fill", truncate: true },
+                    { id: "started", label: copy.started, priority: "low", width: "fit" },
+                    { id: "duration", label: copy.duration, priority: "low", width: "fit" },
+                    { id: "result", label: copy.result, width: "fit" },
+                    { id: "actions", label: copy.actions, width: "fit" },
+                ]}
+                rows={shown.map((row) => rowOf(row, t("endConfirm"), reload))}
+                footers={
+                    pageCount > 1
+                        ? [
+                              {
+                                  kind: "paging" as const,
+                                  page: current,
+                                  pageCount,
+                                  onPage,
+                                  labels: {
+                                      nav: copy.pagerLabel,
+                                      previous: copy.previous,
+                                      next: copy.next,
+                                      page: copy.pageLabel,
+                                      summary: copy.summary(from + 1, from + shown.length, total),
+                                  },
                               },
-                          },
-                      ]
-                    : []
-            }
-            empty={
-                <EmptyNotice
-                    message={view.isFiltered ? copy.emptyFiltered : copy.empty}
-                    iconSource={nivoIconSource("history", "leading")}
-                />
-            }
-        />
+                          ]
+                        : []
+                }
+                empty={
+                    <EmptyNotice
+                        message={view.isFiltered ? copy.emptyFiltered : copy.empty}
+                        iconSource={nivoIconSource("history", "leading")}
+                    />
+                }
+            />
+        </div>
     )
 }
