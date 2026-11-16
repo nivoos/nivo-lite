@@ -1,13 +1,13 @@
-# HANDOFF 2026-11-16 (cập nhật 01:40 giờ máy, INTEG-077): nivo-lite
+# HANDOFF 2026-11-16 (cập nhật 10:00 giờ máy, FIX-0.7.8): nivo-lite
 
 Viết cho phiên kế tiếp. Chủ dự án ("thầy") ra lệnh dừng mọi việc, merge sạch vào `main`, push kèm file này.
 Nguồn chi tiết từng việc: `D:/starci-tmp/claude-20261105/lanes/decouple-20261113/R4-NOTES.md` (các mục `## DEPLOY`, `## PROD-WIRE`,
-`## SEED-HOOK`, `## WS-404`, `## ASK-PAY`, `## ASK-FIX`, `## RUN-END`, `## CANCEL-GAP`, `## HARNESS-URGENT`, `## LANDING-BUILD`).
+`## FIX-0.7.8`, `## PROD-OOM`, `## SEED-HOOK`, `## WS-404`, `## ASK-PAY`, `## ASK-FIX`, `## RUN-END`, `## CANCEL-GAP`, `## HARNESS-URGENT`, `## LANDING-BUILD`).
 
 ## 1. Production đang chạy gì
 
 - Stack Swarm `nivo` trên một VPS: `app.nivo.vn` (console), `api.nivo.vn`, `nivo.vn` (landing).
-- Release `2419b4cc5cf9e36a` = **v0.7.7** (commit `4409cd110`, tag `v0.7.7`), deploy 16/11 ~01:27 giờ máy (INTEG-077). Rollback: `4c7a18a9b73c40ac` (v0.7.6). Backup trước deploy `nivo-lite-20261115T182709131Z.tar.age` trên manager (giải mã thử 4 phần). Migration `20261115230000_workflow-stop.sql` đã áp (lịch sử 52). Image mới: api `sha256:592813ec…`, web `sha256:53cc24a5…`; mcp, db, landing giữ nguyên.
+- Release `14fc2ecce6a69164` = **v0.7.9** (commit `e0799c1e6`), deploy 16/11 ~09:25 giờ máy (FIX-0.7.8); trước đó `da7dc98f182a219e` = **v0.7.8** (`994811710`) và `2419b4cc5cf9e36a` = v0.7.7 (rollback chưa cần). Backup trước deploy trên manager (`nivo-lite-20261116T021256881Z.tar.age`, `…T022525955Z.tar.age`, giải mã thử 4 phần). Không có migration mới. Image: api `sha256:941c230f…`, web `sha256:9a469c53…`, landing `sha256:646fc6c4…` (có ảnh hoa ở `/images/demo/hoa/`); mcp, db giữ nguyên.
 - Database: volume `nivo-engine_postgres-data-20261115`, đã seed. Dữ liệu production cũ (trước 15/11) nằm nguyên ở volume
   `nivo-engine_postgres-data` (không gắn vào stack) và bản nén mã hoá trong `/srv/nivo/archive-20261115/`; volume OpenClaw cũng còn.
   Xoá hẳn hai thứ này chờ lời thầy.
@@ -41,7 +41,15 @@ Còn lệch so với bản vẽ / quan sát (không chặn phát hành, chưa s�
 - Thẻ duyệt huỷ đơn có tiêu đề chung "AI cần bạn duyệt trước khi chạy nivo.tool.record.update", chưa phải "Huỷ đơn".
 - Thông báo đội khi kết thúc ghi "Khách không nhận thêm tin nào" kể cả khi đã chọn báo khách; câu báo khách do model viết có thể hứa "nhân viên
   sẽ hỗ trợ". "Kết thúc tất cả" gửi một thông báo cho MỖI lần chạy. Thẻ đã kết thúc ghi "Quy trình đã chạy tiếp".
+- (đã sửa ở 0.7.8, xem 3b: hộp báo khách, tên thẻ huỷ đơn, thông báo, kết thúc tất cả, chữ thẻ đã kết thúc)
 - Chưa thấy chạy thật trên production: một lần huỷ đơn thật, một lần kết thúc / tạm dừng thật trong console.
+
+## 3b. v0.7.8 và v0.7.9 (FIX-0.7.8, đã deploy; chi tiết và số đo trong R4-NOTES `## FIX-0.7.8`)
+
+- v0.7.8: hộp "Báo khách một câu" hiện ở trang lần chạy và bảng lần chạy cho mọi lần chạy có khách (kể cả do lễ tân gọi); thẻ duyệt mang tên bước ("Huỷ đơn"); thông báo đội nói rõ khi đã báo khách một câu; "Kết thúc tất cả" gửi MỘT thông báo; thẻ của lần chạy đã kết thúc ghi "Lần chạy này đã kết thúc, không chạy tiếp"; "không liên hệ" chỉ khi khách nói rõ đừng nhắn tin (bỏ mua / huỷ đơn không phải) và `stop-keep` hỏi chủ trước (front-desk v28). Đã chạy thử trên dev (sandbox) với ảnh 1920 và 390.
+- v0.7.8 sửa tải của trang lần chạy khi lần chạy đang chờ (PROD-OOM): đọc lại 3 giây một lần chỉ khi một bước đang chạy, 30 giây khi đang chờ, thưa dần tới 60 giây, dừng khi tab ẩn, không dựng lại trang khi dữ liệu không đổi. Số đo trên dev: 190 → 10 lần đọc và 374 → 0 lần bố cục lại trong 10 phút; heap JS không tăng trước hay sau sửa trong 20 phút (không tái hiện được lỗi hết bộ nhớ của Chrome ở máy headless; nếu tab của thầy vẫn chết sau nhiều giờ thì cần heap snapshot của chính tab đó).
+- v0.7.9 (dữ liệu): giá demo của "Tiệm hoa Hương Sen" 2.000–10.000 đ (giữ thứ tự), phí giao 1.000 đ, ảnh sản phẩm do Codex CLI sinh (mỗi sản phẩm một ảnh, trong truth "Ảnh" và bảng giá; bot gửi đường dẫn). Seed `blocks-core-seed-standard` ghim `4e32f52` với `force` + `forceKinds: ["node-settings","truths"]`, đã chạy one-shot trên production. Chưa đọc lại giá trên production (chỉ thấy đúng trên dev); thầy nhắn thử "bó hồng giá bao nhiêu".
+- Sổ sách: `app release gate --backfill` cho v0.7.7 / 0.7.8 / 0.7.9 bị từ chối vì lockfile còn trỏ registry local (`DEPS_LOCAL_REGISTRY_COMMITTED`) và cache-verify của CI đỏ; cần làm mục nợ lockfile ở phần 6 rồi chạy gate trên tag mới. Dòng "drift: updated outside a release" của `stack verify` đứng riêng là do so với stack file của checkout (digest giả toàn số 0); `stack status` sạch, `stack accept` trả "already accepted".
 
 ## 4. Cách deploy (đường thủ công, đã chạy 6 lần tối 15/11)
 
@@ -53,13 +61,14 @@ Chi tiết và dòng lệnh: `## SEED-HOOK` (final), `## WS-404`, `## ASK-FIX` t
 3. `starci-harness@1.1.0-alpha.128+` : `app stack deploy --env production --urgent --sha <sha> --image <svc>=<ref>@sha256:…` (xem trước
    rồi `--execute`). Backup lấy trên server. KHÔNG `--first-start`, KHÔNG `--db-url-env`.
 4. Push `main` và tag. Hook pre-push từ chối `BRANCH_MAIN_NOT_ON_DEV` (xem mục 6): thầy cho phép `--no-verify` cho app này; không force.
+Lưu ý (0.7.8): bước kiểm khẩn cấp cần `node scripts/codegen.mjs` trước nếu checkout chưa sinh lại kiểu GraphQL; build image bằng `docker build --network host --push` (builder `nivo-hostnet` không nạp ảnh về máy); khi đổi ghim seed, deploy với ghim cũ rồi chạy `seed-standards-oneshot` (dry rồi execute).
 Mỗi lúc một người phát hành. Ổ D: phải còn ít nhất 15 GB trước khi build.
 
 ## 5. Lỗi và việc còn mở
 
 - Hiển thị bước chờ duyệt: đã sửa ở 0.7.6 ("Chờ bạn" → "Xong"); chưa ai nhìn thấy trên production sau khi sửa.
 - Đăng nhập trên Chrome có dữ liệu cũ: đã sửa ở 0.7.5 (`@starci/auth` 0.7.1); chưa có xác nhận từ Chrome của thầy.
-- "Dừng đi không mua nữa" bị đọc thành "đừng nhắn tôi nữa" (gắn cờ không liên hệ): ca thật về đọc nghĩa, chưa sửa.
+- "Dừng đi không mua nữa" bị đọc thành "đừng nhắn tôi nữa": đã sửa ở 0.7.8 (xem 3b); chưa thấy trên production.
 - Console có nút kết thúc / tạm dừng lần chạy từ v0.7.7.
 - Trang tài khoản sandbox hiện form và cảnh báo của tài khoản thật: dễ hiểu nhầm là thiếu credential.
 - NIVO Web: Zalo chờ cấp quyền; sau đó hai bước `webdesk.front` `answer` / `complaint-reply` cần gắn `zalo-main` (chạy lại seed có ép,
