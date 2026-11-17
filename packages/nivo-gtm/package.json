@@ -1,0 +1,30 @@
+{
+  "name": "@nivo-lite/nivo-gtm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The NIVO Tăng trưởng workspace: NIVO sells NIVO with its own agents. Authored with the nivoos SDK; the build writes ONE seed document the dev deploy applies.",
+  "scripts": {
+    "build": "nivoos package build src/nivo-gtm.package.ts --out seed",
+    "check": "nivoos package check src/nivo-gtm.package.ts --out seed",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@starci/nivoos-sdk": "file:vendor/starci-nivoos-sdk-0.1.0.tgz",
+    "@starci/nivoos-provider-templates": "file:vendor/starci-nivoos-provider-templates-0.1.0.tgz",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@starci/nivoos-cli": "file:vendor/starci-nivoos-cli-0.1.0.tgz",
+    "@types/node": "22.20.4",
+    "typescript": "5.9.3"
+  },
+  "nivoos": {
+    "instances": {
+      "dev": "https://nivo-app-dev.starci.org"
+    }
+  },
+  "files": [
+    "seed"
+  ]
+}
