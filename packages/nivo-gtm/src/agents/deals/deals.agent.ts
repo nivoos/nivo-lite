@@ -19,7 +19,7 @@ import { Quote } from "./quote/quote.workflow.ts"
  */
 export class Deals implements Agent {
     readonly key = keyOf("deals")
-    readonly version = 2
+    readonly version = 3
     readonly title = { vi: "Chốt đơn", en: "Deals" }
     readonly workflows = [Handover, Quote, Pay, PayWatch, Activate, LostReview]
     readonly providers = [TelegramTeam, SepayNivo]

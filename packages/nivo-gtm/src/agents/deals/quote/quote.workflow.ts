@@ -45,7 +45,7 @@ export const State = z.strictObject({
  */
 export class Quote implements Workflow<typeof State> {
     readonly key = keyOf("deals-quote")
-    readonly version = 2
+    readonly version = 3
     readonly title = { vi: "Báo giá", en: "Quote" }
     readonly state = State
     readonly start = Open

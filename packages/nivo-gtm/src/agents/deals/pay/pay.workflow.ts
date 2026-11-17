@@ -11,14 +11,12 @@ import { Open } from "./steps/open.step.ts"
 import { Read } from "./steps/read.step.ts"
 import { WriteCode } from "./steps/write-code.step.ts"
 import { SendPay } from "./steps/send-pay.step.ts"
-import { Watch1 } from "./steps/watch-1.step.ts"
-import { Settle1 } from "./steps/settle-1.step.ts"
-import { Paid1 } from "./steps/paid-1.step.ts"
-import { Short1 } from "./steps/short-1.step.ts"
+import { Watch } from "./steps/watch.step.ts"
+import { Settle } from "./steps/settle.step.ts"
+import { IsPaid } from "./steps/is-paid.step.ts"
+import { IsReminded } from "./steps/is-reminded.step.ts"
+import { IsShort } from "./steps/is-short.step.ts"
 import { Nudge } from "./steps/nudge.step.ts"
-import { Watch2 } from "./steps/watch-2.step.ts"
-import { Settle2 } from "./steps/settle-2.step.ts"
-import { Paid2 } from "./steps/paid-2.step.ts"
 import { RecordPaid } from "./steps/record-paid.step.ts"
 import { Announce } from "./steps/announce.step.ts"
 import { Paid } from "./steps/paid.step.ts"
@@ -33,16 +31,15 @@ import { Declined } from "./steps/declined.step.ts"
 export const Result = z.strictObject({ reason: z.string(), paid: z.boolean(), amount: z.number(), transferId: z.string() })
 export type Result = z.infer<typeof Result>
 
-/** The one state object of a run: the deal written, what was read of it, the pay code written, the requests and the reminder, the watch result, the paid record and the notice to the sales room. */
+/** The one state object of a run: the deal written, what was read of it, the pay code written, the watch request (with its round), the reminder, the watch result, the paid record and the notice to the sales room. */
 export const State = z.strictObject({
     change: z.strictObject({ objectId: z.string(), version: z.number().int() }).optional(),
     deal: ReadDealOutput.optional(),
     written: UpdateDealOutput.optional(),
     sent: SendPayOutput.optional(),
-    watch1: EmitPayRequestedOutput.optional(),
+    watched: EmitPayRequestedOutput.optional(),
     result: Result.optional(),
     nudged: SendPayOutput.optional(),
-    watch2: EmitPayRequestedOutput.optional(),
     recorded: UpdateDealOutput.optional(),
     announced: EmitDealPaidOutput.optional(),
     notified: PostPayNoticeOutput.optional(),
@@ -55,9 +52,9 @@ export const State = z.strictObject({
  */
 export class Pay implements Workflow<typeof State> {
     readonly key = keyOf("deals-pay")
-    readonly version = 2
+    readonly version = 3
     readonly title = { vi: "Thu tiền", en: "Collect the payment" }
     readonly state = State
     readonly start = Open
-    readonly steps = [Open, Read, WriteCode, SendPay, Watch1, Settle1, Paid1, Short1, Nudge, Watch2, Settle2, Paid2, RecordPaid, Announce, Paid, ShortNotice, UnpaidNotice, Short, Unpaid, Unreachable, Declined]
+    readonly steps = [Open, Read, WriteCode, SendPay, Watch, Settle, IsPaid, IsReminded, IsShort, Nudge, RecordPaid, Announce, Paid, ShortNotice, UnpaidNotice, Short, Unpaid, Unreachable, Declined]
 }

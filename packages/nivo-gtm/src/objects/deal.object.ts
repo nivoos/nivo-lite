@@ -1,17 +1,19 @@
 import { z } from "zod"
-import { NivoField, NivoObjectType, NivoRelation, nivoDateTime, nivoMoney } from "@starci/nivoos-sdk"
-import type { NivoRef } from "@starci/nivoos-sdk"
+import { NivoField, NivoObjectType, NivoRelation, NivoSequence, nivoDateTime, nivoMoney } from "@starci/nivoos-sdk"
+import type { NivoCode, NivoRef } from "@starci/nivoos-sdk"
 import { Lead } from "./lead.object.ts"
 
 export const DEAL_STATUSES = ["proposal", "quoted", "accepted", "awaiting_payment", "paid", "activated", "lost"] as const
 export type DealStatus = (typeof DEAL_STATUSES)[number]
 
 /**
- * `gtm.deal` (Đơn bán): one sale of a NIVO plan to a lead. `code` is the digits of the pay code (SePay reads `NIVO<code>` from the transfer memo), so it is 4 to 12 digits.
+ * `gtm.deal` (Đơn bán): one sale of a NIVO plan to a lead. `code` is issued by the engine (`NIVO00000042`, a sequence) and IS the pay code: SePay reads it from the transfer memo, so a workspace prefix must be 2 to 5 capital letters.
+ * `demoRef` is the demo the deal came from: the natural key a repeat of the hand-over finds the same deal by (an upsert), so one demo is never two deals.
  */
 @NivoObjectType({ key: "gtm.deal", title: { vi: "Đơn bán", en: "Deal" } })
 export class Deal {
-    @NivoField(z.string().regex(/^[0-9]{4,12}$/u), { unique: true, indexed: true, title: { vi: "Mã đơn (số)", en: "Code (digits)" } }) code!: string
+    @NivoSequence({ prefix: "NIVO", width: 8, title: { vi: "Mã đơn", en: "Code" } }) code!: NivoCode
+    @NivoField(z.string().min(1).max(80).optional(), { unique: true, indexed: true, title: { vi: "Buổi demo gốc", en: "Source demo" } }) demoRef?: string
     @NivoRelation(() => Lead, { title: { vi: "Khách", en: "Lead" } }) lead!: NivoRef<Lead>
     @NivoField(z.enum(DEAL_STATUSES), { indexed: true, title: { vi: "Trạng thái", en: "Status" } }) status!: DealStatus
     @NivoField(z.string().max(60).optional(), { title: { vi: "Gói", en: "Plan" } }) plan?: string

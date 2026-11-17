@@ -10,7 +10,7 @@ export const EmitPayRequestedInput = z.strictObject({
     /** 1 for the first watch, 2 for the one after the reminder: part of the event key. */
     round: z.number().int().min(1).max(5),
 })
-export const EmitPayRequestedOutput = z.strictObject({ requested: z.literal(true) })
+export const EmitPayRequestedOutput = z.strictObject({ requested: z.literal(true), round: z.number().int() })
 
 type In = z.infer<typeof EmitPayRequestedInput>
 type Out = z.infer<typeof EmitPayRequestedOutput>
@@ -21,7 +21,7 @@ type Out = z.infer<typeof EmitPayRequestedOutput>
  */
 export class EmitPayRequested implements Node<typeof EmitPayRequestedInput, typeof EmitPayRequestedOutput> {
     readonly key = keyOf("emit-pay-requested")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Mở theo dõi thanh toán", en: "Start watching the payment" }
     readonly input = EmitPayRequestedInput
     readonly output = EmitPayRequestedOutput
@@ -36,6 +36,6 @@ export class EmitPayRequested implements Node<typeof EmitPayRequestedInput, type
             link: true,
         })
         if (error) throw error
-        return { requested: true }
+        return { requested: true, round: input.round }
     }
 }

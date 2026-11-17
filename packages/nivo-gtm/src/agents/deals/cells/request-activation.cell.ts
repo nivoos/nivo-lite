@@ -12,7 +12,11 @@ export const RequestActivationInput = z.strictObject({
 })
 export const RequestActivationOutput = z.strictObject({ messageId: z.string(), roomId: z.string() })
 /** The person who activates a paid plan (a member id or name); empty asks the whole room. Placeholder: Minh Trần. */
-export const RequestActivationSettings = z.strictObject({ activator: z.string().max(80).default("Minh Trần") })
+export const RequestActivationSettings = z.strictObject({
+    activator: z.string().max(80).default("Minh Trần"),
+    /** How long the activator has to answer before the deal ends `late` (the wait of the activation workflow reads it). */
+    answerHours: z.number().int().min(1).max(720).default(24),
+})
 
 type In = z.infer<typeof RequestActivationInput>
 type Out = z.infer<typeof RequestActivationOutput>
@@ -24,7 +28,7 @@ type Settings = z.infer<typeof RequestActivationSettings>
  */
 export class RequestActivation implements Node<typeof RequestActivationInput, typeof RequestActivationOutput, typeof RequestActivationSettings> {
     readonly key = keyOf("request-activation")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Nhờ người kích hoạt gói", en: "Ask a person to activate the plan" }
     readonly input = RequestActivationInput
     readonly output = RequestActivationOutput

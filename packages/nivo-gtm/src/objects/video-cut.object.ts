@@ -9,7 +9,7 @@ export const VIDEO_CUT_VERDICTS = ["pending", "fix", "approved"] as const
 @NivoObjectType({ key: "gtm.video-cut", title: { vi: "Bản dựng", en: "Video cut" } })
 export class VideoCut {
     @NivoRelation(() => Content, { title: { vi: "Nội dung", en: "Content" } }) content!: NivoRef<Content>
-    @NivoField(z.number().int().min(1), { title: { vi: "Phiên bản", en: "Version" } }) version!: number
+    @NivoField(z.number().int().min(1), { indexed: true, title: { vi: "Phiên bản", en: "Version" } }) version!: number
     @NivoField(z.string().min(1).max(500), { title: { vi: "Liên kết tệp", en: "File link" } }) fileLink!: string
     @NivoField(z.number().int().min(0).optional(), { title: { vi: "Số giây", en: "Seconds" } }) seconds?: number
     @NivoField(z.enum(VIDEO_CUT_VERDICTS), { indexed: true, title: { vi: "Kết luận", en: "Verdict" } }) verdict!: (typeof VIDEO_CUT_VERDICTS)[number]

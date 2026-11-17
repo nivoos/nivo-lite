@@ -16,7 +16,7 @@ export const Payment = z.strictObject({ orderCode: z.string(), transferId: z.str
 export type Payment = z.infer<typeof Payment>
 export type Request = z.infer<typeof PayRequestedData>
 
-/** What the watch ends with: the deal's run reads it from its `Ended` item. */
+/** What the watch ends with: every end step names it, and the deal's run reads it typed from its `Ended` item. */
 export const PayWatchOutput = z.strictObject({ paid: z.boolean(), amount: z.number(), transferId: z.string() })
 
 /** The one state object of a run: what the deal asked, the transfer that came and the amount check. */
@@ -28,13 +28,14 @@ export const State = z.strictObject({
 
 /**
  * `nivo-gtm.deals-pay-watch` (Theo dõi thanh toán): a CHILD of the deal's pay run, on the order subject `order:<payCode>`. It waits for the SePay transfer whose memo carries the pay code (`sepay.payment.paid`
- * of the `sepay-nivo` account) up to 72 hours, compares the money with the deal's amount and ends `paid`, `short` or `expired`. The pay run reads the end.
+ * of the `sepay-nivo` account) up to the hours of the deal setting `unpaidHours` (72 by default), compares the money with the deal's amount and ends `paid`, `short` or `expired`. The pay run reads the end.
  */
 export class PayWatch implements Workflow<typeof State> {
     readonly key = keyOf("deals-pay-watch")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Theo dõi thanh toán", en: "Watch for the payment" }
     readonly state = State
+    readonly output = PayWatchOutput
     readonly start = Hear
     readonly steps = [Hear, AwaitPayment, Check, ShortCheck, Paid, Short, Expired]
 }

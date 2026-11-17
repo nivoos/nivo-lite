@@ -13,13 +13,3 @@ export const money = (amount: number): string => {
     }
     return `${out}đ`
 }
-
-/** Eight digits from a seed text (FNV-1a): the digits of a deal's pay code, the same for the same seed. */
-export const digitsOf = (seed: string): string => {
-    let hash = 2166136261
-    for (let index = 0; index < seed.length; index += 1) {
-        hash ^= seed.charCodeAt(index)
-        hash = Math.imul(hash, 16777619)
-    }
-    return String((hash >>> 0) % 100000000).padStart(8, "0")
-}

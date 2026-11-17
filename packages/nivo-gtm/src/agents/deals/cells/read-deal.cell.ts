@@ -26,10 +26,10 @@ export const ReadDealOutput = z.strictObject({
 type In = z.infer<typeof ReadDealInput>
 type Out = z.infer<typeof ReadDealOutput>
 
-/** `nivo-gtm.read-deal` (Đọc đơn bán): reads the deal and its lead into one flat answer (the pay code is `NIVO` + the deal's digits). Read-only: no act. */
+/** `nivo-gtm.read-deal` (Đọc đơn bán): reads the deal and its lead into one flat answer (the pay code is the deal's code, which the engine issued). Read-only: no act. */
 export class ReadDeal implements Node<typeof ReadDealInput, typeof ReadDealOutput> {
     readonly key = keyOf("read-deal")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Đọc đơn bán", en: "Read the deal" }
     readonly input = ReadDealInput
     readonly output = ReadDealOutput
@@ -51,7 +51,7 @@ export class ReadDeal implements Node<typeof ReadDealInput, typeof ReadDealOutpu
             creditPack: values.creditPack ?? "",
             discountPercent: values.discountPercent ?? 0,
             amount: values.amount ?? 0,
-            payCode: `NIVO${values.code}`,
+            payCode: values.code,
             leadId: String(values.lead),
             leadName: lead.result.values.name ?? "",
             channel: lead.result.values.channel ?? "",

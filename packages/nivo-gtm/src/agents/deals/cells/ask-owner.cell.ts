@@ -6,7 +6,11 @@ import { keyOf } from "../../../package-key.ts"
 export const AskOwnerInput = z.strictObject({ code: z.string().min(1).max(40), discountPercent: z.number(), amount: z.number().int(), lines: z.string().max(600) })
 export const AskOwnerOutput = z.strictObject({ messageId: z.string(), roomId: z.string() })
 /** The member who decides a discount above the line (a member id); empty asks the whole room. */
-export const AskOwnerSettings = z.strictObject({ owner: z.string().max(80).default("") })
+export const AskOwnerSettings = z.strictObject({
+    owner: z.string().max(80).default(""),
+    /** How long the owner has to answer before the quote waits for the sales person again (the wait of the quote workflow reads it). */
+    answerHours: z.number().int().min(1).max(720).default(24),
+})
 
 type In = z.infer<typeof AskOwnerInput>
 type Out = z.infer<typeof AskOwnerOutput>
@@ -18,7 +22,7 @@ type Settings = z.infer<typeof AskOwnerSettings>
  */
 export class AskOwner implements Node<typeof AskOwnerInput, typeof AskOwnerOutput, typeof AskOwnerSettings> {
     readonly key = keyOf("ask-owner")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Hỏi chủ về giảm giá", en: "Ask the owner about the discount" }
     readonly input = AskOwnerInput
     readonly output = AskOwnerOutput

@@ -24,6 +24,7 @@ export class Lead {
     @NivoField(z.number().int().min(0).max(100).optional(), { title: { vi: "Điểm", en: "Score" } }) score?: number
     @NivoField(z.string().max(1500).optional(), { title: { vi: "Ghi chú phù hợp", en: "Fit notes" } }) fitNotes?: string
     @NivoField(z.number().int().min(0).optional(), { title: { vi: "Số lần theo dõi", en: "Follow-ups" } }) followUps?: number
+    @NivoField(z.number().int().min(0).optional(), { title: { vi: "Số lượt trao đổi", en: "Turns" } }) turns?: number
     @NivoField(nivoDateTime().optional(), { title: { vi: "Liên hệ gần nhất", en: "Last contact" } }) lastContactAt?: string
     @NivoField(z.string().max(500).optional(), { title: { vi: "Lý do mất", en: "Lost reason" } }) lostReason?: string
     @NivoField(z.boolean().optional(), { title: { vi: "Không liên hệ", en: "Do not contact" } }) doNotContact?: boolean

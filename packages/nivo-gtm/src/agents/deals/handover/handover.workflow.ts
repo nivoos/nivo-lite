@@ -38,7 +38,7 @@ export const State = z.strictObject({
  */
 export class Handover implements Workflow<typeof State> {
     readonly key = keyOf("deals-handover")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Bàn giao sau demo", en: "Hand-over after the demo" }
     readonly state = State
     readonly start = Hear
