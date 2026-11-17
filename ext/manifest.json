@@ -183,6 +183,11 @@
       "id": "stored-graph-documents",
       "run": "ext/checks/stored-graph-documents.mjs",
       "why": "Every place a graph document is stored (jsonb document / draft columns) is declared, and a migration after the wait-shape change converts its waits at the path its nodes live under (.starciwork/concepts/templates.md rule 12; migration 000400 missed agent_graph_versions)."
+    },
+    {
+      "id": "package-boundary",
+      "run": "ext/checks/package-boundary.mjs",
+      "why": "A business package holds business logic only: try/catch, the machine clock, timers, direct http, hand-written retry, hashed ids, zone offsets, counting by query and throw new Error are the nivoos engine's; the shared rules ship with @starci/nivoos-cli and each finding names the engine capability to use instead."
     }
   ],
   "packages": {
