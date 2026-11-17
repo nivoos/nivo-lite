@@ -34,11 +34,13 @@ import { SendWelcome } from "./agents/deals/cells/send-welcome.cell.ts"
 import { LostWeek } from "./agents/deals/cells/lost-week.cell.ts"
 import { LostSummary } from "./agents/deals/cells/lost-summary.cell.ts"
 import { LEADS_CELLS } from "./agents/leads/leads.cells.ts"
+import { SOCIAL_CELLS } from "./agents/social/social.cells.ts"
+import { STUDIO_CELLS } from "./agents/studio/studio.cells.ts"
 import { PACKAGE_KEY } from "./package-key.ts"
 
 export default {
     package: { key: PACKAGE_KEY, version: "0.1.0", author: "nivo-lite" },
     cells: [CutReady, ContentApproved, ContentPublished, LeadSignal, LeadReady, LeadQualified, DemoDone, DealPaid, PayRequested, PostCard, ParkAlert, RetryDecision,
-        ReadDeal, Brief, OpenDeal, PostBrief, SetPlan, Price, AskOwner, SendQuote, UpdateDeal, UpdateLead, SendPay, EmitPayRequested, CheckAmount, EmitDealPaid, RequestActivation, SendWelcome, LostWeek, LostSummary, ...LEADS_CELLS],
+        ReadDeal, Brief, OpenDeal, PostBrief, SetPlan, Price, AskOwner, SendQuote, UpdateDeal, UpdateLead, SendPay, EmitPayRequested, CheckAmount, EmitDealPaid, RequestActivation, SendWelcome, LostWeek, LostSummary, ...LEADS_CELLS, ...STUDIO_CELLS, ...SOCIAL_CELLS],
     workspaces: [NivoGtmWorkspace],
 } satisfies Package

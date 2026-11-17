@@ -1,6 +1,7 @@
 import type { Workspace } from "@starci/nivoos-sdk"
 import { Deals } from "./agents/deals/deals.agent.ts"
 import { Leads } from "./agents/leads/leads.agent.ts"
+import { Social } from "./agents/social/social.agent.ts"
 import { Studio } from "./agents/studio/studio.agent.ts"
 import { NIVO_GTM_BRAIN } from "./brain/nivo-gtm.brain.ts"
 import { Campaign } from "./objects/campaign.object.ts"
@@ -19,7 +20,7 @@ import { keyOf } from "./package-key.ts"
 export class NivoGtmWorkspace implements Workspace {
     readonly key = keyOf("company")
     readonly title = { vi: "NIVO Tăng trưởng", en: "NIVO Growth" }
-    readonly agents = [Studio, Deals, Leads]
+    readonly agents = [Studio, Social, Deals, Leads]
     readonly objects = [Campaign, Content, VideoCut, Publication, Lead, Demo, Deal]
     readonly brain = NIVO_GTM_BRAIN
 }
