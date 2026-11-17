@@ -7,7 +7,7 @@ import { LEADS_POLICY } from "../common/leads.guidance.ts"
 
 export const AnswerInput = z.strictObject({ messages: z.array(TelegramMessage).min(1).max(50), summary: z.string().min(1).max(300) })
 /** `answered` false: the public information does not answer; `question` is then what the team must answer, and nothing is sent. */
-export const AnswerOutput = z.strictObject({ answered: z.boolean(), reply: z.string().max(1500), question: z.string().max(400) })
+export const AnswerOutput = z.strictObject({ answered: z.boolean(), reply: z.string().max(1500), question: z.string().max(400), refusal: z.string().max(80) })
 /** How many thread lines and brain hits the answer reads. A workspace may change them in the console. */
 export const AnswerSettings = z.strictObject({
     threadLines: z.number().int().min(1).max(50).default(10),
@@ -24,16 +24,15 @@ const GOAL =
     "When `brain` does not answer, set `answered` to false, leave `reply` empty and write in `question` (Vietnamese) the question the team must answer. " +
     "A greeting needs no truth: greet back warmly and ask what their business is and what they want NIVO to do, `answered` true. " +
     "When they show interest, offer a demo (a person shows NIVO working for their kind of business) and do not invent its terms. One to three sentences, at most ONE question. " +
-    "Leave `question` empty when you answered."
+    "Leave `question` empty when you answered. Always set `refusal` to an empty string."
 
 /**
  * `nivo-gtm.leads-answer` (Trả lời từ thông tin công khai): the front door's answer. It reads the conversation and searches the brain with the person's words; the run is on a contact, so the
- * engine gives it the PUBLIC lens and nothing internal can reach the reply. ONE generation writes the reply or says it cannot; when the brain does not answer, the run stops HERE for a person
- * with the team's question on the card. The send is the next step, and it asks.
+ * engine gives it the PUBLIC lens and nothing internal can reach the reply. ONE generation writes the reply or says it cannot; when the brain does not answer, `answered` is false and the workflow parks with an alert for the team. The send is the next step, and it asks.
  */
 export class Answer implements Node<typeof AnswerInput, typeof AnswerOutput, typeof AnswerSettings> {
     readonly key = keyOf("leads-answer")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Trả lời từ thông tin công khai", en: "Answer from public information" }
     readonly input = AnswerInput
     readonly output = AnswerOutput
@@ -54,8 +53,8 @@ export class Answer implements Node<typeof AnswerInput, typeof AnswerOutput, typ
                 brain: hits.map((hit) => ({ kind: hit.kind, truth: hit.truth, passage: hit.passage })),
             },
         })
-        if (error) throw error
-        if (!result.value.answered || result.value.reply.trim() === "") throw new Error(`front_cannot_answer: ${result.value.question}`)
-        return result.value
+        if (error) return { answered: false, reply: "", question: "", refusal: error.code }
+        // `answered` false with no refusal: the public information does not answer; the workflow parks with the team's question, a retry cannot help
+        return { ...result.value, refusal: "" }
     }
 }

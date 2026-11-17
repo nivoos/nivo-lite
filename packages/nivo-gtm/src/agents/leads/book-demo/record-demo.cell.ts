@@ -11,6 +11,7 @@ export const RecordDemoOutput = z.strictObject({
     status: z.enum(["done", "no_show", "moved"]),
     leadStage: z.enum(LEAD_STAGES),
     nextAction: z.string().min(1).max(300),
+    refusal: z.string().max(80),
 })
 
 type In = z.infer<typeof RecordDemoInput>
@@ -22,7 +23,7 @@ type Out = z.infer<typeof RecordDemoOutput>
  */
 export class RecordDemo implements Node<typeof RecordDemoInput, typeof RecordDemoOutput> {
     readonly key = keyOf("leads-record-demo")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Ghi kết quả buổi demo", en: "Record the demo outcome" }
     readonly input = RecordDemoInput
     readonly output = RecordDemoOutput
@@ -31,7 +32,7 @@ export class RecordDemo implements Node<typeof RecordDemoInput, typeof RecordDem
 
     run(input: In, reach: NodeReach): Out {
         const got = reach.objects(Demo).get(input.demoId as NivoRef<Demo>)
-        if (got.error) throw got.error
+        if (got.error) return { demoId: input.demoId, status: "moved", leadStage: "qualified", nextAction: "Hẹn lại demo", refusal: got.error.code }
         const demo = got.result
         const status = input.choice === "done" ? "done" : input.choice === "no_show" ? "no_show" : "moved"
         const leadStage = status === "done" ? "demo_done" : "qualified"
@@ -41,7 +42,7 @@ export class RecordDemo implements Node<typeof RecordDemoInput, typeof RecordDem
             version: demo.version,
             values: { status, outcome: `Kết quả do người chủ trì chọn: ${status}`, nextAction, nextAt: reach.facts.at },
         })
-        if (error) throw error
-        return { demoId: demo.id, status, leadStage, nextAction }
+        if (error) return { demoId: input.demoId, status: "moved", leadStage: "qualified", nextAction: "Hẹn lại demo", refusal: error.code }
+        return { demoId: demo.id, status, leadStage, nextAction, refusal: "" }
     }
 }

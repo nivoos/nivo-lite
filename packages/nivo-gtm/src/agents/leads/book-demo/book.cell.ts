@@ -15,6 +15,7 @@ export const BookOutput = z.strictObject({
     host: z.string().max(80),
     link: z.string().max(500),
     label: z.string().max(40),
+    refusal: z.string().max(80),
 })
 /** The business rules of a demo: its host (a member id), the meeting link, how long it lasts and how long before it the lead is reminded. */
 export const BookSettings = z.strictObject({
@@ -31,7 +32,7 @@ type Settings = z.infer<typeof BookSettings>
 /** Books the chosen slot: one act, `object.create` of `gtm.demo` at status `confirmed` with the host, the link and the demo's own next action. */
 export class Book implements Node<typeof BookInput, typeof BookOutput, typeof BookSettings> {
     readonly key = keyOf("leads-book")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Đặt lịch demo", en: "Book the demo" }
     readonly input = BookInput
     readonly output = BookOutput
@@ -54,7 +55,7 @@ export class Book implements Node<typeof BookInput, typeof BookOutput, typeof Bo
             ...(demoHost === "" ? {} : { host: demoHost }),
             ...(meetingLink === "" ? {} : { link: meetingLink, evidence: meetingLink }),
         })
-        if (error) throw error
+        if (error) return { demoId: "", atMs, remindAtMs: 0, endMs: 0, host: demoHost, link: meetingLink, label: vnLabel(atMs), refusal: error.code }
         return {
             demoId: result.id,
             atMs,
@@ -63,6 +64,7 @@ export class Book implements Node<typeof BookInput, typeof BookOutput, typeof Bo
             host: demoHost,
             link: meetingLink,
             label: vnLabel(atMs),
+            refusal: "",
         }
     }
 }

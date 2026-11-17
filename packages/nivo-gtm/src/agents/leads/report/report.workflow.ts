@@ -20,7 +20,7 @@ export const State = z.strictObject({
  */
 export class DailyReport implements Workflow<typeof State> {
     readonly key = keyOf("leads-daily-report")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Báo cáo chăm khách cuối ngày", en: "Leads daily report" }
     readonly state = State
     readonly append = ["ticks"] as const

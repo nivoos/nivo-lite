@@ -13,6 +13,8 @@ export const LeadRef = z.strictObject({
     stage: z.string().max(30),
     doNotContact: z.boolean(),
     nextAction: z.string().max(300),
+    /** Empty when the cell did its work; else the code of the refusal that stopped it (the workflow retries, then parks). */
+    refusal: z.string().max(80),
 })
 
 type In = z.infer<typeof FindLeadInput>
@@ -21,7 +23,7 @@ type Out = z.infer<typeof LeadRef>
 /** Looks a lead up by its address (`ref`: a Telegram id, or `<channel>:<id>`): the lead code is unique and indexed. A decision node: it reads only. */
 export class FindLead implements Node<typeof FindLeadInput, typeof LeadRef> {
     readonly key = keyOf("leads-find-lead")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Tìm khách tiềm năng", en: "Find the lead" }
     readonly input = FindLeadInput
     readonly output = LeadRef
@@ -32,7 +34,7 @@ export class FindLead implements Node<typeof FindLeadInput, typeof LeadRef> {
         const { result, error } = reach.objects(Lead).query({ where: { code }, limit: 1 })
         if (error) throw error
         const [lead] = result.items
-        if (lead === undefined) return { found: false, leadId: "", code, stage: "", doNotContact: false, nextAction: "" }
-        return { found: true, leadId: lead.id, code, stage: lead.values.stage, doNotContact: lead.values.doNotContact === true, nextAction: lead.values.nextAction ?? "" }
+        if (lead === undefined) return { found: false, leadId: "", code, stage: "", doNotContact: false, nextAction: "", refusal: "" }
+        return { found: true, leadId: lead.id, code, stage: lead.values.stage, doNotContact: lead.values.doNotContact === true, nextAction: lead.values.nextAction ?? "", refusal: "" }
     }
 }

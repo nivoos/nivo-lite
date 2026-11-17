@@ -12,7 +12,7 @@ export const TouchLeadInput = z.strictObject({
     /** True: a lead still `new` or gone `cold` is now `engaged`. */
     engage: z.boolean(),
 })
-export const TouchLeadOutput = z.strictObject({ leadId: z.string(), version: z.number().int(), stage: z.string(), turns: z.number().int().nonnegative() })
+export const TouchLeadOutput = z.strictObject({ leadId: z.string(), version: z.number().int(), stage: z.string(), turns: z.number().int().nonnegative(), refusal: z.string().max(80) })
 export const TouchLeadSettings = z.strictObject({
     /** How long after a touch the lead's next action falls due. */
     followUpHours: z.number().int().min(1).max(720).default(24),
@@ -32,7 +32,7 @@ type Settings = z.infer<typeof TouchLeadSettings>
  */
 export class TouchLead implements Node<typeof TouchLeadInput, typeof TouchLeadOutput, typeof TouchLeadSettings> {
     readonly key = keyOf("leads-touch-lead")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Ghi nhận lần chạm khách", en: "Record a touch on the lead" }
     readonly input = TouchLeadInput
     readonly output = TouchLeadOutput
@@ -42,7 +42,7 @@ export class TouchLead implements Node<typeof TouchLeadInput, typeof TouchLeadOu
 
     run(input: In, reach: NodeReach<Settings>): Out {
         const got = reach.objects(Lead).get(input.leadId as NivoRef<Lead>)
-        if (got.error) throw got.error
+        if (got.error) return { leadId: input.leadId, version: 0, stage: "", turns: 0, refusal: got.error.code }
         const lead = got.result
         const now = reach.facts.at
         const notes = (lead.values.fitNotes ?? "").split("\n").filter((line) => line !== "")
@@ -60,7 +60,7 @@ export class TouchLead implements Node<typeof TouchLeadInput, typeof TouchLeadOu
                 nextAt: new Date(Date.parse(now) + reach.settings.followUpHours * 3_600_000).toISOString(),
             },
         })
-        if (error) throw error
-        return { leadId: result.id, version: result.version, stage: result.values.stage, turns: kept.length }
+        if (error) return { leadId: input.leadId, version: 0, stage: "", turns: 0, refusal: error.code }
+        return { leadId: result.id, version: result.version, stage: result.values.stage, turns: kept.length, refusal: "" }
     }
 }

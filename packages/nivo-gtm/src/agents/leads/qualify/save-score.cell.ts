@@ -4,7 +4,7 @@ import { Lead } from "../../../objects/lead.object.ts"
 import { keyOf } from "../../../package-key.ts"
 
 export const SaveScoreInput = z.strictObject({ leadId: z.string().min(1).max(80), score: z.number().int().min(0).max(100), segment: z.string().max(80), reasons: z.string().min(1).max(600) })
-export const SaveScoreOutput = z.strictObject({ leadId: z.string(), code: z.string(), stage: z.string(), score: z.number().int(), qualified: z.boolean() })
+export const SaveScoreOutput = z.strictObject({ leadId: z.string(), code: z.string(), stage: z.string(), score: z.number().int(), qualified: z.boolean(), refusal: z.string().max(80) })
 /** The business rules: the score from which a lead is qualified, and the score under which a lead that has barely started is dropped as unfit. */
 export const SaveScoreSettings = z.strictObject({ qualifyAt: z.number().int().min(1).max(100).default(60), dropBelow: z.number().int().min(0).max(99).default(25) })
 
@@ -18,7 +18,7 @@ type Settings = z.infer<typeof SaveScoreSettings>
  */
 export class SaveScore implements Node<typeof SaveScoreInput, typeof SaveScoreOutput, typeof SaveScoreSettings> {
     readonly key = keyOf("leads-save-score")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Lưu điểm khách", en: "Save the score" }
     readonly input = SaveScoreInput
     readonly output = SaveScoreOutput
@@ -28,7 +28,7 @@ export class SaveScore implements Node<typeof SaveScoreInput, typeof SaveScoreOu
 
     run(input: In, reach: NodeReach<Settings>): Out {
         const got = reach.objects(Lead).get(input.leadId as NivoRef<Lead>)
-        if (got.error) throw got.error
+        if (got.error) return { leadId: input.leadId, code: "", stage: "", score: input.score, qualified: false, refusal: got.error.code }
         const lead = got.result
         const current = lead.values.stage
         const movable = current === "new" || current === "engaged" || current === "cold" || current === "qualified"
@@ -47,7 +47,7 @@ export class SaveScore implements Node<typeof SaveScoreInput, typeof SaveScoreOu
                 ...(qualify && current !== "qualified" ? { nextAction: "Mời khách chọn giờ demo", nextAt: reach.facts.at } : {}),
             },
         })
-        if (error) throw error
-        return { leadId: result.id, code: result.values.code, stage: result.values.stage, score: input.score, qualified: qualify }
+        if (error) return { leadId: input.leadId, code: "", stage: "", score: input.score, qualified: false, refusal: error.code }
+        return { leadId: result.id, code: result.values.code, stage: result.values.stage, score: input.score, qualified: qualify, refusal: "" }
     }
 }
