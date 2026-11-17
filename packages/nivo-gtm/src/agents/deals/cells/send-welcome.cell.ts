@@ -23,7 +23,7 @@ const welcomeText = (input: In, settings: Settings): string => `${input.leadName
 /** `nivo-gtm.send-welcome` (Gửi lời chào mừng): ONE act, `contact_message.send` of the welcome after activation. It leaves the company, so a person approves it (locked ask, G1). */
 export class SendWelcome implements Node<typeof SendWelcomeInput, typeof SendWelcomeOutput, typeof SendWelcomeSettings> {
     readonly key = keyOf("send-welcome")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Gửi lời chào mừng", en: "Send the welcome" }
     readonly input = SendWelcomeInput
     readonly output = SendWelcomeOutput
@@ -33,7 +33,7 @@ export class SendWelcome implements Node<typeof SendWelcomeInput, typeof SendWel
 
     run(input: In, reach: NodeReach<Settings>): Out {
         const { error } = reach.call<ContactMessageSend>("contact_message.send", { provider: input.channel, to: input.to, text: welcomeText(input, reach.settings) })
-        if (error) return { sent: false, refusal: error.code }
-        return { sent: true, refusal: "" }
+        if (error) throw error
+        return { channel: input.channel, to: input.to }
     }
 }

@@ -1,4 +1,4 @@
 import { z } from "zod"
 
-/** What a customer-line send answers: `sent` false when the channel refused it (a member holds the route, or the contact was erased); `refusal` is then the code. Nothing went out. */
-export const SentOutput = z.strictObject({ sent: z.boolean(), refusal: z.string().max(60) })
+/** What a customer-line send answers: where it went. A refusal of the channel (held route, erased contact) is handed up by the cell and routed by the step. */
+export const SentOutput = z.strictObject({ channel: z.string().max(20), to: z.string().max(200) })

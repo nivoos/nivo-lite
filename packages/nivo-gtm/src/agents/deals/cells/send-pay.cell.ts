@@ -36,7 +36,7 @@ const payText = (input: In, settings: Settings): string =>
  */
 export class SendPay implements Node<typeof SendPayInput, typeof SendPayOutput, typeof SendPaySettings> {
     readonly key = keyOf("send-pay")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Gửi thông tin chuyển khoản", en: "Send the payment details" }
     readonly input = SendPayInput
     readonly output = SendPayOutput
@@ -46,7 +46,7 @@ export class SendPay implements Node<typeof SendPayInput, typeof SendPayOutput, 
 
     run(input: In, reach: NodeReach<Settings>): Out {
         const { error } = reach.call<ContactMessageSend>("contact_message.send", { provider: input.channel, to: input.to, text: payText(input, reach.settings) })
-        if (error) return { sent: false, refusal: error.code }
-        return { sent: true, refusal: "" }
+        if (error) throw error
+        return { channel: input.channel, to: input.to }
     }
 }

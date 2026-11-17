@@ -6,7 +6,7 @@ import { PostDraft } from "../common/social.shapes.ts"
 
 export const ReviseInput = z.strictObject({ previous: PostDraft })
 export const ReviseOutput = PostDraft
-/** How many times a post is rewritten before the run parks, and its length. */
+/** How many times a post is rewritten before the run ends `max_revisions`, and its length. */
 export const ReviseSettings = z.strictObject({
     maxRevisions: z.number().int().min(0).max(10).default(3),
     maxChars: z.number().int().min(100).max(2500).default(900),
@@ -21,11 +21,11 @@ const GOAL =
     "Set `ok` true and `revision` to the previous revision plus one."
 
 /**
- * `nivo-gtm.social-revise` (Viết lại bài đăng): ONE generation, up to `maxRevisions` times. At the cap the node answers `ok` false without asking the model (`reach.reply`), and the workflow parks the post.
+ * `nivo-gtm.social-revise` (Viết lại bài đăng): ONE generation, up to `maxRevisions` times. At the cap the node answers `ok` false without asking the model (`reach.reply`), and the workflow ends the run `max_revisions`.
  */
 export class SocialRevise implements Node<typeof ReviseInput, typeof ReviseOutput, typeof ReviseSettings> {
     readonly key = keyOf("social-revise")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Viết lại bài đăng", en: "Rewrite the post" }
     readonly input = ReviseInput
     readonly output = ReviseOutput

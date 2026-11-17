@@ -15,6 +15,7 @@ export const AssignedShape = z.strictObject({
     remindAt: z.string(),
     cardText: z.string().min(1).max(3000),
     remindText: z.string().min(1).max(1000),
+    overdueText: z.string().min(1).max(1000),
 })
 
 export const AssignInput = z.strictObject({ folder: PrepareFolderOutput, shots: ShotListOutput })
@@ -38,7 +39,7 @@ const STUDIO = "nivo-gtm.studio"
  */
 export class StudioAssign implements Node<typeof AssignInput, typeof AssignOutput, typeof AssignSettings> {
     readonly key = keyOf("studio-assign")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Giao việc quay dựng", en: "Assign the shoot and edit" }
     readonly input = AssignInput
     readonly output = AssignOutput
@@ -73,6 +74,6 @@ export class StudioAssign implements Node<typeof AssignInput, typeof AssignOutpu
             `Quay và dựng ${code}: ${input.folder.title}\nNgười làm: ${editor}. Hạn: ${dueAt.slice(0, 10)}.\nThư mục: ${folderText}\n\nDanh sách cảnh:\n${shots}\n\nCần chuẩn bị: ${input.shots.props.join(", ")}\n\nXong thì đổi trạng thái sang cut_ready và dán liên kết bản dựng vào ô Bằng chứng.`,
             3000,
         )
-        return { code, editor, dueAt, remindAt, cardText, remindText: `Nhắc: ${code} đến hạn ${dueAt.slice(0, 10)}. Đổi trạng thái sang cut_ready và dán liên kết bản dựng khi xong.` }
+        return { code, editor, dueAt, remindAt, cardText, remindText: `Nhắc: ${code} đến hạn ${dueAt.slice(0, 10)}. Đổi trạng thái sang cut_ready và dán liên kết bản dựng khi xong.`, overdueText: `Quá hạn quay dựng ${code}: chưa có bản dựng. Hỏi người phụ trách ${editor}, gia hạn rồi chuyển trạng thái về script_ok để chạy lại khâu này.` }
     }
 }

@@ -1,7 +1,7 @@
 import { z } from "zod"
 import type { Workflow } from "@starci/nivoos-sdk"
 import { keyOf } from "../../../package-key.ts"
-import { PostCardOutput } from "../../../common/recover/post-card.cell.ts"
+import { PostReviewOutput } from "../cells/post-review.cell.ts"
 import { LostSummaryOutput } from "../cells/lost-summary.cell.ts"
 import { LostWeekOutput } from "../cells/lost-week.cell.ts"
 import { Friday } from "./steps/friday.step.ts"
@@ -15,7 +15,7 @@ export const State = z.strictObject({
     instant: z.string().optional(),
     week: LostWeekOutput.optional(),
     summary: LostSummaryOutput.optional(),
-    posted: PostCardOutput.optional(),
+    posted: PostReviewOutput.optional(),
 })
 
 /**
@@ -24,7 +24,7 @@ export const State = z.strictObject({
  */
 export class LostReview implements Workflow<typeof State> {
     readonly key = keyOf("deals-lost-review")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Tổng kết đơn mất", en: "Lost-deals review" }
     readonly state = State
     readonly start = Friday

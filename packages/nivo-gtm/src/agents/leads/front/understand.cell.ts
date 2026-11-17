@@ -12,7 +12,7 @@ export const UnderstandInput = z.strictObject({
 })
 /** What the lead wants NOW, one of eight. */
 export const LeadIntent = z.enum(["question", "interested", "wants_demo", "asks_price", "picks_slot", "customer_support", "not_fit", "spam"])
-export const UnderstandOutput = z.strictObject({ intent: LeadIntent, summary: z.string().min(1).max(300), email: z.string().max(200), refusal: z.string().max(80) })
+export const UnderstandOutput = z.strictObject({ intent: LeadIntent, summary: z.string().min(1).max(300), email: z.string().max(200) })
 /** How many lines of the conversation the reading takes. A workspace may change it in the console. */
 export const UnderstandSettings = z.strictObject({ threadLines: z.number().int().min(1).max(50).default(10) })
 
@@ -27,16 +27,15 @@ const GOAL =
     "asks_price (asks what it costs or what the plans are); picks_slot (the team invited them to choose a demo time, `nextAction` says it waits for that, and they answer with a day or a time); " +
     "customer_support (they already use NIVO and need help with it); not_fit (what they want is not something NIVO does); spam (an advertisement, a link dump, noise). " +
     "When a message raises several things choose the one that moves the sale: picks_slot before wants_demo before asks_price before interested before question. " +
-    "Write `summary`: one line in Vietnamese for the team, what they want, in their own terms. Set `email` to an email address they wrote in these messages, else an empty string." +
-    " Always set `refusal` to an empty string."
+    "Write `summary`: one line in Vietnamese for the team, what they want, in their own terms. Set `email` to an email address they wrote in these messages, else an empty string."
 
 /**
  * `nivo-gtm.leads-understand` (Hiểu ý khách): the decision of the front door. It reads the conversation's recent lines, then ONE generation answers one of eight intents with one line for
- * the team and the email the person gave, if any. The workflow routes on `intent` (structured data), never on the words. A model that cannot answer stops the run here for a person.
+ * the team and the email the person gave, if any. The workflow routes on `intent` (structured data), never on the words. A model that cannot answer is the engine's to stop and retry.
  */
 export class Understand implements Node<typeof UnderstandInput, typeof UnderstandOutput, typeof UnderstandSettings> {
     readonly key = keyOf("leads-understand")
-    readonly version = 2
+    readonly version = 3
     readonly title = { vi: "Hiểu ý khách", en: "Understand the lead" }
     readonly input = UnderstandInput
     readonly output = UnderstandOutput
@@ -56,7 +55,7 @@ export class Understand implements Node<typeof UnderstandInput, typeof Understan
                 nextAction: input.nextAction,
             },
         })
-        if (error) return { intent: "question", summary: "Không đọc được tin nhắn của khách", email: "", refusal: error.code }
-        return { ...result.value, refusal: "" }
+        if (error) throw error
+        return result.value
     }
 }

@@ -20,11 +20,11 @@ type Settings = z.infer<typeof OpenLeadSettings>
 
 /**
  * Opens a lead at stage `new`: one act, `object.create` of `gtm.lead` with the code the address gives, the source (the channel or the post it came from), the owner, the first next
- * action (answer them now) and, when the run works in a conversation, the contact. A refusal (a code that exists already, a value that does not fit) is answered, not thrown: the workflow retries and then parks with an alert.
+ * action (answer them now) and, when the run works in a conversation, the contact. A refusal (a code that exists already, a value that does not fit) is thrown.
  */
 export class OpenLead implements Node<typeof OpenLeadInput, typeof LeadRef, typeof OpenLeadSettings> {
     readonly key = keyOf("leads-open-lead")
-    readonly version = 2
+    readonly version = 3
     readonly title = { vi: "Mở khách tiềm năng", en: "Open a lead" }
     readonly input = OpenLeadInput
     readonly output = LeadRef
@@ -46,7 +46,7 @@ export class OpenLead implements Node<typeof OpenLeadInput, typeof LeadRef, type
             ...(input.note === "" ? {} : { evidence: input.note }),
             ...(conversation === null ? {} : { contact: conversation.contactId as NivoContactId }),
         })
-        if (error) return { found: false, leadId: "", code, stage: "", doNotContact: false, nextAction: "", refusal: error.code }
-        return { found: true, leadId: result.id, code, stage: "new", doNotContact: false, nextAction: "Trả lời khách", refusal: "" }
+        if (error) throw error
+        return { found: true, leadId: result.id, code, stage: "new", doNotContact: false, nextAction: "Trả lời khách" }
     }
 }

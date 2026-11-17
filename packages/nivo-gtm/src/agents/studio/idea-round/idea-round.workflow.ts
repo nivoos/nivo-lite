@@ -3,7 +3,7 @@ import type { Workflow } from "@starci/nivoos-sdk"
 import { ReadContextOutput } from "./read-context.cell.ts"
 import { IdeasOutput } from "./ideas.cell.ts"
 import { FileIdeasOutput } from "./file-ideas.cell.ts"
-import { PostCardOutput } from "../../../common/recover/post-card.cell.ts"
+import { AskTeamOutput } from "../common/ask-team.cell.ts"
 import { keyOf } from "../../../package-key.ts"
 import { Tick } from "./steps/tick.step.ts"
 import { ReadContext } from "./steps/read-context.step.ts"
@@ -18,7 +18,7 @@ export const State = z.strictObject({
     context: ReadContextOutput.optional(),
     ideas: IdeasOutput.optional(),
     filed: FileIdeasOutput.optional(),
-    posted: PostCardOutput.optional(),
+    posted: AskTeamOutput.optional(),
 })
 
 /**
@@ -27,7 +27,7 @@ export const State = z.strictObject({
  */
 export class IdeaRound implements Workflow<typeof State> {
     readonly key = keyOf("studio-idea-round")
-    readonly version = 1
+    readonly version = 2
     readonly title = {"vi":"Vòng ý tưởng tuần","en":"Weekly idea round"}
     readonly state = State
     readonly start = Tick

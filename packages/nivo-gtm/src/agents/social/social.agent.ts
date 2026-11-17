@@ -17,7 +17,7 @@ import { SendReply } from "./replies/steps/send-reply.step.ts"
  */
 export class Social implements Agent {
     readonly key = keyOf("social")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Mạng xã hội", en: "Social media" }
     readonly workflows = [CalendarRound, PostDraftFlow, Publish, Replies, PerformanceRound]
     readonly providers = [TelegramTeam, SheetsMarketing]

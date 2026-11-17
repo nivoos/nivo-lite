@@ -27,11 +27,11 @@ const quoteText = (input: In, settings: Settings): string =>
 
 /**
  * `nivo-gtm.send-quote` (Gửi báo giá): ONE act, `contact_message.send` of the quote to the lead on the channel they came from. The figures are the ones the `price` cell computed from the price-list
- * settings; nothing here changes a number. It leaves the company, so the engine holds it for a person's approval (locked ask, G1). A refusal of the channel is answered as `sent: false`.
+ * settings; nothing here changes a number. It leaves the company, so the engine holds it for a person's approval (locked ask, G1). A refusal of the channel is handed up for the step to route.
  */
 export class SendQuote implements Node<typeof SendQuoteInput, typeof SendQuoteOutput, typeof SendQuoteSettings> {
     readonly key = keyOf("send-quote")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Gửi báo giá cho khách", en: "Send the quote to the customer" }
     readonly input = SendQuoteInput
     readonly output = SendQuoteOutput
@@ -41,7 +41,7 @@ export class SendQuote implements Node<typeof SendQuoteInput, typeof SendQuoteOu
 
     run(input: In, reach: NodeReach<Settings>): Out {
         const { error } = reach.call<ContactMessageSend>("contact_message.send", { provider: input.channel, to: input.to, text: quoteText(input, reach.settings) })
-        if (error) return { sent: false, refusal: error.code }
-        return { sent: true, refusal: "" }
+        if (error) throw error
+        return { channel: input.channel, to: input.to }
     }
 }

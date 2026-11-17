@@ -11,7 +11,7 @@ export const SetStageInput = z.strictObject({
     nextAtMs: z.number().int().nonnegative(),
     nextAfterHours: z.number().int().nonnegative().max(8760),
 })
-export const SetStageOutput = z.strictObject({ leadId: z.string(), version: z.number().int(), stage: z.string(), refusal: z.string().max(80) })
+export const SetStageOutput = z.strictObject({ leadId: z.string(), version: z.number().int(), stage: z.string() })
 
 type In = z.infer<typeof SetStageInput>
 type Out = z.infer<typeof SetStageOutput>
@@ -19,7 +19,7 @@ type Out = z.infer<typeof SetStageOutput>
 /** Moves a lead to a stage with its next action and due time: one act, `object.update` of `gtm.lead`. Used by every workflow that changes where a lead stands (cold, demo booked, demo done). */
 export class SetStage implements Node<typeof SetStageInput, typeof SetStageOutput> {
     readonly key = keyOf("leads-set-stage")
-    readonly version = 2
+    readonly version = 3
     readonly title = { vi: "Chuyển giai đoạn khách", en: "Move the lead to a stage" }
     readonly input = SetStageInput
     readonly output = SetStageOutput
@@ -28,7 +28,7 @@ export class SetStage implements Node<typeof SetStageInput, typeof SetStageOutpu
 
     run(input: In, reach: NodeReach): Out {
         const got = reach.objects(Lead).get(input.leadId as NivoRef<Lead>)
-        if (got.error) return { leadId: input.leadId, version: 0, stage: "", refusal: got.error.code }
+        if (got.error) throw got.error
         const lead = got.result
         const dueMs = input.nextAtMs > 0 ? input.nextAtMs : Date.parse(reach.facts.at) + input.nextAfterHours * 3_600_000
         const { result, error } = reach.objects(Lead).update({
@@ -36,7 +36,7 @@ export class SetStage implements Node<typeof SetStageInput, typeof SetStageOutpu
             version: lead.version,
             values: { stage: input.stage, nextAction: input.nextAction, nextAt: new Date(dueMs).toISOString() },
         })
-        if (error) return { leadId: input.leadId, version: 0, stage: "", refusal: error.code }
-        return { leadId: result.id, version: result.version, stage: result.values.stage, refusal: "" }
+        if (error) throw error
+        return { leadId: result.id, version: result.version, stage: result.values.stage }
     }
 }

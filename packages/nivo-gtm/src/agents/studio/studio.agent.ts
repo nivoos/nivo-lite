@@ -17,7 +17,7 @@ import { Script } from "./script/script.workflow.ts"
  */
 export class Studio implements Agent {
     readonly key = keyOf("studio")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Xưởng video", en: "Video studio" }
     readonly workflows = [IdeaRound, Pick, Script, Produce, ReviewCut]
     readonly providers = [TelegramTeam, DriveMarketing, SheetsMarketing]

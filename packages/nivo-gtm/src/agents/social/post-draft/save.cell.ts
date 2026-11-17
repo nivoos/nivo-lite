@@ -14,7 +14,7 @@ export const SaveOutput = z.strictObject({
     reviewBy: z.string(),
     secondReviewBy: z.string(),
 })
-/** How long a person has to review a post before the agent nudges, and again before it parks. */
+/** How long a person has to review a post before the agent nudges, and again before the run ends `no_review`. */
 export const SaveSettings = z.strictObject({ reviewHours: z.number().int().min(1).max(240).default(24) })
 
 type In = z.infer<typeof SaveInput>
@@ -27,7 +27,7 @@ type Settings = z.infer<typeof SaveSettings>
  */
 export class SocialSaveDraft implements Node<typeof SaveInput, typeof SaveOutput, typeof SaveSettings> {
     readonly key = keyOf("social-save-draft")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Lưu bản nháp bài đăng", en: "Save the post draft" }
     readonly input = SaveInput
     readonly output = SaveOutput

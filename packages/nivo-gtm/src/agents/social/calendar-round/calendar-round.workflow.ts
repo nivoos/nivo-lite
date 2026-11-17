@@ -1,8 +1,7 @@
 import { z } from "zod"
 import type { Workflow } from "@starci/nivoos-sdk"
 import { RoomAnswer } from "../common/social.shapes.ts"
-import { PostCardOutput } from "../../../common/recover/post-card.cell.ts"
-import { ParkAlertOutput } from "../../../common/recover/park-alert.cell.ts"
+import { AskTeamOutput } from "../common/ask-team.cell.ts"
 import { ReadOutput } from "./read.cell.ts"
 import { PlanOutput } from "./plan.cell.ts"
 import { FileSlotsOutput } from "./file-slots.cell.ts"
@@ -24,8 +23,8 @@ import { IsApproved } from "./steps/is-approved.step.ts"
 import { Schedule } from "./steps/schedule.step.ts"
 import { Scheduled } from "./steps/scheduled.step.ts"
 import { CancelWeek } from "./steps/cancel-week.step.ts"
-import { AlertPark } from "./steps/alert-park.step.ts"
-import { Parked } from "./steps/parked.step.ts"
+import { NoReview } from "./steps/no-review.step.ts"
+import { ChangesAsked } from "./steps/changes-asked.step.ts"
 
 /** The one state object of a run. */
 export const State = z.strictObject({
@@ -34,25 +33,24 @@ export const State = z.strictObject({
     plan: PlanOutput.optional(),
     filed: FileSlotsOutput.optional(),
     mirror: MirrorOutput.optional(),
-    posted: PostCardOutput.optional(),
-    nudged: PostCardOutput.optional(),
+    posted: AskTeamOutput.optional(),
+    nudged: AskTeamOutput.optional(),
     answers: z.array(RoomAnswer).max(20).optional(),
     settled: ScheduleOutput.optional(),
-    parked: ParkAlertOutput.optional(),
 })
 export type Answer = z.infer<typeof RoomAnswer>
 
 /**
  * `nivo-gtm.social-calendar-round` (Lịch đăng tuần): the clock opens a run at 15:00 every Friday (Ho Chi Minh City). The approved content with no publication is read, ONE generation places it on channels, days and hours
  * (only a channel with a cadence above 0; Facebook, TikTok and YouTube are "chờ kết nối"), each slot is filed as a `gtm.publication` (`planned`), mirrored to the calendar sheet when one is set, and ONE card asks a person to approve the
- * week. Approved: every publication becomes `scheduled` (and opens `publish`). Sửa, or no answer after one nudge: the plan is cancelled or left, and ONE alert card parks the run.
+ * week. Approved: every publication becomes `scheduled` (and opens `publish`). Sửa: the plan is cancelled and the run ends `changes_asked`. No answer after one nudge: the plan is left as filed and the run ends `no_review`.
  */
 export class CalendarRound implements Workflow<typeof State> {
     readonly key = keyOf("social-calendar-round")
-    readonly version = 1
+    readonly version = 2
     readonly title = {"vi":"Lịch đăng tuần","en":"Weekly calendar"}
     readonly state = State
     readonly append = ["answers"] as const
     readonly start = Tick
-    readonly steps = [Tick, Read, HasItems, NothingToPlan, Plan, FileSlots, Mirror, PostWeek, WaitWeek, NudgeWeek, WaitWeekAgain, IsApproved, Schedule, Scheduled, CancelWeek, AlertPark, Parked]
+    readonly steps = [Tick, Read, HasItems, NothingToPlan, Plan, FileSlots, Mirror, PostWeek, WaitWeek, NudgeWeek, WaitWeekAgain, IsApproved, Schedule, Scheduled, CancelWeek, NoReview, ChangesAsked]
 }

@@ -15,7 +15,7 @@ type Out = z.infer<typeof SendLineOutput>
  */
 export class SendInvite implements Node<typeof SendInviteInput, typeof SendLineOutput> {
     readonly key = keyOf("leads-send-invite")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Mời khách chọn giờ demo", en: "Invite the lead to choose a demo time" }
     readonly input = SendInviteInput
     readonly output = SendLineOutput
@@ -27,7 +27,7 @@ export class SendInvite implements Node<typeof SendInviteInput, typeof SendLineO
         const lines = input.labels.map((label, index) => `${index + 1}. ${label}`).join("\n")
         const text = `${hello}, NIVO xin mời bạn xem demo. Bạn chọn giúp một khung giờ phù hợp:\n${lines}\nBạn nhắn số hoặc giờ bạn chọn, và cho mình email nếu muốn nhận thư xác nhận nhé.`
         const { error } = reach.call<ContactMessageSend>("contact_message.send", { provider: "telegram", to: chatIdOf(input.to), text })
-        if (error) return { sent: false, refusal: error.code }
-        return { sent: true, refusal: "" }
+        if (error) throw error
+        return {}
     }
 }

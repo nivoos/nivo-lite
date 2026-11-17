@@ -1,6 +1,6 @@
 import { NodeWait, take, type StateOf } from "@starci/nivoos-sdk"
 import { IsApproved } from "./is-approved.step.ts"
-import { MarkParked } from "./mark-parked.step.ts"
+import { NoReview } from "./no-review.step.ts"
 import type { State, Answer } from "../review-cut.workflow.ts"
 
 export class WaitReviewAgain extends NodeWait<typeof State> {
@@ -13,5 +13,5 @@ export class WaitReviewAgain extends NodeWait<typeof State> {
     ]
     override readonly timeout = (s: StateOf<typeof State>) => new Date(Date.parse(s.card?.secondReviewBy ?? ""))
     override readonly next = IsApproved
-    override readonly onTimeout = MarkParked
+    override readonly onTimeout = NoReview
 }

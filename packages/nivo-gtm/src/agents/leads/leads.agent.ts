@@ -25,7 +25,7 @@ import { SendOpener } from "./signal/steps/send-opener.step.ts"
  */
 export class Leads implements Agent {
     readonly key = keyOf("leads")
-    readonly version = 2
+    readonly version = 3
     readonly title = { vi: "Chăm khách", en: "Leads" }
     readonly workflows = [Front, Signal, Qualify, Nurture, BookDemo, DailyReport]
     readonly providers = [TelegramTeam]

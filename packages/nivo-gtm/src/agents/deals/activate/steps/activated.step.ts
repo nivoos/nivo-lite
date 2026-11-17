@@ -1,7 +1,7 @@
 import { NodeWait, take } from "@starci/nivoos-sdk"
 import type { State, Answer } from "../activate.workflow.ts"
 import { Done } from "./done.step.ts"
-import { ParkLate } from "./park-late.step.ts"
+import { Late } from "./late.step.ts"
 
 /** The activator answers within a day. */
 export class Activated extends NodeWait<typeof State> {
@@ -10,5 +10,5 @@ export class Activated extends NodeWait<typeof State> {
     ]
     override readonly timeout = { hours: 24 }
     override readonly next = Done
-    override readonly onTimeout = ParkLate
+    override readonly onTimeout = Late
 }

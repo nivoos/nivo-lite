@@ -17,7 +17,7 @@ export const FileSlotsOutput = z.strictObject({
     reviewBy: z.string(),
     secondReviewBy: z.string(),
 })
-/** How long a person has to approve the week before the agent nudges, and again before it parks. */
+/** How long a person has to approve the week before the agent nudges, and again before the run ends `no_review`. */
 export const FileSlotsSettings = z.strictObject({ reviewHours: z.number().int().min(1).max(240).default(24) })
 
 type In = z.infer<typeof FileSlotsInput>
@@ -32,7 +32,7 @@ const SOCIAL = "nivo-gtm.social"
  */
 export class SocialFileSlots implements Node<typeof FileSlotsInput, typeof FileSlotsOutput, typeof FileSlotsSettings> {
     readonly key = keyOf("social-file-slots")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Ghi lịch tuần", en: "File the week's slots" }
     readonly input = FileSlotsInput
     readonly output = FileSlotsOutput

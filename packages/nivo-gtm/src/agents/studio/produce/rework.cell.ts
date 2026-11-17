@@ -24,7 +24,7 @@ type Settings = z.infer<typeof ReworkSettings>
  */
 export class StudioRework implements Node<typeof ReworkInput, typeof ReworkOutput, typeof ReworkSettings> {
     readonly key = keyOf("studio-rework")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Giao lại bản sửa", en: "Hand back the fix" }
     readonly input = ReworkInput
     readonly output = ReworkOutput
@@ -41,6 +41,6 @@ export class StudioRework implements Node<typeof ReworkInput, typeof ReworkOutpu
         const cardText = clip(`Bản dựng ${values.code} cần sửa. Việc cần làm: ${values.nextAction ?? "xem danh sách kiểm tra trong thẻ duyệt"}.\nHạn mới: ${dueAt.slice(0, 10)}. Sửa xong thì đổi trạng thái sang cut_ready và dán liên kết bản mới vào ô Bằng chứng.`, 3000)
         const { error } = reach.call<RoomMessagePost>("room.message.post", { text: cardText })
         if (error) throw error
-        return { code: values.code, editor: values.owner ?? "", dueAt, remindAt, cardText, remindText: `Nhắc: bản sửa ${values.code} đến hạn ${dueAt.slice(0, 10)}.` }
+        return { code: values.code, editor: values.owner ?? "", dueAt, remindAt, cardText, remindText: `Nhắc: bản sửa ${values.code} đến hạn ${dueAt.slice(0, 10)}.`, overdueText: `Quá hạn sửa bản dựng ${values.code}: chưa có bản mới. Hỏi người phụ trách ${values.owner ?? ""}, gia hạn rồi chuyển trạng thái về script_ok để chạy lại khâu này.` }
     }
 }

@@ -1,7 +1,7 @@
 import { NodeWait, take } from "@starci/nivoos-sdk"
 import type { State, Answer } from "../quote.workflow.ts"
 import { OwnerOk } from "./owner-ok.step.ts"
-import { ParkOwner } from "./park-owner.step.ts"
+import { OwnerSilent } from "./owner-silent.step.ts"
 
 /** The owner decides the discount within a day. */
 export class OwnerAnswer extends NodeWait<typeof State> {
@@ -10,5 +10,5 @@ export class OwnerAnswer extends NodeWait<typeof State> {
     ]
     override readonly timeout = { hours: 24 }
     override readonly next = OwnerOk
-    override readonly onTimeout = ParkOwner
+    override readonly onTimeout = OwnerSilent
 }

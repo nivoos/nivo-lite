@@ -15,7 +15,7 @@ type Out = z.infer<typeof SendLineOutput>
  */
 export class SendConfirm implements Node<typeof SendConfirmInput, typeof SendLineOutput> {
     readonly key = keyOf("leads-send-confirm")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Xác nhận lịch demo với khách", en: "Confirm the demo to the lead" }
     readonly input = SendConfirmInput
     readonly output = SendLineOutput
@@ -26,7 +26,7 @@ export class SendConfirm implements Node<typeof SendConfirmInput, typeof SendLin
         const where = input.link === "" ? "Bên mình sẽ gửi link tham gia trước giờ hẹn." : `Link tham gia: ${input.link}`
         const text = `Dạ NIVO xác nhận lịch demo của bạn: ${input.label} (giờ Việt Nam). ${where} Hẹn gặp bạn ạ!`
         const { error } = reach.call<ContactMessageSend>("contact_message.send", { provider: "telegram", to: chatIdOf(input.to), text })
-        if (error) return { sent: false, refusal: error.code }
-        return { sent: true, refusal: "" }
+        if (error) throw error
+        return {}
     }
 }

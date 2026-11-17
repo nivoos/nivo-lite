@@ -1,6 +1,6 @@
 import { NodeWait, ObjectFieldChanged, take, type ObjectFieldChangedItem, type StateOf } from "@starci/nivoos-sdk"
 import { RecordCut } from "./record-cut.step.ts"
-import { MarkParked } from "./mark-parked.step.ts"
+import { Overdue } from "./overdue.step.ts"
 import type { State } from "../produce.workflow.ts"
 
 export class WaitCutDue extends NodeWait<typeof State> {
@@ -13,5 +13,5 @@ export class WaitCutDue extends NodeWait<typeof State> {
     ]
     override readonly timeout = (s: StateOf<typeof State>) => new Date(Date.parse(s.assigned?.dueAt ?? ""))
     override readonly next = RecordCut
-    override readonly onTimeout = MarkParked
+    override readonly onTimeout = Overdue
 }

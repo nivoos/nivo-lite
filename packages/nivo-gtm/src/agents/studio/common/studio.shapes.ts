@@ -49,5 +49,5 @@ export const RoomAnswer = z.strictObject({
 /** The `{ objectId }` a start wait keeps of the object write that opened the run. */
 export const Changed = z.strictObject({ objectId: z.string().min(1) })
 
-/** What a card cell hands to the shared `PostCard` step: the words and the choices. */
+/** What a card cell hands to the `ask-team` step: the words and the choices. */
 export const CardParts = z.strictObject({ cardText: z.string().min(1).max(3000), choices: z.array(Choice).max(6) })

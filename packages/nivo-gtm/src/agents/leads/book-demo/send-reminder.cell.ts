@@ -11,7 +11,7 @@ type Out = z.infer<typeof SendLineOutput>
 /** Reminds the lead of the demo shortly before it: one act, `contact_message.send` on Telegram, fixed words. The step runs in `ask` mode. */
 export class SendReminder implements Node<typeof SendConfirmInput, typeof SendLineOutput> {
     readonly key = keyOf("leads-send-reminder")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Nhắc khách lịch demo", en: "Remind the lead of the demo" }
     readonly input = SendConfirmInput
     readonly output = SendLineOutput
@@ -22,7 +22,7 @@ export class SendReminder implements Node<typeof SendConfirmInput, typeof SendLi
         const where = input.link === "" ? "" : ` Link tham gia: ${input.link}`
         const text = `Dạ NIVO nhắc bạn: sắp đến giờ demo lúc ${input.label} (giờ Việt Nam).${where} Hẹn gặp bạn ạ!`
         const { error } = reach.call<ContactMessageSend>("contact_message.send", { provider: "telegram", to: chatIdOf(input.to), text })
-        if (error) return { sent: false, refusal: error.code }
-        return { sent: true, refusal: "" }
+        if (error) throw error
+        return {}
     }
 }

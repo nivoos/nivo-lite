@@ -7,7 +7,7 @@ import { ReadBriefOutput } from "./read-brief.cell.ts"
 
 export const ReviseInput = z.strictObject({ brief: ReadBriefOutput, previous: ScriptDraft })
 export const ReviseOutput = ScriptDraft
-/** How many times a person may ask for a rewrite before the item is parked, and the length of the video. */
+/** How many times a person may ask for a rewrite before the run ends `revision_limit`, and the length of the video. */
 export const ReviseSettings = z.strictObject({
     maxRevisions: z.number().int().min(0).max(10).default(3),
     videoSeconds: z.number().int().min(10).max(180).default(45),
@@ -22,12 +22,12 @@ const GOAL =
     "the same facts. Keep the same members as `previous` and set `ok` true; `revision` is the number given in `revision`."
 
 /**
- * `nivo-gtm.studio-revise` (Viết lại kịch bản): ONE generation of the next version when the person pressed Sửa. At `maxRevisions` it asks the model nothing and answers `ok: false`, so the workflow parks the item.
+ * `nivo-gtm.studio-revise` (Viết lại kịch bản): ONE generation of the next version when the person pressed Sửa. At `maxRevisions` it asks the model nothing and answers `ok: false`, so the workflow ends `revision_limit`.
  * (The review card carries no free-text note yet: the rewrite is a generic tightening, see the gaps.)
  */
 export class StudioRevise implements Node<typeof ReviseInput, typeof ReviseOutput, typeof ReviseSettings> {
     readonly key = keyOf("studio-revise")
-    readonly version = 1
+    readonly version = 2
     readonly title = { vi: "Viết lại kịch bản", en: "Rewrite the script" }
     readonly input = ReviseInput
     readonly output = ReviseOutput

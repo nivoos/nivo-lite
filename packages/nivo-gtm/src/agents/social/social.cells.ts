@@ -1,5 +1,5 @@
 // The cells of the Social agent: the one list the package entry spreads (`...SOCIAL_CELLS`), so the entry takes one line for the whole agent.
-import { SocialMarkParked } from "./common/mark-parked.cell.ts"
+import { SocialAskTeam } from "./common/ask-team.cell.ts"
 import { SocialCalendarRead } from "./calendar-round/read.cell.ts"
 import { SocialPlan } from "./calendar-round/plan.cell.ts"
 import { SocialFileSlots } from "./calendar-round/file-slots.cell.ts"
@@ -14,7 +14,6 @@ import { SocialEmitApproved } from "./post-draft/emit-approved.cell.ts"
 import { SocialPublishOpen } from "./publish/open.cell.ts"
 import { SocialFinalCheck } from "./publish/final-check.cell.ts"
 import { SocialSend } from "./publish/send.cell.ts"
-import { SocialRetry } from "./publish/retry.cell.ts"
 import { SocialRecord } from "./publish/record.cell.ts"
 import { SocialMarkContentPublished } from "./publish/mark-content.cell.ts"
 import { SocialEmitPublished } from "./publish/emit-published.cell.ts"
@@ -28,7 +27,7 @@ import { SocialReport } from "./performance-round/report.cell.ts"
 import { SocialKpiSheet } from "./performance-round/sheet.cell.ts"
 
 export const SOCIAL_CELLS = [
-    SocialMarkParked,
+    SocialAskTeam,
     SocialCalendarRead,
     SocialPlan,
     SocialFileSlots,
@@ -43,7 +42,6 @@ export const SOCIAL_CELLS = [
     SocialPublishOpen,
     SocialFinalCheck,
     SocialSend,
-    SocialRetry,
     SocialRecord,
     SocialMarkContentPublished,
     SocialEmitPublished,

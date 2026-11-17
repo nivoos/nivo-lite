@@ -1,6 +1,6 @@
 import { z } from "zod"
 import type { Workflow } from "@starci/nivoos-sdk"
-import { PostCardOutput } from "../../../common/recover/post-card.cell.ts"
+import { AskTeamOutput } from "../common/ask-team.cell.ts"
 import { PullOutput } from "./pull.cell.ts"
 import { SaveMetricsOutput } from "./save-metrics.cell.ts"
 import { ReportOutput } from "./report.cell.ts"
@@ -21,7 +21,7 @@ export const State = z.strictObject({
     pull: PullOutput.optional(),
     saved: SaveMetricsOutput.optional(),
     report: ReportOutput.optional(),
-    posted: PostCardOutput.optional(),
+    posted: AskTeamOutput.optional(),
     sheet: SheetOutput.optional(),
 })
 
@@ -31,7 +31,7 @@ export const State = z.strictObject({
  */
 export class PerformanceRound implements Workflow<typeof State> {
     readonly key = keyOf("social-performance-round")
-    readonly version = 1
+    readonly version = 2
     readonly title = {"vi":"Đo hiệu quả","en":"Performance round"}
     readonly state = State
     readonly start = Tick

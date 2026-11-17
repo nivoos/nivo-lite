@@ -4,7 +4,7 @@ import { Lead } from "../../../objects/lead.object.ts"
 import { keyOf } from "../../../package-key.ts"
 
 export const CountFollowUpInput = z.strictObject({ leadId: z.string().min(1).max(80), nextDueMs: z.number().int().nonnegative() })
-export const CountFollowUpOutput = z.strictObject({ leadId: z.string(), followUps: z.number().int().nonnegative(), refusal: z.string().max(80) })
+export const CountFollowUpOutput = z.strictObject({ leadId: z.string(), followUps: z.number().int().nonnegative() })
 
 type In = z.infer<typeof CountFollowUpInput>
 type Out = z.infer<typeof CountFollowUpOutput>
@@ -15,7 +15,7 @@ type Out = z.infer<typeof CountFollowUpOutput>
  */
 export class CountFollowUp implements Node<typeof CountFollowUpInput, typeof CountFollowUpOutput> {
     readonly key = keyOf("leads-count-follow-up")
-    readonly version = 2
+    readonly version = 3
     readonly title = { vi: "Ghi nhận đã nhắn lại", en: "Count the follow-up" }
     readonly input = CountFollowUpInput
     readonly output = CountFollowUpOutput
@@ -24,7 +24,7 @@ export class CountFollowUp implements Node<typeof CountFollowUpInput, typeof Cou
 
     run(input: In, reach: NodeReach): Out {
         const got = reach.objects(Lead).get(input.leadId as NivoRef<Lead>)
-        if (got.error) return { leadId: input.leadId, followUps: 0, refusal: got.error.code }
+        if (got.error) throw got.error
         const lead = got.result
         const count = (lead.values.followUps ?? 0) + 1
         const now = reach.facts.at
@@ -34,7 +34,7 @@ export class CountFollowUp implements Node<typeof CountFollowUpInput, typeof Cou
             version: lead.version,
             values: { followUps: count, lastContactAt: now, nextAction: `Chờ khách phản hồi (đã nhắn lại ${count} lần)`, nextAt: new Date(dueMs).toISOString() },
         })
-        if (error) return { leadId: input.leadId, followUps: 0, refusal: error.code }
-        return { leadId: result.id, followUps: count, refusal: "" }
+        if (error) throw error
+        return { leadId: result.id, followUps: count }
     }
 }

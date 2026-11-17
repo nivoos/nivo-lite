@@ -1,5 +1,5 @@
 // The cells of the Studio agent: the one list the package entry spreads (`...STUDIO_CELLS`), so the entry takes one line for the whole agent.
-import { StudioMarkParked } from "./common/mark-parked.cell.ts"
+import { StudioAskTeam } from "./common/ask-team.cell.ts"
 import { StudioFileIdeas } from "./idea-round/file-ideas.cell.ts"
 import { StudioIdeas } from "./idea-round/ideas.cell.ts"
 import { StudioReadContext } from "./idea-round/read-context.cell.ts"
@@ -23,7 +23,7 @@ import { StudioRevise } from "./script/revise.cell.ts"
 import { StudioSaveScript } from "./script/save-script.cell.ts"
 
 export const STUDIO_CELLS = [
-    StudioMarkParked,
+    StudioAskTeam,
     StudioReadContext,
     StudioIdeas,
     StudioFileIdeas,
