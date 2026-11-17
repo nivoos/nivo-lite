@@ -10,7 +10,7 @@ export const PUBLICATION_STATUSES = ["planned", "scheduled", "published", "faile
 @NivoObjectType({ key: "gtm.publication", title: { vi: "Lượt đăng", en: "Publication" } })
 export class Publication {
     @NivoRelation(() => Content, { title: { vi: "Nội dung", en: "Content" } }) content!: NivoRef<Content>
-    @NivoField(z.string().min(1).max(120), { unique: true, indexed: true, title: { vi: "Khóa lượt đăng", en: "Slot key" } }) slotKey!: string
+    @NivoField(z.string().min(1).max(120).optional(), { unique: true, indexed: true, title: { vi: "Khóa lượt đăng", en: "Slot key" } }) slotKey?: string
     @NivoField(z.enum(PUBLICATION_CHANNELS), { indexed: true, title: { vi: "Kênh", en: "Channel" } }) channel!: (typeof PUBLICATION_CHANNELS)[number]
     @NivoField(z.enum(PUBLICATION_STATUSES), { indexed: true, title: { vi: "Trạng thái", en: "Status" } }) status!: (typeof PUBLICATION_STATUSES)[number]
     @NivoField(nivoDateTime().optional(), { indexed: true, title: { vi: "Giờ đăng", en: "At" } }) at?: string

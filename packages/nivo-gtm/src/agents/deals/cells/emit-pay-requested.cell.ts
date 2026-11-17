@@ -7,8 +7,8 @@ export const EmitPayRequestedInput = z.strictObject({
     dealId: z.string().min(1),
     payCode: z.string().regex(/^[A-Z]{2,5}[0-9]{4,12}$/u),
     amount: z.number().int().min(0),
-    /** 1 for the first watch, 2 for the one after the reminder: part of the event key. */
-    round: z.number().int().min(1).max(5),
+    /** The round of the watch that ran before this one; absent for the first. The round of this watch is the next one: part of the event key. */
+    after: z.number().int().min(1).max(4).optional(),
 })
 export const EmitPayRequestedOutput = z.strictObject({ requested: z.literal(true), round: z.number().int() })
 
@@ -29,13 +29,14 @@ export class EmitPayRequested implements Node<typeof EmitPayRequestedInput, type
     readonly mutation = "events.emit"
 
     run(input: In, reach: NodeReach): Out {
+        const round = (input.after ?? 0) + 1
         const { error } = reach.emit<typeof PayRequested>("nivo-gtm.pay.requested", {
             subject: { kind: "order", id: input.payCode },
             data: { dealId: input.dealId, payCode: input.payCode, amount: input.amount },
-            key: `pay:${input.payCode}:${String(input.round)}`,
+            key: `pay:${input.payCode}:${String(round)}`,
             link: true,
         })
         if (error) throw error
-        return { requested: true, round: input.round }
+        return { requested: true, round }
     }
 }

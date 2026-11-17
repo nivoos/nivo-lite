@@ -528,7 +528,7 @@
     {
       "kind": "node",
       "key": "nivo-gtm.ask-owner",
-      "version": 1,
+      "version": 2,
       "title": {
         "vi": "Hỏi chủ về giảm giá",
         "en": "Ask the owner about the discount"
@@ -585,10 +585,17 @@
             "default": "",
             "type": "string",
             "maxLength": 80
+          },
+          "answerHours": {
+            "default": 24,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 720
           }
         },
         "required": [
-          "owner"
+          "owner",
+          "answerHours"
         ],
         "additionalProperties": false
       },
@@ -816,7 +823,7 @@
     {
       "kind": "node",
       "key": "nivo-gtm.emit-pay-requested",
-      "version": 1,
+      "version": 2,
       "title": {
         "vi": "Mở theo dõi thanh toán",
         "en": "Start watching the payment"
@@ -837,17 +844,16 @@
             "minimum": 0,
             "maximum": 9007199254740991
           },
-          "round": {
+          "after": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 5
+            "maximum": 4
           }
         },
         "required": [
           "dealId",
           "payCode",
-          "amount",
-          "round"
+          "amount"
         ],
         "additionalProperties": false
       },
@@ -857,10 +863,16 @@
           "requested": {
             "type": "boolean",
             "const": true
+          },
+          "round": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
           }
         },
         "required": [
-          "requested"
+          "requested",
+          "round"
         ],
         "additionalProperties": false
       },
@@ -875,8 +887,8 @@
         "mutation": "events.emit"
       },
       "source": {
-        "text": "/**\n * `nivo-gtm.emit-pay-requested` (Mở theo dõi thanh toán): ONE act, `events.emit` of `PayRequested` on the subject `order:<payCode>` with `link: true`, so the watch run it opens is a CHILD of this run (the subject\n * is the one SePay's `sepay.payment.paid` names, so the watch takes the transfer) and its end comes back as `Ended`.\n */\nclass EmitPayRequested {\n    run(input, reach) {\n        const { error } = reach.emit(\"nivo-gtm.pay.requested\", {\n            subject: { kind: \"order\", id: input.payCode },\n            data: { dealId: input.dealId, payCode: input.payCode, amount: input.amount },\n            key: `pay:${input.payCode}:${String(input.round)}`,\n            link: true,\n        });\n        if (error)\n            throw error;\n        return { requested: true };\n    }\n}\n\nEmitPayRequested;\n",
-        "sha256": "76e27694892532cdf4cf094ff6dfbb61ce307ae1a2e3668411a08d52d449e9f7",
+        "text": "/**\n * `nivo-gtm.emit-pay-requested` (Mở theo dõi thanh toán): ONE act, `events.emit` of `PayRequested` on the subject `order:<payCode>` with `link: true`, so the watch run it opens is a CHILD of this run (the subject\n * is the one SePay's `sepay.payment.paid` names, so the watch takes the transfer) and its end comes back as `Ended`.\n */\nclass EmitPayRequested {\n    run(input, reach) {\n        const round = (input.after ?? 0) + 1;\n        const { error } = reach.emit(\"nivo-gtm.pay.requested\", {\n            subject: { kind: \"order\", id: input.payCode },\n            data: { dealId: input.dealId, payCode: input.payCode, amount: input.amount },\n            key: `pay:${input.payCode}:${String(round)}`,\n            link: true,\n        });\n        if (error)\n            throw error;\n        return { requested: true, round };\n    }\n}\n\nEmitPayRequested;\n",
+        "sha256": "2ad123177b0f384595f642fb16ee5aeceeda0dba49dcff28b0f2925c91563e2a",
         "origin": "nivo-gtm:agents/deals/cells/emit-pay-requested.cell.ts"
       }
     },
@@ -3824,7 +3836,7 @@
     {
       "kind": "node",
       "key": "nivo-gtm.open-deal",
-      "version": 1,
+      "version": 2,
       "title": {
         "vi": "Mở đơn bán",
         "en": "Open the deal"
@@ -3907,19 +3919,21 @@
         "kind": "node",
         "model": null,
         "blocking": false,
-        "reads": [],
+        "reads": [
+          "object.count"
+        ],
         "mutation": "object.create"
       },
       "source": {
-        "text": "// Small pure helpers the cells inline (the compiler copies each helper a cell references into its stored text). No package import here: a stored cell imports nothing.\n/** An ISO instant `hours` after `at` (an ISO instant). */\nconst plusHours = (at, hours) => new Date(Date.parse(at) + hours * 3600000).toISOString();\n\n/** Eight digits from a seed text (FNV-1a): the digits of a deal's pay code, the same for the same seed. */\nconst digitsOf = (seed) => {\n    let hash = 2166136261;\n    for (let index = 0; index < seed.length; index += 1) {\n        hash ^= seed.charCodeAt(index);\n        hash = Math.imul(hash, 16777619);\n    }\n    return String((hash >>> 0) % 100000000).padStart(8, \"0\");\n};\n\n/**\n * `nivo-gtm.open-deal` (Mở đơn bán): one act, `object.create` of the `gtm.deal` (status `proposal`) after a demo. The deal code is eight digits made from the lead and the demo (the same demo makes the\n * same code, so a repeat is refused by the unique code, not doubled); the owner is the next sales person in turn from the setting `salesPeople`; the next action is to quote within `quoteWithinHours`.\n */\nclass OpenDeal {\n    run(input, reach) {\n        const code = digitsOf(`${input.leadId}:${input.demoId}`);\n        const people = reach.settings.salesPeople;\n        const owner = people[Number(code) % people.length] ?? \"\";\n        const { result, error } = reach.objects(\"gtm.deal\").create({\n            code,\n            lead: input.leadId,\n            status: \"proposal\",\n            ...(input.suggestedPlan === \"\" ? {} : { plan: input.suggestedPlan }),\n            owner,\n            nextAction: \"Báo giá cho khách\",\n            nextAt: plusHours(reach.facts.at, reach.settings.quoteWithinHours),\n            evidence: `demo:${input.demoId}`,\n        });\n        if (error)\n            throw error;\n        return { dealId: result.id, code, owner };\n    }\n}\n\nOpenDeal;\n",
-        "sha256": "07f4160eb7270fafcc22bd857956d2bb0bb3307a65cfea14e1491e4a4cfd9ab3",
+        "text": "// Small pure helpers the cells inline (the compiler copies each helper a cell references into its stored text). No package import here: a stored cell imports nothing.\n/** An ISO instant `hours` after `at` (an ISO instant). */\nconst plusHours = (at, hours) => new Date(Date.parse(at) + hours * 3600000).toISOString();\n\n/**\n * `nivo-gtm.open-deal` (Mở đơn bán): one act, `object.create` (an upsert on `demoRef`) of the `gtm.deal` (status `proposal`) after a demo. The engine issues the deal code (the pay code), and the same demo finds the same deal,\n * so a repeat is never a second one. The owner is the next sales person in turn from the setting `salesPeople` (the turn is the number of deals so far); the next action is to quote within `quoteWithinHours`.\n */\nclass OpenDeal {\n    run(input, reach) {\n        const people = reach.settings.salesPeople;\n        const deals = reach.objects(\"gtm.deal\").count();\n        if (deals.error)\n            throw deals.error;\n        const owner = people[deals.result.count % people.length] ?? \"\";\n        const { result, error } = reach.objects(\"gtm.deal\").create({\n            demoRef: input.demoId,\n            lead: input.leadId,\n            status: \"proposal\",\n            ...(input.suggestedPlan === \"\" ? {} : { plan: input.suggestedPlan }),\n            owner,\n            nextAction: \"Báo giá cho khách\",\n            nextAt: plusHours(reach.facts.at, reach.settings.quoteWithinHours),\n            evidence: `demo:${input.demoId}`,\n        }, { upsert: true });\n        if (error)\n            throw error;\n        return { dealId: result.id, code: result.values.code, owner: result.values.owner ?? owner };\n    }\n}\n\nOpenDeal;\n",
+        "sha256": "46a1651300a5eeab1bcd18f22c353047fa7000c42c3753add1ac91dcaf88aa1f",
         "origin": "nivo-gtm:agents/deals/cells/open-deal.cell.ts"
       }
     },
     {
       "kind": "node",
       "key": "nivo-gtm.post-brief",
-      "version": 1,
+      "version": 2,
       "title": {
         "vi": "Đăng bàn giao lên phòng bán hàng",
         "en": "Post the hand-over to the sales room"
@@ -3976,6 +3990,21 @@
         "required": [
           "messageId",
           "roomId"
+        ],
+        "additionalProperties": false
+      },
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "answerHours": {
+            "default": 24,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 720
+          }
+        },
+        "required": [
+          "answerHours"
         ],
         "additionalProperties": false
       },
@@ -4318,7 +4347,7 @@
     {
       "kind": "node",
       "key": "nivo-gtm.read-deal",
-      "version": 1,
+      "version": 2,
       "title": {
         "vi": "Đọc đơn bán",
         "en": "Read the deal"
@@ -4417,15 +4446,15 @@
         "mutation": null
       },
       "source": {
-        "text": "/** `nivo-gtm.read-deal` (Đọc đơn bán): reads the deal and its lead into one flat answer (the pay code is `NIVO` + the deal's digits). Read-only: no act. */\nclass ReadDeal {\n    run(input, reach) {\n        const deal = reach.objects(\"gtm.deal\").get(input.dealId);\n        if (deal.error)\n            throw deal.error;\n        const values = deal.result.values;\n        const lead = reach.objects(\"gtm.lead\").get(values.lead);\n        if (lead.error)\n            throw lead.error;\n        return {\n            dealId: input.dealId,\n            version: deal.result.version,\n            code: values.code,\n            status: values.status,\n            plan: values.plan ?? \"\",\n            months: values.months ?? 0,\n            creditPack: values.creditPack ?? \"\",\n            discountPercent: values.discountPercent ?? 0,\n            amount: values.amount ?? 0,\n            payCode: `NIVO${values.code}`,\n            leadId: String(values.lead),\n            leadName: lead.result.values.name ?? \"\",\n            channel: lead.result.values.channel ?? \"\",\n            chatRef: lead.result.values.chatRef ?? \"\",\n        };\n    }\n}\n\nReadDeal;\n",
-        "sha256": "b69f0bd006beef7e763189274c7e2eb3faf7b887895643742405da215c2ffa55",
+        "text": "/** `nivo-gtm.read-deal` (Đọc đơn bán): reads the deal and its lead into one flat answer (the pay code is the deal's code, which the engine issued). Read-only: no act. */\nclass ReadDeal {\n    run(input, reach) {\n        const deal = reach.objects(\"gtm.deal\").get(input.dealId);\n        if (deal.error)\n            throw deal.error;\n        const values = deal.result.values;\n        const lead = reach.objects(\"gtm.lead\").get(values.lead);\n        if (lead.error)\n            throw lead.error;\n        return {\n            dealId: input.dealId,\n            version: deal.result.version,\n            code: values.code,\n            status: values.status,\n            plan: values.plan ?? \"\",\n            months: values.months ?? 0,\n            creditPack: values.creditPack ?? \"\",\n            discountPercent: values.discountPercent ?? 0,\n            amount: values.amount ?? 0,\n            payCode: values.code,\n            leadId: String(values.lead),\n            leadName: lead.result.values.name ?? \"\",\n            channel: lead.result.values.channel ?? \"\",\n            chatRef: lead.result.values.chatRef ?? \"\",\n        };\n    }\n}\n\nReadDeal;\n",
+        "sha256": "06f3d766403b2d530721fd0cfb871de1a2e8b3ad259dd226fbc4b84032a03662",
         "origin": "nivo-gtm:agents/deals/cells/read-deal.cell.ts"
       }
     },
     {
       "kind": "node",
       "key": "nivo-gtm.request-activation",
-      "version": 1,
+      "version": 2,
       "title": {
         "vi": "Nhờ người kích hoạt gói",
         "en": "Ask a person to activate the plan"
@@ -4487,10 +4516,17 @@
             "default": "Minh Trần",
             "type": "string",
             "maxLength": 80
+          },
+          "answerHours": {
+            "default": 24,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 720
           }
         },
         "required": [
-          "activator"
+          "activator",
+          "answerHours"
         ],
         "additionalProperties": false
       },
@@ -10703,7 +10739,7 @@
     {
       "kind": "node",
       "key": "nivo-gtm.update-deal",
-      "version": 1,
+      "version": 2,
       "title": {
         "vi": "Cập nhật đơn bán",
         "en": "Update the deal"
@@ -10749,10 +10785,14 @@
             "type": "string",
             "maxLength": 300
           },
-          "nextInHours": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 8760
+          "due": {
+            "type": "string",
+            "enum": [
+              "quote_follow_up",
+              "payment",
+              "activation",
+              "care"
+            ]
           },
           "evidence": {
             "type": "string",
@@ -10787,6 +10827,42 @@
         ],
         "additionalProperties": false
       },
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "quoteFollowUpHours": {
+            "default": 48,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8760
+          },
+          "unpaidHours": {
+            "default": 72,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8760
+          },
+          "activationHours": {
+            "default": 24,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8760
+          },
+          "careHours": {
+            "default": 168,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8760
+          }
+        },
+        "required": [
+          "quoteFollowUpHours",
+          "unpaidHours",
+          "activationHours",
+          "careHours"
+        ],
+        "additionalProperties": false
+      },
       "semantics": {
         "mutates": true
       },
@@ -10800,8 +10876,8 @@
         "mutation": "object.update"
       },
       "source": {
-        "text": "// Small pure helpers the cells inline (the compiler copies each helper a cell references into its stored text). No package import here: a stored cell imports nothing.\n/** An ISO instant `hours` after `at` (an ISO instant). */\nconst plusHours = (at, hours) => new Date(Date.parse(at) + hours * 3600000).toISOString();\n\n/**\n * `nivo-gtm.update-deal` (Cập nhật đơn bán): ONE act, `object.update` of the `gtm.deal`: a status, the money fields, the responsibility fields (next action, due time, evidence) and, on request, the time\n * of payment or activation. It reads the deal first for the version it updates against. Every status change of a deal in this package goes through this cell.\n */\nclass UpdateDeal {\n    run(input, reach) {\n        const deal = reach.objects(\"gtm.deal\").get(input.dealId);\n        if (deal.error)\n            throw deal.error;\n        const { result, error } = reach.objects(\"gtm.deal\").update({\n            id: input.dealId,\n            version: deal.result.version,\n            values: {\n                ...(input.status === undefined ? {} : { status: input.status }),\n                ...(input.amount === undefined ? {} : { amount: input.amount }),\n                ...(input.discountPercent === undefined ? {} : { discountPercent: input.discountPercent }),\n                ...(input.payCode === undefined ? {} : { payCode: input.payCode }),\n                ...(input.sepayRef === undefined ? {} : { sepayRef: input.sepayRef }),\n                ...(input.nextAction === undefined ? {} : { nextAction: input.nextAction }),\n                ...(input.nextInHours === undefined ? {} : { nextAt: plusHours(reach.facts.at, input.nextInHours) }),\n                ...(input.evidence === undefined ? {} : { evidence: input.evidence }),\n                ...(input.stamp === \"paid\" ? { paidAt: reach.facts.at } : {}),\n                ...(input.stamp === \"activated\" ? { activatedAt: reach.facts.at } : {}),\n            },\n        });\n        if (error)\n            throw error;\n        return { version: result.version };\n    }\n}\n\nUpdateDeal;\n",
-        "sha256": "512f17a4bb4a0afdfbf3c47e58789ada8ab9fdb32c45475e00c7dfe9fa6a398c",
+        "text": "// Small pure helpers the cells inline (the compiler copies each helper a cell references into its stored text). No package import here: a stored cell imports nothing.\n/** An ISO instant `hours` after `at` (an ISO instant). */\nconst plusHours = (at, hours) => new Date(Date.parse(at) + hours * 3600000).toISOString();\n\nconst DUE_HOURS = (settings, due) => due === \"quote_follow_up\" ? settings.quoteFollowUpHours : due === \"payment\" ? settings.unpaidHours : due === \"activation\" ? settings.activationHours : settings.careHours;\n\n/**\n * `nivo-gtm.update-deal` (Cập nhật đơn bán): ONE act, `object.update` of the `gtm.deal`: a status, the money fields, the responsibility fields (next action, due time, evidence) and, on request, the time\n * of payment or activation. It reads the deal first for the version it updates against. Every status change of a deal in this package goes through this cell.\n */\nclass UpdateDeal {\n    run(input, reach) {\n        const deal = reach.objects(\"gtm.deal\").get(input.dealId);\n        if (deal.error)\n            throw deal.error;\n        const { result, error } = reach.objects(\"gtm.deal\").update({\n            id: input.dealId,\n            version: deal.result.version,\n            values: {\n                ...(input.status === undefined ? {} : { status: input.status }),\n                ...(input.amount === undefined ? {} : { amount: input.amount }),\n                ...(input.discountPercent === undefined ? {} : { discountPercent: input.discountPercent }),\n                ...(input.payCode === undefined ? {} : { payCode: input.payCode }),\n                ...(input.sepayRef === undefined ? {} : { sepayRef: input.sepayRef }),\n                ...(input.nextAction === undefined ? {} : { nextAction: input.nextAction }),\n                ...(input.due === undefined ? {} : { nextAt: plusHours(reach.facts.at, DUE_HOURS(reach.settings, input.due)) }),\n                ...(input.evidence === undefined ? {} : { evidence: input.evidence }),\n                ...(input.stamp === \"paid\" ? { paidAt: reach.facts.at } : {}),\n                ...(input.stamp === \"activated\" ? { activatedAt: reach.facts.at } : {}),\n            },\n        });\n        if (error)\n            throw error;\n        return { version: result.version };\n    }\n}\n\nUpdateDeal;\n",
+        "sha256": "191ccc5dcb6286a8df93e25b0bb80bb4d347fcd663f986fee8ee0885e12b018a",
         "origin": "nivo-gtm:agents/deals/cells/update-deal.cell.ts"
       }
     },
@@ -10887,7 +10963,7 @@
   "graphs": [
     {
       "key": "nivo-gtm.deals-activate",
-      "version": 2,
+      "version": 3,
       "title": {
         "vi": "Kích hoạt gói",
         "en": "Activate the plan"
@@ -11134,7 +11210,7 @@
             "cell": {
               "kind": "node",
               "key": "nivo-gtm.read-deal",
-              "version": 1
+              "version": 2
             },
             "input": {
               "dealId": {
@@ -11151,7 +11227,7 @@
             "cell": {
               "kind": "node",
               "key": "nivo-gtm.request-activation",
-              "version": 1
+              "version": 2
             },
             "input": {
               "code": {
@@ -11184,8 +11260,14 @@
                   "source": "(s, answers) => {\n    const [first] = answers;\n    if (first !== undefined)\n        s.answer = first;\n}"
                 }
               ],
-              "timeout": {
-                "hours": 24
+              "timeoutFrom": {
+                "cell": {
+                  "kind": "node",
+                  "key": "nivo-gtm.request-activation",
+                  "version": 2
+                },
+                "key": "answerHours",
+                "unit": "hours"
               },
               "next": "done",
               "onTimeout": "late"
@@ -11208,7 +11290,7 @@
             "cell": {
               "kind": "node",
               "key": "nivo-gtm.update-deal",
-              "version": 1
+              "version": 2
             },
             "input": {
               "dealId": {
@@ -11216,7 +11298,7 @@
               },
               "status": "activated",
               "nextAction": "Chăm sóc khách mới",
-              "nextInHours": 168,
+              "due": "care",
               "evidence": {
                 "$ref": "state.answer.memberId"
               },
@@ -11309,7 +11391,7 @@
     },
     {
       "key": "nivo-gtm.deals-handover",
-      "version": 1,
+      "version": 2,
       "title": {
         "vi": "Bàn giao sau demo",
         "en": "Hand-over after the demo"
@@ -11533,7 +11615,7 @@
             "cell": {
               "kind": "node",
               "key": "nivo-gtm.open-deal",
-              "version": 1
+              "version": 2
             },
             "input": {
               "leadId": {
@@ -11556,7 +11638,7 @@
             "cell": {
               "kind": "node",
               "key": "nivo-gtm.post-brief",
-              "version": 1
+              "version": 2
             },
             "input": {
               "code": {
@@ -11592,8 +11674,14 @@
                   "source": "(s, answers) => {\n    const [first] = answers;\n    if (first !== undefined)\n        s.answer = first;\n}"
                 }
               ],
-              "timeout": {
-                "hours": 24
+              "timeoutFrom": {
+                "cell": {
+                  "kind": "node",
+                  "key": "nivo-gtm.post-brief",
+                  "version": 2
+                },
+                "key": "answerHours",
+                "unit": "hours"
               },
               "next": "wants",
               "onTimeout": "waiting"
@@ -11837,7 +11925,7 @@
     },
     {
       "key": "nivo-gtm.deals-pay",
-      "version": 2,
+      "version": 3,
       "title": {
         "vi": "Thu tiền",
         "en": "Collect the payment"
@@ -11975,17 +12063,23 @@
             },
             "merge": "replace"
           },
-          "watch1": {
+          "watched": {
             "schema": {
               "type": "object",
               "properties": {
                 "requested": {
                   "type": "boolean",
                   "const": true
+                },
+                "round": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
                 }
               },
               "required": [
-                "requested"
+                "requested",
+                "round"
               ],
               "additionalProperties": false
             },
@@ -12034,22 +12128,6 @@
               "required": [
                 "channel",
                 "to"
-              ],
-              "additionalProperties": false
-            },
-            "merge": "replace"
-          },
-          "watch2": {
-            "schema": {
-              "type": "object",
-              "properties": {
-                "requested": {
-                  "type": "boolean",
-                  "const": true
-                }
-              },
-              "required": [
-                "requested"
               ],
               "additionalProperties": false
             },
@@ -12136,7 +12214,7 @@
             "cell": {
               "kind": "node",
               "key": "nivo-gtm.read-deal",
-              "version": 1
+              "version": 2
             },
             "input": {
               "dealId": {
@@ -12153,7 +12231,7 @@
             "cell": {
               "kind": "node",
               "key": "nivo-gtm.update-deal",
-              "version": 1
+              "version": 2
             },
             "input": {
               "dealId": {
@@ -12164,7 +12242,7 @@
                 "$ref": "state.deal.payCode"
               },
               "nextAction": "Chờ khách chuyển khoản",
-              "nextInHours": 72,
+              "due": "payment",
               "stamp": "none"
             },
             "into": [
@@ -12200,19 +12278,19 @@
             "into": [
               "sent"
             ],
-            "next": "watch1",
+            "next": "watch",
             "onDeclined": "declined",
             "onRefused": {
               "contact_erased": "unreachable",
               "route_held": "unreachable"
             }
           },
-          "watch1": {
+          "watch": {
             "kind": "node",
             "cell": {
               "kind": "node",
               "key": "nivo-gtm.emit-pay-requested",
-              "version": 1
+              "version": 2
             },
             "input": {
               "dealId": {
@@ -12224,26 +12302,29 @@
               "amount": {
                 "$ref": "state.deal.amount"
               },
-              "round": 1
+              "after": {
+                "$ref": "state.watched.round"
+              }
             },
             "into": [
-              "watch1"
+              "watched"
             ],
-            "next": "settle1"
+            "next": "settle"
           },
-          "settle1": {
+          "settle": {
             "kind": "core.wait",
             "config": {
               "take": [
                 {
                   "trigger": "engine.run.child-ended",
-                  "source": "(s, ends) => {\n    const [first] = ends;\n    if (first === undefined)\n        return;\n    const output = first.output;\n    s.result = { reason: first.reason ?? \"\", paid: output !== null && output.paid === true, amount: output !== null && typeof output.amount === \"number\" ? output.amount : 0, transferId: output !== null && typeof output.transferId === \"string\" ? output.transferId : \"\" };\n}"
+                  "source": "(s, ends) => {\n    const [first] = ends;\n    if (first === undefined)\n        return;\n    s.result = { reason: first.reason ?? \"\", paid: first.output?.paid ?? false, amount: first.output?.amount ?? 0, transferId: first.output?.transferId ?? \"\" };\n}",
+                  "when": "(items) => items.filter((item) => item.workflow === \"nivo-gtm.deals-pay-watch\")"
                 }
               ],
-              "next": "paid1"
+              "next": "is-paid"
             }
           },
-          "paid1": {
+          "is-paid": {
             "kind": "core.if",
             "when": {
               "op": "eq",
@@ -12253,9 +12334,21 @@
               "value": true
             },
             "yes": "record-paid",
-            "no": "short1"
+            "no": "is-reminded"
           },
-          "short1": {
+          "is-reminded": {
+            "kind": "core.if",
+            "when": {
+              "op": "gte",
+              "ref": {
+                "$ref": "state.watched.round"
+              },
+              "value": 2
+            },
+            "yes": "unpaid-notice",
+            "no": "is-short"
+          },
+          "is-short": {
             "kind": "core.if",
             "when": {
               "op": "eq",
@@ -12295,67 +12388,19 @@
             "into": [
               "nudged"
             ],
-            "next": "watch2",
-            "onDeclined": "watch2",
+            "next": "watch",
+            "onDeclined": "watch",
             "onRefused": {
-              "contact_erased": "watch2",
-              "route_held": "watch2"
+              "contact_erased": "watch",
+              "route_held": "watch"
             }
-          },
-          "watch2": {
-            "kind": "node",
-            "cell": {
-              "kind": "node",
-              "key": "nivo-gtm.emit-pay-requested",
-              "version": 1
-            },
-            "input": {
-              "dealId": {
-                "$ref": "state.deal.dealId"
-              },
-              "payCode": {
-                "$ref": "state.deal.payCode"
-              },
-              "amount": {
-                "$ref": "state.deal.amount"
-              },
-              "round": 2
-            },
-            "into": [
-              "watch2"
-            ],
-            "next": "settle2"
-          },
-          "settle2": {
-            "kind": "core.wait",
-            "config": {
-              "take": [
-                {
-                  "trigger": "engine.run.child-ended",
-                  "source": "(s, ends) => {\n    const [first] = ends;\n    if (first === undefined)\n        return;\n    const output = first.output;\n    s.result = { reason: first.reason ?? \"\", paid: output !== null && output.paid === true, amount: output !== null && typeof output.amount === \"number\" ? output.amount : 0, transferId: output !== null && typeof output.transferId === \"string\" ? output.transferId : \"\" };\n}"
-                }
-              ],
-              "next": "paid2"
-            }
-          },
-          "paid2": {
-            "kind": "core.if",
-            "when": {
-              "op": "eq",
-              "ref": {
-                "$ref": "state.result.paid"
-              },
-              "value": true
-            },
-            "yes": "record-paid",
-            "no": "unpaid-notice"
           },
           "record-paid": {
             "kind": "node",
             "cell": {
               "kind": "node",
               "key": "nivo-gtm.update-deal",
-              "version": 1
+              "version": 2
             },
             "input": {
               "dealId": {
@@ -12366,7 +12411,7 @@
                 "$ref": "state.result.transferId"
               },
               "nextAction": "Kích hoạt gói cho khách",
-              "nextInHours": 24,
+              "due": "activation",
               "evidence": {
                 "$ref": "state.result.transferId"
               },
@@ -12481,7 +12526,7 @@
     },
     {
       "key": "nivo-gtm.deals-pay-watch",
-      "version": 1,
+      "version": 2,
       "title": {
         "vi": "Theo dõi thanh toán",
         "en": "Watch for the payment"
@@ -12603,8 +12648,14 @@
                   "source": "(s, payments) => {\n    const [first] = payments;\n    if (first !== undefined)\n        s.payment = first;\n}"
                 }
               ],
-              "timeout": {
-                "hours": 72
+              "timeoutFrom": {
+                "cell": {
+                  "kind": "node",
+                  "key": "nivo-gtm.update-deal",
+                  "version": 2
+                },
+                "key": "unpaidHours",
+                "unit": "hours"
               },
               "next": "check",
               "onTimeout": "expired"
@@ -12734,7 +12785,7 @@
     },
     {
       "key": "nivo-gtm.deals-quote",
-      "version": 2,
+      "version": 3,
       "title": {
         "vi": "Báo giá",
         "en": "Quote"
@@ -13033,7 +13084,7 @@
             "cell": {
               "kind": "node",
               "key": "nivo-gtm.read-deal",
-              "version": 1
+              "version": 2
             },
             "input": {
               "dealId": {
@@ -13097,7 +13148,7 @@
             "cell": {
               "kind": "node",
               "key": "nivo-gtm.ask-owner",
-              "version": 1
+              "version": 2
             },
             "input": {
               "code": {
@@ -13127,8 +13178,14 @@
                   "source": "(s, answers) => {\n    const [first] = answers;\n    if (first !== undefined)\n        s.answer = first;\n}"
                 }
               ],
-              "timeout": {
-                "hours": 24
+              "timeoutFrom": {
+                "cell": {
+                  "kind": "node",
+                  "key": "nivo-gtm.ask-owner",
+                  "version": 2
+                },
+                "key": "answerHours",
+                "unit": "hours"
               },
               "next": "owner-ok",
               "onTimeout": "owner-silent"
@@ -13188,7 +13245,7 @@
             "cell": {
               "kind": "node",
               "key": "nivo-gtm.update-deal",
-              "version": 1
+              "version": 2
             },
             "input": {
               "dealId": {
@@ -13202,7 +13259,7 @@
                 "$ref": "state.price.discountPercent"
               },
               "nextAction": "Chờ khách đồng ý, hỏi lại sau 2 ngày",
-              "nextInHours": 48,
+              "due": "quote_follow_up",
               "evidence": {
                 "$ref": "state.price.lines"
               },
@@ -20879,7 +20936,7 @@
   "agents": [
     {
       "key": "nivo-gtm.deals",
-      "version": 2,
+      "version": 3,
       "title": {
         "vi": "Chốt đơn",
         "en": "Deals"
@@ -20887,23 +20944,23 @@
       "workflows": [
         {
           "key": "nivo-gtm.deals-handover",
-          "version": 1
+          "version": 2
         },
         {
           "key": "nivo-gtm.deals-quote",
-          "version": 2
+          "version": 3
         },
         {
           "key": "nivo-gtm.deals-pay",
-          "version": 2
+          "version": 3
         },
         {
           "key": "nivo-gtm.deals-pay-watch",
-          "version": 1
+          "version": 2
         },
         {
           "key": "nivo-gtm.deals-activate",
-          "version": 2
+          "version": 3
         },
         {
           "key": "nivo-gtm.deals-lost-review",
@@ -20962,7 +21019,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-handover",
-            "version": 1
+            "version": 2
           },
           "step": "brief",
           "mode": "auto",
@@ -20971,7 +21028,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-handover",
-            "version": 1
+            "version": 2
           },
           "step": "open-deal",
           "mode": "auto",
@@ -20980,7 +21037,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-handover",
-            "version": 1
+            "version": 2
           },
           "step": "post-brief",
           "mode": "auto",
@@ -20989,7 +21046,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-handover",
-            "version": 1
+            "version": 2
           },
           "step": "set-plan",
           "mode": "auto",
@@ -20998,7 +21055,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-quote",
-            "version": 2
+            "version": 3
           },
           "step": "read",
           "mode": "auto",
@@ -21007,7 +21064,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-quote",
-            "version": 2
+            "version": 3
           },
           "step": "price",
           "mode": "auto",
@@ -21016,7 +21073,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-quote",
-            "version": 2
+            "version": 3
           },
           "step": "ask-owner",
           "mode": "auto",
@@ -21025,7 +21082,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-quote",
-            "version": 2
+            "version": 3
           },
           "step": "send-quote",
           "mode": "ask",
@@ -21034,7 +21091,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-quote",
-            "version": 2
+            "version": 3
           },
           "step": "record",
           "mode": "auto",
@@ -21043,7 +21100,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-pay",
-            "version": 2
+            "version": 3
           },
           "step": "read",
           "mode": "auto",
@@ -21052,7 +21109,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-pay",
-            "version": 2
+            "version": 3
           },
           "step": "write-code",
           "mode": "auto",
@@ -21061,7 +21118,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-pay",
-            "version": 2
+            "version": 3
           },
           "step": "send-pay",
           "mode": "ask",
@@ -21070,16 +21127,16 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-pay",
-            "version": 2
+            "version": 3
           },
-          "step": "watch1",
+          "step": "watch",
           "mode": "auto",
           "audience": "assignees"
         },
         {
           "graph": {
             "key": "nivo-gtm.deals-pay",
-            "version": 2
+            "version": 3
           },
           "step": "nudge",
           "mode": "ask",
@@ -21088,16 +21145,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-pay",
-            "version": 2
-          },
-          "step": "watch2",
-          "mode": "auto",
-          "audience": "assignees"
-        },
-        {
-          "graph": {
-            "key": "nivo-gtm.deals-pay",
-            "version": 2
+            "version": 3
           },
           "step": "record-paid",
           "mode": "auto",
@@ -21106,7 +21154,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-pay",
-            "version": 2
+            "version": 3
           },
           "step": "announce",
           "mode": "auto",
@@ -21115,7 +21163,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-pay",
-            "version": 2
+            "version": 3
           },
           "step": "short-notice",
           "mode": "auto",
@@ -21124,7 +21172,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-pay",
-            "version": 2
+            "version": 3
           },
           "step": "unpaid-notice",
           "mode": "auto",
@@ -21133,7 +21181,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-pay-watch",
-            "version": 1
+            "version": 2
           },
           "step": "check",
           "mode": "auto",
@@ -21142,7 +21190,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-activate",
-            "version": 2
+            "version": 3
           },
           "step": "read",
           "mode": "auto",
@@ -21151,7 +21199,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-activate",
-            "version": 2
+            "version": 3
           },
           "step": "request",
           "mode": "auto",
@@ -21160,7 +21208,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-activate",
-            "version": 2
+            "version": 3
           },
           "step": "record",
           "mode": "auto",
@@ -21169,7 +21217,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-activate",
-            "version": 2
+            "version": 3
           },
           "step": "win",
           "mode": "auto",
@@ -21178,7 +21226,7 @@
         {
           "graph": {
             "key": "nivo-gtm.deals-activate",
-            "version": 2
+            "version": 3
           },
           "step": "welcome",
           "mode": "ask",
@@ -22966,16 +23014,35 @@
         {
           "key": "code",
           "title": {
-            "vi": "Mã đơn (số)",
-            "en": "Code (digits)"
+            "vi": "Mã đơn",
+            "en": "Code"
+          },
+          "unique": true,
+          "indexed": true,
+          "kind": "sequence",
+          "required": false,
+          "sequence": {
+            "prefix": "NIVO",
+            "width": 8
+          },
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "key": "demoRef",
+          "title": {
+            "vi": "Buổi demo gốc",
+            "en": "Source demo"
           },
           "unique": true,
           "indexed": true,
           "kind": "text",
-          "required": true,
+          "required": false,
           "schema": {
             "type": "string",
-            "pattern": "^[0-9]{4,12}$"
+            "minLength": 1,
+            "maxLength": 80
           }
         },
         {
@@ -23732,6 +23799,20 @@
           }
         },
         {
+          "key": "turns",
+          "title": {
+            "vi": "Số lượt trao đổi",
+            "en": "Turns"
+          },
+          "kind": "integer",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        {
           "key": "lastContactAt",
           "title": {
             "vi": "Liên hệ gần nhất",
@@ -23843,6 +23924,22 @@
           "relationType": "gtm.content",
           "schema": {
             "type": "string"
+          }
+        },
+        {
+          "key": "slotKey",
+          "title": {
+            "vi": "Khóa lượt đăng",
+            "en": "Slot key"
+          },
+          "unique": true,
+          "indexed": true,
+          "kind": "text",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
           }
         },
         {
@@ -24173,6 +24270,7 @@
             "vi": "Phiên bản",
             "en": "Version"
           },
+          "indexed": true,
           "kind": "integer",
           "required": true,
           "schema": {
