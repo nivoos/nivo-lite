@@ -40,5 +40,13 @@
       ]
     },
     "packages": {}
+  },
+  "db": {
+    "baselineReset": {
+      "baseline": "db/migrations/20261118093000_initial.sql",
+      "ruling": "owner-2026-11-18-db-reset",
+      "date": "2026-11-18",
+      "reason": "Owner decision 2026-11-18 (xoa sach db, migration lam lai): nivo-lite becomes a package-only repo with no data to keep; the 52 legacy migrations are dropped (kept on branch archive/legacy-2026-11-18) and replaced by one fresh first migration."
+    }
   }
 }

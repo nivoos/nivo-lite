@@ -1,3 +1,4 @@
+-- starci:baseline-reset owner-2026-11-18-db-reset
 do $$
 begin
     if not exists (select 1 from pg_catalog.pg_roles where rolname = 'app_be') then
