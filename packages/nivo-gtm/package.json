@@ -10,12 +10,12 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@starci/nivoos-sdk": "file:vendor/starci-nivoos-sdk-0.1.0.tgz",
-    "@starci/nivoos-provider-templates": "file:vendor/starci-nivoos-provider-templates-0.1.0.tgz",
+    "@starci/nivoos-sdk": "0.1.0",
+    "@starci/nivoos-provider-templates": "0.1.0",
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@starci/nivoos-cli": "file:vendor/starci-nivoos-cli-0.1.0.tgz",
+    "@starci/nivoos-cli": "0.1.0",
     "@types/node": "22.20.4",
     "typescript": "5.9.3"
   },
