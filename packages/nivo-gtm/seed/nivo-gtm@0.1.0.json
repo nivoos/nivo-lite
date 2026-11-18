@@ -14688,7 +14688,7 @@
             "trigger": {
               "kind": "trigger",
               "key": "telegram.message.received",
-              "version": 3
+              "version": 4
             }
           }
         ],
@@ -18233,7 +18233,7 @@
             "trigger": {
               "kind": "trigger",
               "key": "telegram.message.received",
-              "version": 3
+              "version": 4
             }
           }
         ],

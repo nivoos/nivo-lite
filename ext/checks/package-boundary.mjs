@@ -12,9 +12,26 @@ import { fileURLToPath } from "node:url"
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..")
 
 /** Package-specific parameters by package folder: `allow` (rule id -> globs where it does not apply), `exclude`, `disable`, `ratchet` (rule id -> errors still left). */
-const PARAMETERS = {}
+const PARAMETERS = {
+    // 2026-11-18 counts after the CLI bump (every landed engine capability is an error); the gtm-clean lanes lower them to 0.
+    "nivo-gtm": {
+        ratchet: {
+            "no-as-never": 10,
+            "no-hard-wait": 15,
+            "no-query-to-count": 13,
+            "no-refusal-data": 2,
+            "no-swallow-value-taken": 1,
+            "no-throw-error": 1,
+            "no-zone-offset": 5,
+        },
+    },
+}
 
-const packageFolders = existsSync(join(ROOT, "packages")) ? readdirSync(join(ROOT, "packages"), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => join(ROOT, "packages", entry.name)) : []
+const packageFolders = existsSync(join(ROOT, "packages"))
+    ? readdirSync(join(ROOT, "packages"), { withFileTypes: true })
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => join(ROOT, "packages", entry.name))
+    : []
 const loadCli = () => {
     for (const folder of [ROOT, ...packageFolders]) {
         try {
@@ -28,7 +45,9 @@ const loadCli = () => {
 
 const cli = loadCli()
 if (cli === undefined || typeof cli.checkPackages !== "function") {
-    console.log("package boundary: the installed @starci/nivoos-cli has no checkPackages yet; bump it to a version with the boundary engine to run this check")
+    console.log(
+        "package boundary: the installed @starci/nivoos-cli has no checkPackages yet; bump it to a version with the boundary engine to run this check",
+    )
     process.exit(0)
 }
 const packages = cli.discoverPackages(ROOT).map((pack) => ({ ...pack, ...(PARAMETERS[pack.name] ?? {}) }))
