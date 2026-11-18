@@ -7,9 +7,14 @@ import { IsPaid } from "./is-paid.step.ts"
 export class Settle extends NodeWait<typeof State> {
     override readonly take = [
         take<typeof State, typeof PayWatch>(Ended, { of: PayWatch }, (s, ends) => {
-            const [first] = ends
+            const first = ends.at(0)
             if (first === undefined) return
-            s.result = { reason: first.reason ?? "", paid: first.output?.paid ?? false, amount: first.output?.amount ?? 0, transferId: first.output?.transferId ?? "" }
+            s.result = {
+                reason: first.reason ?? "",
+                paid: first.output?.paid ?? false,
+                amount: first.output?.amount ?? 0,
+                transferId: first.output?.transferId ?? "",
+            }
         }),
     ]
     override readonly next = IsPaid

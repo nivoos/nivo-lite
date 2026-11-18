@@ -1,21 +1,20 @@
-
 # Quy trình bán
 
 Tài liệu nội bộ cho agent Chăm khách, agent Chốt đơn và người bán. Kênh nói chuyện với khách hiện là **Telegram** (bot NIVO nhắn riêng, kênh và nhóm thảo luận của NIVO). Facebook sẽ thêm sau.
 
 ## Các giai đoạn của khách
 
-| giai đoạn | nghĩa | ai giữ | việc tiếp theo |
-|---|---|---|---|
-| `new` | vừa nhắn lần đầu, hoặc vừa vào từ bình luận, sheet | Chăm khách | trả lời câu đầu, hỏi nhu cầu |
-| `engaged` | đã trao đổi | Chăm khách | trả lời, khai thác, nhắn lại theo nhịp |
-| `qualified` | điểm từ 60 | Chăm khách | mời demo |
-| `demo_booked` | đã chốt giờ demo | người chủ trì demo | nhắc trước giờ, chuẩn bị |
-| `demo_done` | đã demo | người bán | tóm tắt, báo giá |
-| `won` | đã trả tiền và kích hoạt | người bán | chào mừng, bàn giao |
-| `cold` | nhắn lại đủ số lần không trả lời | Chăm khách | xem lại sau 30 ngày |
-| `unfit` | không hợp | không ai | dừng nhắn |
-| `lost` | đã từ chối | người bán | ghi lý do |
+| giai đoạn     | nghĩa                                              | ai giữ             | việc tiếp theo                         |
+| ------------- | -------------------------------------------------- | ------------------ | -------------------------------------- |
+| `new`         | vừa nhắn lần đầu, hoặc vừa vào từ bình luận, sheet | Chăm khách         | trả lời câu đầu, hỏi nhu cầu           |
+| `engaged`     | đã trao đổi                                        | Chăm khách         | trả lời, khai thác, nhắn lại theo nhịp |
+| `qualified`   | điểm từ 60                                         | Chăm khách         | mời demo                               |
+| `demo_booked` | đã chốt giờ demo                                   | người chủ trì demo | nhắc trước giờ, chuẩn bị               |
+| `demo_done`   | đã demo                                            | người bán          | tóm tắt, báo giá                       |
+| `won`         | đã trả tiền và kích hoạt                           | người bán          | chào mừng, bàn giao                    |
+| `cold`        | nhắn lại đủ số lần không trả lời                   | Chăm khách         | xem lại sau 30 ngày                    |
+| `unfit`       | không hợp                                          | không ai           | dừng nhắn                              |
+| `lost`        | đã từ chối                                         | người bán          | ghi lý do                              |
 
 ## Nhịp làm việc
 

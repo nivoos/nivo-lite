@@ -34,7 +34,7 @@ export const State = z.strictObject({
     briefed: AskTeamOutput.optional(),
     reminded: AskTeamOutput.optional(),
     overdue: AskTeamOutput.optional(),
-    cut: z.strictObject({ objectId: z.string().min(1), link: z.string().max(2000) }).optional(),
+    cut: z.strictObject({ objectId: z.string().min(1).max(100), link: z.string().max(2000) }).optional(),
     recorded: RecordCutOutput.optional(),
     emitted: EmitCutReadyOutput.optional(),
     verdict: z.strictObject({ to: z.string().max(40) }).optional(),
@@ -49,8 +49,25 @@ export const State = z.strictObject({
 export class Produce implements Workflow<typeof State> {
     readonly key = keyOf("studio-produce")
     readonly version = 2
-    readonly title = {"vi":"Quay và dựng video","en":"Shoot and edit the video"}
+    readonly title = { vi: "Quay và dựng video", en: "Shoot and edit the video" }
     readonly state = State
     readonly start = Open
-    readonly steps = [Open, PrepareFolder, ShotList, Assign, PostBrief, WaitCut, Remind, WaitCutDue, RecordCut, EmitCutReady, WaitVerdict, IsApproved, Rework, Produced, Overdue, CutOverdue]
+    readonly steps = [
+        Open,
+        PrepareFolder,
+        ShotList,
+        Assign,
+        PostBrief,
+        WaitCut,
+        Remind,
+        WaitCutDue,
+        RecordCut,
+        EmitCutReady,
+        WaitVerdict,
+        IsApproved,
+        Rework,
+        Produced,
+        Overdue,
+        CutOverdue,
+    ]
 }

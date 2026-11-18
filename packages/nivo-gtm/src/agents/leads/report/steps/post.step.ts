@@ -3,8 +3,12 @@ import { PostNotice as PostNoticeCell } from "../../common/post-notice.cell.ts"
 import type { State } from "../report.workflow.ts"
 import { EndReported } from "./end-reported.step.ts"
 
+/** Runs `PostNotice` (tells the sales team: one act, `room.message.post` of the heading and the words to the agent's team room (an internal message: nothing leaves the company)) and keeps its result in `posted`; the run then goes to `EndReported`. */
 export class Post extends NodeRun(PostNoticeCell)<typeof State> {
-    override readonly input = (s: StateView<typeof State>) => ({ title: "Báo cáo chăm khách cuối ngày", text: s.report.text })
+    override readonly input = (s: StateView<typeof State>) => ({
+        title: "Báo cáo chăm khách cuối ngày",
+        text: s.report.text,
+    })
     override readonly into = ["posted"] as const
     override readonly next = EndReported
 }

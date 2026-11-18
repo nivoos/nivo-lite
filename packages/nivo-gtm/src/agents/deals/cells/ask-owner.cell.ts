@@ -3,8 +3,13 @@ import type { Node, NodeReach, RoomMessagePost } from "@starci/nivoos-sdk"
 import { money } from "../../../common/helpers/text.ts"
 import { keyOf } from "../../../package-key.ts"
 
-export const AskOwnerInput = z.strictObject({ code: z.string().min(1).max(40), discountPercent: z.number(), amount: z.number().int(), lines: z.string().max(600) })
-export const AskOwnerOutput = z.strictObject({ messageId: z.string(), roomId: z.string() })
+export const AskOwnerInput = z.strictObject({
+    code: z.string().min(1).max(40),
+    discountPercent: z.number(),
+    amount: z.number().int(),
+    lines: z.string().max(600),
+})
+export const AskOwnerOutput = z.strictObject({ messageId: z.string().max(80), roomId: z.string().max(80) })
 /** The member who decides a discount above the line (a member id); empty asks the whole room. */
 export const AskOwnerSettings = z.strictObject({
     owner: z.string().max(80).default(""),

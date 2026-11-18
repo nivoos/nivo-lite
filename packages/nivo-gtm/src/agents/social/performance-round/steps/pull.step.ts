@@ -3,6 +3,7 @@ import { SocialPull as PullCell } from "../pull.cell.ts"
 import { SaveMetrics } from "./save-metrics.step.ts"
 import type { State } from "../performance-round.workflow.ts"
 
+/** Pulls the metrics of the published posts of each connected channel. */
 export class Pull extends NodeRun(PullCell)<typeof State> {
     override readonly input = (s: StateView<typeof State>) => ({ instant: s.tick.instant })
     override readonly into = ["pull"] as const

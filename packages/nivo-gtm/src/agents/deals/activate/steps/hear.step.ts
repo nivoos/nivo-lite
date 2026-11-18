@@ -6,7 +6,10 @@ import { Read } from "./read.step.ts"
 /** The start: a deal was paid. */
 export class Hear extends NodeWait<typeof State> {
     override readonly take = [
-        take<typeof State>(DealPaid, {}, (s, paid: Paid[]) => { const [first] = paid; if (first !== undefined) s.event = first }),
+        take<typeof State>(DealPaid, {}, (s, paid: Array<Paid>) => {
+            const first = paid.at(0)
+            if (first !== undefined) s.event = first
+        }),
     ]
     override readonly next = Read
 }

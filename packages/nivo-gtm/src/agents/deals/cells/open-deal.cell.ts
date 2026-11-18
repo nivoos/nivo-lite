@@ -1,11 +1,21 @@
 import { z } from "zod"
 import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import { Deal } from "../../../objects/deal.object.ts"
+import { Lead } from "../../../objects/lead.object.ts"
 import { plusHours } from "../../../common/helpers/text.ts"
 import { keyOf } from "../../../package-key.ts"
+import { refOf } from "../../../common/helpers/refs.ts"
 
-export const OpenDealInput = z.strictObject({ leadId: z.string().min(1), demoId: z.string().min(1), suggestedPlan: z.string().max(60) })
-export const OpenDealOutput = z.strictObject({ dealId: z.string(), code: z.string(), owner: z.string() })
+export const OpenDealInput = z.strictObject({
+    leadId: z.string().max(80).min(1),
+    demoId: z.string().max(80).min(1),
+    suggestedPlan: z.string().max(60),
+})
+export const OpenDealOutput = z.strictObject({
+    dealId: z.string().max(80),
+    code: z.string().max(80),
+    owner: z.string().max(80),
+})
 /** Who sells: the people a new deal goes to in turn (member ids or names); placeholders until the owner names them. */
 export const OpenDealSettings = z.strictObject({
     salesPeople: z.array(z.string().min(1).max(80)).max(20).default(["Minh Trần"]),
@@ -35,16 +45,19 @@ export class OpenDeal implements Node<typeof OpenDealInput, typeof OpenDealOutpu
         const deals = reach.objects(Deal).count()
         if (deals.error) throw deals.error
         const owner = people[deals.result.count % people.length] ?? ""
-        const { result, error } = reach.objects(Deal).create({
-            demoRef: input.demoId,
-            lead: input.leadId as never,
-            status: "proposal",
-            ...(input.suggestedPlan === "" ? {} : { plan: input.suggestedPlan }),
-            owner,
-            nextAction: "Báo giá cho khách",
-            nextAt: plusHours(reach.facts.at, reach.settings.quoteWithinHours),
-            evidence: `demo:${input.demoId}`,
-        }, { upsert: true })
+        const { result, error } = reach.objects(Deal).create(
+            {
+                demoRef: input.demoId,
+                lead: refOf<Lead>(input.leadId),
+                status: "proposal",
+                ...(input.suggestedPlan === "" ? {} : { plan: input.suggestedPlan }),
+                owner,
+                nextAction: "Báo giá cho khách",
+                nextAt: plusHours(reach.facts.at, reach.settings.quoteWithinHours),
+                evidence: `demo:${input.demoId}`,
+            },
+            { upsert: true },
+        )
         if (error) throw error
         return { dealId: result.id, code: result.values.code, owner: result.values.owner ?? owner }
     }

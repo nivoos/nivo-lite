@@ -3,7 +3,11 @@ import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import type { DealPaid } from "../../../common/events/deal-paid.event.ts"
 import { keyOf } from "../../../package-key.ts"
 
-export const EmitDealPaidInput = z.strictObject({ dealId: z.string().min(1), code: z.string().min(1).max(40), amount: z.number().int().min(0) })
+export const EmitDealPaidInput = z.strictObject({
+    dealId: z.string().max(80).min(1),
+    code: z.string().min(1).max(40),
+    amount: z.number().int().min(0),
+})
 export const EmitDealPaidOutput = z.strictObject({ emitted: z.literal(true) })
 
 type In = z.infer<typeof EmitDealPaidInput>

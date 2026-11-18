@@ -8,24 +8,24 @@ export const Channel = z.enum(["telegram", "facebook", "tiktok", "youtube", "zal
 
 /** A room answer as `engine.room.answered` carries it. */
 export const RoomAnswer = z.strictObject({
-    answerKey: z.string(),
-    messageId: z.string(),
-    roomId: z.string(),
-    runId: z.string(),
-    stepKey: z.string(),
-    choice: z.string(),
-    memberId: z.string(),
+    answerKey: z.string().max(80),
+    messageId: z.string().max(80),
+    roomId: z.string().max(80),
+    runId: z.string().max(80),
+    stepKey: z.string().max(80),
+    choice: z.string().max(80),
+    memberId: z.string().max(80),
 })
 
 /** The `{ objectId }` a start wait keeps of the object write that opened the run. */
-export const Changed = z.strictObject({ objectId: z.string().min(1) })
+export const Changed = z.strictObject({ objectId: z.string().max(80).min(1) })
 
 /** What a card cell hands to the `ask-team` step. */
 export const CardParts = z.strictObject({ cardText: z.string().min(1).max(3000), choices: z.array(Choice).max(6) })
 
 /** One planned slot of the week. */
 export const Slot = z.strictObject({
-    contentId: z.string().min(1),
+    contentId: z.string().max(80).min(1),
     contentCode: z.string().min(1).max(40),
     channel: Channel,
     at: z.string().min(10).max(40),
@@ -42,4 +42,7 @@ export const PostDraft = z.strictObject({
 })
 
 /** The review window of a card: when it is first due, and when the nudge is. */
-export const ReviewWindow = z.strictObject({ reviewBy: z.string().min(10), secondReviewBy: z.string().min(10) })
+export const ReviewWindow = z.strictObject({
+    reviewBy: z.string().max(40).min(10),
+    secondReviewBy: z.string().max(40).min(10),
+})

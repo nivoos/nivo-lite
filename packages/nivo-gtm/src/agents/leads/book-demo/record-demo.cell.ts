@@ -1,13 +1,14 @@
 import { z } from "zod"
-import type { Node, NodeReach, NivoRef } from "@starci/nivoos-sdk"
+import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import { Demo } from "../../../objects/demo.object.ts"
 import { LEAD_STAGES } from "../../../objects/lead.object.ts"
 import { keyOf } from "../../../package-key.ts"
+import { assertRef } from "../common/typed-ref.ts"
 
 export const RecordDemoInput = z.strictObject({ demoId: z.string().min(1).max(80), choice: z.string().max(40) })
 /** What the outcome means for the lead: the stage it goes to and the next action it gets. */
 export const RecordDemoOutput = z.strictObject({
-    demoId: z.string(),
+    demoId: z.string().max(128),
     status: z.enum(["done", "no_show", "moved"]),
     leadStage: z.enum(LEAD_STAGES),
     nextAction: z.string().min(1).max(300),
@@ -15,6 +16,13 @@ export const RecordDemoOutput = z.strictObject({
 
 type In = z.infer<typeof RecordDemoInput>
 type Out = z.infer<typeof RecordDemoOutput>
+
+/** What each outcome of a demo means for the lead: the stage it goes to and the next action it gets. */
+const OUTCOMES = {
+    done: { leadStage: "demo_done", nextAction: "Báo giá sau demo" },
+    no_show: { leadStage: "qualified", nextAction: "Khách vắng: hẹn lại demo" },
+    moved: { leadStage: "qualified", nextAction: "Khách dời lịch: hẹn lại demo" },
+} as const satisfies Record<Out["status"], Pick<Out, "leadStage" | "nextAction">>
 
 /**
  * Records how the demo went: one act, `object.update` of `gtm.demo` (`done`, `no_show` or `moved`, from the host's choice; any other answer counts as `moved`). It answers the stage and next action the lead
@@ -30,12 +38,12 @@ export class RecordDemo implements Node<typeof RecordDemoInput, typeof RecordDem
     readonly mutation = "object.update"
 
     run(input: In, reach: NodeReach): Out {
-        const got = reach.objects(Demo).get(input.demoId as NivoRef<Demo>)
+        assertRef<Demo>(input.demoId)
+        const got = reach.objects(Demo).get(input.demoId)
         if (got.error) throw got.error
         const demo = got.result
-        const status = input.choice === "done" ? "done" : input.choice === "no_show" ? "no_show" : "moved"
-        const leadStage = status === "done" ? "demo_done" : "qualified"
-        const nextAction = status === "done" ? "Báo giá sau demo" : status === "no_show" ? "Khách vắng: hẹn lại demo" : "Khách dời lịch: hẹn lại demo"
+        const status = input.choice === "done" || input.choice === "no_show" ? input.choice : "moved"
+        const { leadStage, nextAction } = OUTCOMES[status]
         const { error } = reach.objects(Demo).update({
             id: demo.id,
             version: demo.version,

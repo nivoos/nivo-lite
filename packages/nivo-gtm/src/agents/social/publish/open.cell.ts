@@ -1,16 +1,17 @@
 import { z } from "zod"
-import type { NivoRef, Node, NodeReach } from "@starci/nivoos-sdk"
+import type { Node, NodeReach } from "@starci/nivoos-sdk"
+import { refOf } from "../common/helpers.ts"
 import { Content } from "../../../objects/content.object.ts"
 import { Publication } from "../../../objects/publication.object.ts"
 import { keyOf } from "../../../package-key.ts"
 
-export const OpenInput = z.strictObject({ objectId: z.string().min(1) })
+export const OpenInput = z.strictObject({ objectId: z.string().max(80).min(1) })
 export const OpenOutput = z.strictObject({
-    publicationId: z.string(),
-    contentId: z.string(),
+    publicationId: z.string().max(80),
+    contentId: z.string().max(80),
     contentCode: z.string().max(40),
     channel: z.string().max(20),
-    at: z.string().min(10),
+    at: z.string().max(40).min(10),
     status: z.string().max(20),
     text: z.string().max(4000),
 })
@@ -31,9 +32,9 @@ export class SocialPublishOpen implements Node<typeof OpenInput, typeof OpenOutp
     readonly reads = ["object.get"]
 
     run(input: In, reach: NodeReach): Out {
-        const pub = reach.objects(Publication).get(input.objectId as NivoRef<Publication>)
+        const pub = reach.objects(Publication).get(refOf<Publication>(input.objectId))
         if (pub.error) throw pub.error
-        const content = reach.objects(Content).get(String(pub.result.values.content) as NivoRef<Content>)
+        const content = reach.objects(Content).get(refOf<Content>(String(pub.result.values.content)))
         if (content.error) throw content.error
         const values = content.result.values
         return {

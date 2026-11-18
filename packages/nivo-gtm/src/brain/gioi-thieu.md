@@ -1,4 +1,3 @@
-
 # NIVO là gì
 
 NIVO là chỗ làm việc chung của đội bạn và các agent AI. Mỗi agent nhận một phần việc lặp đi lặp lại của doanh nghiệp nhỏ: trả lời khách, nhắn lại khách im lặng, soạn báo giá, chờ chuyển khoản, báo cáo cuối ngày. Người trong đội vẫn là người quyết định.

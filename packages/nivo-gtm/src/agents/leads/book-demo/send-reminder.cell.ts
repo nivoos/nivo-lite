@@ -21,7 +21,11 @@ export class SendReminder implements Node<typeof SendConfirmInput, typeof SendLi
     run(input: In, reach: NodeReach): Out {
         const where = input.link === "" ? "" : ` Link tham gia: ${input.link}`
         const text = `Dạ NIVO nhắc bạn: sắp đến giờ demo lúc ${input.label} (giờ Việt Nam).${where} Hẹn gặp bạn ạ!`
-        const { error } = reach.call<ContactMessageSend>("contact_message.send", { provider: "telegram", to: chatIdOf(input.to), text })
+        const { error } = reach.call<ContactMessageSend>("contact_message.send", {
+            provider: "telegram",
+            to: chatIdOf(input.to),
+            text,
+        })
         if (error) throw error
         return {}
     }

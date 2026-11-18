@@ -3,6 +3,7 @@ import { RecordSent } from "./record-sent.step.ts"
 import { IsChannelPending } from "./is-channel-pending.step.ts"
 import type { State } from "../publish.workflow.ts"
 
+/** Branch: did the send go out. */
 export class IsSent extends NodeIf<typeof State> {
     override readonly when = (s: StateView<typeof State>) => s.sent.outcome === "sent"
     override readonly label = { vi: "Đã đăng?", en: "Sent?" }

@@ -38,10 +38,27 @@ export class StudioRevise implements Node<typeof ReviseInput, typeof ReviseOutpu
 
     run(input: In, reach: NodeReach<Settings>): Out {
         const revision = input.previous.revision + 1
-        if (revision > reach.settings.maxRevisions) return { ok: false, revision: input.previous.revision, hook: "", beats: [], broll: [], cta: "", caption: "", seconds: 0 }
+        if (revision > reach.settings.maxRevisions)
+            return {
+                ok: false,
+                revision: input.previous.revision,
+                hook: "",
+                beats: [],
+                broll: [],
+                cta: "",
+                caption: "",
+                seconds: 0,
+            }
         const { result, error } = reach.call<ModelGenerate<Out>>("model.generate", {
             prompt: `${STUDIO_POLICY}\n\n${GOAL}`,
-            data: { title: input.brief.title, pillar: input.brief.pillar, brain: input.brief.brain, videoSeconds: reach.settings.videoSeconds, revision, previous: input.previous },
+            data: {
+                title: input.brief.title,
+                pillar: input.brief.pillar,
+                brain: input.brief.brain,
+                videoSeconds: reach.settings.videoSeconds,
+                revision,
+                previous: input.previous,
+            },
         })
         if (error) throw error
         return { ...result.value, ok: true, revision }

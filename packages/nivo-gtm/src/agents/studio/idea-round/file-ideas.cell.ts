@@ -5,7 +5,10 @@ import { keyOf } from "../../../package-key.ts"
 import { addHours, clip, compactDay } from "../common/helpers.ts"
 import { CardParts, Idea } from "../common/studio.shapes.ts"
 
-export const FileIdeasInput = z.strictObject({ instant: z.string().min(10), ideas: z.array(Idea).min(1).max(5) })
+export const FileIdeasInput = z.strictObject({
+    instant: z.string().min(10).max(40),
+    ideas: z.array(Idea).min(1).max(5),
+})
 export const FileIdeasOutput = z.strictObject({
     codes: z.array(z.string().max(40)).max(5),
     cardText: CardParts.shape.cardText,
@@ -57,10 +60,19 @@ export class StudioFileIdeas implements Node<typeof FileIdeasInput, typeof FileI
             // a rerun of the same round: the row is there already, nothing is filed twice
             if (error && error.code !== "OBJECTS_VALUE_TAKEN") throw error
             codes.push(code)
-            lines.push(`${String(at + 1)}. [${idea.format === "video" ? "Video" : "Bài viết"}] ${idea.title}\n   Mở đầu: ${idea.hook}\n   Góc: ${idea.angle}\n   Cho: ${idea.segment}. Vì sao bây giờ: ${idea.whyNow}`)
+            lines.push(
+                `${String(at + 1)}. [${idea.format === "video" ? "Video" : "Bài viết"}] ${idea.title}\n   Mở đầu: ${idea.hook}\n   Góc: ${idea.angle}\n   Cho: ${idea.segment}. Vì sao bây giờ: ${idea.whyNow}`,
+            )
             choices.push({ value: `idea-choose:${code}`, label: `Chọn ${String(at + 1)}` })
         })
         choices.push({ value: `idea-drop:${day}`, label: "Bỏ cả tuần" })
-        return { codes, cardText: clip(`Ý tưởng tuần này (${day}). Chọn một ý tưởng để viết kịch bản.\n\n${lines.join("\n\n")}`, 3000), choices }
+        return {
+            codes,
+            cardText: clip(
+                `Ý tưởng tuần này (${day}). Chọn một ý tưởng để viết kịch bản.\n\n${lines.join("\n\n")}`,
+                3000,
+            ),
+            choices,
+        }
     }
 }

@@ -6,7 +6,10 @@ import { AwaitPayment } from "./await-payment.step.ts"
 /** The start: the deal asked for its payment. */
 export class Hear extends NodeWait<typeof State> {
     override readonly take = [
-        take<typeof State>(PayRequested, {}, (s, requests: Request[]) => { const [first] = requests; if (first !== undefined) s.request = first }),
+        take<typeof State>(PayRequested, {}, (s, requests: Array<Request>) => {
+            const first = requests.at(0)
+            if (first !== undefined) s.request = first
+        }),
     ]
     override readonly next = AwaitPayment
 }

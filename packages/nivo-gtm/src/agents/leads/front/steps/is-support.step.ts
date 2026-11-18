@@ -3,6 +3,7 @@ import type { State } from "../front.workflow.ts"
 import { NoticeSupport } from "./notice-support.step.ts"
 import { Answer } from "./answer.step.ts"
 
+/** Branches on `understood.intent === "customer_support"`: when it holds the run goes to `NoticeSupport`, otherwise to `Answer`. */
 export class IsSupport extends NodeIf<typeof State> {
     override readonly when = (s: StateView<typeof State>) => s.understood.intent === "customer_support"
     override readonly yes = NoticeSupport

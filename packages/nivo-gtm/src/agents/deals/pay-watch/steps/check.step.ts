@@ -3,6 +3,7 @@ import { CheckAmount as CheckAmountCell } from "../../cells/check-amount.cell.ts
 import type { State } from "../pay-watch.workflow.ts"
 import { ShortCheck } from "./short-check.step.ts"
 
+/** Compares the amount that arrived with the amount the deal asked for. */
 export class Check extends NodeRun(CheckAmountCell)<typeof State> {
     override readonly input = (s: StateView<typeof State>) => ({ expected: s.request.amount, paid: s.payment.amount })
     override readonly into = ["check"] as const

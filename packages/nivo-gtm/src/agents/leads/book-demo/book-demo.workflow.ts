@@ -45,14 +45,22 @@ import { EndDone } from "./steps/end-done.step.ts"
 import { EndNotHeld } from "./steps/end-not-held.step.ts"
 
 /** What `engine.room.answered` carries: the answer of a member to a card with choices. */
-export const Answer = z.strictObject({ answerKey: z.string(), messageId: z.string(), roomId: z.string(), runId: z.string(), stepKey: z.string(), choice: z.string(), memberId: z.string() })
+export const Answer = z.strictObject({
+    answerKey: z.string().max(128),
+    messageId: z.string().max(128),
+    roomId: z.string().max(128),
+    runId: z.string().max(128),
+    stepKey: z.string().max(128),
+    choice: z.string().max(128),
+    memberId: z.string().max(128),
+})
 
 /** The one state object of a run: the lead and why the run opened (invite or pick, with the words the lead wrote), the free slots, and what each step did. */
 export const State = z.strictObject({
-    leadId: z.string().optional(),
+    leadId: z.string().max(128).optional(),
     phase: z.enum(["invite", "pick"]).optional(),
-    choiceText: z.string().optional(),
-    choiceEmail: z.string().optional(),
+    choiceText: z.string().max(2000).optional(),
+    choiceEmail: z.string().max(254).optional(),
     slots: SlotsOutput.optional(),
     sent: SendLineOutput.optional(),
     touched: TouchLeadOutput.optional(),
@@ -69,8 +77,11 @@ export const State = z.strictObject({
     leadStaged: SetStageOutput.optional(),
     emitted: EmitDemoDoneOutput.optional(),
 })
+/** The `LeadQualified` event the invitation run starts from: the lead that scored above the line. */
 export type Qualified = z.infer<typeof LeadQualifiedData>
+/** The `SlotChosen` event the pick run starts from: the demo time the lead answered with, as the words they wrote. */
 export type Chosen = z.infer<typeof SlotChosenData>
+/** One answer of a member to a card with choices, as `engine.room.answered` carries it. */
 export type Answer = z.infer<typeof Answer>
 
 /**
@@ -88,5 +99,35 @@ export class BookDemo implements Workflow<typeof State> {
     readonly append = ["answers"] as const
     readonly maxLifetime = { days: 30 }
     readonly start = Open
-    readonly steps = [Open, Slots, HasSlots, IsInvite, SendInvite, NoteInvite, PickSlot, IsPicked, Book, SendConfirm, HasEmail, SendEmail, TellHost, NoteBooked, WaitRemind, SendReminder, WaitDemoEnd, AskOutcome, WaitOutcome, RecordDemo, SetLeadStage, IsDone, EmitDemoDone, EndNoSlots, EndInvited, EndDeclined, EndOutcomePending, EndDone, EndNotHeld]
+    readonly steps = [
+        Open,
+        Slots,
+        HasSlots,
+        IsInvite,
+        SendInvite,
+        NoteInvite,
+        PickSlot,
+        IsPicked,
+        Book,
+        SendConfirm,
+        HasEmail,
+        SendEmail,
+        TellHost,
+        NoteBooked,
+        WaitRemind,
+        SendReminder,
+        WaitDemoEnd,
+        AskOutcome,
+        WaitOutcome,
+        RecordDemo,
+        SetLeadStage,
+        IsDone,
+        EmitDemoDone,
+        EndNoSlots,
+        EndInvited,
+        EndDeclined,
+        EndOutcomePending,
+        EndDone,
+        EndNotHeld,
+    ]
 }

@@ -22,7 +22,7 @@ import { EndDeclined } from "./steps/end-declined.step.ts"
 
 /** The one state object of a run: the lead it follows up, the latest check, draft and send, and what the count and the cold move did. */
 export const State = z.strictObject({
-    leadId: z.string().optional(),
+    leadId: z.string().max(128).optional(),
     check: CheckFollowUpOutput.optional(),
     draft: DraftFollowUpOutput.optional(),
     sent: SendLineOutput.optional(),
@@ -42,5 +42,19 @@ export class Nurture implements Workflow<typeof State> {
     readonly state = State
     readonly maxLifetime = { days: 60 }
     readonly start = Open
-    readonly steps = [Open, Check, IsStop, IsCold, IsWait, Wait, Draft, SendFollowUp, Count, GoCold, EndStopped, EndCold, EndDeclined]
+    readonly steps = [
+        Open,
+        Check,
+        IsStop,
+        IsCold,
+        IsWait,
+        Wait,
+        Draft,
+        SendFollowUp,
+        Count,
+        GoCold,
+        EndStopped,
+        EndCold,
+        EndDeclined,
+    ]
 }

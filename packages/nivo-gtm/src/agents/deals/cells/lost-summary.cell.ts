@@ -28,12 +28,17 @@ export class LostSummary implements Node<typeof LostSummaryInput, typeof LostSum
     readonly reads = []
     readonly mutation = "model.generate"
     readonly model = { model: "sonnet-5-5", effort: "balanced" } as const
-    readonly fallback: Out = { text: "Tuần này chưa tổng kết được tự động: xem danh sách đơn mất và khách nguội trên bảng." }
+    readonly fallback: Out = {
+        text: "Tuần này chưa tổng kết được tự động: xem danh sách đơn mất và khách nguội trên bảng.",
+    }
 
     run(input: In, reach: NodeReach): Out {
         const { result, error } = reach.call<ModelGenerate<Out>>("model.generate", {
             prompt: GOAL,
-            data: { counts: { lostDeals: input.lostDeals, coldLeads: input.coldLeads, lostLeads: input.lostLeads }, lines: input.lines },
+            data: {
+                counts: { lostDeals: input.lostDeals, coldLeads: input.coldLeads, lostLeads: input.lostLeads },
+                lines: input.lines,
+            },
         })
         if (error) return reach.reply(this.fallback).result.value
         return result.value

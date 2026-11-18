@@ -1,11 +1,16 @@
 import { z } from "zod"
-import type { ModelGenerate, Node, NodeReach, NivoRef } from "@starci/nivoos-sdk"
+import type { ModelGenerate, Node, NodeReach } from "@starci/nivoos-sdk"
 import { Lead } from "../../../objects/lead.object.ts"
 import { keyOf } from "../../../package-key.ts"
 import type { BrainSearch } from "../common/brain-search.ts"
+import { assertRef } from "../common/typed-ref.ts"
 
 export const ScoreInput = z.strictObject({ leadId: z.string().min(1).max(80) })
-export const ScoreOutput = z.strictObject({ score: z.number().int().min(0).max(100), segment: z.string().max(80), reasons: z.string().min(1).max(600) })
+export const ScoreOutput = z.strictObject({
+    score: z.number().int().min(0).max(100),
+    segment: z.string().max(80),
+    reasons: z.string().min(1).max(600),
+})
 /** How many brain hits the scoring reads (the ideal-customer rubric). A workspace may change it in the console. */
 export const ScoreSettings = z.strictObject({ brainHits: z.number().int().min(1).max(20).default(6) })
 
@@ -35,10 +40,14 @@ export class Score implements Node<typeof ScoreInput, typeof ScoreOutput, typeof
     readonly model = { model: "sonnet-5-5", effort: "balanced" } as const
 
     run(input: In, reach: NodeReach<Settings>): Out {
-        const got = reach.objects(Lead).get(input.leadId as NivoRef<Lead>)
+        assertRef<Lead>(input.leadId)
+        const got = reach.objects(Lead).get(input.leadId)
         if (got.error) throw got.error
         const lead = got.result.values
-        const hits = reach.call<BrainSearch>("brain.search", { query: `khách lý tưởng tiêu chí chấm điểm ${lead.segment ?? ""} ${lead.business ?? ""}`.trim(), limit: reach.settings.brainHits }).result.hits
+        const hits = reach.call<BrainSearch>("brain.search", {
+            query: `khách lý tưởng tiêu chí chấm điểm ${lead.segment ?? ""} ${lead.business ?? ""}`.trim(),
+            limit: reach.settings.brainHits,
+        }).result.hits
         const { result, error } = reach.call<ModelGenerate<Out>>("model.generate", {
             prompt: GOAL,
             data: {

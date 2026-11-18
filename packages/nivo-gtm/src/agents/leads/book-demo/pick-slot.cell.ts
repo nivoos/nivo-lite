@@ -8,7 +8,11 @@ export const PickSlotInput = z.strictObject({
     labels: z.array(z.string().min(1).max(40)).min(1).max(10),
 })
 /** `picked` false: the words do not name one of the offered times. `index` is the position in `labels`. `email` is the address they wrote, else empty. */
-export const PickSlotOutput = z.strictObject({ picked: z.boolean(), index: z.number().int().min(0).max(9), email: z.string().max(200) })
+export const PickSlotOutput = z.strictObject({
+    picked: z.boolean(),
+    index: z.number().int().min(0).max(9),
+    email: z.string().max(200),
+})
 
 type In = z.infer<typeof PickSlotInput>
 type Out = z.infer<typeof PickSlotOutput>
@@ -33,7 +37,10 @@ export class PickSlot implements Node<typeof PickSlotInput, typeof PickSlotOutpu
     readonly model = { model: "sonnet-5-5", effort: "fast" } as const
 
     run(input: In, reach: NodeReach): Out {
-        const { result, error } = reach.call<ModelGenerate<Out>>("model.generate", { prompt: GOAL, data: { text: input.text, labels: input.labels } })
+        const { result, error } = reach.call<ModelGenerate<Out>>("model.generate", {
+            prompt: GOAL,
+            data: { text: input.text, labels: input.labels },
+        })
         if (error) throw error
         const email = result.value.email !== "" ? result.value.email : input.emailHint
         const picked = result.value.picked && result.value.index < input.labels.length

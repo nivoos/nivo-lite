@@ -3,6 +3,7 @@ import { Report } from "./report.step.ts"
 import { Done } from "./done.step.ts"
 import type { State } from "../performance-round.workflow.ts"
 
+/** Branch: the weekly report goes out only on Monday. */
 export class IsMonday extends NodeIf<typeof State> {
     override readonly when = (s: StateView<typeof State>) => s.pull.isMonday === true
     override readonly label = { vi: "Thứ Hai?", en: "Monday?" }

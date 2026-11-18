@@ -3,7 +3,10 @@ import type { EventKind } from "@starci/nivoos-sdk"
 import { keyOf } from "../../package-key.ts"
 
 /** What the event carries. */
-export const LeadQualifiedData = z.strictObject({ leadId: z.string().min(1), score: z.number().int().nonnegative() })
+export const LeadQualifiedData = z.strictObject({
+    leadId: z.string().min(1).max(80),
+    score: z.number().int().nonnegative(),
+})
 
 /**
  * `nivo-gtm.lead.qualified`: a lead scored above the qualify line. Internal, on the subject `lead:<id>`; the emitter keys it by the object and the transition, so a repeat emit is one event.

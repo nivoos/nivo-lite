@@ -3,7 +3,12 @@ import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import type { LeadReady } from "../../../common/events/lead-ready.event.ts"
 import { keyOf } from "../../../package-key.ts"
 
-export const EmitLeadReadyInput = z.strictObject({ leadId: z.string().min(1).max(80), code: z.string().min(1).max(60), reason: z.string().min(1).max(500), turns: z.number().int().nonnegative() })
+export const EmitLeadReadyInput = z.strictObject({
+    leadId: z.string().min(1).max(80),
+    code: z.string().min(1).max(60),
+    reason: z.string().min(1).max(500),
+    turns: z.number().int().nonnegative(),
+})
 export const EmitLeadReadyOutput = z.strictObject({ emitted: z.literal(true) })
 
 type In = z.infer<typeof EmitLeadReadyInput>

@@ -5,13 +5,11 @@ import { SOCIAL_POLICY } from "../common/social.policy.ts"
 import { PostDraft } from "../common/social.shapes.ts"
 import { ReadOutput } from "./read.cell.ts"
 
-export const DraftInput = ReadOutput
-export const DraftOutput = PostDraft
 /** The length of a post a channel takes, as a per-customer rule. */
 export const DraftSettings = z.strictObject({ maxChars: z.number().int().min(100).max(2500).default(900) })
 
-type In = z.infer<typeof DraftInput>
-type Out = z.infer<typeof DraftOutput>
+type In = z.infer<typeof ReadOutput>
+type Out = z.infer<typeof PostDraft>
 type Settings = z.infer<typeof DraftSettings>
 
 const GOAL =
@@ -21,12 +19,12 @@ const GOAL =
 /**
  * `nivo-gtm.social-draft` (Soạn bài đăng): ONE generation. The caption, the hashtags and the image text of a post, from the chosen idea and the brain. A person reviews it before anything leaves the company.
  */
-export class SocialDraft implements Node<typeof DraftInput, typeof DraftOutput, typeof DraftSettings> {
+export class SocialDraft implements Node<typeof ReadOutput, typeof PostDraft, typeof DraftSettings> {
     readonly key = keyOf("social-draft")
     readonly version = 1
     readonly title = { vi: "Soạn bài đăng", en: "Draft the post" }
-    readonly input = DraftInput
-    readonly output = DraftOutput
+    readonly input = ReadOutput
+    readonly output = PostDraft
     readonly settings = DraftSettings
     readonly reads = []
     readonly mutation = "model.generate"
@@ -35,9 +33,20 @@ export class SocialDraft implements Node<typeof DraftInput, typeof DraftOutput, 
     run(input: In, reach: NodeReach<Settings>): Out {
         const { result, error } = reach.call<ModelGenerate<Out>>("model.generate", {
             prompt: `${SOCIAL_POLICY}\n\n${GOAL}`,
-            data: { title: input.title, pillar: input.pillar, hook: input.hook, maxChars: reach.settings.maxChars, brain: input.brain },
+            data: {
+                title: input.title,
+                pillar: input.pillar,
+                hook: input.hook,
+                maxChars: reach.settings.maxChars,
+                brain: input.brain,
+            },
         })
         if (error) throw error
-        return { ...result.value, ok: true, revision: 0, caption: result.value.caption.slice(0, reach.settings.maxChars) }
+        return {
+            ...result.value,
+            ok: true,
+            revision: 0,
+            caption: result.value.caption.slice(0, reach.settings.maxChars),
+        }
     }
 }

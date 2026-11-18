@@ -3,6 +3,7 @@ import type { State } from "../handover.workflow.ts"
 import { SetPlan } from "./set-plan.step.ts"
 import { Held } from "./held.step.ts"
 
+/** Branches on the sales answer: `quote` goes on to set the plan, anything else holds the deal. */
 export class Wants extends NodeIf<typeof State> {
     override readonly when = (s: StateView<typeof State>) => s.answer.choice === "quote"
     override readonly yes = SetPlan

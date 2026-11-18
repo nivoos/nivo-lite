@@ -3,6 +3,7 @@ import { ReadDeal as ReadDealCell } from "../../cells/read-deal.cell.ts"
 import type { State } from "../pay.workflow.ts"
 import { WriteCode } from "./write-code.step.ts"
 
+/** Reads the deal whose status changed to awaiting payment, to get its pay code. */
 export class Read extends NodeRun(ReadDealCell)<typeof State> {
     override readonly input = (s: StateView<typeof State>) => ({ dealId: s.change.objectId })
     override readonly into = ["deal"] as const

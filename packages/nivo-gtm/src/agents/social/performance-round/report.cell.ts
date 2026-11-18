@@ -5,7 +5,11 @@ import { clip } from "../common/helpers.ts"
 import { SOCIAL_POLICY } from "../common/social.policy.ts"
 import { PullOutput } from "./pull.cell.ts"
 
-export const ReportInput = z.strictObject({ instant: z.string(), items: PullOutput.shape.items, totals: PullOutput.shape.totals })
+export const ReportInput = z.strictObject({
+    instant: z.string().max(40),
+    items: PullOutput.shape.items,
+    totals: PullOutput.shape.totals,
+})
 const Written = z.strictObject({ summary: z.string().min(1).max(1500), suggestion: z.string().min(1).max(500) })
 export const ReportOutput = z.strictObject({ cardText: z.string().min(1).max(3000) })
 
@@ -29,10 +33,18 @@ export class SocialReport implements Node<typeof ReportInput, typeof ReportOutpu
     readonly model = { model: "sonnet-5-5", effort: "balanced" } as const
 
     run(input: In, reach: NodeReach): Out {
-        const { result, error } = reach.call<ModelGenerate<Written>>("model.generate", { prompt: `${SOCIAL_POLICY}\n\n${GOAL}`, data: { instant: input.instant, totals: input.totals, items: input.items } })
+        const { result, error } = reach.call<ModelGenerate<Written>>("model.generate", {
+            prompt: `${SOCIAL_POLICY}\n\n${GOAL}`,
+            data: { instant: input.instant, totals: input.totals, items: input.items },
+        })
         if (error) throw error
         const t = input.totals
         const figures = `Bài đã đăng: ${String(t.publications)} · Lượt xem: ${String(t.views)} · Tiếp cận: ${String(t.reach)} · Tương tác: ${String(t.engagements)} · Lượt bấm: ${String(t.clicks)} · Khách từ bài: ${String(t.leads)}`
-        return { cardText: clip(`Báo cáo mạng xã hội tuần (${input.instant.slice(0, 10)})\n${figures}\n\n${result.value.summary}\n\nĐề xuất tuần tới: ${result.value.suggestion}`, 3000) }
+        return {
+            cardText: clip(
+                `Báo cáo mạng xã hội tuần (${input.instant.slice(0, 10)})\n${figures}\n\n${result.value.summary}\n\nĐề xuất tuần tới: ${result.value.suggestion}`,
+                3000,
+            ),
+        }
     }
 }

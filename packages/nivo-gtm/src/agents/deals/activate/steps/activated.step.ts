@@ -7,7 +7,10 @@ import { Late } from "./late.step.ts"
 /** The activator answers within the hours of the setting `answerHours` (a day by default). */
 export class Activated extends NodeWait<typeof State> {
     override readonly take = [
-        take<typeof State>({ engine: "engine.room.answered", version: 1 }, {}, (s, answers: Answer[]) => { const [first] = answers; if (first !== undefined) s.answer = first }),
+        take<typeof State>({ engine: "engine.room.answered", version: 1 }, {}, (s, answers: Array<Answer>) => {
+            const first = answers.at(0)
+            if (first !== undefined) s.answer = first
+        }),
     ]
     override readonly timeout = fromSetting(RequestActivation, "answerHours", "hours")
     override readonly next = Done

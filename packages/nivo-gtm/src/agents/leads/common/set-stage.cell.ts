@@ -1,7 +1,8 @@
 import { z } from "zod"
-import type { Node, NodeReach, NivoRef } from "@starci/nivoos-sdk"
+import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import { Lead, LEAD_STAGES } from "../../../objects/lead.object.ts"
 import { keyOf } from "../../../package-key.ts"
+import { assertRef } from "./typed-ref.ts"
 
 export const SetStageInput = z.strictObject({
     leadId: z.string().min(1).max(80),
@@ -11,7 +12,11 @@ export const SetStageInput = z.strictObject({
     nextAtMs: z.number().int().nonnegative(),
     nextAfterHours: z.number().int().nonnegative().max(8760),
 })
-export const SetStageOutput = z.strictObject({ leadId: z.string(), version: z.number().int(), stage: z.string() })
+export const SetStageOutput = z.strictObject({
+    leadId: z.string().max(128),
+    version: z.number().int(),
+    stage: z.string().max(40),
+})
 
 type In = z.infer<typeof SetStageInput>
 type Out = z.infer<typeof SetStageOutput>
@@ -27,10 +32,12 @@ export class SetStage implements Node<typeof SetStageInput, typeof SetStageOutpu
     readonly mutation = "object.update"
 
     run(input: In, reach: NodeReach): Out {
-        const got = reach.objects(Lead).get(input.leadId as NivoRef<Lead>)
+        assertRef<Lead>(input.leadId)
+        const got = reach.objects(Lead).get(input.leadId)
         if (got.error) throw got.error
         const lead = got.result
-        const dueMs = input.nextAtMs > 0 ? input.nextAtMs : Date.parse(reach.facts.at) + input.nextAfterHours * 3_600_000
+        const dueMs =
+            input.nextAtMs > 0 ? input.nextAtMs : Date.parse(reach.facts.at) + input.nextAfterHours * 3_600_000
         const { result, error } = reach.objects(Lead).update({
             id: lead.id,
             version: lead.version,

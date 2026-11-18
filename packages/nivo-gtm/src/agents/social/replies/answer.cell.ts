@@ -34,9 +34,15 @@ export class SocialAnswer implements Node<typeof AnswerInput, typeof AnswerOutpu
     readonly model = { model: "sonnet-5-5", effort: "fast" } as const
 
     run(input: In, reach: NodeReach<Settings>): Out {
-        const { result: found } = reach.call<BrainSearch>("brain.search", { query: input.text.slice(0, 1000), limit: reach.settings.brainHits })
+        const { result: found } = reach.call<BrainSearch>("brain.search", {
+            query: input.text.slice(0, 1000),
+            limit: reach.settings.brainHits,
+        })
         const brain = found.hits.map((hit) => clip(JSON.stringify(hit.passage ?? hit.truth), 1200))
-        const { result, error } = reach.call<ModelGenerate<Out>>("model.generate", { prompt: `${SOCIAL_POLICY}\n\n${GOAL}`, data: { text: input.text, summary: input.summary, brain } })
+        const { result, error } = reach.call<ModelGenerate<Out>>("model.generate", {
+            prompt: `${SOCIAL_POLICY}\n\n${GOAL}`,
+            data: { text: input.text, summary: input.summary, brain },
+        })
         if (error) throw error
         return result.value.answered && result.value.reply.trim() !== "" ? result.value : { answered: false, reply: "" }
     }

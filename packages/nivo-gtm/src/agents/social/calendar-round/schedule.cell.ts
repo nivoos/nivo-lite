@@ -1,11 +1,15 @@
 import { z } from "zod"
-import type { NivoRef, Node, NodeReach } from "@starci/nivoos-sdk"
+import type { Node, NodeReach } from "@starci/nivoos-sdk"
+import { refOf } from "../common/helpers.ts"
 import { Publication } from "../../../objects/publication.object.ts"
 import { keyOf } from "../../../package-key.ts"
 import { FileSlotsOutput } from "./file-slots.cell.ts"
 
-export const ScheduleInput = z.strictObject({ filed: FileSlotsOutput.shape.filed, status: z.enum(["scheduled", "cancelled"]) })
-export const ScheduleOutput = z.strictObject({ moved: z.number().int(), status: z.string() })
+export const ScheduleInput = z.strictObject({
+    filed: FileSlotsOutput.shape.filed,
+    status: z.enum(["scheduled", "cancelled"]),
+})
+export const ScheduleOutput = z.strictObject({ moved: z.number().int(), status: z.string().max(80) })
 
 type In = z.infer<typeof ScheduleInput>
 type Out = z.infer<typeof ScheduleOutput>
@@ -26,12 +30,15 @@ export class SocialSchedule implements Node<typeof ScheduleInput, typeof Schedul
     run(input: In, reach: NodeReach): Out {
         let moved = 0
         for (const row of input.filed) {
-            const got = reach.objects(Publication).get(row.id as NivoRef<Publication>)
+            const got = reach.objects(Publication).get(refOf<Publication>(row.id))
             if (got.error) throw got.error
             const { error } = reach.objects(Publication).update({
                 id: got.result.id,
                 version: got.result.version,
-                values: input.status === "scheduled" ? { status: "scheduled", nextAction: "Đăng đúng giờ" } : { status: "cancelled", nextAction: null },
+                values:
+                    input.status === "scheduled"
+                        ? { status: "scheduled", nextAction: "Đăng đúng giờ" }
+                        : { status: "cancelled", nextAction: null },
             })
             if (error) throw error
             moved += 1

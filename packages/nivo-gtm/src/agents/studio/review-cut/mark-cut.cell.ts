@@ -1,12 +1,17 @@
+import { refOf } from "../../../common/helpers/refs.ts"
 import { z } from "zod"
 import type { Node, NodeReach } from "@starci/nivoos-sdk"
-import type { NivoRef } from "@starci/nivoos-sdk"
 import { VideoCut } from "../../../objects/video-cut.object.ts"
 import { keyOf } from "../../../package-key.ts"
 import { clip } from "../common/helpers.ts"
 
-export const MarkCutInput = z.strictObject({ cutId: z.string().min(1), verdict: z.enum(["approved", "fix"]), memberId: z.string().min(1).max(80), note: z.string().max(2000) })
-export const MarkCutOutput = z.strictObject({ cutId: z.string(), verdict: z.enum(["approved", "fix"]) })
+export const MarkCutInput = z.strictObject({
+    cutId: z.string().min(1).max(100),
+    verdict: z.enum(["approved", "fix"]),
+    memberId: z.string().min(1).max(80),
+    note: z.string().max(2000),
+})
+export const MarkCutOutput = z.strictObject({ cutId: z.string().max(100), verdict: z.enum(["approved", "fix"]) })
 
 type In = z.infer<typeof MarkCutInput>
 type Out = z.infer<typeof MarkCutOutput>
@@ -24,12 +29,18 @@ export class StudioMarkCut implements Node<typeof MarkCutInput, typeof MarkCutOu
     readonly mutation = "object.update"
 
     run(input: In, reach: NodeReach): Out {
-        const got = reach.objects(VideoCut).get(input.cutId as NivoRef<VideoCut>)
+        const got = reach.objects(VideoCut).get(refOf<VideoCut>(input.cutId))
         if (got.error) throw got.error
         const { error } = reach.objects(VideoCut).update({
             id: got.result.id,
             version: got.result.version,
-            values: { verdict: input.verdict, reviewer: input.memberId, note: clip(input.note, 1000), nextAction: null, nextAt: null },
+            values: {
+                verdict: input.verdict,
+                reviewer: input.memberId,
+                note: clip(input.note, 1000),
+                nextAction: null,
+                nextAt: null,
+            },
         })
         if (error) throw error
         return { cutId: got.result.id, verdict: input.verdict }

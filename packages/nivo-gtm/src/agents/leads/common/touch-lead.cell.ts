@@ -1,7 +1,8 @@
 import { z } from "zod"
-import type { Node, NodeReach, NivoRef } from "@starci/nivoos-sdk"
+import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import { Lead } from "../../../objects/lead.object.ts"
 import { keyOf } from "../../../package-key.ts"
+import { assertRef } from "./typed-ref.ts"
 
 export const TouchLeadInput = z.strictObject({
     leadId: z.string().min(1).max(80),
@@ -12,7 +13,12 @@ export const TouchLeadInput = z.strictObject({
     /** True: a lead still `new` or gone `cold` is now `engaged`. */
     engage: z.boolean(),
 })
-export const TouchLeadOutput = z.strictObject({ leadId: z.string(), version: z.number().int(), stage: z.string(), turns: z.number().int().nonnegative() })
+export const TouchLeadOutput = z.strictObject({
+    leadId: z.string().max(128),
+    version: z.number().int(),
+    stage: z.string().max(40),
+    turns: z.number().int().nonnegative(),
+})
 export const TouchLeadSettings = z.strictObject({
     /** How long after a touch the lead's next action falls due. */
     followUpHours: z.number().int().min(1).max(720).default(24),
@@ -41,14 +47,18 @@ export class TouchLead implements Node<typeof TouchLeadInput, typeof TouchLeadOu
     readonly mutation = "object.update"
 
     run(input: In, reach: NodeReach<Settings>): Out {
-        const got = reach.objects(Lead).get(input.leadId as NivoRef<Lead>)
+        assertRef<Lead>(input.leadId)
+        const got = reach.objects(Lead).get(input.leadId)
         if (got.error) throw got.error
         const lead = got.result
         const now = reach.facts.at
         const notes = (lead.values.fitNotes ?? "").split("\n").filter((line) => line !== "")
         notes.push(`${now.slice(0, 10)} ${input.note}`)
         const kept = notes.slice(-reach.settings.noteLines)
-        const stage = input.engage && (lead.values.stage === "new" || lead.values.stage === "cold") ? "engaged" : lead.values.stage
+        const stage =
+            input.engage && (lead.values.stage === "new" || lead.values.stage === "cold")
+                ? "engaged"
+                : lead.values.stage
         const { result, error } = reach.objects(Lead).update({
             id: lead.id,
             version: lead.version,

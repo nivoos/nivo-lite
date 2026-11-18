@@ -12,7 +12,7 @@ import { Reviewed } from "./steps/reviewed.step.ts"
 
 /** The one state object of a run: the clock instant, the week read, the review written and the card posted. */
 export const State = z.strictObject({
-    instant: z.string().optional(),
+    instant: z.string().max(40).optional(),
     week: LostWeekOutput.optional(),
     summary: LostSummaryOutput.optional(),
     posted: PostReviewOutput.optional(),

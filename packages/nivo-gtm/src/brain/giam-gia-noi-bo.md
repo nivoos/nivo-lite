@@ -1,4 +1,3 @@
-
 # Chính sách giảm giá nội bộ
 
 Tài liệu nội bộ. Không trích tài liệu này cho khách.
@@ -6,6 +5,7 @@ Tài liệu nội bộ. Không trích tài liệu này cho khách.
 ## Ưu đãi công khai (ai cũng được)
 
 <!-- placeholder -->
+
 - Trả trước 6 tháng giảm 10%, trả trước 12 tháng giảm 15%.
 
 Đây là giá công bố, không tính là "giảm giá thêm" và không cần duyệt riêng.
@@ -13,9 +13,11 @@ Tài liệu nội bộ. Không trích tài liệu này cho khách.
 ## Giảm giá thêm (ngoài ưu đãi công khai)
 
 <!-- placeholder -->
+
 - Mức tối đa: **10%** trên số tiền sau ưu đãi trả trước (cài đặt `maxDiscountPercent`).
 
 <!-- placeholder -->
+
 - Đến **5%**: người bán giữ đơn tự duyệt. Trên 5% đến 10%: chủ NIVO duyệt (cài đặt `ownerApprovesAbove`).
 
 - Trên 10%: bước tính giá từ chối (`discount_over_limit`), thẻ hỏi chủ NIVO. Không ai khác được duyệt.

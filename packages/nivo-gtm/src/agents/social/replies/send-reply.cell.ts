@@ -2,7 +2,11 @@ import { z } from "zod"
 import type { ContactMessageSend, Node, NodeReach } from "@starci/nivoos-sdk"
 import { keyOf } from "../../../package-key.ts"
 
-export const SendReplyInput = z.strictObject({ chatId: z.string().min(1).max(40), messageId: z.string().regex(/^\d+$/u), text: z.string().min(1).max(1000) })
+export const SendReplyInput = z.strictObject({
+    chatId: z.string().min(1).max(40),
+    messageId: z.string().max(80).regex(/^\d+$/u),
+    text: z.string().min(1).max(1000),
+})
 /** The reply that went out: the provider message id. */
 export const SendReplyOutput = z.strictObject({ ref: z.string().max(80) })
 
@@ -23,7 +27,11 @@ export class SocialSendReply implements Node<typeof SendReplyInput, typeof SendR
     readonly mutation = "contact_message.send"
 
     run(input: In, reach: NodeReach): Out {
-        const { result, error } = reach.call<ContactMessageSend>("contact_message.send", { provider: "telegram", to: input.chatId, text: input.text })
+        const { result, error } = reach.call<ContactMessageSend>("contact_message.send", {
+            provider: "telegram",
+            to: input.chatId,
+            text: input.text,
+        })
         if (error) throw error
         return { ref: result.messageId ?? "" }
     }

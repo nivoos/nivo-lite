@@ -5,7 +5,7 @@ import { EmitDealPaidOutput } from "../cells/emit-deal-paid.cell.ts"
 import { EmitPayRequestedOutput } from "../cells/emit-pay-requested.cell.ts"
 import { PostPayNoticeOutput } from "../cells/post-pay-notice.cell.ts"
 import { ReadDealOutput } from "../cells/read-deal.cell.ts"
-import { SendPayOutput } from "../cells/send-pay.cell.ts"
+import { SentOutput } from "../cells/sent.ts"
 import { UpdateDealOutput } from "../cells/update-deal.cell.ts"
 import { Open } from "./steps/open.step.ts"
 import { Read } from "./steps/read.step.ts"
@@ -28,18 +28,24 @@ import { Unreachable } from "./steps/unreachable.step.ts"
 import { Declined } from "./steps/declined.step.ts"
 
 /** What a payment watch ends with, as the deal's run reads it from its `Ended` item. */
-export const Result = z.strictObject({ reason: z.string(), paid: z.boolean(), amount: z.number(), transferId: z.string() })
+export const Result = z.strictObject({
+    reason: z.string().max(600),
+    paid: z.boolean(),
+    amount: z.number(),
+    transferId: z.string().max(80),
+})
+/** How the payment watch ended: paid or not, the amount received, the transfer id and the reason it ended. */
 export type Result = z.infer<typeof Result>
 
 /** The one state object of a run: the deal written, what was read of it, the pay code written, the watch request (with its round), the reminder, the watch result, the paid record and the notice to the sales room. */
 export const State = z.strictObject({
-    change: z.strictObject({ objectId: z.string(), version: z.number().int() }).optional(),
+    change: z.strictObject({ objectId: z.string().max(80), version: z.number().int() }).optional(),
     deal: ReadDealOutput.optional(),
     written: UpdateDealOutput.optional(),
-    sent: SendPayOutput.optional(),
+    sent: SentOutput.optional(),
     watched: EmitPayRequestedOutput.optional(),
     result: Result.optional(),
-    nudged: SendPayOutput.optional(),
+    nudged: SentOutput.optional(),
     recorded: UpdateDealOutput.optional(),
     announced: EmitDealPaidOutput.optional(),
     notified: PostPayNoticeOutput.optional(),
@@ -56,5 +62,25 @@ export class Pay implements Workflow<typeof State> {
     readonly title = { vi: "Thu tiền", en: "Collect the payment" }
     readonly state = State
     readonly start = Open
-    readonly steps = [Open, Read, WriteCode, SendPay, Watch, Settle, IsPaid, IsReminded, IsShort, Nudge, RecordPaid, Announce, Paid, ShortNotice, UnpaidNotice, Short, Unpaid, Unreachable, Declined]
+    readonly steps = [
+        Open,
+        Read,
+        WriteCode,
+        SendPay,
+        Watch,
+        Settle,
+        IsPaid,
+        IsReminded,
+        IsShort,
+        Nudge,
+        RecordPaid,
+        Announce,
+        Paid,
+        ShortNotice,
+        UnpaidNotice,
+        Short,
+        Unpaid,
+        Unreachable,
+        Declined,
+    ]
 }

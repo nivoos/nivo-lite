@@ -5,7 +5,11 @@ import { PriceOk } from "./price-ok.step.ts"
 
 /** Pure logic over the price-list settings. */
 export class Price extends NodeRun(PriceCell)<typeof State> {
-    override readonly input = (s: StateView<typeof State>) => ({ months: s.deal.months, creditPack: s.deal.creditPack, requestedDiscount: s.deal.discountPercent })
+    override readonly input = (s: StateView<typeof State>) => ({
+        months: s.deal.months,
+        creditPack: s.deal.creditPack,
+        requestedDiscount: s.deal.discountPercent,
+    })
     override readonly into = ["price"] as const
     override readonly next = PriceOk
 }

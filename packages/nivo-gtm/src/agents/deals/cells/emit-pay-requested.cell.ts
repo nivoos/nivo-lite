@@ -4,8 +4,11 @@ import type { PayRequested } from "../../../common/events/pay-requested.event.ts
 import { keyOf } from "../../../package-key.ts"
 
 export const EmitPayRequestedInput = z.strictObject({
-    dealId: z.string().min(1),
-    payCode: z.string().regex(/^[A-Z]{2,5}[0-9]{4,12}$/u),
+    dealId: z.string().max(80).min(1),
+    payCode: z
+        .string()
+        .max(20)
+        .regex(/^[A-Z]{2,5}d{4,12}$/u),
     amount: z.number().int().min(0),
     /** The round of the watch that ran before this one; absent for the first. The round of this watch is the next one: part of the event key. */
     after: z.number().int().min(1).max(4).optional(),

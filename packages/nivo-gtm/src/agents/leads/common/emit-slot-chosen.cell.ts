@@ -26,7 +26,10 @@ export class EmitSlotChosen implements Node<typeof EmitSlotChosenInput, typeof E
     readonly mutation = "events.emit"
 
     run(input: In, reach: NodeReach): Out {
-        const text = input.messages.map((message) => message.text).join("\n").slice(0, 500)
+        const text = input.messages
+            .map((message) => message.text)
+            .join("\n")
+            .slice(0, 500)
         const { error } = reach.emit<typeof SlotChosen>("nivo-gtm.lead.slot-chosen", {
             subject: { kind: "lead", id: input.code },
             data: { leadId: input.leadId, text, email: input.email },

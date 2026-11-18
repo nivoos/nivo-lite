@@ -3,7 +3,11 @@ import type { EventKind } from "@starci/nivoos-sdk"
 import { keyOf } from "../../package-key.ts"
 
 /** What the event carries. */
-export const DemoDoneData = z.strictObject({ leadId: z.string().min(1), demoId: z.string().min(1), note: z.string().max(500) })
+export const DemoDoneData = z.strictObject({
+    leadId: z.string().min(1).max(80),
+    demoId: z.string().min(1).max(80),
+    note: z.string().max(500),
+})
 
 /**
  * `nivo-gtm.demo.done`: a demo was held (Deals opens the deal from it). Internal, on the subject `lead:<id>`; the emitter keys it by the object and the transition, so a repeat emit is one event.

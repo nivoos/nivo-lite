@@ -48,6 +48,7 @@ export const State = z.strictObject({
     readiness: ReadinessOutput.optional(),
     emitted: EmitLeadReadyOutput.optional(),
 })
+/** The Telegram message that opens the front door run. */
 export type Message = z.infer<typeof TelegramMessage>
 
 /**
@@ -63,5 +64,31 @@ export class Front implements Workflow<typeof State> {
     readonly state = State
     readonly append = ["messages"] as const
     readonly start = Hear
-    readonly steps = [Hear, FindLead, IsKnown, OpenLead, Understand, IsSpam, Touch, IsSlot, EmitSlot, IsSupport, NoticeSupport, Answer, HasAnswer, NoticeNoAnswer, SendAnswer, Readiness, IsReady, EmitReady, EndSpam, EndSlot, EndSupport, EndDeclined, EndNoAnswer, EndAnswered, EndReady]
+    readonly steps = [
+        Hear,
+        FindLead,
+        IsKnown,
+        OpenLead,
+        Understand,
+        IsSpam,
+        Touch,
+        IsSlot,
+        EmitSlot,
+        IsSupport,
+        NoticeSupport,
+        Answer,
+        HasAnswer,
+        NoticeNoAnswer,
+        SendAnswer,
+        Readiness,
+        IsReady,
+        EmitReady,
+        EndSpam,
+        EndSlot,
+        EndSupport,
+        EndDeclined,
+        EndNoAnswer,
+        EndAnswered,
+        EndReady,
+    ]
 }

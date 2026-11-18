@@ -5,7 +5,8 @@ export const VN_OFFSET_MS = 7 * 3_600_000
 export const vnWeekday = (ms: number): number => new Date(ms + VN_OFFSET_MS).getUTCDay()
 
 /** The UTC instant of midnight, Vietnam time, of the day an instant falls on. */
-export const vnMidnight = (ms: number): number => Math.floor((ms + VN_OFFSET_MS) / 86_400_000) * 86_400_000 - VN_OFFSET_MS
+export const vnMidnight = (ms: number): number =>
+    Math.floor((ms + VN_OFFSET_MS) / 86_400_000) * 86_400_000 - VN_OFFSET_MS
 
 /** `10:30` as minutes since midnight (630); a value that is not a time reads as midnight. */
 export const minutesOf = (clock: string): number => {

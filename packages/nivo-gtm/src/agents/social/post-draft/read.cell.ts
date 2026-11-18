@@ -1,13 +1,13 @@
 import { z } from "zod"
-import type { NivoRef, Node, NodeReach } from "@starci/nivoos-sdk"
+import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import { Content } from "../../../objects/content.object.ts"
 import { keyOf } from "../../../package-key.ts"
 import type { BrainSearch } from "../common/callees.ts"
-import { clip } from "../common/helpers.ts"
+import { clip, refOf } from "../common/helpers.ts"
 
-export const ReadInput = z.strictObject({ objectId: z.string().min(1) })
+export const ReadInput = z.strictObject({ objectId: z.string().max(80).min(1) })
 export const ReadOutput = z.strictObject({
-    objectId: z.string(),
+    objectId: z.string().max(80),
     code: z.string().max(40),
     title: z.string().max(200),
     pillar: z.string().max(120),
@@ -37,7 +37,7 @@ export class SocialDraftRead implements Node<typeof ReadInput, typeof ReadOutput
     readonly reads = ["object.get", "brain.search"]
 
     run(input: In, reach: NodeReach<Settings>): Out {
-        const got = reach.objects(Content).get(input.objectId as NivoRef<Content>)
+        const got = reach.objects(Content).get(refOf<Content>(input.objectId))
         if (got.error) throw got.error
         const brain: Array<string> = []
         for (const query of QUESTIONS) {
@@ -45,6 +45,13 @@ export class SocialDraftRead implements Node<typeof ReadInput, typeof ReadOutput
             for (const hit of result.hits) brain.push(clip(JSON.stringify(hit.passage ?? hit.truth), 1200))
         }
         const values = got.result.values
-        return { objectId: input.objectId, code: values.code, title: values.title, pillar: values.pillar ?? "", hook: values.hook ?? "", brain }
+        return {
+            objectId: input.objectId,
+            code: values.code,
+            title: values.title,
+            pillar: values.pillar ?? "",
+            hook: values.hook ?? "",
+            brain,
+        }
     }
 }

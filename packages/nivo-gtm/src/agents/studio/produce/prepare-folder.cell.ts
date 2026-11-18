@@ -1,13 +1,13 @@
+import { refOf } from "../../../common/helpers/refs.ts"
 import { z } from "zod"
 import type { Node, NodeReach } from "@starci/nivoos-sdk"
-import type { NivoRef } from "@starci/nivoos-sdk"
 import { Content } from "../../../objects/content.object.ts"
 import { keyOf } from "../../../package-key.ts"
 import { PENDING_DRIVE_STATUS } from "../providers/pending-operations.ts"
 
-export const PrepareFolderInput = z.strictObject({ objectId: z.string().min(1) })
+export const PrepareFolderInput = z.strictObject({ objectId: z.string().min(1).max(100) })
 export const PrepareFolderOutput = z.strictObject({
-    objectId: z.string(),
+    objectId: z.string().max(100),
     code: z.string().max(40),
     title: z.string().max(200),
     folderName: z.string().max(260),
@@ -29,7 +29,11 @@ type Settings = z.infer<typeof PrepareFolderSettings>
  * operation (the build knows only the package's own operations and the engine's acts), so the folder is the PROVIDER SEAM: this node names the folder, and says "chờ kết nối" unless the team gives a folder link in the setting.
  * The produce flow does not wait for Drive: the person who shoots creates the folder and puts its link in the item's evidence.
  */
-export class StudioPrepareFolder implements Node<typeof PrepareFolderInput, typeof PrepareFolderOutput, typeof PrepareFolderSettings> {
+export class StudioPrepareFolder implements Node<
+    typeof PrepareFolderInput,
+    typeof PrepareFolderOutput,
+    typeof PrepareFolderSettings
+> {
     readonly key = keyOf("studio-prepare-folder")
     readonly version = 1
     readonly title = { vi: "Chuẩn bị thư mục quay dựng", en: "Prepare the shoot folder" }
@@ -39,7 +43,7 @@ export class StudioPrepareFolder implements Node<typeof PrepareFolderInput, type
     readonly reads = ["object.get"]
 
     run(input: In, reach: NodeReach<Settings>): Out {
-        const got = reach.objects(Content).get(input.objectId as NivoRef<Content>)
+        const got = reach.objects(Content).get(refOf<Content>(input.objectId))
         if (got.error) throw got.error
         const { code, title } = got.result.values
         const link = reach.settings.shootFolderLink

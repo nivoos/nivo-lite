@@ -11,7 +11,7 @@ export const PostPayNoticeInput = z.strictObject({
     /** What came in (0 when nothing did). */
     received: z.number(),
 })
-export const PostPayNoticeOutput = z.strictObject({ messageId: z.string(), roomId: z.string() })
+export const PostPayNoticeOutput = z.strictObject({ messageId: z.string().max(80), roomId: z.string().max(80) })
 
 type In = z.infer<typeof PostPayNoticeInput>
 type Out = z.infer<typeof PostPayNoticeOutput>

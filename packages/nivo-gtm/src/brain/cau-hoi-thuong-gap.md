@@ -1,4 +1,3 @@
-
 # Hỏi đáp thường gặp
 
 **1. NIVO là gì?**
@@ -24,6 +23,7 @@ Chưa. NIVO sẽ báo khi có.
 
 **8. Giá bao nhiêu?**
 <!-- placeholder -->
+
 Gói Vận hành 1.490.000đ/tháng. Trả trước 6 tháng giảm 10%, 12 tháng giảm 15%. Xem tài liệu "Gói và giá".
 
 **9. Credit là gì, có đắt không?**
@@ -34,11 +34,13 @@ Các bước dùng AI dừng. Tin khách vẫn về Đầu vào để người t
 
 **11. Có cho dùng thử không?**
 <!-- placeholder -->
+
 Có, 7 ngày.
 
 **12. Đặt demo thế nào?**
 Nhắn NIVO trên Telegram, chọn một khung giờ trong các khung NIVO gửi.
 <!-- placeholder -->
+
 Các khung giờ là 10:00, 14:00, 16:00 từ thứ Hai đến thứ Sáu.
 
 **13. Trả tiền thế nào?**

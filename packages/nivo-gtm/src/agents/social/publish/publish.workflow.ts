@@ -30,7 +30,7 @@ import { ChannelNotSet } from "./steps/channel-not-set.step.ts"
 export const State = z.strictObject({
     hear: Changed.optional(),
     slot: OpenOutput.optional(),
-    change: z.strictObject({ field: z.string(), to: z.string() }).optional(),
+    change: z.strictObject({ field: z.string().max(80), to: z.string().max(80) }).optional(),
     check: FinalCheckOutput.optional(),
     sent: SendOutput.optional(),
     recorded: RecordOutput.optional(),
@@ -46,8 +46,26 @@ export const State = z.strictObject({
 export class Publish implements Workflow<typeof State> {
     readonly key = keyOf("social-publish")
     readonly version = 2
-    readonly title = {"vi":"Đăng bài đúng giờ","en":"Publish on time"}
+    readonly title = { vi: "Đăng bài đúng giờ", en: "Publish on time" }
     readonly state = State
     readonly start = Hear
-    readonly steps = [Hear, Open, UntilTime, AfterChange, Cancelled, FinalCheck, IsOk, Send, IsSent, IsChannelPending, RecordSent, MarkContent, Announce, Published, Outdated, ChannelPending, ChannelNotSet]
+    readonly steps = [
+        Hear,
+        Open,
+        UntilTime,
+        AfterChange,
+        Cancelled,
+        FinalCheck,
+        IsOk,
+        Send,
+        IsSent,
+        IsChannelPending,
+        RecordSent,
+        MarkContent,
+        Announce,
+        Published,
+        Outdated,
+        ChannelPending,
+        ChannelNotSet,
+    ]
 }

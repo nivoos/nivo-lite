@@ -3,6 +3,7 @@ import { Cancelled } from "./cancelled.step.ts"
 import { Open } from "./open.step.ts"
 import type { State } from "../publish.workflow.ts"
 
+/** Branch: was the publication cancelled while the run waited for its time. */
 export class AfterChange extends NodeIf<typeof State> {
     override readonly when = (s: StateView<typeof State>) => s.change.to === "cancelled"
     override readonly label = { vi: "Bị hủy?", en: "Cancelled?" }

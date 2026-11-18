@@ -5,7 +5,11 @@ import { isPending } from "../providers/pending-channels.ts"
 
 export const SendInput = z.strictObject({ channel: z.string().min(1).max(20), text: z.string().min(1).max(4000) })
 /** `outcome`: `sent`, or the business reason nothing went out (`channel_pending` for a channel with no provider yet, `channel_not_set` when the channel chat is not set). */
-export const SendOutput = z.strictObject({ outcome: z.enum(["sent", "channel_pending", "channel_not_set"]), ref: z.string().max(80), url: z.string().max(500) })
+export const SendOutput = z.strictObject({
+    outcome: z.enum(["sent", "channel_pending", "channel_not_set"]),
+    ref: z.string().max(80),
+    url: z.string().max(500),
+})
 /** The NIVO Telegram channel: its chat id or `@username` (empty until the owner sets it). */
 export const SendSettings = z.strictObject({ telegramChannelChatId: z.string().max(100).default("") })
 
@@ -29,10 +33,22 @@ export class SocialSend implements Node<typeof SendInput, typeof SendOutput, typ
 
     run(input: In, reach: NodeReach<Settings>): Out {
         if (isPending(input.channel)) return { outcome: "channel_pending", ref: "", url: "" }
-        if (input.channel !== "telegram" || reach.settings.telegramChannelChatId === "") return { outcome: "channel_not_set", ref: "", url: "" }
+        if (input.channel !== "telegram" || reach.settings.telegramChannelChatId === "")
+            return { outcome: "channel_not_set", ref: "", url: "" }
         const chatId = reach.settings.telegramChannelChatId
-        const { result, error } = reach.call<ContactMessageSend>("contact_message.send", { provider: "telegram", to: chatId, text: input.text })
+        const { result, error } = reach.call<ContactMessageSend>("contact_message.send", {
+            provider: "telegram",
+            to: chatId,
+            text: input.text,
+        })
         if (error) throw error
-        return { outcome: "sent", ref: result.messageId ?? "", url: chatId.startsWith("@") && result.messageId !== null ? `https://t.me/${chatId.slice(1)}/${result.messageId}` : "" }
+        return {
+            outcome: "sent",
+            ref: result.messageId ?? "",
+            url:
+                chatId.startsWith("@") && result.messageId !== null
+                    ? `https://t.me/${chatId.slice(1)}/${result.messageId}`
+                    : "",
+        }
     }
 }

@@ -14,7 +14,7 @@ import { Done } from "./steps/done.step.ts"
 
 /** The one state object of a run. */
 export const State = z.strictObject({
-    tick: z.strictObject({ instant: z.string().min(10) }).optional(),
+    tick: z.strictObject({ instant: z.string().min(10).max(40) }).optional(),
     context: ReadContextOutput.optional(),
     ideas: IdeasOutput.optional(),
     filed: FileIdeasOutput.optional(),
@@ -28,7 +28,7 @@ export const State = z.strictObject({
 export class IdeaRound implements Workflow<typeof State> {
     readonly key = keyOf("studio-idea-round")
     readonly version = 2
-    readonly title = {"vi":"Vòng ý tưởng tuần","en":"Weekly idea round"}
+    readonly title = { vi: "Vòng ý tưởng tuần", en: "Weekly idea round" }
     readonly state = State
     readonly start = Tick
     readonly steps = [Tick, ReadContext, Ideas, FileIdeas, PostIdeas, Done]

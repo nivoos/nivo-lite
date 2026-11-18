@@ -32,6 +32,7 @@ export const State = z.strictObject({
     answer: AnswerOutput.optional(),
     sent: SendReplyOutput.optional(),
 })
+/** A Telegram message the team account received, as the run keeps it. */
 export type Message = z.infer<typeof TelegramMessage>
 
 /**
@@ -42,9 +43,25 @@ export type Message = z.infer<typeof TelegramMessage>
 export class Replies implements Workflow<typeof State> {
     readonly key = keyOf("social-replies")
     readonly version = 2
-    readonly title = {"vi":"Trả lời bình luận","en":"Reply to comments"}
+    readonly title = { vi: "Trả lời bình luận", en: "Reply to comments" }
     readonly state = State
     readonly append = ["messages"] as const
     readonly start = Hear
-    readonly steps = [Hear, Sort, IsSpam, Spam, IsComplaint, Notice, Noticed, IsInterest, Signal, Answer, IsAnswered, Unanswered, SendReply, Declined, Replied]
+    readonly steps = [
+        Hear,
+        Sort,
+        IsSpam,
+        Spam,
+        IsComplaint,
+        Notice,
+        Noticed,
+        IsInterest,
+        Signal,
+        Answer,
+        IsAnswered,
+        Unanswered,
+        SendReply,
+        Declined,
+        Replied,
+    ]
 }

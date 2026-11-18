@@ -3,6 +3,7 @@ import { StudioFileIdeas as FileIdeasCell } from "../file-ideas.cell.ts"
 import { PostIdeas } from "./post-ideas.step.ts"
 import type { State } from "../idea-round.workflow.ts"
 
+/** Files each idea of the week as an `idea` content item and builds the card text and choices the team will see. */
 export class FileIdeas extends NodeRun(FileIdeasCell)<typeof State> {
     override readonly input = (s: StateView<typeof State>) => ({ instant: s.context.instant, ideas: s.ideas.ideas })
     override readonly into = ["filed"] as const

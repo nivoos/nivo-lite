@@ -1,10 +1,11 @@
 import { z } from "zod"
-import type { NivoRef, Node, NodeReach } from "@starci/nivoos-sdk"
+import type { Node, NodeReach } from "@starci/nivoos-sdk"
+import { refOf } from "../common/helpers.ts"
 import { Content } from "../../../objects/content.object.ts"
 import { keyOf } from "../../../package-key.ts"
 
-export const MarkContentInput = z.strictObject({ contentId: z.string().min(1) })
-export const MarkContentOutput = z.strictObject({ contentId: z.string(), published: z.literal(true) })
+export const MarkContentInput = z.strictObject({ contentId: z.string().max(80).min(1) })
+export const MarkContentOutput = z.strictObject({ contentId: z.string().max(80), published: z.literal(true) })
 
 type In = z.infer<typeof MarkContentInput>
 type Out = z.infer<typeof MarkContentOutput>
@@ -20,9 +21,13 @@ export class SocialMarkContentPublished implements Node<typeof MarkContentInput,
     readonly mutation = "object.update"
 
     run(input: In, reach: NodeReach): Out {
-        const got = reach.objects(Content).get(input.contentId as NivoRef<Content>)
+        const got = reach.objects(Content).get(refOf<Content>(input.contentId))
         if (got.error) throw got.error
-        const { error } = reach.objects(Content).update({ id: got.result.id, version: got.result.version, values: { status: "published", nextAction: null, nextAt: null } })
+        const { error } = reach.objects(Content).update({
+            id: got.result.id,
+            version: got.result.version,
+            values: { status: "published", nextAction: null, nextAt: null },
+        })
         if (error) throw error
         return { contentId: input.contentId, published: true }
     }

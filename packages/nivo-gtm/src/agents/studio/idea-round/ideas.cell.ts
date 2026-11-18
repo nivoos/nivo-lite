@@ -4,8 +4,8 @@ import { keyOf } from "../../../package-key.ts"
 import { STUDIO_POLICY } from "../common/studio.policy.ts"
 import { Idea } from "../common/studio.shapes.ts"
 import { ReadContextOutput } from "./read-context.cell.ts"
+export { ReadContextOutput as IdeasInput } from "./read-context.cell.ts"
 
-export const IdeasInput = ReadContextOutput
 export const IdeasOutput = z.strictObject({ ideas: z.array(Idea).min(1).max(5) })
 /** How many ideas a week and how long a video is: per-customer rules with the plan's defaults. */
 export const IdeasSettings = z.strictObject({
@@ -13,7 +13,7 @@ export const IdeasSettings = z.strictObject({
     videoSeconds: z.number().int().min(10).max(180).default(45),
 })
 
-type In = z.infer<typeof IdeasInput>
+type In = z.infer<typeof ReadContextOutput>
 type Out = z.infer<typeof IdeasOutput>
 type Settings = z.infer<typeof IdeasSettings>
 
@@ -26,11 +26,11 @@ const GOAL =
  * `nivo-gtm.studio-ideas` (Nghĩ ý tưởng tuần): ONE generation, `ideasPerWeek` ideas from the week's context (the pillars, the voice, the last weeks' metrics, the ideas still open). Opus at a balanced effort:
  * idea work is where the quality of the week is decided.
  */
-export class StudioIdeas implements Node<typeof IdeasInput, typeof IdeasOutput, typeof IdeasSettings> {
+export class StudioIdeas implements Node<typeof ReadContextOutput, typeof IdeasOutput, typeof IdeasSettings> {
     readonly key = keyOf("studio-ideas")
     readonly version = 1
     readonly title = { vi: "Nghĩ ý tưởng tuần", en: "Think up the week's ideas" }
-    readonly input = IdeasInput
+    readonly input = ReadContextOutput
     readonly output = IdeasOutput
     readonly settings = IdeasSettings
     readonly reads = []
@@ -40,7 +40,14 @@ export class StudioIdeas implements Node<typeof IdeasInput, typeof IdeasOutput, 
     run(input: In, reach: NodeReach<Settings>): Out {
         const { result, error } = reach.call<ModelGenerate<Out>>("model.generate", {
             prompt: `${STUDIO_POLICY}\n\n${GOAL}`,
-            data: { count: reach.settings.ideasPerWeek, videoSeconds: reach.settings.videoSeconds, brain: input.brain, metrics: input.metrics, recent: input.recent, open: input.open },
+            data: {
+                count: reach.settings.ideasPerWeek,
+                videoSeconds: reach.settings.videoSeconds,
+                brain: input.brain,
+                metrics: input.metrics,
+                recent: input.recent,
+                open: input.open,
+            },
         })
         if (error) throw error
         return { ideas: result.value.ideas.slice(0, reach.settings.ideasPerWeek) }

@@ -3,8 +3,12 @@ import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import type { ContentPublished } from "../../../common/events/content-published.event.ts"
 import { keyOf } from "../../../package-key.ts"
 
-export const EmitPublishedInput = z.strictObject({ publicationId: z.string().min(1), contentId: z.string().min(1), channel: z.string().min(1).max(20) })
-export const EmitPublishedOutput = z.strictObject({ emitted: z.literal(true), key: z.string() })
+export const EmitPublishedInput = z.strictObject({
+    publicationId: z.string().max(80).min(1),
+    contentId: z.string().max(80).min(1),
+    channel: z.string().min(1).max(20),
+})
+export const EmitPublishedOutput = z.strictObject({ emitted: z.literal(true), key: z.string().max(80) })
 
 type In = z.infer<typeof EmitPublishedInput>
 type Out = z.infer<typeof EmitPublishedOutput>
@@ -21,7 +25,11 @@ export class SocialEmitPublished implements Node<typeof EmitPublishedInput, type
 
     run(input: In, reach: NodeReach): Out {
         const key = `published:${input.publicationId}`
-        const { error } = reach.emit<typeof ContentPublished>("nivo-gtm.content.published", { subject: { kind: "publication", id: input.publicationId }, data: input, key })
+        const { error } = reach.emit<typeof ContentPublished>("nivo-gtm.content.published", {
+            subject: { kind: "publication", id: input.publicationId },
+            data: input,
+            key,
+        })
         if (error) throw error
         return { emitted: true, key }
     }

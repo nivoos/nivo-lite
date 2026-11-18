@@ -3,6 +3,7 @@ import { Save } from "./save.step.ts"
 import { MaxRevisions } from "./max-revisions.step.ts"
 import type { State } from "../post-draft.workflow.ts"
 
+/** Branch: was the rewrite produced, or has the cap on rewrites been reached. */
 export class IsRevised extends NodeIf<typeof State> {
     override readonly when = (s: StateView<typeof State>) => s.draft.ok === true
     override readonly label = { vi: "Còn được viết lại?", en: "Can be rewritten?" }

@@ -2,9 +2,10 @@ import { z } from "zod"
 import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import { Lead, LEAD_STAGES } from "../../../objects/lead.object.ts"
 import { keyOf } from "../../../package-key.ts"
+import { refOf } from "../../../common/helpers/refs.ts"
 
 export const UpdateLeadInput = z.strictObject({
-    leadId: z.string().min(1),
+    leadId: z.string().max(80).min(1),
     stage: z.enum(LEAD_STAGES),
     nextAction: z.string().max(300),
     evidence: z.string().max(2000),
@@ -25,10 +26,10 @@ export class UpdateLead implements Node<typeof UpdateLeadInput, typeof UpdateLea
     readonly mutation = "object.update"
 
     run(input: In, reach: NodeReach): Out {
-        const lead = reach.objects(Lead).get(input.leadId as never)
+        const lead = reach.objects(Lead).get(refOf<Lead>(input.leadId))
         if (lead.error) throw lead.error
         const { result, error } = reach.objects(Lead).update({
-            id: input.leadId as never,
+            id: refOf<Lead>(input.leadId),
             version: lead.result.version,
             values: { stage: input.stage, nextAction: input.nextAction, evidence: input.evidence },
         })

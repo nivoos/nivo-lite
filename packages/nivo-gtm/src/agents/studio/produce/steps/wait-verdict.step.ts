@@ -7,8 +7,19 @@ export class WaitVerdict extends NodeWait<typeof State> {
     override readonly take = [
         take<typeof State>(
             ObjectFieldChanged,
-            { when: (items: ObjectFieldChangedItem[]) => items.filter((change) => change.typeKey === "gtm.content" && change.field === "status" && (change.to === "approved" || change.to === "producing")) },
-            (s, changes: ObjectFieldChangedItem[]) => { const [first] = changes; if (first !== undefined) s.verdict = { to: String(first.to) } },
+            {
+                when: (items: Array<ObjectFieldChangedItem>) =>
+                    items.filter(
+                        (change) =>
+                            change.typeKey === "gtm.content" &&
+                            change.field === "status" &&
+                            (change.to === "approved" || change.to === "producing"),
+                    ),
+            },
+            (s, changes: Array<ObjectFieldChangedItem>) => {
+                const first = changes.at(0)
+                if (first !== undefined) s.verdict = { to: String(first.to) }
+            },
         ),
     ]
     override readonly next = IsApproved

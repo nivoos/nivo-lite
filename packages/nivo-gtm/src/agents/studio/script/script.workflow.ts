@@ -33,6 +33,7 @@ export const State = z.strictObject({
     answers: z.array(RoomAnswer).max(20).optional(),
     approved: ApproveScriptOutput.optional(),
 })
+/** A room answer to the script review card, as the wait steps keep it. */
 export type Answer = z.infer<typeof RoomAnswer>
 
 /**
@@ -43,9 +44,25 @@ export type Answer = z.infer<typeof RoomAnswer>
 export class Script implements Workflow<typeof State> {
     readonly key = keyOf("studio-script")
     readonly version = 2
-    readonly title = {"vi":"Viết kịch bản video","en":"Write the video script"}
+    readonly title = { vi: "Viết kịch bản video", en: "Write the video script" }
     readonly state = State
     readonly append = ["answers"] as const
     readonly start = Open
-    readonly steps = [Open, ReadBrief, Draft, SaveScript, AskReview, WaitReview, NudgeReview, WaitReviewAgain, IsApproved, ApproveScript, Approved, Revise, IsRevised, NoReview, RevisionLimit]
+    readonly steps = [
+        Open,
+        ReadBrief,
+        Draft,
+        SaveScript,
+        AskReview,
+        WaitReview,
+        NudgeReview,
+        WaitReviewAgain,
+        IsApproved,
+        ApproveScript,
+        Approved,
+        Revise,
+        IsRevised,
+        NoReview,
+        RevisionLimit,
+    ]
 }

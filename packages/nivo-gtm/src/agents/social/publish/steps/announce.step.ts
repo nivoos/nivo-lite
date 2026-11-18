@@ -3,8 +3,13 @@ import { SocialEmitPublished as EmitPublishedCell } from "../emit-published.cell
 import { Published } from "./published.step.ts"
 import type { State } from "../publish.workflow.ts"
 
+/** Announces on the bus that a post was published. */
 export class Announce extends NodeRun(EmitPublishedCell)<typeof State> {
-    override readonly input = (s: StateView<typeof State>) => ({ publicationId: s.slot.publicationId, contentId: s.slot.contentId, channel: s.slot.channel })
+    override readonly input = (s: StateView<typeof State>) => ({
+        publicationId: s.slot.publicationId,
+        contentId: s.slot.contentId,
+        channel: s.slot.channel,
+    })
     override readonly into = ["announced"] as const
     override readonly next = Published
 }

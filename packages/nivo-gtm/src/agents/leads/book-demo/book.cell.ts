@@ -1,14 +1,19 @@
 import { z } from "zod"
-import type { Node, NodeReach, NivoRef } from "@starci/nivoos-sdk"
+import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import { Demo } from "../../../objects/demo.object.ts"
 import type { Lead } from "../../../objects/lead.object.ts"
 import { keyOf } from "../../../package-key.ts"
 import { vnLabel } from "../common/vn-time.ts"
+import { assertRef } from "../common/typed-ref.ts"
 
-export const BookInput = z.strictObject({ leadId: z.string().min(1).max(80), slots: z.array(z.string().min(10)).min(1).max(10), index: z.number().int().min(0).max(9) })
+export const BookInput = z.strictObject({
+    leadId: z.string().min(1).max(80),
+    slots: z.array(z.string().max(40).min(10)).min(1).max(10),
+    index: z.number().int().min(0).max(9),
+})
 /** The demo as the rest of the workflow needs it: its id, the instants it waits on (ms since the epoch), who hosts it, the link and how a person reads its time. */
 export const BookOutput = z.strictObject({
-    demoId: z.string(),
+    demoId: z.string().max(128),
     atMs: z.number().int().nonnegative(),
     remindAtMs: z.number().int().nonnegative(),
     endMs: z.number().int().nonnegative(),
@@ -40,12 +45,13 @@ export class Book implements Node<typeof BookInput, typeof BookOutput, typeof Bo
     readonly mutation = "object.create"
 
     run(input: In, reach: NodeReach<Settings>): Out {
-        const at = input.slots[input.index]
+        const at = input.slots.at(input.index)
         if (at === undefined) throw new Error("slot_missing: the chosen slot is not in the list")
         const atMs = Date.parse(at)
         const { demoHost, meetingLink, demoMinutes, remindHours } = reach.settings
+        assertRef<Lead>(input.leadId)
         const { result, error } = reach.objects(Demo).create({
-            lead: input.leadId as NivoRef<Lead>,
+            lead: input.leadId,
             status: "confirmed",
             at,
             owner: demoHost === "" ? "nivo-gtm.leads" : demoHost,

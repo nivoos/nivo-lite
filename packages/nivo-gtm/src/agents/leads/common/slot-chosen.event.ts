@@ -3,7 +3,11 @@ import type { EventKind } from "@starci/nivoos-sdk"
 import { keyOf } from "../../../package-key.ts"
 
 /** What the event carries: who chose, what they wrote and the email address they gave (empty when none). */
-export const SlotChosenData = z.strictObject({ leadId: z.string().min(1), text: z.string().max(500), email: z.string().max(200) })
+export const SlotChosenData = z.strictObject({
+    leadId: z.string().max(128).min(1),
+    text: z.string().max(500),
+    email: z.string().max(200),
+})
 
 /**
  * `nivo-gtm.lead.slot-chosen`: a lead answered the demo invitation (the front door heard them pick a time). Internal, on the subject `lead:<code>`; book-demo takes it, reads which of the

@@ -4,7 +4,7 @@ import { keyOf } from "../../../package-key.ts"
 import { AskOwnerOutput } from "../cells/ask-owner.cell.ts"
 import { PriceOutput } from "../cells/price.cell.ts"
 import { ReadDealOutput } from "../cells/read-deal.cell.ts"
-import { SendQuoteOutput } from "../cells/send-quote.cell.ts"
+import { SentOutput } from "../cells/sent.ts"
 import { UpdateDealOutput } from "../cells/update-deal.cell.ts"
 import { Open } from "./steps/open.step.ts"
 import { Read } from "./steps/read.step.ts"
@@ -24,17 +24,26 @@ import { OwnerDeclined } from "./steps/owner-declined.step.ts"
 import { Declined } from "./steps/declined.step.ts"
 
 /** What the engine tells a run about the answer of a room card. */
-export const Answer = z.strictObject({ answerKey: z.string(), messageId: z.string(), roomId: z.string(), runId: z.string(), stepKey: z.string(), choice: z.string(), memberId: z.string() })
+export const Answer = z.strictObject({
+    answerKey: z.string().max(80),
+    messageId: z.string().max(80),
+    roomId: z.string().max(80),
+    runId: z.string().max(80),
+    stepKey: z.string().max(80),
+    choice: z.string().max(80),
+    memberId: z.string().max(80),
+})
+/** The owner's answer to the discount approval card, as the engine reports it. */
 export type Answer = z.infer<typeof Answer>
 
 /** The one state object of a run: the deal written, what was read of it, the price, the owner's card and answer, the send and the record. */
 export const State = z.strictObject({
-    change: z.strictObject({ objectId: z.string(), version: z.number().int() }).optional(),
+    change: z.strictObject({ objectId: z.string().max(80), version: z.number().int() }).optional(),
     deal: ReadDealOutput.optional(),
     price: PriceOutput.optional(),
     asked: AskOwnerOutput.optional(),
     answer: Answer.optional(),
-    sent: SendQuoteOutput.optional(),
+    sent: SentOutput.optional(),
     recorded: UpdateDealOutput.optional(),
 })
 
@@ -49,5 +58,22 @@ export class Quote implements Workflow<typeof State> {
     readonly title = { vi: "Báo giá", en: "Quote" }
     readonly state = State
     readonly start = Open
-    readonly steps = [Open, Read, Price, PriceOk, NeedsOwner, AskOwner, OwnerAnswer, OwnerOk, SendQuote, Record, Quoted, PriceRefused, OwnerSilent, Unreachable, OwnerDeclined, Declined]
+    readonly steps = [
+        Open,
+        Read,
+        Price,
+        PriceOk,
+        NeedsOwner,
+        AskOwner,
+        OwnerAnswer,
+        OwnerOk,
+        SendQuote,
+        Record,
+        Quoted,
+        PriceRefused,
+        OwnerSilent,
+        Unreachable,
+        OwnerDeclined,
+        Declined,
+    ]
 }

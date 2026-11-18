@@ -1,28 +1,27 @@
-
 # Lịch tuần mẫu
 
 Lịch chuẩn của workspace NIVO Tăng trưởng (giờ Việt Nam). Agent tự chạy các mốc có ghi "agent"; người làm các mốc có ghi "người".
 
 ## Mốc cố định
 
-| ngày | giờ | ai | việc |
-|---|---|---|---|
-| Thứ Hai | 08:00 | agent Xưởng video | 5 ý tưởng mới, đăng thẻ vào `#marketing` để chọn |
-| Thứ Hai | 09:00 | agent Mạng xã hội | báo cáo tuần: tuần này so với tuần trước, 4 nội dung tốt nhất, một gợi ý cho tuần sau |
-| Thứ Hai | trong buổi sáng | người phụ trách nội dung | chọn hoặc bỏ ý tưởng |
-| Hằng ngày | 09:00 | agent Mạng xã hội | lấy số liệu các bài 14 ngày gần nhất |
-| Thứ Hai đến thứ Bảy | 18:00 | agent Chăm khách | báo cáo ngày: khách mới theo nguồn, thời gian trả lời, khách đạt chuẩn, demo đã hẹn và đã diễn ra, việc quá hạn |
-| Thứ Hai đến thứ Sáu | 10:00, 14:00, 16:00 | người chủ trì demo | khung giờ demo <!-- placeholder --> |
-| Thứ Sáu | 15:00 | agent Mạng xã hội | lịch đăng tuần sau, chờ duyệt cả tuần |
-| Thứ Sáu | 16:00 | agent Chốt đơn | xem lại khách mất và khách nguội trong tuần |
-| Thứ Sáu | trước 18:00 | người phụ trách nội dung | duyệt lịch đăng tuần sau |
+| ngày                | giờ                 | ai                       | việc                                                                                                            |
+| ------------------- | ------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| Thứ Hai             | 08:00               | agent Xưởng video        | 5 ý tưởng mới, đăng thẻ vào `#marketing` để chọn                                                                |
+| Thứ Hai             | 09:00               | agent Mạng xã hội        | báo cáo tuần: tuần này so với tuần trước, 4 nội dung tốt nhất, một gợi ý cho tuần sau                           |
+| Thứ Hai             | trong buổi sáng     | người phụ trách nội dung | chọn hoặc bỏ ý tưởng                                                                                            |
+| Hằng ngày           | 09:00               | agent Mạng xã hội        | lấy số liệu các bài 14 ngày gần nhất                                                                            |
+| Thứ Hai đến thứ Bảy | 18:00               | agent Chăm khách         | báo cáo ngày: khách mới theo nguồn, thời gian trả lời, khách đạt chuẩn, demo đã hẹn và đã diễn ra, việc quá hạn |
+| Thứ Hai đến thứ Sáu | 10:00, 14:00, 16:00 | người chủ trì demo       | khung giờ demo <!-- placeholder -->                                                                             |
+| Thứ Sáu             | 15:00               | agent Mạng xã hội        | lịch đăng tuần sau, chờ duyệt cả tuần                                                                           |
+| Thứ Sáu             | 16:00               | agent Chốt đơn           | xem lại khách mất và khách nguội trong tuần                                                                     |
+| Thứ Sáu             | trước 18:00         | người phụ trách nội dung | duyệt lịch đăng tuần sau                                                                                        |
 
 ## Khung đăng bài (kênh Telegram)
 
-| | Thứ Hai | Thứ Ba | Thứ Tư | Thứ Năm | Thứ Sáu |
-|---|---|---|---|---|---|
-| 11:30 | Trụ cột 1 | | Trụ cột 4 | | Trụ cột 2 |
-| 19:30 | | Trụ cột 3 hoặc 5 | | Trụ cột 1 | |
+|       | Thứ Hai   | Thứ Ba           | Thứ Tư    | Thứ Năm   | Thứ Sáu   |
+| ----- | --------- | ---------------- | --------- | --------- | --------- |
+| 11:30 | Trụ cột 1 |                  | Trụ cột 4 |           | Trụ cột 2 |
+| 19:30 |           | Trụ cột 3 hoặc 5 |           | Trụ cột 1 |           |
 
 Đây là khung gợi ý. Agent lên lịch theo nội dung đã duyệt và có thể đổi ô, miễn đủ 5 bài và mỗi trụ cột xuất hiện ít nhất một lần mỗi 2 tuần.
 

@@ -4,5 +4,12 @@ import type { Callee, JsonValue } from "@starci/nivoos-sdk"
 export type BrainSearch = Callee<
     "brain.search",
     { readonly query: string; readonly limit?: number },
-    { readonly hits: ReadonlyArray<{ readonly kind: string; readonly score: number; readonly truth: JsonValue; readonly passage: JsonValue }> }
+    {
+        readonly hits: ReadonlyArray<{
+            readonly kind: string
+            readonly score: number
+            readonly truth: JsonValue
+            readonly passage: JsonValue
+        }>
+    }
 >

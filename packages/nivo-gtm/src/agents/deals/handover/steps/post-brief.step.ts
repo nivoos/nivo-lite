@@ -3,8 +3,16 @@ import { PostBrief as PostBriefCell } from "../../cells/post-brief.cell.ts"
 import type { State } from "../handover.workflow.ts"
 import { Choose } from "./choose.step.ts"
 
+/** Posts the handover brief to the sales room with the choices to quote now or hold. */
 export class PostBrief extends NodeRun(PostBriefCell)<typeof State> {
-    override readonly input = (s: StateView<typeof State>) => ({ code: s.deal.code, owner: s.deal.owner, leadName: s.brief.leadName, summary: s.brief.summary, objections: s.brief.objections, suggestedPlan: s.brief.suggestedPlan })
+    override readonly input = (s: StateView<typeof State>) => ({
+        code: s.deal.code,
+        owner: s.deal.owner,
+        leadName: s.brief.leadName,
+        summary: s.brief.summary,
+        objections: s.brief.objections,
+        suggestedPlan: s.brief.suggestedPlan,
+    })
     override readonly into = ["posted"] as const
     override readonly next = Choose
 }

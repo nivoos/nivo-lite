@@ -3,6 +3,7 @@
 import { brainFile, type BrainDocument } from "@starci/nivoos-sdk"
 import { keyOf } from "../package-key.ts"
 
+/** The public brain document (what a customer may be told) "Câu chuyện khách hàng", read from ./cau-chuyen-khach-hang.md. */
 export class CauChuyenKhachHang implements BrainDocument {
     readonly key = keyOf("cau-chuyen-khach-hang")
     readonly area = "public"
@@ -10,6 +11,7 @@ export class CauChuyenKhachHang implements BrainDocument {
     readonly source = brainFile("./cau-chuyen-khach-hang.md")
 }
 
+/** The public brain document (what a customer may be told) "Hỏi đáp", read from ./cau-hoi-thuong-gap.md. */
 export class CauHoiThuongGap implements BrainDocument {
     readonly key = keyOf("cau-hoi-thuong-gap")
     readonly area = "public"
@@ -17,6 +19,7 @@ export class CauHoiThuongGap implements BrainDocument {
     readonly source = brainFile("./cau-hoi-thuong-gap.md")
 }
 
+/** The public brain document (what a customer may be told) "Credit hoạt động thế nào", read from ./credit.md. */
 export class Credit implements BrainDocument {
     readonly key = keyOf("credit")
     readonly area = "public"
@@ -24,6 +27,7 @@ export class Credit implements BrainDocument {
     readonly source = brainFile("./credit.md")
 }
 
+/** The public brain document (what a customer may be told) "Demo và dùng thử", read from ./demo-dung-thu.md. */
 export class DemoDungThu implements BrainDocument {
     readonly key = keyOf("demo-dung-thu")
     readonly area = "public"
@@ -31,6 +35,7 @@ export class DemoDungThu implements BrainDocument {
     readonly source = brainFile("./demo-dung-thu.md")
 }
 
+/** The public brain document (what a customer may be told) "Dữ liệu và bảo mật", read from ./du-lieu-bao-mat.md. */
 export class DuLieuBaoMat implements BrainDocument {
     readonly key = keyOf("du-lieu-bao-mat")
     readonly area = "public"
@@ -38,6 +43,7 @@ export class DuLieuBaoMat implements BrainDocument {
     readonly source = brainFile("./du-lieu-bao-mat.md")
 }
 
+/** The public brain document (what a customer may be told) "Giới thiệu NIVO", read from ./gioi-thieu.md. */
 export class GioiThieu implements BrainDocument {
     readonly key = keyOf("gioi-thieu")
     readonly area = "public"
@@ -45,6 +51,7 @@ export class GioiThieu implements BrainDocument {
     readonly source = brainFile("./gioi-thieu.md")
 }
 
+/** The public brain document (what a customer may be told) "Gói và giá", read from ./goi-va-gia.md. */
 export class GoiVaGia implements BrainDocument {
     readonly key = keyOf("goi-va-gia")
     readonly area = "public"
@@ -52,6 +59,7 @@ export class GoiVaGia implements BrainDocument {
     readonly source = brainFile("./goi-va-gia.md")
 }
 
+/** The public brain document (what a customer may be told) "Thanh toán", read from ./thanh-toan.md. */
 export class ThanhToan implements BrainDocument {
     readonly key = keyOf("thanh-toan")
     readonly area = "public"
@@ -59,6 +67,7 @@ export class ThanhToan implements BrainDocument {
     readonly source = brainFile("./thanh-toan.md")
 }
 
+/** The public brain document (what a customer may be told) "Tính năng NIVO", read from ./tinh-nang.md. */
 export class TinhNang implements BrainDocument {
     readonly key = keyOf("tinh-nang")
     readonly area = "public"
@@ -66,6 +75,7 @@ export class TinhNang implements BrainDocument {
     readonly source = brainFile("./tinh-nang.md")
 }
 
+/** The internal brain document (the playbook, never shown to a customer) "Các lựa chọn khác khách hay nhắc", read from ./doi-thu.md. */
 export class DoiThu implements BrainDocument {
     readonly key = keyOf("doi-thu")
     readonly area = "internal"
@@ -73,6 +83,7 @@ export class DoiThu implements BrainDocument {
     readonly source = brainFile("./doi-thu.md")
 }
 
+/** The internal brain document (the playbook, never shown to a customer) "Chính sách giảm giá nội bộ", read from ./giam-gia-noi-bo.md. */
 export class GiamGiaNoiBo implements BrainDocument {
     readonly key = keyOf("giam-gia-noi-bo")
     readonly area = "internal"
@@ -80,6 +91,7 @@ export class GiamGiaNoiBo implements BrainDocument {
     readonly source = brainFile("./giam-gia-noi-bo.md")
 }
 
+/** The internal brain document (the playbook, never shown to a customer) "Giọng thương hiệu", read from ./giong-thuong-hieu.md. */
 export class GiongThuongHieu implements BrainDocument {
     readonly key = keyOf("giong-thuong-hieu")
     readonly area = "internal"
@@ -87,6 +99,7 @@ export class GiongThuongHieu implements BrainDocument {
     readonly source = brainFile("./giong-thuong-hieu.md")
 }
 
+/** The internal brain document (the playbook, never shown to a customer) "Khách lý tưởng và thang chấm điểm", read from ./khach-hang-ly-tuong.md. */
 export class KhachHangLyTuong implements BrainDocument {
     readonly key = keyOf("khach-hang-ly-tuong")
     readonly area = "internal"
@@ -94,6 +107,7 @@ export class KhachHangLyTuong implements BrainDocument {
     readonly source = brainFile("./khach-hang-ly-tuong.md")
 }
 
+/** The internal brain document (the playbook, never shown to a customer) "Lịch tuần mẫu", read from ./lich-tuan-mau.md. */
 export class LichTuanMau implements BrainDocument {
     readonly key = keyOf("lich-tuan-mau")
     readonly area = "internal"
@@ -101,6 +115,7 @@ export class LichTuanMau implements BrainDocument {
     readonly source = brainFile("./lich-tuan-mau.md")
 }
 
+/** The internal brain document (the playbook, never shown to a customer) "Quy tắc duyệt", read from ./quy-tac-duyet.md. */
 export class QuyTacDuyet implements BrainDocument {
     readonly key = keyOf("quy-tac-duyet")
     readonly area = "internal"
@@ -108,6 +123,7 @@ export class QuyTacDuyet implements BrainDocument {
     readonly source = brainFile("./quy-tac-duyet.md")
 }
 
+/** The internal brain document (the playbook, never shown to a customer) "Quy trình bán", read from ./quy-trinh-ban.md. */
 export class QuyTrinhBan implements BrainDocument {
     readonly key = keyOf("quy-trinh-ban")
     readonly area = "internal"
@@ -115,6 +131,7 @@ export class QuyTrinhBan implements BrainDocument {
     readonly source = brainFile("./quy-trinh-ban.md")
 }
 
+/** The internal brain document (the playbook, never shown to a customer) "Trụ cột nội dung", read from ./tru-cot-noi-dung.md. */
 export class TruCotNoiDung implements BrainDocument {
     readonly key = keyOf("tru-cot-noi-dung")
     readonly area = "internal"
@@ -122,6 +139,7 @@ export class TruCotNoiDung implements BrainDocument {
     readonly source = brainFile("./tru-cot-noi-dung.md")
 }
 
+/** The internal brain document (the playbook, never shown to a customer) "Xử lý lời từ chối", read from ./xu-ly-tu-choi.md. */
 export class XuLyTuChoi implements BrainDocument {
     readonly key = keyOf("xu-ly-tu-choi")
     readonly area = "internal"
@@ -130,4 +148,23 @@ export class XuLyTuChoi implements BrainDocument {
 }
 
 /** Every document of the workspace's brain. */
-export const NIVO_GTM_BRAIN = [CauChuyenKhachHang, CauHoiThuongGap, Credit, DemoDungThu, DuLieuBaoMat, GioiThieu, GoiVaGia, ThanhToan, TinhNang, DoiThu, GiamGiaNoiBo, GiongThuongHieu, KhachHangLyTuong, LichTuanMau, QuyTacDuyet, QuyTrinhBan, TruCotNoiDung, XuLyTuChoi]
+export const NIVO_GTM_BRAIN = [
+    CauChuyenKhachHang,
+    CauHoiThuongGap,
+    Credit,
+    DemoDungThu,
+    DuLieuBaoMat,
+    GioiThieu,
+    GoiVaGia,
+    ThanhToan,
+    TinhNang,
+    DoiThu,
+    GiamGiaNoiBo,
+    GiongThuongHieu,
+    KhachHangLyTuong,
+    LichTuanMau,
+    QuyTacDuyet,
+    QuyTrinhBan,
+    TruCotNoiDung,
+    XuLyTuChoi,
+]

@@ -3,7 +3,11 @@ import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import { keyOf } from "../../../package-key.ts"
 import { LeadIntent } from "./understand.cell.ts"
 
-export const ReadinessInput = z.strictObject({ intent: LeadIntent, stage: z.string().max(30), turns: z.number().int().nonnegative() })
+export const ReadinessInput = z.strictObject({
+    intent: LeadIntent,
+    stage: z.string().max(30),
+    turns: z.number().int().nonnegative(),
+})
 export const ReadinessOutput = z.strictObject({ ready: z.boolean(), reason: z.string().min(1).max(200) })
 /** The business rule: how many touches a lead has before it is scored even without asking for a demo or a price. */
 export const ReadinessSettings = z.strictObject({ minTurns: z.number().int().min(1).max(50).default(3) })

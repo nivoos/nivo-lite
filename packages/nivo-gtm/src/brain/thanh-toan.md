@@ -1,4 +1,3 @@
-
 # Thanh toán
 
 ## Cách trả tiền
@@ -16,6 +15,7 @@
 ## Hoá đơn
 
 <!-- placeholder -->
+
 - Hoá đơn VAT: đội NIVO xuất theo yêu cầu. Bạn gửi thông tin xuất hoá đơn khi chuyển khoản.
 
 ## Gia hạn

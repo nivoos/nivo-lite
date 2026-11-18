@@ -1,21 +1,26 @@
 import { z } from "zod"
-import type { NivoRef, Node, NodeReach } from "@starci/nivoos-sdk"
+import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import { Content } from "../../../objects/content.object.ts"
 import { Publication } from "../../../objects/publication.object.ts"
 import { keyOf } from "../../../package-key.ts"
-import { addHours, clip } from "../common/helpers.ts"
+import { addHours, clip, refOf } from "../common/helpers.ts"
 import { CardParts, Slot } from "../common/social.shapes.ts"
 
-export const FileSlotsInput = z.strictObject({ instant: z.string().min(10), slots: z.array(Slot).max(40) })
-const Filed = z.strictObject({ id: z.string(), contentCode: z.string(), channel: z.string(), at: z.string() })
+export const FileSlotsInput = z.strictObject({ instant: z.string().max(40).min(10), slots: z.array(Slot).max(40) })
+const Filed = z.strictObject({
+    id: z.string().max(80),
+    contentCode: z.string().max(40),
+    channel: z.string().max(80),
+    at: z.string().max(40),
+})
 export const FileSlotsOutput = z.strictObject({
     weekCode: z.string().max(40),
     filed: z.array(Filed).max(40),
     cardText: CardParts.shape.cardText,
     choices: CardParts.shape.choices,
     nudgeText: z.string().min(1).max(500),
-    reviewBy: z.string(),
-    secondReviewBy: z.string(),
+    reviewBy: z.string().max(40),
+    secondReviewBy: z.string().max(40),
 })
 /** How long a person has to approve the week before the agent nudges, and again before the run ends `no_review`. */
 export const FileSlotsSettings = z.strictObject({ reviewHours: z.number().int().min(1).max(240).default(24) })
@@ -46,7 +51,7 @@ export class SocialFileSlots implements Node<typeof FileSlotsInput, typeof FileS
         const lines: Array<string> = []
         for (const slot of input.slots) {
             const { result, error } = reach.objects(Publication).create({
-                content: slot.contentId as NivoRef<Content>,
+                content: refOf<Content>(slot.contentId),
                 channel: slot.channel,
                 status: "planned",
                 at: slot.at,
@@ -56,13 +61,18 @@ export class SocialFileSlots implements Node<typeof FileSlotsInput, typeof FileS
             })
             if (error) throw error
             filed.push({ id: String(result.id), contentCode: slot.contentCode, channel: slot.channel, at: slot.at })
-            lines.push(`${slot.at.slice(0, 16).replace("T", " ")} UTC · ${slot.channel} · ${slot.contentCode}: ${slot.why}`)
+            lines.push(
+                `${slot.at.slice(0, 16).replace("T", " ")} UTC · ${slot.channel} · ${slot.contentCode}: ${slot.why}`,
+            )
         }
-        const weekCode = `W${input.instant.slice(0, 10).replace(/-/gu, "")}`
+        const weekCode = `W${input.instant.slice(0, 10).replaceAll("-", "")}`
         return {
             weekCode,
             filed,
-            cardText: clip(`Lịch đăng tuần tới (${weekCode}): ${String(filed.length)} bài.\n\n${lines.join("\n")}\n\nDuyệt cả tuần để các bài được đăng đúng giờ (mỗi bài vẫn cần duyệt khi gửi ra ngoài).`, 3000),
+            cardText: clip(
+                `Lịch đăng tuần tới (${weekCode}): ${String(filed.length)} bài.\n\n${lines.join("\n")}\n\nDuyệt cả tuần để các bài được đăng đúng giờ (mỗi bài vẫn cần duyệt khi gửi ra ngoài).`,
+                3000,
+            ),
             choices: [
                 { value: "week-approve", label: "Duyệt cả tuần" },
                 { value: "week-revise", label: "Sửa" },

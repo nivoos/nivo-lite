@@ -8,8 +8,8 @@ import { ReadCutOutput } from "./read-cut.cell.ts"
 
 export const ReviewCardInput = z.strictObject({ cut: ReadCutOutput, check: CheckCutOutput })
 export const ReviewCardOutput = z.strictObject({
-    reviewBy: z.string(),
-    secondReviewBy: z.string(),
+    reviewBy: z.string().max(40),
+    secondReviewBy: z.string().max(40),
     cardText: CardParts.shape.cardText,
     nudgeText: CardParts.shape.cardText,
     choices: CardParts.shape.choices,
@@ -24,7 +24,11 @@ type Settings = z.infer<typeof ReviewCardSettings>
 const MARK = { ok: "[ok]", fail: "[không đạt]", unknown: "[cần xem]" }
 
 /** `nivo-gtm.studio-review-card` (Làm thẻ duyệt bản dựng): a decision node. It builds the review card (the link, the checklist, Duyệt and Sửa) and the two deadlines from the cut and its checklist. */
-export class StudioReviewCard implements Node<typeof ReviewCardInput, typeof ReviewCardOutput, typeof ReviewCardSettings> {
+export class StudioReviewCard implements Node<
+    typeof ReviewCardInput,
+    typeof ReviewCardOutput,
+    typeof ReviewCardSettings
+> {
     readonly key = keyOf("studio-review-card")
     readonly version = 1
     readonly title = { vi: "Làm thẻ duyệt bản dựng", en: "Build the cut review card" }
@@ -35,7 +39,12 @@ export class StudioReviewCard implements Node<typeof ReviewCardInput, typeof Rev
 
     run(input: In, reach: NodeReach<Settings>): Out {
         const at = reach.facts.at
-        const lines = input.check.items.map((item) => `${MARK[item.status]} ${item.check}${item.note === "" ? "" : ` - ${item.note}`}`).join("\n")
+        const lines = input.check.items
+            .map((item) => {
+                const note = item.note === "" ? "" : ` - ${item.note}`
+                return `${MARK[item.status]} ${item.check}${note}`
+            })
+            .join("\n")
         const body = `Duyệt bản dựng ${input.cut.code}: ${input.cut.title} (bản ${String(input.cut.version)})\nLiên kết: ${input.cut.fileLink}\n\n${input.check.summary}\n\n${lines}`
         return {
             reviewBy: addHours(at, reach.settings.reviewHours),

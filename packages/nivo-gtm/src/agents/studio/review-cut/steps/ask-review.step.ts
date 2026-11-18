@@ -3,6 +3,7 @@ import { StudioAskTeam as AskTeamCell } from "../../common/ask-team.cell.ts"
 import { WaitReview } from "./wait-review.step.ts"
 import type { State } from "../review-cut.workflow.ts"
 
+/** Posts the cut review card, with the check result and the approve and fix choices, to the team room. */
 export class AskReview extends NodeRun(AskTeamCell)<typeof State> {
     override readonly input = (s: StateView<typeof State>) => ({ text: s.card.cardText, choices: s.card.choices })
     override readonly into = ["asked"] as const

@@ -10,7 +10,7 @@ import { EndReported } from "./steps/end-reported.step.ts"
 
 /** The one state object of a run: the clock instants that opened it, the day's numbers and the post. */
 export const State = z.strictObject({
-    ticks: z.array(z.string()).max(10).optional(),
+    ticks: z.array(z.string().max(40)).max(10).optional(),
     report: CountLeadsOutput.optional(),
     posted: PostNoticeOutput.optional(),
 })

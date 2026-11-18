@@ -34,7 +34,10 @@ export class Opener implements Node<typeof OpenerInput, typeof OpenerOutput, typ
     readonly model = { model: "sonnet-5-5", effort: "fast" } as const
 
     run(input: In, reach: NodeReach<Settings>): Out {
-        const hits = reach.call<BrainSearch>("brain.search", { query: `NIVO ${input.note} ${input.source}`.slice(0, 600), limit: reach.settings.brainHits }).result.hits
+        const hits = reach.call<BrainSearch>("brain.search", {
+            query: `NIVO ${input.note} ${input.source}`.slice(0, 600),
+            limit: reach.settings.brainHits,
+        }).result.hits
         const { result, error } = reach.call<ModelGenerate<Out>>("model.generate", {
             prompt: `${LEADS_POLICY}\n\n${GOAL}`,
             data: { source: input.source, note: input.note, brain: publicHitsOf(hits) },

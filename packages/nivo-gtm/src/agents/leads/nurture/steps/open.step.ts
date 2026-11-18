@@ -7,8 +7,19 @@ export class Open extends NodeWait<typeof State> {
     override readonly take = [
         take<typeof State>(
             ObjectFieldChanged,
-            { when: (changes: ObjectFieldChangedItem[]) => changes.filter((change) => change.typeKey === "gtm.lead" && change.field === "stage" && (change.to === "engaged" || change.to === "qualified")) },
-            (s, changes: ObjectFieldChangedItem[]) => { const [first] = changes; if (first !== undefined) s.leadId = first.objectId },
+            {
+                when: (changes: Array<ObjectFieldChangedItem>) =>
+                    changes.filter(
+                        (change) =>
+                            change.typeKey === "gtm.lead" &&
+                            change.field === "stage" &&
+                            (change.to === "engaged" || change.to === "qualified"),
+                    ),
+            },
+            (s, changes: Array<ObjectFieldChangedItem>) => {
+                const first = changes.at(0)
+                if (first !== undefined) s.leadId = first.objectId
+            },
         ),
     ]
     override readonly next = Check

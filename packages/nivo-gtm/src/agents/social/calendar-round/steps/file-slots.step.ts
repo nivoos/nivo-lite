@@ -3,6 +3,7 @@ import { SocialFileSlots as FileSlotsCell } from "../file-slots.cell.ts"
 import { Mirror } from "./mirror.step.ts"
 import type { State } from "../calendar-round.workflow.ts"
 
+/** Files each planned slot of the week as a `gtm.publication` (status `planned`) and builds the approval card. */
 export class FileSlots extends NodeRun(FileSlotsCell)<typeof State> {
     override readonly input = (s: StateView<typeof State>) => ({ instant: s.read.instant, slots: s.plan.slots })
     override readonly into = ["filed"] as const

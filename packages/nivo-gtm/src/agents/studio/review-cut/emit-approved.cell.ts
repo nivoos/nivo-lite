@@ -3,8 +3,11 @@ import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import type { ContentApproved } from "../../../common/events/content-approved.event.ts"
 import { keyOf } from "../../../package-key.ts"
 
-export const EmitApprovedInput = z.strictObject({ contentId: z.string().min(1), kind: z.string().min(1).max(40) })
-export const EmitApprovedOutput = z.strictObject({ eventKey: z.string() })
+export const EmitApprovedInput = z.strictObject({
+    contentId: z.string().min(1).max(100),
+    kind: z.string().min(1).max(40),
+})
+export const EmitApprovedOutput = z.strictObject({ eventKey: z.string().max(200) })
 
 type In = z.infer<typeof EmitApprovedInput>
 type Out = z.infer<typeof EmitApprovedOutput>
@@ -24,7 +27,11 @@ export class StudioEmitApproved implements Node<typeof EmitApprovedInput, typeof
 
     run(input: In, reach: NodeReach): Out {
         const key = `approved:${input.contentId}`
-        const { error } = reach.emit<typeof ContentApproved>("nivo-gtm.content.approved", { subject: { kind: "content", id: input.contentId }, data: { contentId: input.contentId, kind: input.kind }, key })
+        const { error } = reach.emit<typeof ContentApproved>("nivo-gtm.content.approved", {
+            subject: { kind: "content", id: input.contentId },
+            data: { contentId: input.contentId, kind: input.kind },
+            key,
+        })
         if (error) throw error
         return { eventKey: key }
     }

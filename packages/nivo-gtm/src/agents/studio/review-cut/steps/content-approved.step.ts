@@ -3,8 +3,14 @@ import { StudioSetContentStatus as SetContentStatusCell } from "../set-content-s
 import { AnnounceApproved } from "./announce-approved.step.ts"
 import type { State } from "../review-cut.workflow.ts"
 
+/** Moves the content item to `approved` with the cut link as evidence and the next action of scheduling the post. */
 export class ContentApproved extends NodeRun(SetContentStatusCell)<typeof State> {
-    override readonly input = (s: StateView<typeof State>) => ({ objectId: s.cut.contentId, status: "approved" as const, nextAction: "Lên lịch đăng", evidence: s.ctx.fileLink })
+    override readonly input = (s: StateView<typeof State>) => ({
+        objectId: s.cut.contentId,
+        status: "approved" as const,
+        nextAction: "Lên lịch đăng",
+        evidence: s.ctx.fileLink,
+    })
     override readonly into = ["contentMarked"] as const
     override readonly next = AnnounceApproved
 }

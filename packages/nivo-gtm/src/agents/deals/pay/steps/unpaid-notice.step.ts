@@ -5,7 +5,12 @@ import { Unpaid } from "./unpaid.step.ts"
 
 /** Tells the sales room no money came after the reminder. */
 export class UnpaidNotice extends NodeRun(PostPayNoticeCell)<typeof State> {
-    override readonly input = (s: StateView<typeof State>) => ({ code: s.deal.code, kind: "unpaid" as const, amount: s.deal.amount, received: 0 })
+    override readonly input = (s: StateView<typeof State>) => ({
+        code: s.deal.code,
+        kind: "unpaid" as const,
+        amount: s.deal.amount,
+        received: 0,
+    })
     override readonly into = ["notified"] as const
     override readonly next = Unpaid
 }

@@ -20,6 +20,7 @@ export const State = z.strictObject({
     saved: SaveScoreOutput.optional(),
     emitted: EmitLeadQualifiedOutput.optional(),
 })
+/** The `LeadReady` event the scoring run starts from: a lead the front door found ready to be scored. */
 export type Ready = z.infer<typeof LeadReadyData>
 
 /**

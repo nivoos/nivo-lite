@@ -1,10 +1,17 @@
 import { z } from "zod"
-import type { Node, NodeReach, NivoRef } from "@starci/nivoos-sdk"
+import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import { Lead } from "../../../objects/lead.object.ts"
 import { keyOf } from "../../../package-key.ts"
+import { assertRef } from "../common/typed-ref.ts"
 
-export const CountFollowUpInput = z.strictObject({ leadId: z.string().min(1).max(80), nextDueMs: z.number().int().nonnegative() })
-export const CountFollowUpOutput = z.strictObject({ leadId: z.string(), followUps: z.number().int().nonnegative() })
+export const CountFollowUpInput = z.strictObject({
+    leadId: z.string().min(1).max(80),
+    nextDueMs: z.number().int().nonnegative(),
+})
+export const CountFollowUpOutput = z.strictObject({
+    leadId: z.string().max(128),
+    followUps: z.number().int().nonnegative(),
+})
 
 type In = z.infer<typeof CountFollowUpInput>
 type Out = z.infer<typeof CountFollowUpOutput>
@@ -23,7 +30,8 @@ export class CountFollowUp implements Node<typeof CountFollowUpInput, typeof Cou
     readonly mutation = "object.update"
 
     run(input: In, reach: NodeReach): Out {
-        const got = reach.objects(Lead).get(input.leadId as NivoRef<Lead>)
+        assertRef<Lead>(input.leadId)
+        const got = reach.objects(Lead).get(input.leadId)
         if (got.error) throw got.error
         const lead = got.result
         const count = (lead.values.followUps ?? 0) + 1
@@ -32,7 +40,12 @@ export class CountFollowUp implements Node<typeof CountFollowUpInput, typeof Cou
         const { result, error } = reach.objects(Lead).update({
             id: lead.id,
             version: lead.version,
-            values: { followUps: count, lastContactAt: now, nextAction: `Chờ khách phản hồi (đã nhắn lại ${count} lần)`, nextAt: new Date(dueMs).toISOString() },
+            values: {
+                followUps: count,
+                lastContactAt: now,
+                nextAction: `Chờ khách phản hồi (đã nhắn lại ${count} lần)`,
+                nextAt: new Date(dueMs).toISOString(),
+            },
         })
         if (error) throw error
         return { leadId: result.id, followUps: count }

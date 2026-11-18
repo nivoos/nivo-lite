@@ -17,7 +17,7 @@ import { Done } from "./steps/done.step.ts"
 
 /** The one state object of a run. */
 export const State = z.strictObject({
-    tick: z.strictObject({ instant: z.string().min(10) }).optional(),
+    tick: z.strictObject({ instant: z.string().max(40).min(10) }).optional(),
     pull: PullOutput.optional(),
     saved: SaveMetricsOutput.optional(),
     report: ReportOutput.optional(),
@@ -32,7 +32,7 @@ export const State = z.strictObject({
 export class PerformanceRound implements Workflow<typeof State> {
     readonly key = keyOf("social-performance-round")
     readonly version = 2
-    readonly title = {"vi":"Đo hiệu quả","en":"Performance round"}
+    readonly title = { vi: "Đo hiệu quả", en: "Performance round" }
     readonly state = State
     readonly start = Tick
     readonly steps = [Tick, Pull, SaveMetrics, IsMonday, Report, PostReport, Sheet, Done]

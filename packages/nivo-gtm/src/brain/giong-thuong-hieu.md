@@ -1,4 +1,3 @@
-
 # Giọng thương hiệu
 
 Dùng cho mọi chữ NIVO viết ra: kịch bản video, bài đăng, tin nhắn khách, báo giá.
@@ -40,6 +39,7 @@ agent, luồng việc, duyệt, người chịu trách nhiệm, việc tiếp th
 ## Hình ảnh
 
 <!-- placeholder -->
+
 Màu, phông chữ, logo và khung video: đang cập nhật, chờ bộ nhận diện chính thức.
 
 - Quay màn hình sản phẩm thật, không dựng giao diện giả.

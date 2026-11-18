@@ -18,7 +18,11 @@ export const Idea = z.strictObject({
 export const Choice = z.strictObject({ value: z.string().min(1).max(60), label: z.string().min(1).max(60) })
 
 /** One beat of a script: when, what is on screen, what is said. */
-export const ScriptBeat = z.strictObject({ at: z.string().max(20), onScreen: z.string().max(200), voiceOver: z.string().max(500) })
+export const ScriptBeat = z.strictObject({
+    at: z.string().max(20),
+    onScreen: z.string().max(200),
+    voiceOver: z.string().max(500),
+})
 
 /**
  * A script draft as the model writes it: the hook (0-3 s), the beats with on-screen text and voice-over, the b-roll list, the call to action, the caption and the length in seconds.
@@ -37,17 +41,17 @@ export const ScriptDraft = z.strictObject({
 
 /** A room answer as `engine.room.answered` carries it. */
 export const RoomAnswer = z.strictObject({
-    answerKey: z.string(),
-    messageId: z.string(),
-    roomId: z.string(),
-    runId: z.string(),
-    stepKey: z.string(),
-    choice: z.string(),
-    memberId: z.string(),
+    answerKey: z.string().max(100),
+    messageId: z.string().max(100),
+    roomId: z.string().max(100),
+    runId: z.string().max(100),
+    stepKey: z.string().max(100),
+    choice: z.string().max(100),
+    memberId: z.string().max(100),
 })
 
 /** The `{ objectId }` a start wait keeps of the object write that opened the run. */
-export const Changed = z.strictObject({ objectId: z.string().min(1) })
+export const Changed = z.strictObject({ objectId: z.string().min(1).max(100) })
 
 /** What a card cell hands to the `ask-team` step: the words and the choices. */
 export const CardParts = z.strictObject({ cardText: z.string().min(1).max(3000), choices: z.array(Choice).max(6) })

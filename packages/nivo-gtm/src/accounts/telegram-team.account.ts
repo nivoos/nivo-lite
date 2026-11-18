@@ -1,5 +1,4 @@
-import { env, secret } from "@starci/nivoos-sdk"
-import type { ProviderAccount } from "@starci/nivoos-sdk"
+import { env, secret, type ProviderAccount } from "@starci/nivoos-sdk"
 import { TelegramProvider } from "@starci/nivoos-provider-templates/telegram/telegram.provider.cell"
 
 /**
@@ -11,5 +10,8 @@ export class TelegramTeam implements ProviderAccount<typeof TelegramProvider> {
     readonly provider = TelegramProvider
     readonly title = { vi: "Bot Telegram của đội", en: "Team Telegram bot" }
     readonly fields = { botUsername: env("TELEGRAM_TEAM_BOT_USERNAME") }
-    readonly secrets = { botToken: secret("TELEGRAM_TEAM_BOT_TOKEN"), webhookSecret: secret("TELEGRAM_TEAM_WEBHOOK_SECRET") }
+    readonly secrets = {
+        botToken: secret("TELEGRAM_TEAM_BOT_TOKEN"),
+        webhookSecret: secret("TELEGRAM_TEAM_WEBHOOK_SECRET"),
+    }
 }

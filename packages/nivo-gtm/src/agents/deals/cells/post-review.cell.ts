@@ -3,7 +3,7 @@ import type { Node, NodeReach, RoomMessagePost } from "@starci/nivoos-sdk"
 import { keyOf } from "../../../package-key.ts"
 
 export const PostReviewInput = z.strictObject({ text: z.string().min(1).max(3000) })
-export const PostReviewOutput = z.strictObject({ messageId: z.string(), roomId: z.string() })
+export const PostReviewOutput = z.strictObject({ messageId: z.string().max(80), roomId: z.string().max(80) })
 
 type In = z.infer<typeof PostReviewInput>
 type Out = z.infer<typeof PostReviewOutput>

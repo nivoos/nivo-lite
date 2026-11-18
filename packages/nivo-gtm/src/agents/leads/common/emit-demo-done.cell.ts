@@ -3,7 +3,12 @@ import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import type { DemoDone } from "../../../common/events/demo-done.event.ts"
 import { keyOf } from "../../../package-key.ts"
 
-export const EmitDemoDoneInput = z.strictObject({ leadId: z.string().min(1).max(80), code: z.string().min(1).max(60), demoId: z.string().min(1).max(80), note: z.string().max(500) })
+export const EmitDemoDoneInput = z.strictObject({
+    leadId: z.string().min(1).max(80),
+    code: z.string().min(1).max(60),
+    demoId: z.string().min(1).max(80),
+    note: z.string().max(500),
+})
 export const EmitDemoDoneOutput = z.strictObject({ emitted: z.literal(true) })
 
 type In = z.infer<typeof EmitDemoDoneInput>

@@ -5,7 +5,22 @@
 export const PENDING_DRIVE_STATUS = "Drive: chờ kết nối"
 
 export const PENDING_OPERATIONS = [
-    { account: "drive-marketing", operation: "google-drive.files.create", use: "make the shoot folder and the shot list document", status: PENDING_DRIVE_STATUS },
-    { account: "drive-marketing", operation: "google-drive.file.added", use: "see the cut land in the folder (poll)", status: PENDING_DRIVE_STATUS },
-    { account: "media-vendor", operation: "media.start", use: "path B: a generated video (decision D3)", status: "chờ quyết định D3" },
+    {
+        account: "drive-marketing",
+        operation: "google-drive.files.create",
+        use: "make the shoot folder and the shot list document",
+        status: PENDING_DRIVE_STATUS,
+    },
+    {
+        account: "drive-marketing",
+        operation: "google-drive.file.added",
+        use: "see the cut land in the folder (poll)",
+        status: PENDING_DRIVE_STATUS,
+    },
+    {
+        account: "media-vendor",
+        operation: "media.start",
+        use: "path B: a generated video (decision D3)",
+        status: "chờ quyết định D3",
+    },
 ] as const

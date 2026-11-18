@@ -3,8 +3,8 @@ import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import type { ContentApproved } from "../../../common/events/content-approved.event.ts"
 import { keyOf } from "../../../package-key.ts"
 
-export const EmitApprovedInput = z.strictObject({ contentId: z.string().min(1), code: z.string().max(40) })
-export const EmitApprovedOutput = z.strictObject({ emitted: z.literal(true), key: z.string() })
+export const EmitApprovedInput = z.strictObject({ contentId: z.string().max(80).min(1), code: z.string().max(40) })
+export const EmitApprovedOutput = z.strictObject({ emitted: z.literal(true), key: z.string().max(80) })
 
 type In = z.infer<typeof EmitApprovedInput>
 type Out = z.infer<typeof EmitApprovedOutput>
@@ -23,7 +23,11 @@ export class SocialEmitApproved implements Node<typeof EmitApprovedInput, typeof
 
     run(input: In, reach: NodeReach): Out {
         const key = `approved:${input.contentId}`
-        const { error } = reach.emit<typeof ContentApproved>("nivo-gtm.content.approved", { subject: { kind: "content", id: input.contentId }, data: { contentId: input.contentId, kind: "post" }, key })
+        const { error } = reach.emit<typeof ContentApproved>("nivo-gtm.content.approved", {
+            subject: { kind: "content", id: input.contentId },
+            data: { contentId: input.contentId, kind: "post" },
+            key,
+        })
         if (error) throw error
         return { emitted: true, key }
     }

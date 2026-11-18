@@ -3,8 +3,17 @@ import { SocialFinalCheck as FinalCheckCell } from "../final-check.cell.ts"
 import { IsOk } from "./is-ok.step.ts"
 import type { State } from "../publish.workflow.ts"
 
+/** Checks the post is still true and allowed just before it is sent. */
 export class FinalCheck extends NodeRun(FinalCheckCell)<typeof State> {
-    override readonly input = (s: StateView<typeof State>) => ({ publicationId: s.slot.publicationId, contentId: s.slot.contentId, contentCode: s.slot.contentCode, channel: s.slot.channel, at: s.slot.at, status: s.slot.status, text: s.slot.text })
+    override readonly input = (s: StateView<typeof State>) => ({
+        publicationId: s.slot.publicationId,
+        contentId: s.slot.contentId,
+        contentCode: s.slot.contentCode,
+        channel: s.slot.channel,
+        at: s.slot.at,
+        status: s.slot.status,
+        text: s.slot.text,
+    })
     override readonly into = ["check"] as const
     override readonly next = IsOk
 }

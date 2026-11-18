@@ -1,4 +1,3 @@
-
 # Xử lý lời từ chối
 
 Tài liệu nội bộ cho người bán và cho bước soạn tóm tắt. Khi soạn tin gửi khách, agent chỉ dùng thông tin trong tài liệu công khai; tài liệu này giúp chọn ý, không phải câu để chép.

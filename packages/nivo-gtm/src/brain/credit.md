@@ -1,4 +1,3 @@
-
 # Credit hoạt động thế nào
 
 ## Credit là gì

@@ -41,7 +41,9 @@ export const State = z.strictObject({
     contentMarked: SetContentStatusOutput.optional(),
     announced: EmitApprovedOutput.optional(),
 })
+/** A room answer to the review card, as the wait steps keep it. */
 export type Answer = z.infer<typeof RoomAnswer>
+/** The cut a `nivo-gtm.cut.ready` event announces: the content item, the cut, its version and its file link. */
 export type Cut = z.infer<typeof CutReadyData>
 
 /**
@@ -53,9 +55,27 @@ export type Cut = z.infer<typeof CutReadyData>
 export class ReviewCut implements Workflow<typeof State> {
     readonly key = keyOf("studio-review-cut")
     readonly version = 2
-    readonly title = {"vi":"Duyệt bản dựng","en":"Review the cut"}
+    readonly title = { vi: "Duyệt bản dựng", en: "Review the cut" }
     readonly state = State
     readonly append = ["answers"] as const
     readonly start = Open
-    readonly steps = [Open, ReadCut, CheckCut, ReviewCard, AskReview, WaitReview, NudgeReview, WaitReviewAgain, IsApproved, MarkCutApproved, ContentApproved, AnnounceApproved, Approved, MarkCutFix, ContentBack, SentBack, NoReview]
+    readonly steps = [
+        Open,
+        ReadCut,
+        CheckCut,
+        ReviewCard,
+        AskReview,
+        WaitReview,
+        NudgeReview,
+        WaitReviewAgain,
+        IsApproved,
+        MarkCutApproved,
+        ContentApproved,
+        AnnounceApproved,
+        Approved,
+        MarkCutFix,
+        ContentBack,
+        SentBack,
+        NoReview,
+    ]
 }

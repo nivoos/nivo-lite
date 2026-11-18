@@ -3,7 +3,11 @@ import type { EventKind } from "@starci/nivoos-sdk"
 import { keyOf } from "../../package-key.ts"
 
 /** What the event carries. */
-export const ContentPublishedData = z.strictObject({ publicationId: z.string().min(1), contentId: z.string().min(1), channel: z.string().max(500) })
+export const ContentPublishedData = z.strictObject({
+    publicationId: z.string().min(1).max(80),
+    contentId: z.string().min(1).max(80),
+    channel: z.string().max(500),
+})
 
 /**
  * `nivo-gtm.content.published`: a publication went out on its channel. Internal, on the subject `publication:<id>`; the emitter keys it by the object and the transition, so a repeat emit is one event.

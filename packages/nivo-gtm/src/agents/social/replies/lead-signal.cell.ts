@@ -3,8 +3,12 @@ import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import type { LeadSignal } from "../../../common/events/lead-signal.event.ts"
 import { keyOf } from "../../../package-key.ts"
 
-export const LeadSignalInput = z.strictObject({ fromId: z.string().min(1).max(40), messageId: z.string().min(1).max(40), summary: z.string().max(300) })
-export const LeadSignalOutput = z.strictObject({ emitted: z.literal(true), key: z.string() })
+export const LeadSignalInput = z.strictObject({
+    fromId: z.string().min(1).max(40),
+    messageId: z.string().min(1).max(40),
+    summary: z.string().max(300),
+})
+export const LeadSignalOutput = z.strictObject({ emitted: z.literal(true), key: z.string().max(80) })
 
 type In = z.infer<typeof LeadSignalInput>
 type Out = z.infer<typeof LeadSignalOutput>

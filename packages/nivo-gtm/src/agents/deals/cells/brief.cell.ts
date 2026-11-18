@@ -2,8 +2,13 @@ import { z } from "zod"
 import type { ModelGenerate, Node, NodeReach } from "@starci/nivoos-sdk"
 import { Lead } from "../../../objects/lead.object.ts"
 import { keyOf } from "../../../package-key.ts"
+import { refOf } from "../../../common/helpers/refs.ts"
 
-export const BriefInput = z.strictObject({ leadId: z.string().min(1), demoId: z.string().min(1), note: z.string().max(1500) })
+export const BriefInput = z.strictObject({
+    leadId: z.string().max(80).min(1),
+    demoId: z.string().max(80).min(1),
+    note: z.string().max(1500),
+})
 export const BriefOutput = z.strictObject({
     leadName: z.string().max(120),
     summary: z.string().max(900),
@@ -32,15 +37,29 @@ export class Brief implements Node<typeof BriefInput, typeof BriefOutput> {
     readonly reads = ["object.get"]
     readonly mutation = "model.generate"
     readonly model = { model: "sonnet-5-5", effort: "fast" } as const
-    readonly fallback: Out = { leadName: "", summary: "Chưa tóm tắt được: xem ghi chú demo.", objections: "", suggestedPlan: "Vận hành" }
+    readonly fallback: Out = {
+        leadName: "",
+        summary: "Chưa tóm tắt được: xem ghi chú demo.",
+        objections: "",
+        suggestedPlan: "Vận hành",
+    }
 
     run(input: In, reach: NodeReach): Out {
-        const lead = reach.objects(Lead).get(input.leadId as never)
+        const lead = reach.objects(Lead).get(refOf<Lead>(input.leadId))
         if (lead.error) throw lead.error
         const values = lead.result.values
         const { result, error } = reach.call<ModelGenerate<Out>>("model.generate", {
             prompt: GOAL,
-            data: { lead: { name: values.name ?? "", business: values.business ?? "", segment: values.segment ?? "", source: values.source ?? "", fitNotes: values.fitNotes ?? "" }, demoNote: input.note },
+            data: {
+                lead: {
+                    name: values.name ?? "",
+                    business: values.business ?? "",
+                    segment: values.segment ?? "",
+                    source: values.source ?? "",
+                    fitNotes: values.fitNotes ?? "",
+                },
+                demoNote: input.note,
+            },
         })
         if (error) return { ...reach.reply(this.fallback).result.value, leadName: values.name ?? "" }
         return { ...result.value, leadName: values.name ?? "" }

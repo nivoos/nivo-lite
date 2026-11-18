@@ -3,8 +3,12 @@ import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import { keyOf } from "../../../package-key.ts"
 import { FileSlotsOutput } from "./file-slots.cell.ts"
 
-export const MirrorInput = z.strictObject({ weekCode: z.string(), filed: FileSlotsOutput.shape.filed })
-export const MirrorOutput = z.strictObject({ mirrored: z.boolean(), rows: z.number().int(), refusal: z.string().max(80) })
+export const MirrorInput = z.strictObject({ weekCode: z.string().max(40), filed: FileSlotsOutput.shape.filed })
+export const MirrorOutput = z.strictObject({
+    mirrored: z.boolean(),
+    rows: z.number().int(),
+    refusal: z.string().max(80),
+})
 /** The calendar sheet: an empty `spreadsheetId` means no sheet is connected yet, and the week is not mirrored (the plan still works). */
 export const MirrorSettings = z.strictObject({
     spreadsheetId: z.string().max(120).default(""),
@@ -31,6 +35,10 @@ export class SocialMirror implements Node<typeof MirrorInput, typeof MirrorOutpu
 
     run(input: In, reach: NodeReach<Settings>): Out {
         const row = input.filed.length
-        return { mirrored: false, rows: 0, refusal: row === 0 || reach.settings.spreadsheetId === "" ? "sheets_not_set" : "sheets_pending" }
+        return {
+            mirrored: false,
+            rows: 0,
+            refusal: row === 0 || reach.settings.spreadsheetId === "" ? "sheets_not_set" : "sheets_pending",
+        }
     }
 }

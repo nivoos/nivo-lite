@@ -18,8 +18,18 @@ import { Held } from "./steps/held.step.ts"
 import { Waiting } from "./steps/waiting.step.ts"
 
 /** What the engine tells a run about the answer of a room card: who took which choice of which card. */
-export const Answer = z.strictObject({ answerKey: z.string(), messageId: z.string(), roomId: z.string(), runId: z.string(), stepKey: z.string(), choice: z.string(), memberId: z.string() })
+export const Answer = z.strictObject({
+    answerKey: z.string().max(80),
+    messageId: z.string().max(80),
+    roomId: z.string().max(80),
+    runId: z.string().max(80),
+    stepKey: z.string().max(80),
+    choice: z.string().max(80),
+    memberId: z.string().max(80),
+})
+/** The salesperson's answer to the handover card (quote now or hold), as the engine reports it. */
 export type Answer = z.infer<typeof Answer>
+/** The `demo.done` event that starts a handover run. */
 export type Demo = z.infer<typeof DemoDoneData>
 
 /** The one state object of a run: the demo that ended, the brief, the deal opened, the card posted, the answer and the plan written. */

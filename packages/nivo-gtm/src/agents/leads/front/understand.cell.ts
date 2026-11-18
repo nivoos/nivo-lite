@@ -11,8 +11,21 @@ export const UnderstandInput = z.strictObject({
     nextAction: z.string().max(300),
 })
 /** What the lead wants NOW, one of eight. */
-export const LeadIntent = z.enum(["question", "interested", "wants_demo", "asks_price", "picks_slot", "customer_support", "not_fit", "spam"])
-export const UnderstandOutput = z.strictObject({ intent: LeadIntent, summary: z.string().min(1).max(300), email: z.string().max(200) })
+export const LeadIntent = z.enum([
+    "question",
+    "interested",
+    "wants_demo",
+    "asks_price",
+    "picks_slot",
+    "customer_support",
+    "not_fit",
+    "spam",
+])
+export const UnderstandOutput = z.strictObject({
+    intent: LeadIntent,
+    summary: z.string().min(1).max(300),
+    email: z.string().max(200),
+})
 /** How many lines of the conversation the reading takes. A workspace may change it in the console. */
 export const UnderstandSettings = z.strictObject({ threadLines: z.number().int().min(1).max(50).default(10) })
 
@@ -45,12 +58,18 @@ export class Understand implements Node<typeof UnderstandInput, typeof Understan
     readonly model = { model: "sonnet-5-5", effort: "fast" } as const
 
     run(input: In, reach: NodeReach<Settings>): Out {
-        const thread = reach.call<ContactConversationMessages>("contact_conversation.messages", { limit: reach.settings.threadLines }).result.messages
+        const thread = reach.call<ContactConversationMessages>("contact_conversation.messages", {
+            limit: reach.settings.threadLines,
+        }).result.messages
         const { result, error } = reach.call<ModelGenerate<Out>>("model.generate", {
             prompt: `${LEADS_POLICY}\n\n${GOAL}`,
             data: {
                 messages: input.messages.map((message) => ({ text: message.text, at: message.sentAt })),
-                thread: thread.map((line) => ({ from: line.direction === "from_person" ? "customer" : "company", text: line.text, at: line.saidAt })),
+                thread: thread.map((line) => ({
+                    from: line.direction === "from_person" ? "customer" : "company",
+                    text: line.text,
+                    at: line.saidAt,
+                })),
                 stage: input.stage,
                 nextAction: input.nextAction,
             },

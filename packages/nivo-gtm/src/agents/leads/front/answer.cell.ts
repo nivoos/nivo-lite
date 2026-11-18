@@ -5,9 +5,16 @@ import { keyOf } from "../../../package-key.ts"
 import type { BrainSearch } from "../common/brain-search.ts"
 import { LEADS_POLICY } from "../common/leads.guidance.ts"
 
-export const AnswerInput = z.strictObject({ messages: z.array(TelegramMessage).min(1).max(50), summary: z.string().min(1).max(300) })
+export const AnswerInput = z.strictObject({
+    messages: z.array(TelegramMessage).min(1).max(50),
+    summary: z.string().min(1).max(300),
+})
 /** `answered` false: the public information does not answer; `question` is then what the team must answer, and nothing is sent. */
-export const AnswerOutput = z.strictObject({ answered: z.boolean(), reply: z.string().max(1500), question: z.string().max(400) })
+export const AnswerOutput = z.strictObject({
+    answered: z.boolean(),
+    reply: z.string().max(1500),
+    question: z.string().max(400),
+})
 /** How many thread lines and brain hits the answer reads. A workspace may change them in the console. */
 export const AnswerSettings = z.strictObject({
     threadLines: z.number().int().min(1).max(50).default(10),
@@ -42,19 +49,33 @@ export class Answer implements Node<typeof AnswerInput, typeof AnswerOutput, typ
     readonly model = { model: "sonnet-5-5", effort: "fast" } as const
 
     run(input: In, reach: NodeReach<Settings>): Out {
-        const thread = reach.call<ContactConversationMessages>("contact_conversation.messages", { limit: reach.settings.threadLines }).result.messages
-        const words = input.messages.map((message) => message.text).join("\n").trim()
-        const hits = reach.call<BrainSearch>("brain.search", { query: words === "" ? input.summary : words.slice(0, 2000), limit: reach.settings.brainHits }).result.hits
+        const thread = reach.call<ContactConversationMessages>("contact_conversation.messages", {
+            limit: reach.settings.threadLines,
+        }).result.messages
+        const words = input.messages
+            .map((message) => message.text)
+            .join("\n")
+            .trim()
+        const hits = reach.call<BrainSearch>("brain.search", {
+            query: words === "" ? input.summary : words.slice(0, 2000),
+            limit: reach.settings.brainHits,
+        }).result.hits
         const { result, error } = reach.call<ModelGenerate<Out>>("model.generate", {
             prompt: `${LEADS_POLICY}\n\n${GOAL}`,
             data: {
                 messages: input.messages.map((message) => ({ text: message.text, at: message.sentAt })),
-                thread: thread.map((line) => ({ from: line.direction === "from_person" ? "customer" : "company", text: line.text, at: line.saidAt })),
+                thread: thread.map((line) => ({
+                    from: line.direction === "from_person" ? "customer" : "company",
+                    text: line.text,
+                    at: line.saidAt,
+                })),
                 brain: hits.map((hit) => ({ kind: hit.kind, truth: hit.truth, passage: hit.passage })),
             },
         })
         if (error) throw error
         // the team is told what to answer by hand: a model that gave no question falls back to what the lead wants
-        return result.value.answered || result.value.question !== "" ? result.value : { ...result.value, question: input.summary.slice(0, 400) }
+        return result.value.answered || result.value.question !== ""
+            ? result.value
+            : { ...result.value, question: input.summary.slice(0, 400) }
     }
 }

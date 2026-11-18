@@ -25,7 +25,11 @@ export class SendLine implements Node<typeof SendLineInput, typeof SendLineOutpu
     readonly mutation = "contact_message.send"
 
     run(input: In, reach: NodeReach): Out {
-        const { error } = reach.call<ContactMessageSend>("contact_message.send", { provider: "telegram", to: chatIdOf(input.to), text: input.text })
+        const { error } = reach.call<ContactMessageSend>("contact_message.send", {
+            provider: "telegram",
+            to: chatIdOf(input.to),
+            text: input.text,
+        })
         if (error) throw error
         return {}
     }

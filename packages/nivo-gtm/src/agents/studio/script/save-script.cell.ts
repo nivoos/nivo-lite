@@ -1,16 +1,16 @@
+import { refOf } from "../../../common/helpers/refs.ts"
 import { z } from "zod"
 import type { Node, NodeReach } from "@starci/nivoos-sdk"
-import type { NivoRef } from "@starci/nivoos-sdk"
 import { Content } from "../../../objects/content.object.ts"
 import { keyOf } from "../../../package-key.ts"
 import { addHours, clip } from "../common/helpers.ts"
 import { CardParts, ScriptDraft } from "../common/studio.shapes.ts"
 
-export const SaveScriptInput = z.strictObject({ objectId: z.string().min(1), draft: ScriptDraft })
+export const SaveScriptInput = z.strictObject({ objectId: z.string().min(1).max(100), draft: ScriptDraft })
 export const SaveScriptOutput = z.strictObject({
     code: z.string().max(40),
-    reviewBy: z.string(),
-    secondReviewBy: z.string(),
+    reviewBy: z.string().max(40),
+    secondReviewBy: z.string().max(40),
     cardText: CardParts.shape.cardText,
     nudgeText: CardParts.shape.cardText,
     choices: CardParts.shape.choices,
@@ -26,7 +26,11 @@ type Settings = z.infer<typeof SaveScriptSettings>
  * `nivo-gtm.studio-save-script` (Lưu kịch bản): one act, `object.update` of the content item: the script document, the caption, the revision count, the status `script_review` and the next action "Duyệt kịch bản" due in
  * `reviewHours`. It also makes the review card (the hook, the beats, the call to action) and its two choices, so the next step only posts them.
  */
-export class StudioSaveScript implements Node<typeof SaveScriptInput, typeof SaveScriptOutput, typeof SaveScriptSettings> {
+export class StudioSaveScript implements Node<
+    typeof SaveScriptInput,
+    typeof SaveScriptOutput,
+    typeof SaveScriptSettings
+> {
     readonly key = keyOf("studio-save-script")
     readonly version = 1
     readonly title = { vi: "Lưu kịch bản", en: "Save the script" }
@@ -37,7 +41,7 @@ export class StudioSaveScript implements Node<typeof SaveScriptInput, typeof Sav
     readonly mutation = "object.update"
 
     run(input: In, reach: NodeReach<Settings>): Out {
-        const got = reach.objects(Content).get(input.objectId as NivoRef<Content>)
+        const got = reach.objects(Content).get(refOf<Content>(input.objectId))
         if (got.error) throw got.error
         const at = reach.facts.at
         const reviewBy = addHours(at, reach.settings.reviewHours)
@@ -48,7 +52,14 @@ export class StudioSaveScript implements Node<typeof SaveScriptInput, typeof Sav
             version: got.result.version,
             values: {
                 status: "script_review",
-                script: { hook: draft.hook, beats: draft.beats, broll: draft.broll, cta: draft.cta, seconds: draft.seconds, revision: draft.revision },
+                script: {
+                    hook: draft.hook,
+                    beats: draft.beats,
+                    broll: draft.broll,
+                    cta: draft.cta,
+                    seconds: draft.seconds,
+                    revision: draft.revision,
+                },
                 caption: clip(draft.caption, 3000),
                 revisions: draft.revision,
                 nextAction: "Duyệt kịch bản",
@@ -57,7 +68,9 @@ export class StudioSaveScript implements Node<typeof SaveScriptInput, typeof Sav
         })
         if (error) throw error
         const code = got.result.values.code
-        const beats = draft.beats.map((beat, index) => `${String(index + 1)}. [${beat.at}] ${beat.onScreen} | ${beat.voiceOver}`).join("\n")
+        const beats = draft.beats
+            .map((beat, index) => `${String(index + 1)}. [${beat.at}] ${beat.onScreen} | ${beat.voiceOver}`)
+            .join("\n")
         const body = `Kịch bản ${code}: ${got.result.values.title} (bản ${String(draft.revision + 1)}, ${String(draft.seconds)} giây)\n\nMở đầu: ${draft.hook}\n\n${beats}\n\nKêu gọi: ${draft.cta}\n\nCaption: ${draft.caption}`
         return {
             code,

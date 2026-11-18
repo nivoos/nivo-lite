@@ -5,7 +5,12 @@ import { TellHost } from "./tell-host.step.ts"
 
 /** The email leaves the company: a person approves it first (`ask`, locked by the engine). Without a mailbox the engine refuses and the run goes on (the Telegram confirmation already went). */
 export class SendEmail extends NodeRun(SendEmailCell)<typeof State> {
-    override readonly input = (s: StateView<typeof State>) => ({ to: s.pick.email, name: s.slots.name, label: s.book.label, link: s.book.link })
+    override readonly input = (s: StateView<typeof State>) => ({
+        to: s.pick.email,
+        name: s.slots.name,
+        label: s.book.label,
+        link: s.book.link,
+    })
     override readonly into = ["emailed"] as const
     override readonly next = TellHost
     override readonly onDeclined = TellHost

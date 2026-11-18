@@ -1,4 +1,3 @@
-
 # Trụ cột nội dung
 
 Agent Xưởng video và Mạng xã hội đọc tài liệu này khi nghĩ ý tưởng, viết kịch bản và lên lịch. Giọng viết theo "Giọng thương hiệu".
@@ -6,18 +5,19 @@ Agent Xưởng video và Mạng xã hội đọc tài liệu này khi nghĩ ý t
 ## Kênh
 
 <!-- placeholder -->
+
 - Hiện tại: kênh Telegram của NIVO và nhóm thảo luận đi kèm.
 - Sau: Facebook. TikTok và YouTube Shorts chưa quyết.
 
 ## Năm trụ cột
 
-| # | trụ cột | mục đích | tỉ lệ | ví dụ |
-|---|---|---|---|---|
-| 1 | Nỗi đau → NIVO làm gì | kéo khách mới | 35% | "Khách nhắn 23:00, sáng ra đã có bản nháp chờ duyệt"; "Quên kiểm tra chuyển khoản? Tiền về là đơn tự chuyển trạng thái" |
-| 2 | Hậu trường: NIVO bán NIVO bằng NIVO | tạo niềm tin | 20% | màn Trách nhiệm của chính đội NIVO; thẻ duyệt tin nhắn khách trong Office |
-| 3 | Câu chuyện khách hàng | bằng chứng | 15% | tiệm hoa, NIVO Web (chỉ khi được cho phép) |
-| 4 | Mẹo vận hành cho chủ tiệm | giữ người xem | 20% | cách viết bảng giá để AI đọc đúng; chia tài liệu công khai và nội bộ; đặt nhịp nhắn lại khách |
-| 5 | Cập nhật sản phẩm | giữ khách cũ | 10% | tính năng mới đã có thật (không nói trước tính năng chưa ra) |
+| #   | trụ cột                             | mục đích      | tỉ lệ | ví dụ                                                                                                                   |
+| --- | ----------------------------------- | ------------- | ----- | ----------------------------------------------------------------------------------------------------------------------- |
+| 1   | Nỗi đau → NIVO làm gì               | kéo khách mới | 35%   | "Khách nhắn 23:00, sáng ra đã có bản nháp chờ duyệt"; "Quên kiểm tra chuyển khoản? Tiền về là đơn tự chuyển trạng thái" |
+| 2   | Hậu trường: NIVO bán NIVO bằng NIVO | tạo niềm tin  | 20%   | màn Trách nhiệm của chính đội NIVO; thẻ duyệt tin nhắn khách trong Office                                               |
+| 3   | Câu chuyện khách hàng               | bằng chứng    | 15%   | tiệm hoa, NIVO Web (chỉ khi được cho phép)                                                                              |
+| 4   | Mẹo vận hành cho chủ tiệm           | giữ người xem | 20%   | cách viết bảng giá để AI đọc đúng; chia tài liệu công khai và nội bộ; đặt nhịp nhắn lại khách                           |
+| 5   | Cập nhật sản phẩm                   | giữ khách cũ  | 10%   | tính năng mới đã có thật (không nói trước tính năng chưa ra)                                                            |
 
 ## Định dạng video
 

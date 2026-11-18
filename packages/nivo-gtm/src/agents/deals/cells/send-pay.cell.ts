@@ -13,7 +13,6 @@ export const SendPayInput = z.strictObject({
     /** `request` is the first message with the transfer details, `nudge` the reminder when no money came. */
     kind: z.enum(["request", "nudge"]),
 })
-export const SendPayOutput = SentOutput
 /** NIVO's company bank account as the customer is told it (PLACEHOLDERS until the owner fills them; the SePay account in the workspace is the one that receives). */
 export const SendPaySettings = z.strictObject({
     bankName: z.string().min(1).max(80).default("Ngân hàng (chờ NIVO cập nhật)"),
@@ -22,7 +21,7 @@ export const SendPaySettings = z.strictObject({
 })
 
 type In = z.infer<typeof SendPayInput>
-type Out = z.infer<typeof SendPayOutput>
+type Out = z.infer<typeof SentOutput>
 type Settings = z.infer<typeof SendPaySettings>
 
 const payText = (input: In, settings: Settings): string =>
@@ -34,18 +33,22 @@ const payText = (input: In, settings: Settings): string =>
  * `nivo-gtm.send-pay` (Gửi thông tin chuyển khoản): ONE act, `contact_message.send` with the amount, the account and the pay code the customer writes in the transfer memo (the `sepay.payment.paid` trigger
  * reads that code). It leaves the company, so a person approves it (locked ask, G1). Used for the first request and for the one reminder.
  */
-export class SendPay implements Node<typeof SendPayInput, typeof SendPayOutput, typeof SendPaySettings> {
+export class SendPay implements Node<typeof SendPayInput, typeof SentOutput, typeof SendPaySettings> {
     readonly key = keyOf("send-pay")
     readonly version = 2
     readonly title = { vi: "Gửi thông tin chuyển khoản", en: "Send the payment details" }
     readonly input = SendPayInput
-    readonly output = SendPayOutput
+    readonly output = SentOutput
     readonly settings = SendPaySettings
     readonly reads = []
     readonly mutation = "contact_message.send"
 
     run(input: In, reach: NodeReach<Settings>): Out {
-        const { error } = reach.call<ContactMessageSend>("contact_message.send", { provider: input.channel, to: input.to, text: payText(input, reach.settings) })
+        const { error } = reach.call<ContactMessageSend>("contact_message.send", {
+            provider: input.channel,
+            to: input.to,
+            text: payText(input, reach.settings),
+        })
         if (error) throw error
         return { channel: input.channel, to: input.to }
     }

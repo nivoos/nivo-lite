@@ -35,12 +35,24 @@ export class SocialRevise implements Node<typeof ReviseInput, typeof ReviseOutpu
     readonly model = { model: "sonnet-5-5", effort: "balanced" } as const
 
     run(input: In, reach: NodeReach<Settings>): Out {
-        if (input.previous.revision >= reach.settings.maxRevisions) return reach.reply<Out>({ ok: false, revision: input.previous.revision, caption: "", hashtags: [], imageText: "" }).result.value
+        if (input.previous.revision >= reach.settings.maxRevisions)
+            return reach.reply<Out>({
+                ok: false,
+                revision: input.previous.revision,
+                caption: "",
+                hashtags: [],
+                imageText: "",
+            }).result.value
         const { result, error } = reach.call<ModelGenerate<Out>>("model.generate", {
             prompt: `${SOCIAL_POLICY}\n\n${GOAL}`,
             data: { previous: input.previous, maxChars: reach.settings.maxChars },
         })
         if (error) throw error
-        return { ...result.value, ok: true, revision: input.previous.revision + 1, caption: result.value.caption.slice(0, reach.settings.maxChars) }
+        return {
+            ...result.value,
+            ok: true,
+            revision: input.previous.revision + 1,
+            caption: result.value.caption.slice(0, reach.settings.maxChars),
+        }
     }
 }

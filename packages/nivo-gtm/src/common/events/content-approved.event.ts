@@ -3,7 +3,7 @@ import type { EventKind } from "@starci/nivoos-sdk"
 import { keyOf } from "../../package-key.ts"
 
 /** What the event carries. */
-export const ContentApprovedData = z.strictObject({ contentId: z.string().min(1), kind: z.string().max(500) })
+export const ContentApprovedData = z.strictObject({ contentId: z.string().min(1).max(80), kind: z.string().max(500) })
 
 /**
  * `nivo-gtm.content.approved`: a content item was approved by its reviewer (Social schedules it). Internal, on the subject `content:<id>`; the emitter keys it by the object and the transition, so a repeat emit is one event.

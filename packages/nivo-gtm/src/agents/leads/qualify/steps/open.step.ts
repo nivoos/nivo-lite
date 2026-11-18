@@ -5,6 +5,10 @@ import { Score } from "./score.step.ts"
 
 /** The start: the front door said a lead is ready to be scored. */
 export class Open extends NodeWait<typeof State> {
-    override readonly take = [take<typeof State>(LeadReady, {}, (s, readies: Ready[]) => { readies.forEach((ready) => s.readies.push(ready)) })]
+    override readonly take = [
+        take<typeof State>(LeadReady, {}, (s, readies: Array<Ready>) => {
+            readies.forEach((ready) => s.readies.push(ready))
+        }),
+    ]
     override readonly next = Score
 }

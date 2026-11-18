@@ -1,4 +1,3 @@
-
 # Dữ liệu và bảo mật
 
 ## Dữ liệu ở trong workspace của bạn
@@ -37,6 +36,7 @@
 - Có các vai Chủ sở hữu, Quản lý và Nhân viên. Việc quan trọng như xoá khách chỉ Chủ sở hữu làm được.
 
 <!-- placeholder -->
+
 ## Còn đang cập nhật
 
 Nơi đặt máy chủ và chính sách dữ liệu với nhà cung cấp mô hình AI: đang cập nhật. Khi khách hỏi, người phụ trách bán hàng sẽ trả lời trực tiếp.

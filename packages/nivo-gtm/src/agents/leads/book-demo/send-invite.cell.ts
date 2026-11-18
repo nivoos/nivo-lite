@@ -4,7 +4,11 @@ import { keyOf } from "../../../package-key.ts"
 import { chatIdOf } from "../common/lead-code.ts"
 import { SendLineOutput } from "../common/send-line.cell.ts"
 
-export const SendInviteInput = z.strictObject({ to: z.string().min(1).max(200), name: z.string().max(120), labels: z.array(z.string().min(1).max(40)).min(1).max(10) })
+export const SendInviteInput = z.strictObject({
+    to: z.string().min(1).max(200),
+    name: z.string().max(120),
+    labels: z.array(z.string().min(1).max(40)).min(1).max(10),
+})
 
 type In = z.infer<typeof SendInviteInput>
 type Out = z.infer<typeof SendLineOutput>
@@ -26,7 +30,11 @@ export class SendInvite implements Node<typeof SendInviteInput, typeof SendLineO
         const hello = input.name === "" ? "Dạ chào bạn" : `Dạ chào ${input.name}`
         const lines = input.labels.map((label, index) => `${index + 1}. ${label}`).join("\n")
         const text = `${hello}, NIVO xin mời bạn xem demo. Bạn chọn giúp một khung giờ phù hợp:\n${lines}\nBạn nhắn số hoặc giờ bạn chọn, và cho mình email nếu muốn nhận thư xác nhận nhé.`
-        const { error } = reach.call<ContactMessageSend>("contact_message.send", { provider: "telegram", to: chatIdOf(input.to), text })
+        const { error } = reach.call<ContactMessageSend>("contact_message.send", {
+            provider: "telegram",
+            to: chatIdOf(input.to),
+            text,
+        })
         if (error) throw error
         return {}
     }

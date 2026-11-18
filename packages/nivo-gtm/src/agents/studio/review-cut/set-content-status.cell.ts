@@ -1,17 +1,20 @@
+import { refOf } from "../../../common/helpers/refs.ts"
 import { z } from "zod"
 import type { Node, NodeReach } from "@starci/nivoos-sdk"
-import type { NivoRef } from "@starci/nivoos-sdk"
 import { Content } from "../../../objects/content.object.ts"
 import { keyOf } from "../../../package-key.ts"
 import { clip } from "../common/helpers.ts"
 
 export const SetContentStatusInput = z.strictObject({
-    objectId: z.string().min(1),
+    objectId: z.string().min(1).max(100),
     status: z.enum(["approved", "producing"]),
     nextAction: z.string().min(1).max(2000),
     evidence: z.string().max(2000),
 })
-export const SetContentStatusOutput = z.strictObject({ code: z.string().max(40), status: z.enum(["approved", "producing"]) })
+export const SetContentStatusOutput = z.strictObject({
+    code: z.string().max(40),
+    status: z.enum(["approved", "producing"]),
+})
 
 type In = z.infer<typeof SetContentStatusInput>
 type Out = z.infer<typeof SetContentStatusOutput>
@@ -30,12 +33,17 @@ export class StudioSetContentStatus implements Node<typeof SetContentStatusInput
     readonly mutation = "object.update"
 
     run(input: In, reach: NodeReach): Out {
-        const got = reach.objects(Content).get(input.objectId as NivoRef<Content>)
+        const got = reach.objects(Content).get(refOf<Content>(input.objectId))
         if (got.error) throw got.error
         const { error } = reach.objects(Content).update({
             id: got.result.id,
             version: got.result.version,
-            values: { status: input.status, nextAction: clip(input.nextAction, 300), nextAt: null, ...(input.evidence === "" ? {} : { evidence: clip(input.evidence, 2000) }) },
+            values: {
+                status: input.status,
+                nextAction: clip(input.nextAction, 300),
+                nextAt: null,
+                ...(input.evidence === "" ? {} : { evidence: clip(input.evidence, 2000) }),
+            },
         })
         if (error) throw error
         return { code: got.result.values.code, status: input.status }

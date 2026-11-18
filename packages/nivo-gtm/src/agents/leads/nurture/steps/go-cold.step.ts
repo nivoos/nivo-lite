@@ -3,8 +3,15 @@ import { SetStage as SetStageCell } from "../../common/set-stage.cell.ts"
 import type { State } from "../nurture.workflow.ts"
 import { EndCold } from "./end-cold.step.ts"
 
+/** Runs `SetStage` (the instant the next action falls due (ms since the epoch); 0 means `nextAfterHours` from now) and keeps its result in `cooled`; the run then goes to `EndCold`. */
 export class GoCold extends NodeRun(SetStageCell)<typeof State> {
-    override readonly input = (s: StateView<typeof State>) => ({ leadId: s.leadId, stage: "cold" as const, nextAction: "Xem lại sau 30 ngày", nextAtMs: 0, nextAfterHours: 720 })
+    override readonly input = (s: StateView<typeof State>) => ({
+        leadId: s.leadId,
+        stage: "cold" as const,
+        nextAction: "Xem lại sau 30 ngày",
+        nextAtMs: 0,
+        nextAfterHours: 720,
+    })
     override readonly into = ["cooled"] as const
     override readonly next = EndCold
 }

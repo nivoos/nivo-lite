@@ -5,7 +5,11 @@ import { SOCIAL_POLICY } from "../common/social.policy.ts"
 
 export const SortInput = z.strictObject({ text: z.string().max(4000), fromName: z.string().max(200) })
 export const SortKind = z.enum(["question", "interest", "praise", "complaint", "spam"])
-export const SortOutput = z.strictObject({ kind: SortKind, summary: z.string().min(1).max(300), noticeText: z.string().min(1).max(500) })
+export const SortOutput = z.strictObject({
+    kind: SortKind,
+    summary: z.string().min(1).max(300),
+    noticeText: z.string().min(1).max(500),
+})
 
 type In = z.infer<typeof SortInput>
 type Out = z.infer<typeof SortOutput>
@@ -26,7 +30,10 @@ export class SocialSort implements Node<typeof SortInput, typeof SortOutput> {
     readonly model = { model: "sonnet-5-5", effort: "fast" } as const
 
     run(input: In, reach: NodeReach): Out {
-        const { result, error } = reach.call<ModelGenerate<Out>>("model.generate", { prompt: `${SOCIAL_POLICY}\n\n${GOAL}`, data: { text: input.text, fromName: input.fromName } })
+        const { result, error } = reach.call<ModelGenerate<Out>>("model.generate", {
+            prompt: `${SOCIAL_POLICY}\n\n${GOAL}`,
+            data: { text: input.text, fromName: input.fromName },
+        })
         if (error) throw error
         return result.value
     }

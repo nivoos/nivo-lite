@@ -12,12 +12,21 @@ import { Short } from "./steps/short.step.ts"
 import { Expired } from "./steps/expired.step.ts"
 
 /** What a transfer carries (the `sepay.payment.paid` event): the order code, the SePay transaction, the amount. */
-export const Payment = z.strictObject({ orderCode: z.string(), transferId: z.string(), amount: z.number(), content: z.string(), accountNumber: z.string(), transactionDate: z.string() })
+export const Payment = z.strictObject({
+    orderCode: z.string().max(80),
+    transferId: z.string().max(80),
+    amount: z.number(),
+    content: z.string().max(1000),
+    accountNumber: z.string().max(40),
+    transactionDate: z.string().max(40),
+})
+/** One bank transfer the watch matched to the pay code. */
 export type Payment = z.infer<typeof Payment>
+/** The `pay.requested` event that starts a payment watch. */
 export type Request = z.infer<typeof PayRequestedData>
 
 /** What the watch ends with: every end step names it, and the deal's run reads it typed from its `Ended` item. */
-export const PayWatchOutput = z.strictObject({ paid: z.boolean(), amount: z.number(), transferId: z.string() })
+export const PayWatchOutput = z.strictObject({ paid: z.boolean(), amount: z.number(), transferId: z.string().max(80) })
 
 /** The one state object of a run: what the deal asked, the transfer that came and the amount check. */
 export const State = z.strictObject({

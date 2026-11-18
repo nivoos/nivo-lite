@@ -7,7 +7,7 @@ export const AskTeamInput = z.strictObject({
     text: z.string().min(1).max(3000),
     choices: z.array(Choice).max(6).optional(),
 })
-export const AskTeamOutput = z.strictObject({ messageId: z.string(), roomId: z.string() })
+export const AskTeamOutput = z.strictObject({ messageId: z.string().max(80), roomId: z.string().max(80) })
 
 type In = z.infer<typeof AskTeamInput>
 type Out = z.infer<typeof AskTeamOutput>
@@ -26,7 +26,10 @@ export class SocialAskTeam implements Node<typeof AskTeamInput, typeof AskTeamOu
     readonly mutation = "room.message.post"
 
     run(input: In, reach: NodeReach): Out {
-        const { result, error } = reach.call<RoomMessagePost>("room.message.post", { text: input.text, ...(input.choices === undefined ? {} : { choices: input.choices }) })
+        const { result, error } = reach.call<RoomMessagePost>("room.message.post", {
+            text: input.text,
+            ...(input.choices === undefined ? {} : { choices: input.choices }),
+        })
         if (error) throw error
         return { messageId: result.messageId, roomId: result.roomId }
     }

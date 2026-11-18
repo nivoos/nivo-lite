@@ -3,6 +3,7 @@ import { SocialMarkContentPublished as MarkContentCell } from "../mark-content.c
 import { Announce } from "./announce.step.ts"
 import type { State } from "../publish.workflow.ts"
 
+/** Marks the content `published` once its publication is recorded. */
 export class MarkContent extends NodeRun(MarkContentCell)<typeof State> {
     override readonly input = (s: StateView<typeof State>) => ({ contentId: s.slot.contentId })
     override readonly into = ["contentMarked"] as const

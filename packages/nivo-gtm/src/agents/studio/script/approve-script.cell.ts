@@ -1,10 +1,13 @@
+import { refOf } from "../../../common/helpers/refs.ts"
 import { z } from "zod"
 import type { Node, NodeReach } from "@starci/nivoos-sdk"
-import type { NivoRef } from "@starci/nivoos-sdk"
 import { Content } from "../../../objects/content.object.ts"
 import { keyOf } from "../../../package-key.ts"
 
-export const ApproveScriptInput = z.strictObject({ objectId: z.string().min(1), memberId: z.string().min(1).max(80) })
+export const ApproveScriptInput = z.strictObject({
+    objectId: z.string().min(1).max(100),
+    memberId: z.string().min(1).max(80),
+})
 export const ApproveScriptOutput = z.strictObject({ code: z.string().max(40), approvedBy: z.string().max(80) })
 
 type In = z.infer<typeof ApproveScriptInput>
@@ -24,12 +27,17 @@ export class StudioApproveScript implements Node<typeof ApproveScriptInput, type
     readonly mutation = "object.update"
 
     run(input: In, reach: NodeReach): Out {
-        const got = reach.objects(Content).get(input.objectId as NivoRef<Content>)
+        const got = reach.objects(Content).get(refOf<Content>(input.objectId))
         if (got.error) throw got.error
         const { error } = reach.objects(Content).update({
             id: got.result.id,
             version: got.result.version,
-            values: { status: "script_ok", nextAction: "Quay và dựng", nextAt: null, evidence: `Kịch bản được duyệt bởi ${input.memberId} lúc ${reach.facts.at}` },
+            values: {
+                status: "script_ok",
+                nextAction: "Quay và dựng",
+                nextAt: null,
+                evidence: `Kịch bản được duyệt bởi ${input.memberId} lúc ${reach.facts.at}`,
+            },
         })
         if (error) throw error
         return { code: got.result.values.code, approvedBy: input.memberId }

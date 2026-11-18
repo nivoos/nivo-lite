@@ -3,8 +3,12 @@ import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import type { CutReady } from "../../../common/events/cut-ready.event.ts"
 import { keyOf } from "../../../package-key.ts"
 
-export const EmitCutReadyInput = z.strictObject({ contentId: z.string().min(1), cutId: z.string().min(1), version: z.number().int().min(1) })
-export const EmitCutReadyOutput = z.strictObject({ eventKey: z.string() })
+export const EmitCutReadyInput = z.strictObject({
+    contentId: z.string().min(1).max(100),
+    cutId: z.string().min(1).max(100),
+    version: z.number().int().min(1),
+})
+export const EmitCutReadyOutput = z.strictObject({ eventKey: z.string().max(200) })
 
 type In = z.infer<typeof EmitCutReadyInput>
 type Out = z.infer<typeof EmitCutReadyOutput>
@@ -24,7 +28,11 @@ export class StudioEmitCutReady implements Node<typeof EmitCutReadyInput, typeof
 
     run(input: In, reach: NodeReach): Out {
         const key = `cut:${input.cutId}`
-        const { error } = reach.emit<typeof CutReady>("nivo-gtm.cut.ready", { subject: { kind: "content", id: input.contentId }, data: { contentId: input.contentId, cutId: input.cutId, version: input.version }, key })
+        const { error } = reach.emit<typeof CutReady>("nivo-gtm.cut.ready", {
+            subject: { kind: "content", id: input.contentId },
+            data: { contentId: input.contentId, cutId: input.cutId, version: input.version },
+            key,
+        })
         if (error) throw error
         return { eventKey: key }
     }

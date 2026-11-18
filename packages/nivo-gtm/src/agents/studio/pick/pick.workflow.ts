@@ -8,7 +8,11 @@ import { ApplyChoice } from "./steps/apply-choice.step.ts"
 import { Picked } from "./steps/picked.step.ts"
 
 /** The one state object of a run. */
-export const State = z.strictObject({ answers: z.array(RoomAnswer).max(20).optional(), applied: ApplyChoiceOutput.optional() })
+export const State = z.strictObject({
+    answers: z.array(RoomAnswer).max(20).optional(),
+    applied: ApplyChoiceOutput.optional(),
+})
+/** A room answer as the start wait of this workflow keeps it. */
 export type Answer = z.infer<typeof RoomAnswer>
 
 /**
@@ -18,7 +22,7 @@ export type Answer = z.infer<typeof RoomAnswer>
 export class Pick implements Workflow<typeof State> {
     readonly key = keyOf("studio-pick")
     readonly version = 1
-    readonly title = {"vi":"Chọn ý tưởng","en":"Pick an idea"}
+    readonly title = { vi: "Chọn ý tưởng", en: "Pick an idea" }
     readonly state = State
     readonly append = ["answers"] as const
     readonly start = Hear

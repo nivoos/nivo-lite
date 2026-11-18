@@ -3,6 +3,7 @@ import { Signal } from "./signal.step.ts"
 import { Answer } from "./answer.step.ts"
 import type { State } from "../replies.workflow.ts"
 
+/** Branch: does the message show interest in buying. */
 export class IsInterest extends NodeIf<typeof State> {
     override readonly when = (s: StateView<typeof State>) => s.sorted.kind === "interest"
     override readonly label = { vi: "Quan tâm mua?", en: "Interested?" }

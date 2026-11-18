@@ -3,6 +3,7 @@ import { SocialAskTeam as AskTeamCell } from "../../common/ask-team.cell.ts"
 import { WaitReviewAgain } from "./wait-review-again.step.ts"
 import type { State } from "../post-draft.workflow.ts"
 
+/** Reminds the team in the room that the post review card is still waiting. */
 export class NudgeReview extends NodeRun(AskTeamCell)<typeof State> {
     override readonly input = (s: StateView<typeof State>) => ({ text: s.saved.nudgeText })
     override readonly into = ["nudged"] as const

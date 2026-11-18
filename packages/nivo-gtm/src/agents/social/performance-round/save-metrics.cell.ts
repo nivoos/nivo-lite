@@ -1,5 +1,6 @@
 import { z } from "zod"
-import type { NivoRef, Node, NodeReach } from "@starci/nivoos-sdk"
+import type { Node, NodeReach } from "@starci/nivoos-sdk"
+import { refOf } from "../common/helpers.ts"
 import { Publication } from "../../../objects/publication.object.ts"
 import { keyOf } from "../../../package-key.ts"
 import { PullOutput } from "./pull.cell.ts"
@@ -26,12 +27,19 @@ export class SocialSaveMetrics implements Node<typeof SaveMetricsInput, typeof S
     run(input: In, reach: NodeReach): Out {
         let saved = 0
         for (const item of input.items) {
-            const got = reach.objects(Publication).get(item.id as NivoRef<Publication>)
+            const got = reach.objects(Publication).get(refOf<Publication>(item.id))
             if (got.error) throw got.error
             const { error } = reach.objects(Publication).update({
                 id: got.result.id,
                 version: got.result.version,
-                values: { views: item.views, reach: item.reach, engagements: item.engagements, clicks: item.clicks, leads: item.leads, metricsAt: reach.facts.at },
+                values: {
+                    views: item.views,
+                    reach: item.reach,
+                    engagements: item.engagements,
+                    clicks: item.clicks,
+                    leads: item.leads,
+                    metricsAt: reach.facts.at,
+                },
             })
             if (error) throw error
             saved += 1

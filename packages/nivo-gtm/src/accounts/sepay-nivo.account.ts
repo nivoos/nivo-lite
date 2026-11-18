@@ -1,5 +1,4 @@
-import { env, secret } from "@starci/nivoos-sdk"
-import type { ProviderAccount } from "@starci/nivoos-sdk"
+import { env, secret, type ProviderAccount } from "@starci/nivoos-sdk"
 import { SepayProvider } from "@starci/nivoos-provider-templates/sepay/sepay.provider.cell"
 
 /**

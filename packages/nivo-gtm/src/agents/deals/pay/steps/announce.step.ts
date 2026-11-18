@@ -5,7 +5,11 @@ import { Paid } from "./paid.step.ts"
 
 /** Announces the paid deal: the activation starts on it. */
 export class Announce extends NodeRun(EmitDealPaidCell)<typeof State> {
-    override readonly input = (s: StateView<typeof State>) => ({ dealId: s.deal.dealId, code: s.deal.code, amount: s.deal.amount })
+    override readonly input = (s: StateView<typeof State>) => ({
+        dealId: s.deal.dealId,
+        code: s.deal.code,
+        amount: s.deal.amount,
+    })
     override readonly into = ["announced"] as const
     override readonly next = Paid
 }

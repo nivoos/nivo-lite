@@ -3,6 +3,7 @@ import { SocialPublishOpen as OpenCell } from "../open.cell.ts"
 import { UntilTime } from "./until-time.step.ts"
 import type { State } from "../publish.workflow.ts"
 
+/** Reads the publication and its content into the slot the run publishes. */
 export class Open extends NodeRun(OpenCell)<typeof State> {
     override readonly input = (s: StateView<typeof State>) => ({ objectId: s.hear.objectId })
     override readonly into = ["slot"] as const

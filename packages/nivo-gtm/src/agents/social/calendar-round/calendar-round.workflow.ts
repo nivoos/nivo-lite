@@ -28,7 +28,7 @@ import { ChangesAsked } from "./steps/changes-asked.step.ts"
 
 /** The one state object of a run. */
 export const State = z.strictObject({
-    tick: z.strictObject({ instant: z.string().min(10) }).optional(),
+    tick: z.strictObject({ instant: z.string().max(40).min(10) }).optional(),
     read: ReadOutput.optional(),
     plan: PlanOutput.optional(),
     filed: FileSlotsOutput.optional(),
@@ -38,6 +38,7 @@ export const State = z.strictObject({
     answers: z.array(RoomAnswer).max(20).optional(),
     settled: ScheduleOutput.optional(),
 })
+/** The room answer a card gets: which choice, by whom, in which message. */
 export type Answer = z.infer<typeof RoomAnswer>
 
 /**
@@ -48,9 +49,27 @@ export type Answer = z.infer<typeof RoomAnswer>
 export class CalendarRound implements Workflow<typeof State> {
     readonly key = keyOf("social-calendar-round")
     readonly version = 2
-    readonly title = {"vi":"Lịch đăng tuần","en":"Weekly calendar"}
+    readonly title = { vi: "Lịch đăng tuần", en: "Weekly calendar" }
     readonly state = State
     readonly append = ["answers"] as const
     readonly start = Tick
-    readonly steps = [Tick, Read, HasItems, NothingToPlan, Plan, FileSlots, Mirror, PostWeek, WaitWeek, NudgeWeek, WaitWeekAgain, IsApproved, Schedule, Scheduled, CancelWeek, NoReview, ChangesAsked]
+    readonly steps = [
+        Tick,
+        Read,
+        HasItems,
+        NothingToPlan,
+        Plan,
+        FileSlots,
+        Mirror,
+        PostWeek,
+        WaitWeek,
+        NudgeWeek,
+        WaitWeekAgain,
+        IsApproved,
+        Schedule,
+        Scheduled,
+        CancelWeek,
+        NoReview,
+        ChangesAsked,
+    ]
 }

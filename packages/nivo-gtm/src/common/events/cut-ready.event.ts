@@ -3,7 +3,11 @@ import type { EventKind } from "@starci/nivoos-sdk"
 import { keyOf } from "../../package-key.ts"
 
 /** What the event carries. */
-export const CutReadyData = z.strictObject({ contentId: z.string().min(1), cutId: z.string().min(1), version: z.number().int().nonnegative() })
+export const CutReadyData = z.strictObject({
+    contentId: z.string().min(1).max(80),
+    cutId: z.string().min(1).max(80),
+    version: z.number().int().nonnegative(),
+})
 
 /**
  * `nivo-gtm.cut.ready`: a video cut is ready for review (Studio emits it, review-cut takes it). Internal, on the subject `content:<id>`; the emitter keys it by the object and the transition, so a repeat emit is one event.

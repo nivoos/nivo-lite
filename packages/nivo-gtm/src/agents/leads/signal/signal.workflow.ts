@@ -26,6 +26,7 @@ export const State = z.strictObject({
     sent: SendLineOutput.optional(),
     touched: TouchLeadOutput.optional(),
 })
+/** The lead signal (an outside event about a lead) that opens the signal run. */
 export type SignalItem = z.infer<typeof LeadSignalData>
 
 /**
@@ -39,5 +40,17 @@ export class Signal implements Workflow<typeof State> {
     readonly state = State
     readonly append = ["signals"] as const
     readonly start = Hear
-    readonly steps = [Hear, FindLead, IsKnown, OpenLead, IsReachable, Opener, SendOpener, Touch, EndDoNotContact, EndDeclined, EndOpened]
+    readonly steps = [
+        Hear,
+        FindLead,
+        IsKnown,
+        OpenLead,
+        IsReachable,
+        Opener,
+        SendOpener,
+        Touch,
+        EndDoNotContact,
+        EndDeclined,
+        EndOpened,
+    ]
 }

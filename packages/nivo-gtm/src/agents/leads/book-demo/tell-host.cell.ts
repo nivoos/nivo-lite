@@ -2,8 +2,13 @@ import { z } from "zod"
 import type { Node, NodeReach, RoomMessagePost } from "@starci/nivoos-sdk"
 import { keyOf } from "../../../package-key.ts"
 
-export const TellHostInput = z.strictObject({ name: z.string().max(120), label: z.string().min(1).max(40), link: z.string().max(500), host: z.string().max(80) })
-export const TellHostOutput = z.strictObject({ posted: z.literal(true), messageId: z.string() })
+export const TellHostInput = z.strictObject({
+    name: z.string().max(120),
+    label: z.string().min(1).max(40),
+    link: z.string().max(500),
+    host: z.string().max(80),
+})
+export const TellHostOutput = z.strictObject({ posted: z.literal(true), messageId: z.string().max(128) })
 
 type In = z.infer<typeof TellHostInput>
 type Out = z.infer<typeof TellHostOutput>
@@ -22,7 +27,10 @@ export class TellHost implements Node<typeof TellHostInput, typeof TellHostOutpu
         const who = input.name === "" ? "một khách tiềm năng" : input.name
         const where = input.link === "" ? "chưa có link họp" : input.link
         const text = `Có lịch demo mới với ${who} lúc ${input.label} (giờ Việt Nam). Link: ${where}.`
-        const { result, error } = reach.call<RoomMessagePost>("room.message.post", { text, audience: input.host === "" ? "all" : [input.host] })
+        const { result, error } = reach.call<RoomMessagePost>("room.message.post", {
+            text,
+            audience: input.host === "" ? "all" : [input.host],
+        })
         if (error) throw error
         return { posted: true, messageId: result.messageId }
     }

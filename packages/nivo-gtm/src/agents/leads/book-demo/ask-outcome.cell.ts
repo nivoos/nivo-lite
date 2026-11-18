@@ -2,8 +2,12 @@ import { z } from "zod"
 import type { Node, NodeReach, RoomMessagePost } from "@starci/nivoos-sdk"
 import { keyOf } from "../../../package-key.ts"
 
-export const AskOutcomeInput = z.strictObject({ name: z.string().max(120), label: z.string().min(1).max(40), host: z.string().max(80) })
-export const AskOutcomeOutput = z.strictObject({ messageId: z.string(), roomId: z.string() })
+export const AskOutcomeInput = z.strictObject({
+    name: z.string().max(120),
+    label: z.string().min(1).max(40),
+    host: z.string().max(80),
+})
+export const AskOutcomeOutput = z.strictObject({ messageId: z.string().max(128), roomId: z.string().max(128) })
 
 type In = z.infer<typeof AskOutcomeInput>
 type Out = z.infer<typeof AskOutcomeOutput>
@@ -29,7 +33,11 @@ export class AskOutcome implements Node<typeof AskOutcomeInput, typeof AskOutcom
             { value: "moved", label: "Dời lịch" },
         ]
         const text = `Buổi demo với ${who} lúc ${input.label} đã diễn ra thế nào?`
-        const { result, error } = reach.call<RoomMessagePost>("room.message.post", { text, choices, audience: input.host === "" ? "all" : [input.host] })
+        const { result, error } = reach.call<RoomMessagePost>("room.message.post", {
+            text,
+            choices,
+            audience: input.host === "" ? "all" : [input.host],
+        })
         if (error) throw error
         return { messageId: result.messageId, roomId: result.roomId }
     }

@@ -6,9 +6,15 @@ import { SOCIAL_POLICY } from "../common/social.policy.ts"
 import { Slot } from "../common/social.shapes.ts"
 import { ReadOutput } from "./read.cell.ts"
 
-export const PlanInput = ReadOutput
 export const PlanOutput = z.strictObject({ slots: z.array(Slot).max(40) })
-const ModelSlot = z.strictObject({ contentId: z.string(), contentCode: z.string().max(40), channel: z.string().max(20), dayOffset: z.number().int().min(1).max(7), hour: z.string().max(5), why: z.string().max(300) })
+const ModelSlot = z.strictObject({
+    contentId: z.string().max(80),
+    contentCode: z.string().max(40),
+    channel: z.string().max(20),
+    dayOffset: z.number().int().min(1).max(7),
+    hour: z.string().max(5),
+    why: z.string().max(300),
+})
 const ModelPlan = z.strictObject({ slots: z.array(ModelSlot).max(40) })
 /** The cadence: posts per week per channel (Telegram is live; the others are "chờ kết nối", so 0) and the hours a post may go out. */
 export const PlanSettings = z.strictObject({
@@ -16,10 +22,19 @@ export const PlanSettings = z.strictObject({
     facebookPerWeek: z.number().int().min(0).max(14).default(0),
     tiktokPerWeek: z.number().int().min(0).max(14).default(0),
     youtubePerWeek: z.number().int().min(0).max(14).default(0),
-    publishHours: z.array(z.string().regex(/^\d{2}:\d{2}$/u)).min(1).max(6).default(["11:30", "19:30"]),
+    publishHours: z
+        .array(
+            z
+                .string()
+                .max(5)
+                .regex(/^\d{2}:\d{2}$/u),
+        )
+        .min(1)
+        .max(6)
+        .default(["11:30", "19:30"]),
 })
 
-type In = z.infer<typeof PlanInput>
+type In = z.infer<typeof ReadOutput>
 type Out = z.infer<typeof PlanOutput>
 type Settings = z.infer<typeof PlanSettings>
 type ModelOut = z.infer<typeof ModelPlan>
@@ -32,11 +47,11 @@ const GOAL =
  * `nivo-gtm.social-plan` (Lên lịch tuần): ONE generation. The model places the ready items on channels, days and hours; the cell then keeps only slots that fit the cadence settings (a channel with a limit of 0 is "chờ kết nối") and
  * turns each day and hour into the instant of the post (Ho Chi Minh City time).
  */
-export class SocialPlan implements Node<typeof PlanInput, typeof PlanOutput, typeof PlanSettings> {
+export class SocialPlan implements Node<typeof ReadOutput, typeof PlanOutput, typeof PlanSettings> {
     readonly key = keyOf("social-plan")
     readonly version = 1
     readonly title = { vi: "Lên lịch đăng tuần", en: "Plan the week" }
-    readonly input = PlanInput
+    readonly input = ReadOutput
     readonly output = PlanOutput
     readonly settings = PlanSettings
     readonly reads = []
@@ -52,20 +67,33 @@ export class SocialPlan implements Node<typeof PlanInput, typeof PlanOutput, typ
         }
         const { result, error } = reach.call<ModelGenerate<ModelOut>>("model.generate", {
             prompt: `${SOCIAL_POLICY}\n\n${GOAL}`,
-            data: { instant: input.instant, items: input.items, metrics: input.metrics, limits, hours: reach.settings.publishHours },
+            data: {
+                instant: input.instant,
+                items: input.items,
+                metrics: input.metrics,
+                limits,
+                hours: reach.settings.publishHours,
+            },
         })
         if (error) throw error
-        const known = input.items.map((item) => item.id)
+        const known = new Set(input.items.map((item) => item.id))
         const used: Record<string, number> = {}
         const slots: Array<z.infer<typeof Slot>> = []
         for (const slot of result.value.slots) {
             const channel = slot.channel
-            if (!known.includes(slot.contentId) || !reach.settings.publishHours.includes(slot.hour)) continue
-            if (channel !== "telegram" && channel !== "facebook" && channel !== "tiktok" && channel !== "youtube") continue
+            if (!known.has(slot.contentId) || !reach.settings.publishHours.includes(slot.hour)) continue
+            if (channel !== "telegram" && channel !== "facebook" && channel !== "tiktok" && channel !== "youtube")
+                continue
             const count = used[channel] ?? 0
             if (count >= (limits[channel] ?? 0)) continue
             used[channel] = count + 1
-            slots.push({ contentId: slot.contentId, contentCode: slot.contentCode, channel, at: slotInstant(dayAfter(input.instant, slot.dayOffset), slot.hour), why: slot.why })
+            slots.push({
+                contentId: slot.contentId,
+                contentCode: slot.contentCode,
+                channel,
+                at: slotInstant(dayAfter(input.instant, slot.dayOffset), slot.hour),
+                why: slot.why,
+            })
         }
         return { slots }
     }

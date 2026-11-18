@@ -1,10 +1,15 @@
 import { z } from "zod"
-import type { NivoRef, Node, NodeReach } from "@starci/nivoos-sdk"
+import type { Node, NodeReach } from "@starci/nivoos-sdk"
+import { refOf } from "../common/helpers.ts"
 import { Publication } from "../../../objects/publication.object.ts"
 import { keyOf } from "../../../package-key.ts"
 
-export const RecordInput = z.strictObject({ publicationId: z.string().min(1), url: z.string().max(500), ref: z.string().max(80) })
-export const RecordOutput = z.strictObject({ publicationId: z.string(), recorded: z.literal(true) })
+export const RecordInput = z.strictObject({
+    publicationId: z.string().max(80).min(1),
+    url: z.string().max(500),
+    ref: z.string().max(80),
+})
+export const RecordOutput = z.strictObject({ publicationId: z.string().max(80), recorded: z.literal(true) })
 
 type In = z.infer<typeof RecordInput>
 type Out = z.infer<typeof RecordOutput>
@@ -22,12 +27,18 @@ export class SocialRecord implements Node<typeof RecordInput, typeof RecordOutpu
     readonly mutation = "object.update"
 
     run(input: In, reach: NodeReach): Out {
-        const got = reach.objects(Publication).get(input.publicationId as NivoRef<Publication>)
+        const got = reach.objects(Publication).get(refOf<Publication>(input.publicationId))
         if (got.error) throw got.error
         const { error } = reach.objects(Publication).update({
             id: got.result.id,
             version: got.result.version,
-            values: { status: "published", ...(input.url === "" ? {} : { url: input.url }), evidence: `telegram message ${input.ref}`, nextAction: null, nextAt: null },
+            values: {
+                status: "published",
+                ...(input.url === "" ? {} : { url: input.url }),
+                evidence: `telegram message ${input.ref}`,
+                nextAction: null,
+                nextAt: null,
+            },
         })
         if (error) throw error
         return { publicationId: input.publicationId, recorded: true }

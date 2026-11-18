@@ -4,7 +4,7 @@ import { DealPaidData } from "../../../common/events/deal-paid.event.ts"
 import { keyOf } from "../../../package-key.ts"
 import { ReadDealOutput } from "../cells/read-deal.cell.ts"
 import { RequestActivationOutput } from "../cells/request-activation.cell.ts"
-import { SendWelcomeOutput } from "../cells/send-welcome.cell.ts"
+import { SentOutput } from "../cells/sent.ts"
 import { UpdateDealOutput } from "../cells/update-deal.cell.ts"
 import { UpdateLeadOutput } from "../cells/update-lead.cell.ts"
 import { Hear } from "./steps/hear.step.ts"
@@ -21,8 +21,18 @@ import { Stuck } from "./steps/stuck.step.ts"
 import { Unreachable } from "./steps/unreachable.step.ts"
 
 /** What the engine tells a run about the answer of a room card. */
-export const Answer = z.strictObject({ answerKey: z.string(), messageId: z.string(), roomId: z.string(), runId: z.string(), stepKey: z.string(), choice: z.string(), memberId: z.string() })
+export const Answer = z.strictObject({
+    answerKey: z.string().max(80),
+    messageId: z.string().max(80),
+    roomId: z.string().max(80),
+    runId: z.string().max(80),
+    stepKey: z.string().max(80),
+    choice: z.string().max(80),
+    memberId: z.string().max(80),
+})
+/** The activator's answer to the activation request, as the engine reports it. */
 export type Answer = z.infer<typeof Answer>
+/** The `deal.paid` event that starts an activation run. */
 export type Paid = z.infer<typeof DealPaidData>
 
 /** The one state object of a run: the paid deal, what was read of it, the activation card and answer, the records and the welcome. */
@@ -33,7 +43,7 @@ export const State = z.strictObject({
     answer: Answer.optional(),
     recorded: UpdateDealOutput.optional(),
     won: UpdateLeadOutput.optional(),
-    sent: SendWelcomeOutput.optional(),
+    sent: SentOutput.optional(),
 })
 
 /**

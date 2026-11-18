@@ -4,6 +4,7 @@ import { Lead } from "../../../objects/lead.object.ts"
 import { keyOf } from "../../../package-key.ts"
 import { leadCodeOf } from "./lead-code.ts"
 import { LeadRef } from "./find-lead.cell.ts"
+import { assertContactId } from "./typed-ref.ts"
 
 export const OpenLeadInput = z.strictObject({
     ref: z.string().min(1).max(200),
@@ -17,6 +18,18 @@ export const OpenLeadSettings = z.strictObject({ owner: z.string().max(80).defau
 type In = z.infer<typeof OpenLeadInput>
 type Out = z.infer<typeof LeadRef>
 type Settings = z.infer<typeof OpenLeadSettings>
+
+/** The part of a contact conversation a new lead takes: the id of its contact. */
+type ConversationContact = { readonly contactId: string }
+/** The `contact` field a new lead is created with, when there is one. */
+type LeadContact = { readonly contact?: NivoContactId }
+
+/** The `contact` value of a new lead: the contact of the conversation the run works in, or nothing when the run has no conversation. */
+const contactOf = (conversation: ConversationContact | null): LeadContact => {
+    if (conversation === null) return {}
+    assertContactId(conversation.contactId)
+    return { contact: conversation.contactId }
+}
 
 /**
  * Opens a lead at stage `new`: one act, `object.create` of `gtm.lead` with the code the address gives, the source (the channel or the post it came from), the owner, the first next
@@ -44,7 +57,7 @@ export class OpenLead implements Node<typeof OpenLeadInput, typeof LeadRef, type
             nextAt: reach.facts.at,
             ...(input.name === "" ? {} : { name: input.name }),
             ...(input.note === "" ? {} : { evidence: input.note }),
-            ...(conversation === null ? {} : { contact: conversation.contactId as NivoContactId }),
+            ...contactOf(conversation),
         })
         if (error) throw error
         return { found: true, leadId: result.id, code, stage: "new", doNotContact: false, nextAction: "Trả lời khách" }

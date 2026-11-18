@@ -3,7 +3,7 @@ import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import { keyOf } from "../../../package-key.ts"
 import { PullOutput } from "./pull.cell.ts"
 
-export const SheetInput = z.strictObject({ instant: z.string(), totals: PullOutput.shape.totals })
+export const SheetInput = z.strictObject({ instant: z.string().max(40), totals: PullOutput.shape.totals })
 export const SheetOutput = z.strictObject({ appended: z.boolean(), refusal: z.string().max(80) })
 /** The KPI sheet: an empty `spreadsheetId` means no sheet is connected yet, and the row is skipped. */
 export const SheetSettings = z.strictObject({

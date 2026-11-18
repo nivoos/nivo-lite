@@ -3,9 +3,14 @@ import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import { Deal } from "../../../objects/deal.object.ts"
 import { plusHours } from "../../../common/helpers/text.ts"
 import { keyOf } from "../../../package-key.ts"
+import { refOf } from "../../../common/helpers/refs.ts"
 
-export const SetPlanInput = z.strictObject({ dealId: z.string().min(1) })
-export const SetPlanOutput = z.strictObject({ version: z.number().int(), plan: z.string(), months: z.number().int() })
+export const SetPlanInput = z.strictObject({ dealId: z.string().max(80).min(1) })
+export const SetPlanOutput = z.strictObject({
+    version: z.number().int(),
+    plan: z.string().max(80),
+    months: z.number().int(),
+})
 /** The plan a "Báo giá" answer fills in; the sales person may change it on the deal before the quote goes out. */
 export const SetPlanSettings = z.strictObject({
     defaultPlan: z.string().min(1).max(60).default("Vận hành"),
@@ -32,12 +37,17 @@ export class SetPlan implements Node<typeof SetPlanInput, typeof SetPlanOutput, 
     readonly mutation = "object.update"
 
     run(input: In, reach: NodeReach<Settings>): Out {
-        const deal = reach.objects(Deal).get(input.dealId as never)
+        const deal = reach.objects(Deal).get(refOf<Deal>(input.dealId))
         if (deal.error) throw deal.error
         const { result, error } = reach.objects(Deal).update({
-            id: input.dealId as never,
+            id: refOf<Deal>(input.dealId),
             version: deal.result.version,
-            values: { plan: reach.settings.defaultPlan, months: reach.settings.defaultMonths, nextAction: "Soát báo giá rồi duyệt gửi", nextAt: plusHours(reach.facts.at, reach.settings.quoteReviewHours) },
+            values: {
+                plan: reach.settings.defaultPlan,
+                months: reach.settings.defaultMonths,
+                nextAction: "Soát báo giá rồi duyệt gửi",
+                nextAt: plusHours(reach.facts.at, reach.settings.quoteReviewHours),
+            },
         })
         if (error) throw error
         return { version: result.version, plan: reach.settings.defaultPlan, months: reach.settings.defaultMonths }

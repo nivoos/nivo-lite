@@ -36,6 +36,7 @@ export const State = z.strictObject({
     approved: ApproveOutput.optional(),
     announced: EmitApprovedOutput.optional(),
 })
+/** The room answer a review card gets: which choice, by whom, in which message. */
 export type Answer = z.infer<typeof RoomAnswer>
 
 /**
@@ -46,9 +47,26 @@ export type Answer = z.infer<typeof RoomAnswer>
 export class PostDraftFlow implements Workflow<typeof State> {
     readonly key = keyOf("social-post-draft")
     readonly version = 2
-    readonly title = {"vi":"Soạn bài đăng","en":"Draft a post"}
+    readonly title = { vi: "Soạn bài đăng", en: "Draft a post" }
     readonly state = State
     readonly append = ["answers"] as const
     readonly start = Open
-    readonly steps = [Open, Read, Draft, Save, AskReview, WaitReview, NudgeReview, WaitReviewAgain, IsApproved, Approve, Announce, Approved, Revise, IsRevised, NoReview, MaxRevisions]
+    readonly steps = [
+        Open,
+        Read,
+        Draft,
+        Save,
+        AskReview,
+        WaitReview,
+        NudgeReview,
+        WaitReviewAgain,
+        IsApproved,
+        Approve,
+        Announce,
+        Approved,
+        Revise,
+        IsRevised,
+        NoReview,
+        MaxRevisions,
+    ]
 }

@@ -3,9 +3,10 @@ import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import { Deal, DEAL_STATUSES } from "../../../objects/deal.object.ts"
 import { plusHours } from "../../../common/helpers/text.ts"
 import { keyOf } from "../../../package-key.ts"
+import { refOf } from "../../../common/helpers/refs.ts"
 
 export const UpdateDealInput = z.strictObject({
-    dealId: z.string().min(1),
+    dealId: z.string().max(80).min(1),
     status: z.enum(DEAL_STATUSES).optional(),
     amount: z.number().int().min(0).optional(),
     discountPercent: z.number().min(0).max(100).optional(),
@@ -31,8 +32,12 @@ type In = z.infer<typeof UpdateDealInput>
 type Out = z.infer<typeof UpdateDealOutput>
 type Settings = z.infer<typeof UpdateDealSettings>
 
-const DUE_HOURS = (settings: Settings, due: NonNullable<In["due"]>): number =>
-    due === "quote_follow_up" ? settings.quoteFollowUpHours : due === "payment" ? settings.unpaidHours : due === "activation" ? settings.activationHours : settings.careHours
+const DUE_HOURS = (settings: Settings, due: NonNullable<In["due"]>): number => {
+    if (due === "quote_follow_up") return settings.quoteFollowUpHours
+    if (due === "payment") return settings.unpaidHours
+    if (due === "activation") return settings.activationHours
+    return settings.careHours
+}
 
 /**
  * `nivo-gtm.update-deal` (Cập nhật đơn bán): ONE act, `object.update` of the `gtm.deal`: a status, the money fields, the responsibility fields (next action, due time, evidence) and, on request, the time
@@ -49,10 +54,10 @@ export class UpdateDeal implements Node<typeof UpdateDealInput, typeof UpdateDea
     readonly mutation = "object.update"
 
     run(input: In, reach: NodeReach<Settings>): Out {
-        const deal = reach.objects(Deal).get(input.dealId as never)
+        const deal = reach.objects(Deal).get(refOf<Deal>(input.dealId))
         if (deal.error) throw deal.error
         const { result, error } = reach.objects(Deal).update({
-            id: input.dealId as never,
+            id: refOf<Deal>(input.dealId),
             version: deal.result.version,
             values: {
                 ...(input.status === undefined ? {} : { status: input.status }),
@@ -61,7 +66,9 @@ export class UpdateDeal implements Node<typeof UpdateDealInput, typeof UpdateDea
                 ...(input.payCode === undefined ? {} : { payCode: input.payCode }),
                 ...(input.sepayRef === undefined ? {} : { sepayRef: input.sepayRef }),
                 ...(input.nextAction === undefined ? {} : { nextAction: input.nextAction }),
-                ...(input.due === undefined ? {} : { nextAt: plusHours(reach.facts.at, DUE_HOURS(reach.settings, input.due)) }),
+                ...(input.due === undefined
+                    ? {}
+                    : { nextAt: plusHours(reach.facts.at, DUE_HOURS(reach.settings, input.due)) }),
                 ...(input.evidence === undefined ? {} : { evidence: input.evidence }),
                 ...(input.stamp === "paid" ? { paidAt: reach.facts.at } : {}),
                 ...(input.stamp === "activated" ? { activatedAt: reach.facts.at } : {}),

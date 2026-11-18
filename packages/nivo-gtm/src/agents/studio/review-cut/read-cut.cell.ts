@@ -1,17 +1,17 @@
+import { refOf } from "../../../common/helpers/refs.ts"
 import { z } from "zod"
 import type { Node, NodeReach } from "@starci/nivoos-sdk"
-import type { NivoRef } from "@starci/nivoos-sdk"
 import { Content } from "../../../objects/content.object.ts"
 import { VideoCut } from "../../../objects/video-cut.object.ts"
 import { keyOf } from "../../../package-key.ts"
 import type { BrainSearch } from "../common/callees.ts"
-import { clip } from "../common/helpers.ts"
+import { clip, textOf } from "../common/helpers.ts"
 
-export const ReadCutInput = z.strictObject({ contentId: z.string().min(1), cutId: z.string().min(1) })
+export const ReadCutInput = z.strictObject({ contentId: z.string().min(1).max(100), cutId: z.string().min(1).max(100) })
 const Passage = z.strictObject({ query: z.string().max(120), text: z.string().max(1200) })
 export const ReadCutOutput = z.strictObject({
-    contentId: z.string(),
-    cutId: z.string(),
+    contentId: z.string().max(100),
+    cutId: z.string().max(100),
     version: z.number().int(),
     code: z.string().max(40),
     title: z.string().max(200),
@@ -43,12 +43,15 @@ export class StudioReadCut implements Node<typeof ReadCutInput, typeof ReadCutOu
     readonly reads = ["object.get", "brain.search"]
 
     run(input: In, reach: NodeReach<Settings>): Out {
-        const content = reach.objects(Content).get(input.contentId as NivoRef<Content>)
+        const content = reach.objects(Content).get(refOf<Content>(input.contentId))
         if (content.error) throw content.error
-        const cut = reach.objects(VideoCut).get(input.cutId as NivoRef<VideoCut>)
+        const cut = reach.objects(VideoCut).get(refOf<VideoCut>(input.cutId))
         if (cut.error) throw cut.error
         const { result } = reach.call<BrainSearch>("brain.search", { query: QUESTION, limit: reach.settings.brainHits })
-        const brain = result.hits.map((hit) => ({ query: clip(QUESTION, 120), text: clip(JSON.stringify(hit.passage ?? hit.truth), 1200) }))
+        const brain = result.hits.map((hit) => ({
+            query: clip(QUESTION, 120),
+            text: clip(JSON.stringify(hit.passage ?? hit.truth), 1200),
+        }))
         const script = content.result.values.script ?? {}
         return {
             contentId: content.result.id,
@@ -57,8 +60,8 @@ export class StudioReadCut implements Node<typeof ReadCutInput, typeof ReadCutOu
             code: content.result.values.code,
             title: content.result.values.title,
             fileLink: cut.result.values.fileLink,
-            hook: clip(String(script["hook"] ?? ""), 400),
-            cta: clip(String(script["cta"] ?? ""), 300),
+            hook: clip(textOf(script["hook"]), 400),
+            cta: clip(textOf(script["cta"]), 300),
             seconds: Number(script["seconds"] ?? 0),
             caption: clip(content.result.values.caption ?? "", 3000),
             brain,
