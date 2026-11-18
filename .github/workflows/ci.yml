@@ -7,7 +7,7 @@ name: ci
 #                 and uploads, never judged); a pull request into main always runs the full gate
 #   pull_request  the checks and the image builds of a change to main, with no secret and no environment (a Dependabot or fork run has none anyway);
 #                 and no run of this workflow executes a pull request's code with a token that can write
-#   main          judged only when no release tag points at the pushed commit (the release push sends main and its tag together; the tag run is the release run)
+#   main          a push is refused unless its commit is on origin/dev (the pre-push hook's rule, held again here for a push that bypassed the hook); judged only when no release tag points at the pushed commit (the release push sends main and its tag together; the tag run is the release run)
 #   candidate     release/candidate-<version>: the run of a release the tag run then reuses
 #   tag v*        the release run: plan, checks and images in parallel, the verdict, then the deploy of every environment with deploy.auto
 on:
@@ -84,6 +84,9 @@ jobs:
               images=false push=false full=false note="main without a release tag: checks only"
             fi
           fi
+          if [[ "$EVENT" == push && "$REF_TYPE" == branch && "$GITHUB_REF_NAME" == main ]]; then
+            git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/dev || { echo "::error::main moves only to a commit on dev (contexts/project/branches.md PROJECT-BRANCH-1)"; exit 1; }
+          fi
           if [[ "$EVENT" == push && "$REF_TYPE" == branch ]]; then
             case "$GITHUB_REF_NAME" in
               "dev") sonar=report codecov=report note="branch profile dev: checks only; lint report, sonar report, codecov report (.starcistacks/application-stacks.yaml branches)" ;;
@@ -124,13 +127,13 @@ jobs:
       - run: npm ci --ignore-scripts
         if: steps.deps.outputs.cache-hit != 'true'
       - name: production dependency audit
-        run: npm audit --omit=dev --audit-level=high
+        run: npx --no-install starci app audit --omit-dev --level=high
       - name: format
-        run: npx --no-install starci app check --gate format
+        run: npx --no-install starci app check --gate format --env prod
       - name: build the workspace packages
         run: npm run build:modules --silent
       - name: boot proof
-        run: npx --no-install starci app check --gate wiring
+        run: npx --no-install starci app check --gate wiring --env prod
         env:
           NODE_OPTIONS: --max-old-space-size=6144
       - name: typecheck
@@ -208,7 +211,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -245,7 +248,7 @@ jobs:
       # A shard (STARCI_COVERAGE_SHARD=1, the jest preset) measures only the files its specs load, without the per-file threshold, and writes istanbul
       # JSON; the coverage job merges the shards by source location and proves 100 per file on the merged report. The shard count never exceeds what the unit specs fill.
       - name: unit
-        run: npm test -- --ci --forceExit --cacheDirectory .jest-cache --shard=${{ matrix.shard }}/11
+        run: npm test -- --ci --forceExit --cacheDirectory .jest-cache --shard=${{ matrix.shard }}/13
         env:
           STARCI_COVERAGE_SHARD: "1"
       - name: Jest cache save
@@ -356,14 +359,7 @@ jobs:
           NEXT_PUBLIC_APP_URL: "https://app.nivo.vn"
           NEXT_PUBLIC_DEVELOPER_API_URL: "https://api.nivo.vn"
           NEXT_PUBLIC_LANDING_URL: "https://nivo.vn"
-          NEXT_PUBLIC_ADMIN_URL: "https://admin.nivo.vn"
           NEXT_PUBLIC_SITE_URL: "https://app.nivo.vn"
-      - name: build fe admin
-        run: npm run build:modules --silent && npm run codegen --silent && npx --no-install turbo run build --filter=./fe/apps/admin
-        env:
-          NEXT_PUBLIC_API_URL: "https://api.nivo.vn"
-          NEXT_PUBLIC_APP_URL: "https://app.nivo.vn"
-          NEXT_PUBLIC_SITE_URL: "https://admin.nivo.vn"
       - name: build fe landing
         run: npm run build:modules --silent && npm run codegen --silent && npx --no-install turbo run build --filter=./fe/apps/landing
         env:

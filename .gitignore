@@ -31,6 +31,8 @@ nul
 .worktrees/
 # StarCi runtime state of the repository (ledger), never tracked.
 .starci/
+# The screenshot gallery's shots are local evidence of a UI round, never source (contexts/project/gallery.md PROJECT-GALLERY-1).
+gallery/pages/**/*.png
 # Jest transforms reused by the CI test job
 .jest-cache/
 # be: the schema Nest writes when it boots GraphQL
@@ -38,15 +40,22 @@ schema.gql
 # fe: Next build output and its generated type file
 .next/
 next-env.d.ts
+# fe: the AGENTS.md `next dev` writes into each Next app; a root AGENTS.md (and any other) stays tracked
+fe/apps/*/AGENTS.md
 # .starcistacks custody at the app root: modules/schemas/stacks-layout.yaml custody.gitignoreRules, in order. Only the
-# declaration, runbooks, key lists, seeds, the rendered environment, the infra definitions, the db image and sealed members (*.enc.yaml, legacy *.enc) are tracked.
+# declaration, runbooks, key lists, seeds, the brand sheet and its references, the design canvas, the audit exceptions, the rendered environment, the infra definitions, the db image and sealed members (*.enc.yaml, legacy *.enc) are tracked.
 .starcistacks/**
 !.starcistacks/**/
 !.starcistacks/**/KEYS.md
 !.starcistacks/**/.gitkeep
 !.starcistacks/application-stacks.yaml
+!.starcistacks/brand/**
 !.starcistacks/cache/**
+!.starcistacks/canvas/**
+!.starcistacks/security/audit-exceptions.yaml
 !.starcistacks/images/db/Dockerfile
+!.starcistacks/images/storage/Dockerfile
+!.starcistacks/images/storage/Dockerfile.dockerignore
 !.starcistacks/*/README.md
 !.starcistacks/*/environment.json
 !.starcistacks/*/seeds/**

@@ -32,7 +32,16 @@
       "reads": [],
       "patterns": ["webhooks", "queue", "fenced-job", "realtime", "event-bus"],
       "backing": ["redis"],
-      "optionalSlots": ["repo.docs", "repo.packages", "be.contract.graphql", "be.contract.events", "be.contract.mcp-tools", "repo.i18n-dynamic-keys", "be.events", "be.platform.event-bus"],
+      "optionalSlots": [
+        "repo.docs",
+        "repo.packages",
+        "be.contract.graphql",
+        "be.contract.events",
+        "be.contract.mcp-tools",
+        "repo.i18n-dynamic-keys",
+        "be.events",
+        "be.platform.event-bus"
+      ],
       "sqlPassThrough": [
         {
           "file": "src/modules/platform/database/customer-sessions.client.ts",
@@ -487,7 +496,8 @@
           "reason": "The confetti of the purchase and set-up celebrations (components/composites/CelebrationPanel); declared in the harness stack fe.yaml (concern visual-effects) once the hfs runtime carries it."
         }
       ]
-    }
+    },
+    "packages": {}
   },
   "db": {
     "scopeSettings": ["nivo.workspace_id"],

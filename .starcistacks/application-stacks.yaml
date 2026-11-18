@@ -16,6 +16,8 @@
 #   Platform         Ubuntu Server 24.04 LTS amd64 (22.04 LTS amd64 is a candidate); Docker Engine from Docker's signed apt repository.
 #   Runbook          .starcistacks/production/README.md; cutover: be/docs/runbooks/cutover.md; VPS: be/docs/runbooks/vps-stack.md.
 schema: starci/application-stacks@1
+# This project has a back end (be) and a front end (fe) and root workspace packages (packages): sides are declared in hfs.json.
+sides: {be: true, fe: true, packages: true}
 sources:
   - repository: nivo-lite
 # CI custody by consumer (one key, one class): GitHub Actions reads these names; values live only in GitHub (owner sets them with

@@ -1,9 +1,21 @@
 import { SUBJECT_TYPES, factSlugOf, foldedText, type BrainSubjectType } from "@modules/domain/brain-facts"
 import type { TruthPassage } from "@modules/domain/knowledge-chunks"
-import { addDays, dayStartMs } from "@modules/domain/workspace-settings"
 import { bounded, quoteHoldsValue, quoteOf } from "./extraction-quote.policy"
+import {
+    calendarDayOf,
+    dayTextOf,
+    endOf,
+    relativeDayOf,
+    resolvedPeriodOf,
+    startOf,
+    type CalendarDay,
+    type RelativeDay,
+    type RelativePeriod,
+} from "./extraction-calendar.policy"
 
 export { quoteHoldsValue, quoteOf } from "./extraction-quote.policy"
+export { calendarDayOf, dayTextOf, relativeDayOf, resolvedDayOf, resolvedPeriodOf } from "./extraction-calendar.policy"
+export type { CalendarDay, RelativeDay, RelativePeriod } from "./extraction-calendar.policy"
 
 /**
  * The version of the truth reading: its prompt and the rules below. A passage records the version that read it
@@ -67,7 +79,14 @@ export const NOTHING = "NONE"
 const FIELDS = 8
 
 /** Why a line states no truth: the closed reasons of a skip line. */
-export const SKIP_REASONS: ReadonlyArray<string> = ["heading", "explanation", "event", "example", "duplicate", "unclear"]
+export const SKIP_REASONS: ReadonlyArray<string> = [
+    "heading",
+    "explanation",
+    "event",
+    "example",
+    "duplicate",
+    "unclear",
+]
 
 /**
  * The standing instructions of the truth reading (identical in every call: the cacheable head). The answer is ONE LINE PER TRUTH with no
@@ -133,7 +152,9 @@ export interface TruthsPrompt {
 export type DocumentLanguage = "vi" | null
 
 /** Letters only Vietnamese writes (the vowels with a hat, a horn or a breve, the barred d, and the tone marks on them). */
-const VIETNAMESE = /[\u0103\u00e2\u0111\u00ea\u00f4\u01a1\u01b0\u1ea1\u1ea3\u1ea5\u1ea7\u1ea9\u1eab\u1ead\u1eaf\u1eb1\u1eb3\u1eb5\u1eb7\u1eb9\u1ebb\u1ebd\u1ebf\u1ec1\u1ec3\u1ec5\u1ec7\u1ec9\u1ecb\u1ecd\u1ecf\u1ed1\u1ed3\u1ed5\u1ed7\u1ed9\u1edb\u1edd\u1edf\u1ee1\u1ee3\u1ee5\u1ee7\u1ee9\u1eeb\u1eed\u1eef\u1ef1\u1ef3\u1ef5\u1ef7\u1ef9]/iu
+// hfs 6.13.42: revert this wrapper. The break after "=" keeps the R432 pattern (it backtracks on a regex literal with many escapes) off this line; 6.13.42 fixes the rule.
+const VIETNAMESE =
+    /[\u0103\u00e2\u0111\u00ea\u00f4\u01a1\u01b0\u1ea1\u1ea3\u1ea5\u1ea7\u1ea9\u1eab\u1ead\u1eaf\u1eb1\u1eb3\u1eb5\u1eb7\u1eb9\u1ebb\u1ebd\u1ebf\u1ec1\u1ec3\u1ec5\u1ec7\u1ec9\u1ecb\u1ecd\u1ecf\u1ed1\u1ed3\u1ed5\u1ed7\u1ed9\u1edb\u1edd\u1edf\u1ee1\u1ee3\u1ee5\u1ee7\u1ee9\u1eeb\u1eed\u1eef\u1ef1\u1ef3\u1ef5\u1ef7\u1ef9]/iu
 
 /** The language of the passages of a call, by the letters they use: Vietnamese when any of them writes a letter only Vietnamese has. */
 export const languageOf = (passages: ReadonlyArray<ReadPassage>): DocumentLanguage =>
@@ -169,16 +190,28 @@ export type FollowUp = "format" | "language" | "refused" | "unaccounted"
 const TOLD_MAX = 40
 
 /** What a follow-up tells besides its reason: the refused truth lines with why, the lines skipped as unclear and the other lines left out. */
-const toldOf = (unaccounted: ReadonlyArray<string>, faults: ReadonlyArray<string>, unclear: ReadonlyArray<string>): ReadonlyArray<string> => {
+const toldOf = (
+    unaccounted: ReadonlyArray<string>,
+    faults: ReadonlyArray<string>,
+    unclear: ReadonlyArray<string>,
+): ReadonlyArray<string> => {
     const unclearSet = new Set(unclear)
     const silent = unaccounted.filter((name) => !unclearSet.has(name))
     const asUnclear = unaccounted.filter((name) => unclearSet.has(name))
     return [
-        ...(faults.length === 0 ? [] : [`These lines of your reply were refused, each with why: ${faults.slice(0, TOLD_MAX).join("; ")}.`]),
+        ...(faults.length === 0
+            ? []
+            : [`These lines of your reply were refused, each with why: ${faults.slice(0, TOLD_MAX).join("; ")}.`]),
         ...(asUnclear.length === 0
             ? []
-            : [`You listed these lines as unclear: ${asUnclear.slice(0, TOLD_MAX).join("; ")}. A rule is written as stated even when it looks vague (rule 11); skip a line only for what it is (rule 12).`]),
-        ...(silent.length === 0 ? [] : [`These lines were neither read into truths nor listed as skipped: ${silent.slice(0, TOLD_MAX * 5).join("; ")}.`]),
+            : [
+                  `You listed these lines as unclear: ${asUnclear.slice(0, TOLD_MAX).join("; ")}. A rule is written as stated even when it looks vague (rule 11); skip a line only for what it is (rule 12).`,
+              ]),
+        ...(silent.length === 0
+            ? []
+            : [
+                  `These lines were neither read into truths nor listed as skipped: ${silent.slice(0, TOLD_MAX * 5).join("; ")}.`,
+              ]),
     ]
 }
 
@@ -252,35 +285,6 @@ export interface ExtractedFact {
     readonly periodUnclear?: boolean
 }
 
-/** A day given relative to the document's own date, as rule 4b writes it (a structured field, read by format only). */
-export type RelativeDay =
-    /** `D+N` / `D-N`: N days after (before) the document's date. */
-    | { readonly kind: "days"; readonly days: number }
-    /** `D>mon` ... `D>sun`: the first such weekday after the document's date (0 = Sunday ... 6 = Saturday). */
-    | { readonly kind: "weekday"; readonly weekday: number }
-    /** `M+K:first` / `M+K:last`: the first or last day of the K-th month after the document's month. */
-    | { readonly kind: "month"; readonly months: number; readonly edge: "first" | "last" }
-
-/** The relative sides of a line's period, and the two fields as written. */
-export interface RelativePeriod {
-    /** The first day, when given relative; null when given as a day or not at all. */
-    readonly from: RelativeDay | null
-    /** The last day (included), when given relative; null when given as a day or not at all. */
-    readonly to: RelativeDay | null
-    /** `from|to` as the line wrote them, for the period's note. */
-    readonly written: string
-}
-
-/** One calendar date: year, month and day. */
-export interface CalendarDay {
-    /** The year, 2000 to 2100. */
-    readonly year: number
-    /** The month, 1 to 12. */
-    readonly month: number
-    /** The day of the month, 1 to its last day. */
-    readonly day: number
-}
-
 /** The truths of one model answer, read line by line. */
 export interface ParsedFacts {
     /** The truths kept. */
@@ -320,117 +324,6 @@ export interface ParsedFacts {
 const textOf = (value: string | undefined, max: number): string => {
     const text = (value ?? "").replaceAll(/\s+/g, " ").trim()
     return text === "-" ? "" : text.slice(0, max)
-}
-
-/** One day in milliseconds. */
-const DAY_MS = 86_400_000
-
-/** The number of days of a month (1 to 12) of a year: the calendar's, leap years included. */
-const daysInMonth = (year: number, month: number): number => new Date(Date.UTC(year, month, 0)).getUTCDate()
-
-/** A calendar day as numbers, when the calendar has it and it lies between 2000 and 2100, else null. */
-const calendarDayFrom = (year: number, month: number, day: number): CalendarDay | null =>
-    Number.isInteger(year) && year >= 2000 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth(year, month)
-        ? { year, month, day }
-        : null
-
-/**
- * The calendar day a field writes, STRICTLY `YYYY-MM-DD` with nothing around it, between 2000 and 2100 and a day the calendar has
- * ("2026-02-30" is none: `Date.parse` would roll it into March, a wrong day), else null. Format only.
- */
-export const calendarDayOf = (value: string): CalendarDay | null => {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value.trim())
-    if (match === null) return null
-    return calendarDayFrom(Number(match[1]), Number(match[2]), Number(match[3]))
-}
-
-/** A calendar day written `YYYY-MM-DD`. */
-export const dayTextOf = (day: CalendarDay): string =>
-    `${String(day.year)}-${String(day.month).padStart(2, "0")}-${String(day.day).padStart(2, "0")}`
-
-/** A calendar day from a UTC instant at midnight (the arithmetic below works in UTC days, which have no clock shifts). */
-const dayFromUtc = (instant: number): CalendarDay | null => {
-    const date = new Date(instant)
-    return calendarDayFrom(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate())
-}
-
-/** The weekdays a relative day may name, in `getUTCDay` order (the format of a structured field, not words of a text). */
-const WEEKDAYS: ReadonlyArray<string> = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
-
-/** The most days a relative day may reach from the document's date (a bound of the format). */
-const RELATIVE_DAYS_MAX = 3_660
-
-/** The most months a relative day may reach from the document's month (a bound of the format). */
-const RELATIVE_MONTHS_MAX = 36
-
-/**
- * The relative day a field writes in a form of rule 4b (`D+14`, `D-1`, `D>mon`, `M+1:last`), or null when it is none of them. It reads
- * the FORMAT of a structured field the model filled; the model alone reads what the document's words mean.
- */
-export const relativeDayOf = (value: string): RelativeDay | null => {
-    const text = value.trim().toLowerCase()
-    const days = /^d\s*([+-])\s*(\d{1,4})$/u.exec(text)
-    if (days !== null) {
-        const count = Number(days[2])
-        return count > RELATIVE_DAYS_MAX ? null : { kind: "days", days: days[1] === "-" ? -count : count }
-    }
-    const weekday = /^d\s*>\s*([a-z]{3})$/u.exec(text)
-    if (weekday !== null) {
-        const at = WEEKDAYS.indexOf(weekday[1] ?? "")
-        return at < 0 ? null : { kind: "weekday", weekday: at }
-    }
-    const month = /^m\s*\+\s*(\d{1,2})\s*:\s*(first|last)$/u.exec(text)
-    if (month === null || Number(month[1]) > RELATIVE_MONTHS_MAX) return null
-    return { kind: "month", months: Number(month[1]), edge: month[2] === "first" ? "first" : "last" }
-}
-
-/**
- * The calendar day a relative day stands for, counted from the document's own date (calendar arithmetic only): `D+N` adds N days;
- * `D>wd` is the first such weekday AFTER the date (never the date itself); `M+K:first` / `M+K:last` is the first / last day of the
- * K-th month after the date's month (month lengths and leap years from the calendar). Null when it falls outside 2000-2100.
- */
-export const resolvedDayOf = (reference: CalendarDay, relative: RelativeDay): CalendarDay | null => {
-    const base = Date.UTC(reference.year, reference.month - 1, reference.day)
-    if (relative.kind === "days") return dayFromUtc(base + relative.days * DAY_MS)
-    if (relative.kind === "weekday") {
-        const ahead = (relative.weekday - new Date(base).getUTCDay() + 7) % 7
-        return dayFromUtc(base + (ahead === 0 ? 7 : ahead) * DAY_MS)
-    }
-    const monthIndex = reference.month - 1 + relative.months
-    return dayFromUtc(relative.edge === "first" ? Date.UTC(reference.year, monthIndex, 1) : Date.UTC(reference.year, monthIndex + 1, 0))
-}
-
-/** The start of a calendar day as an instant: its midnight in the workspace's time zone (the shop's calendar). */
-const dayStartOf = (day: CalendarDay, timeZone: string): number => dayStartMs(dayTextOf(day), timeZone)
-
-/** The start of a truth from its stated FIRST day, ISO 8601 (midnight in the workspace's time zone). */
-const startOf = (day: CalendarDay, timeZone: string): string => new Date(dayStartOf(day, timeZone)).toISOString()
-
-/** The end of a truth from its stated LAST day: the start of the next day (in the workspace's time zone), so the stated day is included. */
-const endOf = (day: CalendarDay, timeZone: string): string =>
-    new Date(dayStartMs(addDays(dayTextOf(day), 1), timeZone)).toISOString()
-
-/**
- * The period of a truth whose sides were given relative to the document's own date (rule 4b), computed from the date the DOCUMENT
- * states (`reference`: read by the model, checked against the line that states it; never the upload date): each relative side becomes
- * its calendar day, the last day included (`validTo` is the start of the next day, as for a written day). Null when a side falls
- * outside the calendar's bounds or the computed period ends before it starts: the truth is then filed without a period, flagged
- * `period_unclear` (`datedFactOf`), never with a guessed day.
- */
-export const resolvedPeriodOf = (
-    fact: Pick<ExtractedFact, "validFrom" | "validTo" | "relative">,
-    reference: CalendarDay,
-    timeZone: string,
-): { readonly validFrom: string | null; readonly validTo: string | null } | null => {
-    const relative = fact.relative
-    if (relative === undefined) return { validFrom: fact.validFrom, validTo: fact.validTo }
-    const from = relative.from === null ? null : resolvedDayOf(reference, relative.from)
-    const to = relative.to === null ? null : resolvedDayOf(reference, relative.to)
-    if ((relative.from !== null && from === null) || (relative.to !== null && to === null)) return null
-    const validFrom = from === null ? fact.validFrom : startOf(from, timeZone)
-    const validTo = to === null ? fact.validTo : endOf(to, timeZone)
-    if (validFrom !== null && validTo !== null && Date.parse(validTo) <= Date.parse(validFrom)) return null
-    return { validFrom, validTo }
 }
 
 /**
@@ -486,8 +379,10 @@ type PeriodFault = "date" | "period"
 
 /** What a follow-up tells the model about a truth line, by why it is refused or its period unread (general words, any trade, any language). */
 const REFUSAL_TOLD: Readonly<Record<Exclude<Refusal, "cap" | "ignored"> | PeriodFault, string>> = {
-    invalid: "not a line of eight fields n|type|subject|attribute|value|unit|from|to with a subject, an attribute and a value",
-    ungrounded: "the value is not written in the passage the line names: copy the value as that passage writes it, and name the passage it is in",
+    invalid:
+        "not a line of eight fields n|type|subject|attribute|value|unit|from|to with a subject, an attribute and a value",
+    ungrounded:
+        "the value is not written in the passage the line names: copy the value as that passage writes it, and name the passage it is in",
     date: "from and to must each be a day YYYY-MM-DD that exists in the calendar, a form of rule 4b, ? (rule 4c) or -; as it is, the truth is kept without its period",
     period: "its last day (to) comes before its first day (from); as it is, the truth is kept without its period",
 }
@@ -515,9 +410,12 @@ const LINE_MARK = /^(?:[-*+•·]|\d{1,3}[.)])\s+/u
  * the line "1|policy|..."). A line with too few bars is left as written.
  */
 const cleanLine = (line: string): string => {
-    const unmarked = LINE_MARK.test(line) && line.replace(LINE_MARK, "").includes("|") ? line.replace(LINE_MARK, "") : line
+    const unmarked =
+        LINE_MARK.test(line) && line.replace(LINE_MARK, "").includes("|") ? line.replace(LINE_MARK, "") : line
     const trimmed = unmarked.trim()
-    return trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.length > 1 ? trimmed.slice(1, -1).trim() : trimmed
+    return trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.length > 1
+        ? trimmed.slice(1, -1).trim()
+        : trimmed
 }
 
 /** A markdown table's rule line ("|---|---|") or a header line naming the fields ("n|type|subject|..."): no truth, no fault. */
@@ -625,7 +523,8 @@ const truthFieldsOf = (fields: ReadonlyArray<string>): ReadonlyArray<string> | n
     if (fields.length === FIELDS) return fields
     if (fields.length === FIELDS - 1 && typeOf(fields[0]) !== null) return ["", ...fields]
     if (!/\d/u.test(fields[0] ?? "")) return null
-    if (fields.length >= 5 && fields.length < FIELDS) return [...fields, ...Array.from({ length: FIELDS - fields.length }, () => "-")]
+    if (fields.length >= 5 && fields.length < FIELDS)
+        return [...fields, ...Array.from({ length: FIELDS - fields.length }, () => "-")]
     if (fields.length <= FIELDS) return null
     const tail = tailOf(fields.slice(5))
     return tail === null ? null : [...fields.slice(0, 5), ...tail]
@@ -658,7 +557,10 @@ const linePeriodOf = (fromField: string | undefined, toField: string | undefined
     const to = dayFieldOf(toField)
     const written = `${textOf(fromField, 40) || "-"}|${textOf(toField, 40) || "-"}`
     if (from.kind === "bad" || to.kind === "bad") {
-        return { unclear: "date", note: `period written "${written}" is not a calendar day: the truth is filed without a period` }
+        return {
+            unclear: "date",
+            note: `period written "${written}" is not a calendar day: the truth is filed without a period`,
+        }
     }
     if (from.kind === "unwritten" || to.kind === "unwritten") {
         return {
@@ -669,7 +571,10 @@ const linePeriodOf = (fromField: string | undefined, toField: string | undefined
     const fromDay = from.kind === "day" ? from.day : null
     const toDay = to.kind === "day" ? to.day : null
     if (fromDay !== null && toDay !== null && dayTextOf(toDay) < dayTextOf(fromDay)) {
-        return { unclear: "period", note: `period written "${written}" ends before it starts: the truth is filed without a period` }
+        return {
+            unclear: "period",
+            note: `period written "${written}" ends before it starts: the truth is filed without a period`,
+        }
     }
     const relativeFrom = from.kind === "relative" ? from.relative : null
     const relativeTo = to.kind === "relative" ? to.relative : null
@@ -677,7 +582,8 @@ const linePeriodOf = (fromField: string | undefined, toField: string | undefined
         unclear: null,
         validFrom: fromDay === null ? null : startOf(fromDay, timeZone),
         validTo: toDay === null ? null : endOf(toDay, timeZone),
-        relative: relativeFrom === null && relativeTo === null ? undefined : { from: relativeFrom, to: relativeTo, written },
+        relative:
+            relativeFrom === null && relativeTo === null ? undefined : { from: relativeFrom, to: relativeTo, written },
     }
 }
 
@@ -713,7 +619,13 @@ const truthOf = (raw: string, passages: ReadonlyArray<ReadPassage>, timeZone: st
         passage,
     }
     if (period.unclear !== null) {
-        const fact: ExtractedFact = { ...base, validFrom: null, validTo: null, periodUnclear: true, periodNote: period.note }
+        const fact: ExtractedFact = {
+            ...base,
+            validFrom: null,
+            validTo: null,
+            periodUnclear: true,
+            periodNote: period.note,
+        }
         return { refusal: null, periodFault: period.unclear === "unwritten" ? null : period.unclear, line: raw, fact }
     }
     const fact: ExtractedFact = {
@@ -771,7 +683,9 @@ export const parseFacts = (answer: string, passages: ReadonlyArray<ReadPassage>,
     const skips = lines.map((line) => skippedOf(line))
     const skipped = new Set(skips.flatMap((one) => (one === null || one.unclear ? [] : one.names)))
     const unclear = [...new Set(skips.flatMap((one) => (one?.unclear === true ? one.names : [])))]
-    const read = lines.filter((line, index) => !isNothing(line) && skips[index] === null).map((line) => truthOf(line, passages, timeZone))
+    const read = lines
+        .filter((line, index) => !isNothing(line) && skips[index] === null)
+        .map((line) => truthOf(line, passages, timeZone))
     const seen = new Set<string>()
     const unique = read.filter((line) => {
         if (line.fact === null) return false
@@ -879,7 +793,7 @@ export const parseDocumentDate = (answer: string, shown: ReadonlyMap<number, str
         .map((line) => line.trim())
         .filter((line) => line !== "" && !line.startsWith("```"))
     for (const line of lines) {
-        const match = /^\W*l?\s*(\d{1,5})\s*\|\s*(\S+)\s*$/iu.exec(line)
+        const match = /^\W*(?:l\s*)?(\d{1,5})\s*\|\s*(\S+)\s*$/iu.exec(line)
         if (match === null) continue
         const stated = shown.get(Number(match[1]))
         const day = calendarDayOf(match[2] ?? "")
@@ -911,7 +825,8 @@ export const datedFactOf = (fact: ExtractedFact, date: DocumentDate, timeZone: s
     const relative = fact.relative
     if (relative === undefined) return fact
     if (date.kind !== "stated") {
-        const why = date.kind === "none" ? "which the document does not state" : "which could not be read from the document"
+        const why =
+            date.kind === "none" ? "which the document does not state" : "which could not be read from the document"
         return unclearPeriodOf(
             fact,
             `period stated from the document's own date (${relative.written}), ${why}: the period cannot be computed, the truth is filed without a period`,
