@@ -1,462 +1,85 @@
-# NIVO (nivo-lite) application stack, schema starci/application-stacks@1.
-#
-# dev        docker-compose: the db (an own role per environment), Redis and MinIO in containers; the api, the mcp gateway,
-#            the console, the landing and the platform admin run natively against them. One command: starci app stack up --env dev --execute (runbook .starcistacks/dev/README.md).
-# production docker-swarm on ONE Ubuntu VPS (single-manager swarm: orchestration without manager failover). The database is the self-hosted
-#            db service of the stack (owner ruling 2026-10-29); production starts on an empty database. Runbook: .starcistacks/production/README.md (the seven commands, the release flow, the cutover window).
-#
-# Facts the schema has no field for, stated here and in the production runbook so a reader of the manifest finds them:
-#   Secret custody   sealed members .starcistacks/production/secrets/<slug>.enc (sops, age recipient in .sops.yaml). The deploy decrypts them in
-#                    memory on the runner with SOPS_AGE_KEY (GitHub environment `production`) and pipes each value into
-#                    `docker secret create nivo-<key>-v<keyed hash>` on the manager; the rendered stack keeps {external: true, name: <runtimeName>}.
-#                    The logical name -> runtime name map is each release's release.json (/srv/nivo/releases/<digest>/).
-#   Owner actions    (1) DNS at Tino: A records for nivo.vn, www.nivo.vn, app.nivo.vn, admin.nivo.vn and api.nivo.vn -> the VPS (nothing scripts DNS; receipt: nslookup).
-#                    (2) Approve `docker swarm init` on the VPS once (starci app stack prepare --env production --init-swarm --owner-approved --execute).
-#                    (3) Keep the age identity backed up; set the GitHub environment secret SOPS_AGE_KEY and the reviewers of `production`.
-#   Platform         Ubuntu Server 24.04 LTS amd64 (22.04 LTS amd64 is a candidate); Docker Engine from Docker's signed apt repository.
-#   Runbook          .starcistacks/production/README.md; cutover: be/docs/runbooks/cutover.md; VPS: be/docs/runbooks/vps-stack.md.
+# The stack declaration of the lite app, at the app root beside be/, fe/ and .starciwork.
+# The source models declare intended compute; they prove no completed deployment.
+# All-zero application digests are illustrative and must be replaced by verified release digests.
 schema: starci/application-stacks@1
-# This project has a back end (be) and a front end (fe) and root workspace packages (packages): sides are declared in hfs.json.
+# This project has a back end (be) and a front end (fe): sides are declared in hfs.json.
 sides: {be: true, fe: true, packages: true}
+# To render README badges, declare ci.github: {repository: owner/repo, defaultBranch: main}.
+# A GitHub package.json repository URL also enables the managed block.
 sources:
   - repository: nivo-lite
-# CI custody by consumer (one key, one class): GitHub Actions reads these names; values live only in GitHub (owner sets them with
-# starci app ci secret set / var set). App containers never read them; sealed members under .starcistacks/*/secrets hold app keys only,
-# and the CI deploy transport (key, pinned host keys, manager host and account) is the sealed member production/secrets/vps-ci.enc.yaml,
-# opened by the deploy jobs with SOPS_AGE_KEY: GitHub holds no SSH key, host key, host or account.
-ci:
-  github: {repository: starci183/nivo-lite, defaultBranch: main, workflow: ci.yml}
-  secrets:
-    - {name: SONAR_TOKEN, scope: repository, purpose: sonar.starci.org project token of nivo-lite for the release-tag scan and quality gate}
-    - {name: CODECOV_TOKEN, scope: repository, purpose: Codecov upload token fallback; uploads authenticate with GitHub OIDC, optional: true}
-    - {name: SOPS_AGE_KEY, scope: environment, environment: production, purpose: age identity that decrypts the sealed members (the CI transport vps-ci included) in the deploy and database workflows}
-  vars:
-    - {name: SONAR_HOST_URL, scope: repository, value: https://sonar.starci.org, purpose: public Sonar server of the host}
-    - {name: STARCI_DEPLOY_PAUSED, scope: environment, environment: production, ownerValue: true, purpose: Owner-controlled production automatic-deploy brake}
-# Application image digests are illustrative all-zero placeholders (the canon lite skeleton form <repo>/<app>:<x.y.z>@sha256:0...0),
-# never a completed release: the deploy workflow binds each build's immutable digest per release (release.json).
-# Branch profiles (PROJECT-LINT-2, ruling branch-profile-dev): on the product branch dev, lint, Sonar and Codecov report and never block;
-# hfs, types, wiring, db, secrets, format and the tests block on every branch, and main is never declared (it always runs the full gate).
-branches:
-  dev: { gates: { lint: report, sonar: report, codecov: report } }
-  "ui/*": { gates: { lint: report, sonar: report, codecov: report } }
-
-components:
-  nivo-api:
-    role: service
-    image: ghcr.io/starci183/nivo-lite-api:0.3.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
-    compose: infra/swarm/stack.yaml
-    purpose: The Nest api. It also runs the AI gateway in process (AiRouterGatewayModule, @starci/ai-router 0.3.0) on its own internal port 8788 (api 8787 + offset 1) on the private agents network, reached as http://nivo-api:8788/v1 (never routed or published); virtual keys in SQLite on the volume nivo-engine_ai-router-data. GraphQL, provider webhooks, OAuth callbacks, the BullMQ workers and the outbox relay, the job alert monitor). Liveness /healthz, readiness /readyz.
-    required: true
-  nivo-mcp:
-    role: service
-    image: ghcr.io/starci183/nivo-lite-mcp:0.3.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
-    compose: infra/swarm/stack.yaml
-    purpose: The NIVO MCP gateway (be/apps/mcp), one Streamable HTTP endpoint per workspace (POST /mcp/<workspaceId>) in front of every connector, with the grants, approvals, limits and audit the api shares. Internal only (private agents network, alias nivo-mcp); no public route. Liveness /healthz, readiness /readyz.
-    required: true
-  nivo-web-app:
-    role: service
-    image: ghcr.io/starci183/nivo-lite-web:0.3.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
-    compose: infra/swarm/stack.yaml
-    purpose: The Next.js console on app.nivo.vn (standalone output); no runtime secret, its public values are build arguments. Liveness /health/live.
-    required: true
-  nivo-landing:
-    role: service
-    image: ghcr.io/starci183/nivo-lite-landing:0.3.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
-    compose: infra/swarm/stack.yaml
-    purpose: The Next.js landing on nivo.vn and www.nivo.vn (standalone output); no runtime secret or API credentials, its public values are build arguments. Liveness /health/live.
-    required: true
-  nivo-admin:
-    role: service
-    image: ghcr.io/starci183/nivo-lite-admin:0.3.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
-    compose: infra/swarm/stack.yaml
-    purpose: The Next.js platform-admin app on admin.nivo.vn (standalone output; the NIVO team's customer overview, workspace support actions and platform health, moved out of the console). It signs nobody in itself - it reads the console's session and the api's platform-admin check - and has no runtime secret, its public values are build arguments. Liveness /health/live.
-    required: true
-  ingress:
-    role: ingress
-    image: traefik:v3.6@sha256:31267173a15b4944e797a76ffd9c419707c8d8b32fe5b610f80cd0cfa05f372d
-    compose: infra/swarm/stack.yaml
-    purpose: Traefik, the only service that publishes ports (8787/3000 locally; 80/443 in production). Production retains its persisted certificates and routes in infra/swarm/edge/routes.yml.
-    required: true
-  nivo-minio:
-    role: stateful
-    image: ghcr.io/starci183/minio:RELEASE.2025-10-15T17-29-55Z-starci.1@sha256:ec6dfba54eaa8e0d77bed9e7c6d86df90ad341f914ecfd3d613f0f811155f40f
-    compose: infra/compose/compose.yaml
-    purpose: The S3-compatible object store of the dev environment (production uses the host's MinIO through STORAGE_ENDPOINT). Loopback only, on the persisted volume minio-data.
-    required: false
-  nivo-n8n:
-    role: stateful
-    image: docker.n8n.io/n8nio/n8n:1.64.3@sha256:4d9116228d426ce24c442a744e9c11ee7c1187713f93f21dd5a34a12584708c1
-    compose: infra/swarm/stack.yaml
-    purpose: n8n automation editor and webhook runner; private (operator tunnel only), reached by the api as nivo-n8n:5678. Its database is SQLite (DB_TYPE=sqlite) on the persisted named volume nivo-engine_n8n-data; no self-hosted Postgres (owner ruling 2026-10-14).
-    required: true
-  nivo-redis:
-    role: stateful
-    image: redis:7.4-alpine@sha256:57e4255cc971b1c8d6f8a6ca283ac01bc3ecdd914273ef6bfaede87aaecd6541
-    compose: infra/swarm/stack.yaml
-    purpose: The BullMQ broker of the job queue (owner ruling 2026-11-05, the queue is BullMQ on Redis in both editions). Internal only on the private agents network as nivo-redis:6379, no published port. AOF with appendfsync everysec on the persisted named volume nivo-engine_redis-data; the PostgreSQL outbox relay republishes any committed row the broker loses, so no admitted job is lost on a Redis restart.
-    required: true
-  nivo-qdrant:
-    role: stateful
-    image: qdrant/qdrant:v1.19.2@sha256:b7b0444c4c351c970b98e90a6f89c2ee4287c65b44e52b4cb503fa5b2aa927ad
-    compose: infra/swarm/stack.yaml
-    purpose: The vector index (owner ruling 2026-11-11, vectors live in Qdrant mapped one to one to Postgres rows; Postgres stays the system of record). Internal only on the private agents network as nivo-qdrant:6333, no published port; every call carries the sealed QDRANT_API_KEY. Collections nivo_passages and nivo_truths on the persisted named volume nivo-engine_qdrant-data. A projection, not a record, so it has no backup; a lost volume is rebuilt from Postgres by the reconcile job (tick vector-reconcile).
-    required: true
-  db:
-    role: stateful
-    image: ghcr.io/starci183/nivo-lite-db:0.3.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
-    compose: infra/swarm/stack.yaml
-    purpose: The production PostgreSQL 17 (owner ruling 2026-10-29, self-hosted; rulings lite-official-postgres-image, lite-db-image-in-stacks). Internal only on the private agents network as db:5432, no published port; the managed db image (.starcistacks/images/db/Dockerfile, the Docker Official postgres image) carries pgvector and pgmq, the contrib extensions unaccent and pgcrypto ship with it. The persisted named volume nivo-engine_postgres-data holds the data; the api and the mcp gateway connect as the least-privilege app_be role (PRIMARY_DB_URL).
-    required: true
-  nivo-postgres-backup:
-    role: stateful
-    image: alpine:3.21@sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507
-    compose: infra/swarm/stack.yaml
-    purpose: The daily age-encrypted pg_dump of db (02:00 Asia/Ho_Chi_Minh) onto the persisted volume nivo-engine_postgres-backups, 14 days of retention. Script infra/swarm/postgres/backup.sh as a Swarm config.
-    required: true
 backing:
   db:
     provider: postgres
     component: db
-# The data standard (contexts/project/stacks.md PROJECT-STACKS-13 and PROJECT-STACKS-14, R426 and R427): what is kept outside the code and how.
-# stores    the two things a copy is read from and written to, each a StoreAdapter of @starci/seed over the app's own doors (be/src/modules/domain/data-stores);
-# derived   every other stateful component, rebuilt from a store (or from outside the project) and so never copied;
-# sets      the scheduled seed-backup of this deployment (written by the data-backup job, one repository per environment, sealed) and the two
-#           package seed standards (loaded once by the bring-up's seed step at the pinned commit, never sealed; completeness judged by ext check seed-standards).
-data:
-  stores:
-    - {id: database, kind: database, level: logical, component: db, adapter: {module: be/src/modules/domain/data-stores/workspace-database.adapter.ts}}
-    - {id: storage, kind: storage, level: logical, component: nivo-minio, adapter: {module: be/src/modules/domain/data-stores/workspace-storage.adapter.ts}}
-    # The WHOLE deployment (the seed-backup set): the whole relational database (the `public` and `auth` schemas minus the rebuildable tables listed with
-    # their reasons in be/src/modules/integrations/seed/seed-postgres.policy.ts) read over the database owner role (DATABASE_OWNER_URL), and every object
-    # of every bucket the app owns (set = the bucket without its environment prefix). Both are reached by `cli data-store <id>`.
-    - {id: database-all, kind: database, level: physical, component: db, adapter: {module: be/src/modules/integrations/seed/seed-postgres.policy.ts, command: [node, be/dist/apps/cli/src/main.js, data-store, database-all]}}
-    - {id: storage-all, kind: storage, level: logical, component: nivo-minio, adapter: {module: be/src/modules/domain/data-stores/storage-all.adapter.ts, command: [node, be/dist/apps/cli/src/main.js, data-store, storage-all]}}
-  derived:
-    - {component: nivo-redis, from: database-all, rebuild: "the outbox relay republishes the queue; caches refill"}
-    - {component: nivo-qdrant, from: database-all, rebuild: "the vector reconcile job (tick vector-reconcile) rewrites every point from the Postgres rows, to which each vector maps one to one"}
-    - {component: nivo-postgres-backup, from: database-all, rebuild: "the next daily run (02:00 Asia/Ho_Chi_Minh) takes a new age-encrypted pg_dump of db; the files on its volume are a copy of the database, never a record"}
-    - {component: nivo-n8n, rebuild: "not rebuilt from a store: its SQLite database and workflows on the volume nivo-engine_n8n-data are kept by the host's age-encrypted tarball (starci app stack backup, 14 days); no store adapter covers them"}
-  sets:
-    - id: nivo-lite-backup
-      purpose: seed-backup
-      stores: [database-all, storage-all]
-      environments: [dev, production]
-      everyMinutes: 1440
-      to: [{driver: git, repository: "https://github.com/starci183/nivo-lite-seed-backup-{env}"}]
-    - id: blocks-core
-      purpose: seed-standard
-      stores: [database]
-      environments: [dev]
-      completeness: "ext:seed-standards"
-      commit: 9865ee72a0dca3b61eb55a98d1a459f724d1963b
-      to: [{driver: git, repository: "https://github.com/starci183/blocks-core-seed-standard"}]
-    - id: nivo-web-core
-      purpose: seed-standard
-      stores: [database]
-      environments: [dev]
-      completeness: "ext:seed-standards"
-      commit: 506000dae4da561614f7f7c2866efb434c01d0f2
-      to: [{driver: git, repository: "https://github.com/starci183/nivo-web-core-seed-standard"}]
-# Recurring work, every entry bound to its app-owned CLI command (R268). The keys are the pg_cron job names of the migrations
-# (db/migrations/20261105000000_queue-bullmq_contract_pgmq-drop.sql: each job is one job_enqueue to the outbox the relay publishes) and the schedule is the exact
-# cron expression of the job. `cli jobs tick <id>` enqueues one tick by hand (replay of a missed tick).
-jobs:
-  agent-work-sweep:
-    schedule: "*/1 * * * *"
-    command: node be/dist/apps/cli/src/main.js jobs tick agent-work-sweep
-  agent-graph-watch:
-    schedule: "*/15 * * * *"
-    command: node be/dist/apps/cli/src/main.js jobs tick agent-graph-watch
-  agents-sync-all:
-    schedule: "*/5 * * * *"
-    command: node be/dist/apps/cli/src/main.js jobs tick agents-sync-all
-  automation-tick:
-    schedule: "*/1 * * * *"
-    command: node be/dist/apps/cli/src/main.js jobs tick automation-tick
-  connection-health-tick:
-    schedule: "*/15 * * * *"
-    command: node be/dist/apps/cli/src/main.js jobs tick connection-health-tick
-  data-sync-tick:
-    schedule: "*/1 * * * *"
-    command: node be/dist/apps/cli/src/main.js jobs tick data-sync-tick
-  decisions-drain-work:
-    schedule: "*/1 * * * *"
-    command: node be/dist/apps/cli/src/main.js jobs tick decisions-drain-work
-  decisions-expire-approvals:
-    schedule: "*/1 * * * *"
-    command: node be/dist/apps/cli/src/main.js jobs tick decisions-expire-approvals
-  realtime-retention-tick:
-    schedule: "* * * * *"
-    command: node be/dist/apps/cli/src/main.js jobs tick realtime-retention-tick
-  zalo-refresh-tick:
-    schedule: "0 */6 * * *"
-    command: node be/dist/apps/cli/src/main.js jobs tick zalo-refresh-tick
+components:
+  api:
+    role: service
+    image: "nivo-lite/api:v0.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    compose: infra/swarm/stack.yaml
+    purpose: The application's GraphQL API, its own Google and password sign-in and its storage integration.
+    required: true
+  web:
+    role: service
+    image: "nivo-lite/web:v0.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    compose: infra/swarm/stack.yaml
+    purpose: The standalone Next.js application with public configuration supplied at build time.
+    required: true
+  db:
+    role: service
+    stateful: true
+    volumes: [db-data]
+    image: "nivo-lite/db:v0.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    compose: infra/swarm/stack.yaml
+    purpose: The app's own PostgreSQL, the official postgres image plus pgvector built from .starcistacks/images/db/Dockerfile, migrated by starci app db migrate.
+    required: true
+  storage:
+    role: service
+    stateful: true
+    volumes: [storage-data]
+    image: "nivo-lite/storage:v0.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    compose: infra/swarm/stack.yaml
+    purpose: The app's own MinIO, built from .starcistacks/images/storage/Dockerfile; its entrypoint loads statics/ into the bucket through the S3 API and never deletes (PROJECT-STATICS-2).
+    required: true
+  ingress:
+    role: ingress
+    stateful: true
+    volumes: [ingress-data, ingress-config-data]
+    image: caddy:2.10.2@sha256:c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb
+    compose: infra/swarm/stack.yaml
+    purpose: The single declared ingress; certificates and persistent volumes are owner-provisioned.
+    required: true
 environments:
   dev:
     status: supported
     runtime: docker-compose
-    composeFiles:
-      - infra/compose/compose.yaml
+    composeFiles: [infra/compose/compose.yaml]
     components:
-      db:
-        port: 54332
-      nivo-redis:
-        port: 56379
-      nivo-qdrant:
-        port: 56333
-      nivo-minio:
-        port: 59900
-      nivo-api:
-        port: 18787
-      nivo-mcp:
-        port: 18790
-      nivo-web-app:
-        port: 3100
-      nivo-landing:
-        port: 3103
+      db: {port: 4390}
+      api: {port: 4301}
+      web: {port: 4300}
     runbook: README.md
-    # Dev values are generated once, dev-only, by `starci app secret init --env dev --execute`, which declares each key here; the sealed
-    # members `ai` (the upstream OPENROUTER_API_KEY and STARCI_AI_KEY) and `auth` (the JWT pair) are the owner's and are never regenerated.
-    secrets:
-      - name: "postgres-password"
-        member: "db"
-        key: "POSTGRES_PASSWORD"
-        where: "secrets/db"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed."
-      - name: "db-owner-password"
-        member: "db"
-        key: "DB_OWNER_PASSWORD"
-        where: "secrets/db"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed."
-      - name: "db-app-password"
-        member: "db"
-        key: "DB_APP_PASSWORD"
-        where: "secrets/db"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed."
-      - name: "storage-access-key"
-        member: "storage"
-        key: "STORAGE_ACCESS_KEY"
-        where: "secrets/storage"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed."
-      - name: "storage-secret-key"
-        member: "storage"
-        key: "STORAGE_SECRET_KEY"
-        where: "secrets/storage"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed."
-      - name: "channel-token-key"
-        member: "platform"
-        key: "CHANNEL_TOKEN_KEY"
-        where: "secrets/platform"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed."
-      - name: "entity-engine-cursor-key"
-        member: "platform"
-        key: "ENTITY_ENGINE_CURSOR_KEY"
-        where: "secrets/platform"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed."
-      - name: "otp-pepper"
-        member: "platform"
-        key: "OTP_PEPPER"
-        where: "secrets/platform"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed."
-      - name: "n8n-signing-secret"
-        member: "platform"
-        key: "N8N_SIGNING_SECRET"
-        where: "secrets/platform"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed."
-      - name: "mail-host"
-        member: "mail"
-        key: "MAIL_HOST"
-        where: "secrets/mail"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the owner's own SMTP server (the same as production), sealed by the owner, never generated"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "mail-user"
-        member: "mail"
-        key: "MAIL_USER"
-        where: "secrets/mail"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the owner's own SMTP server (the same as production), sealed by the owner, never generated"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "mail-password"
-        member: "mail"
-        key: "MAIL_PASSWORD"
-        where: "secrets/mail"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the owner's own SMTP server (the same as production), sealed by the owner, never generated"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "mail-from"
-        member: "mail"
-        key: "MAIL_FROM"
-        where: "secrets/mail"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the owner's own SMTP server (the same as production), sealed by the owner, never generated"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "telegram-api-id"
-        member: "telegram"
-        key: "TELEGRAM_API_ID"
-        where: "secrets/telegram"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the Telegram application (my.telegram.org) of the personal-account connection, sealed by the owner, never generated; optional at boot (parseTelegramUserConfig)"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "telegram-api-hash"
-        member: "telegram"
-        key: "TELEGRAM_API_HASH"
-        where: "secrets/telegram"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the Telegram application (my.telegram.org) of the personal-account connection, sealed by the owner, never generated; optional at boot (parseTelegramUserConfig)"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "sepay-webhook-api-key"
-        member: "sepay"
-        key: "SEPAY_WEBHOOK_API_KEY"
-        where: "secrets/sepay"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the platform billing feed (parseBillingConfig), development test values sealed by the owner, never generated"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "sepay-bank-account"
-        member: "sepay"
-        key: "SEPAY_BANK_ACCOUNT"
-        where: "secrets/sepay"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the platform billing feed (parseBillingConfig), development test values sealed by the owner, never generated"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "sepay-bank-code"
-        member: "sepay"
-        key: "SEPAY_BANK_CODE"
-        where: "secrets/sepay"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the platform billing feed (parseBillingConfig), development test values sealed by the owner, never generated"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "sepay-account-name"
-        member: "sepay"
-        key: "SEPAY_ACCOUNT_NAME"
-        where: "secrets/sepay"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the platform billing feed (parseBillingConfig), development test values sealed by the owner, never generated"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "seeds-test-accounts-nivo-owner-email"
-        member: "seeds-test-accounts"
-        key: "NIVO_OWNER_EMAIL"
-        where: "secrets/seeds-test-accounts"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the dev test seats (owner and staff of the NIVO and demo workspaces, @example.test addresses) the seed test-accounts creates, sealed by the harness without anyone reading the passwords"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "seeds-test-accounts-nivo-owner-password"
-        member: "seeds-test-accounts"
-        key: "NIVO_OWNER_PASSWORD"
-        where: "secrets/seeds-test-accounts"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the dev test seats (owner and staff of the NIVO and demo workspaces, @example.test addresses) the seed test-accounts creates, sealed by the harness without anyone reading the passwords"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "seeds-test-accounts-nivo-staff-email"
-        member: "seeds-test-accounts"
-        key: "NIVO_STAFF_EMAIL"
-        where: "secrets/seeds-test-accounts"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the dev test seats (owner and staff of the NIVO and demo workspaces, @example.test addresses) the seed test-accounts creates, sealed by the harness without anyone reading the passwords"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "seeds-test-accounts-nivo-staff-password"
-        member: "seeds-test-accounts"
-        key: "NIVO_STAFF_PASSWORD"
-        where: "secrets/seeds-test-accounts"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the dev test seats (owner and staff of the NIVO and demo workspaces, @example.test addresses) the seed test-accounts creates, sealed by the harness without anyone reading the passwords"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "seeds-test-accounts-demo-owner-email"
-        member: "seeds-test-accounts"
-        key: "DEMO_OWNER_EMAIL"
-        where: "secrets/seeds-test-accounts"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the dev test seats (owner and staff of the NIVO and demo workspaces, @example.test addresses) the seed test-accounts creates, sealed by the harness without anyone reading the passwords"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "seeds-test-accounts-demo-owner-password"
-        member: "seeds-test-accounts"
-        key: "DEMO_OWNER_PASSWORD"
-        where: "secrets/seeds-test-accounts"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the dev test seats (owner and staff of the NIVO and demo workspaces, @example.test addresses) the seed test-accounts creates, sealed by the harness without anyone reading the passwords"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "seeds-test-accounts-demo-staff-email"
-        member: "seeds-test-accounts"
-        key: "DEMO_STAFF_EMAIL"
-        where: "secrets/seeds-test-accounts"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the dev test seats (owner and staff of the NIVO and demo workspaces, @example.test addresses) the seed test-accounts creates, sealed by the harness without anyone reading the passwords"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "seeds-test-accounts-demo-staff-password"
-        member: "seeds-test-accounts"
-        key: "DEMO_STAFF_PASSWORD"
-        where: "secrets/seeds-test-accounts"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the dev test seats (owner and staff of the NIVO and demo workspaces, @example.test addresses) the seed test-accounts creates, sealed by the harness without anyone reading the passwords"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "seeds-test-accounts-demo-manager-email"
-        member: "seeds-test-accounts"
-        key: "DEMO_MANAGER_EMAIL"
-        where: "secrets/seeds-test-accounts"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the dev test seats (owner and staff of the NIVO and demo workspaces, @example.test addresses) the seed test-accounts creates, sealed by the harness without anyone reading the passwords"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "seeds-test-accounts-demo-manager-password"
-        member: "seeds-test-accounts"
-        key: "DEMO_MANAGER_PASSWORD"
-        where: "secrets/seeds-test-accounts"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml; the dev test seats (owner and staff of the NIVO and demo workspaces, @example.test addresses) the seed test-accounts creates, sealed by the harness without anyone reading the passwords"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; local dev decrypts with it. Never printed."
-      - name: "google-oauth-client-id"
-        member: "google"
-        key: "GOOGLE_OAUTH_CLIENT_ID"
-        where: "secrets/google"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed."
-      - name: "google-oauth-client-secret"
-        member: "google"
-        key: "GOOGLE_OAUTH_CLIENT_SECRET"
-        where: "secrets/google"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed."
-      - name: "anthropic-api-key"
-        member: "ai"
-        key: "ANTHROPIC_API_KEY"
-        where: "secrets/ai"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed."
-      - name: "nivo-platform-admins"
-        member: "platform"
-        key: "NIVO_PLATFORM_ADMINS"
-        where: "secrets/platform"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed."
-      - name: "openai-api-key"
-        member: "ai"
-        key: "OPENAI_API_KEY"
-        where: "secrets/ai"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed."
-      - name: "qdrant-api-key"
-        member: "qdrant"
-        key: "QDRANT_API_KEY"
-        where: "secrets/qdrant"
-        recipientPolicy: "its environment's rule of the app's managed .sops.yaml"
-        keyCustody: "The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed."
-    # `starci app stack up --env dev --execute` reads this block (PROJECT-STACKS-6). One command brings up the db (own role per environment),
-    # Redis and MinIO in containers, migrates, and runs the api, the mcp gateway, the console and the landing natively.
+    # Dev custody is generated once, dev-only, by the owner-armed `starci app secret init --env dev --execute`, which also declares each key here.
+    secrets: []
+    # `starci app stack up --env dev --execute` reads this block (PROJECT-STACKS-6): host prerequisites, dev custody, setup, the compose services,
+    # the environment's own database role, migrations, native api and web processes, readiness, origins.
     local:
+      # The project base port: web = base, api = base+1, an AI gateway base+2, further native processes up to base+79; the compose services
+      # take base+80 to base+99: db base+90, mail base+91, mailui base+92, storage base+93, storage-console base+94 (R389, PROJECT-STACKS-10).
+      # Each project owns its own hundred: the scaffold took one no other project of the machine holds; the doctor fails an overlap.
+      basePort: 4300
       ports:
-        db: 54332
-        redis: 56379
-        qdrant: 56333
-        minio: 59900
-        api: 18787
-        gateway: 18788
-        mcp: 18790
-        web: 3100
-        landing: 3103
-        admin: 3105
+        db: 4390
+        api: 4301
+        web: 4300
+        mail: 4391
+        mailui: 4392
+        storage: 4393
+        storage-console: 4394
       services:
         - {name: db, wait: healthy}
-        - {name: nivo-redis, wait: healthy}
-        - {name: nivo-qdrant, wait: healthy}
-        - {name: nivo-minio, wait: tcp, port: minio, kind: object-store}
-      # The dev tunnel (PROJECT-STACKS-15): the S3 API port of MinIO gets a public host so a file or image link renders in a browser, in a provider
-      # (Zalo fetching an image URL) and on any machine. STORAGE_ENDPOINT stays the loopback address of the api's own writes; STORAGE_PUBLIC_URL is the
-      # origin every link is built on (the `publicEndpoint` option of @starci/object-storage). MinIO's console is not published. `stack up --execute`
-      # adds the ingress rule to ~/.cloudflared/nivo-dev.yml and the DNS record; the other hosts of the tunnel (nivo-local*.starci.org) are not declared here.
-      tunnel:
-        name: nivo-dev
-        routes:
-          - {name: storage, host: nivo-local-files.starci.org, port: minio}
-      dirs: [ai-router, mail-outbox]
+        - {name: mail, wait: healthy}
+        - {name: storage, wait: healthy}
       database:
         service: db
         port: db
@@ -467,891 +90,271 @@ environments:
         appPassword: {member: db, key: DB_APP_PASSWORD}
       grants:
         - {name: db, keys: [POSTGRES_PASSWORD]}
-        - {name: minio, keys: [STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY]}
-        - {name: qdrant, keys: [QDRANT_API_KEY]}
+        - {name: storage, keys: [STORAGE_ACCESS_KEY_ID, STORAGE_SECRET_ACCESS_KEY]}
       custody:
         - {member: db, key: POSTGRES_PASSWORD, kind: password}
         - {member: db, key: DB_OWNER_PASSWORD, kind: password}
         - {member: db, key: DB_APP_PASSWORD, kind: password}
-        - {member: storage, key: STORAGE_ACCESS_KEY, kind: hex, bytes: 12}
-        - {member: storage, key: STORAGE_SECRET_KEY, kind: hex, bytes: 24}
-        - {member: platform, key: CHANNEL_TOKEN_KEY, kind: base64, bytes: 32}
-        - {member: platform, key: ENTITY_ENGINE_CURSOR_KEY, kind: base64, bytes: 32}
-        - {member: platform, key: OTP_PEPPER, kind: hex, bytes: 32}
-        - {member: platform, key: N8N_SIGNING_SECRET, kind: hex, bytes: 32}
+        - {member: auth, key: AUTH_JWT_PRIVATE_KEY, kind: ed25519-pem}
+        - {member: google, key: GOOGLE_CLIENT_SECRET, kind: hex}
+        - {member: storage, key: STORAGE_ACCESS_KEY_ID, kind: hex, bytes: 12}
+        - {member: storage, key: STORAGE_SECRET_ACCESS_KEY, kind: hex}
       setup:
         - {name: install, argv: [npm, ci], heavy: install, skipIfExists: node_modules}
         - {name: codegen, argv: [npm, run, codegen, --silent], heavy: build}
-        # The api and the mcp gateway run compiled: Nest reads GraphQL field types from the decorator metadata only tsc emits,
-        # so a transpile-only loader leaves a union-typed field (RunFlowInput.kind) as Object and boot fails.
-        - {name: build-be, argv: [npm, run, build:be], heavy: build}
-        # The console runs compiled (next build, then next start): under next dev a page compiles on its first request, and a browser walk
-        # met an unhydrated sign-in form for seconds. The public build values are the dev origins.
-        - name: build-web
-          argv: [npx, next, build]
-          cwd: fe/apps/web
-          heavy: build
-          env:
-            NEXT_PUBLIC_API_URL: "https://nivo-local.starci.org"
-            NEXT_PUBLIC_LOCAL_API_URL: "http://localhost:${port.api}"
-            NEXT_PUBLIC_DEVELOPER_API_URL: "https://nivo-local.starci.org"
-            NEXT_PUBLIC_SITE_URL: "https://nivo-local-app.starci.org"
-            NEXT_PUBLIC_LANDING_URL: "http://localhost:${port.landing}"
-            NEXT_PUBLIC_ADMIN_URL: "https://nivo-local-admin.starci.org"
-            NEXT_PUBLIC_LOCAL_ADMIN_URL: "http://localhost:${port.admin}"
-      seed:
-        # The module catalogue, as the production deploy runs it (verify exec "catalogue synced"): without it public.modules lacks the rows
-        # the installations name. It upserts, so a rerun is safe.
-        - name: catalogue
-          argv: [node, dist/apps/cli/src/main.js, seed-modules, ensure]
-          cwd: be
-          after: migrate
-          files: [AUTH_JWT_PRIVATE_KEY, AUTH_JWT_PUBLIC_KEY, CHANNEL_TOKEN_KEY, ENTITY_ENGINE_CURSOR_KEY, OTP_PEPPER, N8N_SIGNING_SECRET, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY, STARCI_AI_KEY, MAIL_HOST, MAIL_USER, MAIL_PASSWORD, MAIL_FROM]
-          env:
-            PRIMARY_DB_SCHEMA: public
-            SITE_URL: "https://nivo-local-app.starci.org"
-            PUBLIC_SITE_URL: "https://nivo-local-app.starci.org"
-            AUTH_WEB_ORIGIN: "https://nivo-local-app.starci.org"
-            PUBLIC_API_URL: "https://nivo-local.starci.org"
-            STORAGE_ENDPOINT: "http://127.0.0.1:${port.minio}"
-            STORAGE_PUBLIC_URL: "https://nivo-local-files.starci.org"
-            STORAGE_BUCKET_PREFIX: nivo-dev
-            MAIL_PORT: "587"
-            MAIL_SECURITY: starttls
-            MAIL_FROM_NAME: NIVO
-            MAIL_DEFAULT_LANGUAGE: vi
-            MAIL_SUPPRESS: "*.example.test,*.example.com,*.invalid"
-        # The buckets of the environment (cli storage bootstrap: creates the missing ones, opens the picture bucket to anonymous reads):
-        # without them every upload and media read answers OBJECT_STORAGE_UNAVAILABLE. Safe to run again.
-        - name: buckets
-          argv: [node, dist/apps/cli/src/main.js, storage, bootstrap]
-          cwd: be
-          after: migrate
-          files: [AUTH_JWT_PRIVATE_KEY, AUTH_JWT_PUBLIC_KEY, CHANNEL_TOKEN_KEY, ENTITY_ENGINE_CURSOR_KEY, OTP_PEPPER, N8N_SIGNING_SECRET, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY, STARCI_AI_KEY, MAIL_HOST, MAIL_USER, MAIL_PASSWORD, MAIL_FROM]
-          env:
-            PRIMARY_DB_SCHEMA: public
-            SITE_URL: "https://nivo-local-app.starci.org"
-            PUBLIC_SITE_URL: "https://nivo-local-app.starci.org"
-            AUTH_WEB_ORIGIN: "https://nivo-local-app.starci.org"
-            PUBLIC_API_URL: "https://nivo-local.starci.org"
-            STORAGE_ENDPOINT: "http://127.0.0.1:${port.minio}"
-            STORAGE_PUBLIC_URL: "https://nivo-local-files.starci.org"
-            STORAGE_BUCKET_PREFIX: nivo-dev
-            MAIL_PORT: "587"
-            MAIL_SECURITY: starttls
-            MAIL_FROM_NAME: NIVO
-            MAIL_DEFAULT_LANGUAGE: vi
-            MAIL_SUPPRESS: "*.example.test,*.example.com,*.invalid"
       processes:
         - name: api
-          argv: [node, dist/apps/api/src/main.js]
+          argv: [npx, ts-node-dev, --respawn, --transpile-only, --debounce, "1000", --watch, "src,apps", -r, tsconfig-paths/register, apps/api/src/main.ts]
           cwd: be
           port: api
-          files: [AUTH_JWT_PRIVATE_KEY, AUTH_JWT_PUBLIC_KEY, CHANNEL_TOKEN_KEY, ENTITY_ENGINE_CURSOR_KEY, OTP_PEPPER, N8N_SIGNING_SECRET, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY, OPENROUTER_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, NIVO_PLATFORM_ADMINS, STARCI_AI_KEY, MAIL_HOST, MAIL_USER, MAIL_PASSWORD, MAIL_FROM, TELEGRAM_API_ID, TELEGRAM_API_HASH, GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, QDRANT_API_KEY, DATABASE_OWNER_URL]
+          files: [GOOGLE_CLIENT_SECRET, AUTH_JWT_PRIVATE_KEY, STORAGE_ACCESS_KEY_ID, STORAGE_SECRET_ACCESS_KEY]
           env:
             PORT: "${port.api}"
+            HTTP_SECURITY_ALLOWED_ORIGINS: "http://localhost:${port.web}"
             PRIMARY_DB_SCHEMA: public
-            SITE_URL: "https://nivo-local-app.starci.org"
-            PUBLIC_SITE_URL: "https://nivo-local-app.starci.org"
-            AUTH_WEB_ORIGIN: "https://nivo-local-app.starci.org"
-            AUTH_GOOGLE_CALLBACK_URL: "http://localhost:${port.api}/auth/google/callback"
-            # The refresh cookie takes Domain=starci.org on the dev tunnel host and stays host-only on localhost (@starci/auth 0.4.0 domains).
-            AUTH_COOKIE_DOMAINS: "starci.org"
-            PUBLIC_API_URL: "https://nivo-local.starci.org"
-            HTTP_SECURITY_ALLOWED_ORIGINS: "http://localhost:${port.web},http://localhost:${port.landing},http://localhost:${port.admin},http://localhost:3900,https://nivo-local-app.starci.org,https://nivo-local-admin.starci.org"
-            # Dev only: UI agents screenshot in parallel and each signs in once; the default strict limit (30/min) refused them with 429.
-            HTTP_SECURITY_RATE_STRICT_LIMIT: "300"
-            # SITE_URL is the public tunnel origin, so the private-target guards of a workspace SMTP account and a data source no longer see a development site.
-            DATA_ALLOW_PRIVATE_HOSTS: "true"
-            # How many agent runs execute at once (the drains this api runs; a run parked at a wait or a stop holds none), default 100.
-            # AGENT_RUNS_WORKSPACE_CONCURRENCY (unset = the same 100) is how many of them ONE workspace may hold: a self-hosted install
-            # has one workspace and reaches all of them; only a shared multi-tenant deployment sets it lower (agent-runs-limit.service.ts).
-            AGENT_RUNS_CONCURRENCY: "100"
-            AGENT_RUNS_WORKSPACE_CONCURRENCY: "100"
-            # THE DATABASE BOUND (POOL-LOCK, D3-W1-6; platform/database DatabasePoolBound, the defaults written out): pool size, the wait for
-            # a pooled connection (then DATABASE_UNAVAILABLE), the session lock_timeout and idle_in_transaction_session_timeout.
-            PRIMARY_DB_POOL_MAX: "20"
-            PRIMARY_DB_ACQUIRE_TIMEOUT: "10s"
-            PRIMARY_DB_LOCK_TIMEOUT: "15s"
-            PRIMARY_DB_IDLE_TRANSACTION_TIMEOUT: "60s"
-            # The running build's name (the jobs and the entity engine read it).
-            APP_BUILD_ID: dev
-            # The dev seed-backup (PROJECT-STACKS-13): the scheduled job writes nivo-lite-seed-backup-dev, sealed to the dev rule's public
-            # recipient; the checkout is that repository's working tree (outside the app); no remote until the coordinator adds it.
-            DATA_BACKUP_ENV: dev
-            DATA_BACKUP_CHECKOUT: "D:/Repositories/nivo-lite-seed-backup-dev"
-            DATA_BACKUP_RECIPIENTS: age173qfq7f776syam9tpkyfej0h2jjt6rc4ha7r38ez40n5mn0lwyaqp9ejt7
-            # The whole-database backup connects as the database OWNER role of this stack (not app_be): `DATABASE_OWNER_URL` in this process's
-            # `files` makes `stack up` write the owner connection to DATABASE_OWNER_URL_FILE from custody (@starci/hfs 6.13.0, PROJECT-STACKS-13).
-            SMTP_ALLOW_PRIVATE_HOSTS: "true"
-            # Dev only: provider sandbox accounts (no credentials, hardcoded cases; rulings R56-R62). Absent in production = off.
-            PROVIDER_SANDBOX_ENABLED: "true"
-            # Embeddings: the pinned OpenAI profile (text-embedding-3-small@1536). The AI pool is ANTHROPIC_API_KEY (chat) + OPENAI_API_KEY
-            # (embeddings); OPENROUTER_API_KEY stays sealed and listed in files: but the pool no longer reads it (owner 2026-11-11).
-            AI_EMBEDDING_MODEL: embed-oa
-            STORAGE_ENDPOINT: "http://127.0.0.1:${port.minio}"
-            STORAGE_PUBLIC_URL: "https://nivo-local-files.starci.org"
-            STORAGE_BUCKET_PREFIX: nivo-dev
-            MAIL_PORT: "587"
-            MAIL_SECURITY: starttls
-            MAIL_FROM_NAME: NIVO
-            MAIL_DEFAULT_LANGUAGE: vi
-            MAIL_SUPPRESS: "*.example.test,*.example.com,*.invalid"
-            MAIL_OUTBOX_DIR: "${data}/mail-outbox"
-            QUEUE_ENABLED: "true"
-            QUEUE_REDIS_HOST: 127.0.0.1
-            QUEUE_REDIS_PORT: "${port.redis}"
-            QUEUE_REDIS_PREFIX: nivo
-            # Jobs of one workspace that may run at once ON EACH QUEUE (default 2; per queue from migration 20261114000400, before it
-            # across all queues): dev runs 6 (coordinator, build EIGHT). The agent-turn drains add AGENT_RUNS_WORKSPACE_CONCURRENCY to it.
-            QUEUE_WORKSPACE_CONCURRENCY: "6"
-            REALTIME_HUB: redis
-            REALTIME_REDIS_URL: "redis://127.0.0.1:${port.redis}"
-            REALTIME_REDIS_PREFIX: nivo-realtime
-            AI_BASE_URL: "http://127.0.0.1:${port.gateway}/v1"
-            AI_ROUTER_KEYS_PATH: "${data}/ai-router/keys.db"
-            # The vector index (Qdrant): REQUIRED (the only home of vectors; the api refuses to start without it, readiness says `vectors`).
-            QDRANT_URL: "http://127.0.0.1:${port.qdrant}"
-            WORKSPACE_SIGNUP_ENABLED: "true"
-          health: {url: "http://localhost:${port.api}/healthz"}
-        - name: mcp
-          argv: [node, dist/apps/mcp/src/main.js]
-          cwd: be
-          port: mcp
-          files: [CHANNEL_TOKEN_KEY, ENTITY_ENGINE_CURSOR_KEY, STARCI_AI_KEY, QDRANT_API_KEY, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY]
-          env:
-            PORT: "${port.mcp}"
-            # The same database bound as the api (POOL-LOCK; its own pool of the same size).
-            PRIMARY_DB_POOL_MAX: "20"
-            PRIMARY_DB_ACQUIRE_TIMEOUT: "10s"
-            PRIMARY_DB_LOCK_TIMEOUT: "15s"
-            PRIMARY_DB_IDLE_TRANSACTION_TIMEOUT: "60s"
-            # TEN (RESTART-R, rehearsal 2026-11-13): the mcp env reader requires the object store and the site origin; drop with H1 if the narrowed mcp no longer reads them.
-            SITE_URL: "https://nivo-local-app.starci.org"
-            STORAGE_ENDPOINT: "http://127.0.0.1:${port.minio}"
-            STORAGE_PUBLIC_URL: "https://nivo-local-files.starci.org"
-            STORAGE_BUCKET_PREFIX: nivo-dev
-            PRIMARY_DB_SCHEMA: public
-            HTTP_SECURITY_ALLOWED_ORIGINS: "http://localhost:${port.web},https://nivo-local-app.starci.org"
-            QUEUE_ENABLED: "true"
-            QUEUE_REDIS_HOST: 127.0.0.1
-            QUEUE_REDIS_PORT: "${port.redis}"
-            QUEUE_REDIS_PREFIX: nivo
-            QUEUE_WORKSPACE_CONCURRENCY: "6"
-            AI_BASE_URL: "http://127.0.0.1:${port.gateway}/v1"
-            # The same vector index as the api: a truth this process puts in force hands its vector over, and the tools search it.
-            QDRANT_URL: "http://127.0.0.1:${port.qdrant}"
-          health: {url: "http://localhost:${port.mcp}/healthz"}
+            GOOGLE_CLIENT_ID: dev-local-client-id
+            GOOGLE_CALLBACK_URL: "http://localhost:${port.api}/auth/google/callback"
+            AUTH_JWT_ISSUER: "http://localhost:${port.api}"
+            AUTH_WEB_ORIGIN: "http://localhost:${port.web}"
+            AUTH_JWT_AUDIENCE: nivo-lite
+            AUTH_JWT_KEY_ID: dev-1
+            MAIL_HOST: 127.0.0.1
+            MAIL_PORT: "${port.mail}"
+            MAIL_SECURITY: none
+            MAIL_FROM: no-reply@nivo-lite.example.invalid
+            MAIL_FROM_NAME: nivo-lite
+            STORAGE_ENDPOINT: "http://127.0.0.1:${port.storage}"
+            STORAGE_REGION: us-east-1
+            STORAGE_BUCKET: nivo-lite-dev
+          health: {url: "http://localhost:${port.api}/health/live"}
         - name: web
-          # The build of the setup step build-web, served by next start in the app folder (turbo strips undeclared env such as PORT from
-          # its tasks, and turbo.json is a managed file).
-          argv: [npx, next, start]
-          cwd: fe/apps/web
+          argv: [npm, run, dev:fe]
           port: web
           env:
-            PORT: "${port.web}"
+            NEXT_PUBLIC_SITE_URL: "http://localhost:${port.web}"
+            NEXT_PUBLIC_API_URL: "http://localhost:${port.api}"
+            NEXT_PUBLIC_GRAPHQL_URL: "http://localhost:${port.api}/graphql"
+            NEXT_PUBLIC_STATICS_URL: "http://localhost:${port.storage}/nivo-lite-dev/statics"
           health: {url: "http://localhost:${port.web}/health/live"}
-        - name: landing
-          # next dev directly in the app folder (the setup ran codegen): turbo strips undeclared env such as PORT from its tasks, and
-          # turbo.json is a managed file, so `npm run dev:fe:landing` would start on 3000 whatever port is declared.
-          argv: [npx, next, dev]
-          cwd: fe/apps/landing
-          port: landing
-          env:
-            PORT: "${port.landing}"
-            NEXT_PUBLIC_SITE_URL: "http://localhost:${port.landing}"
-            NEXT_PUBLIC_APP_URL: "http://localhost:${port.web}"
-          health: {url: "http://localhost:${port.landing}/health/live"}
-        - name: admin
-          # The platform-admin app, started like the landing: next dev directly in the app folder (turbo would strip PORT). It reads the console's
-          # session cookie (AUTH_COOKIE_DOMAINS) and calls the api from the browser, so it is a CORS origin of the api (HTTP_SECURITY_ALLOWED_ORIGINS).
-          argv: [npx, next, dev]
-          cwd: fe/apps/admin
-          port: admin
-          env:
-            PORT: "${port.admin}"
-            NEXT_PUBLIC_SITE_URL: "https://nivo-local-admin.starci.org"
-            NEXT_PUBLIC_API_URL: "https://nivo-local.starci.org"
-            NEXT_PUBLIC_LOCAL_API_URL: "http://localhost:${port.api}"
-            NEXT_PUBLIC_APP_URL: "http://localhost:${port.web}"
-          health: {url: "http://localhost:${port.admin}/health/live"}
       ready:
-        - {name: api-live, url: "http://localhost:${port.api}/healthz"}
-        - {name: api-ready, url: "http://localhost:${port.api}/readyz"}
+        - {name: storage-live, url: "http://localhost:${port.storage}/minio/health/live"}
+        - {name: api-live, url: "http://localhost:${port.api}/health/live"}
+        - {name: api-ready, url: "http://localhost:${port.api}/health/ready"}
         - {name: web-live, url: "http://localhost:${port.web}/health/live"}
-        - {name: landing-live, url: "http://localhost:${port.landing}/health/live"}
-        - {name: admin-live, url: "http://localhost:${port.admin}/health/live"}
       verify:
-        - {name: api-live, url: "http://localhost:${port.api}/healthz"}
-        - {name: api-ready, url: "http://localhost:${port.api}/readyz"}
+        - {name: api-live, url: "http://localhost:${port.api}/health/live"}
+        - {name: api-ready, url: "http://localhost:${port.api}/health/ready"}
         - {name: web-live, url: "http://localhost:${port.web}/health/live"}
-        - {name: landing-live, url: "http://localhost:${port.landing}/health/live"}
-        - {name: admin-live, url: "http://localhost:${port.admin}/health/live"}
       origins:
         - {name: web, url: "http://localhost:${port.web}"}
-        - {name: landing, url: "http://localhost:${port.landing}"}
-        - {name: admin, url: "http://localhost:${port.admin}"}
         - {name: api, url: "http://localhost:${port.api}"}
-        - {name: mcp, url: "http://localhost:${port.mcp}"}
+        - {name: mail, url: "http://localhost:${port.mailui}"}
+        - {name: storage, url: "http://localhost:${port.storage-console}"}
   production:
-    short: prod
     status: supported
     runtime: docker-swarm
-    composeFiles:
-      - infra/swarm/stack.yaml
+    composeFiles: [infra/swarm/stack.yaml]
     components:
-      nivo-api:
-        replicas: 1
-        port: 8787
-        # internal AI gateway of the api process: port = api port + offset 1 (local dev 3211 -> 3212; ai-router 8788 in production); AI_ROUTER_PORT below derives from it
-      nivo-mcp:
-        replicas: 1
-        port: 8790
-      nivo-web-app:
-        replicas: 1
-        port: 3000
-      nivo-landing:
-        replicas: 1
-        port: 3000
-      nivo-n8n:
-        replicas: 1
-        port: 5678
-      nivo-redis:
-        replicas: 1
-        port: 6379
-      nivo-qdrant:
-        replicas: 1
-        port: 6333
-      db:
-        replicas: 1
-        port: 5432
-      nivo-postgres-backup:
-        replicas: 1
+      api: {replicas: 1, port: 3001}
+      web: {replicas: 1, port: 3000}
+      db: {replicas: 1, port: 5432}
+      storage: {replicas: 1, port: 9000}
+      ingress: {replicas: 1, port: 443, httpPort: 80}
     runbook: README.md
-    # The ingress is the shared Traefik of the VPS, its own docker stack (deploy.ingress.name); this stack renders no ingress and publishes no port.
     ingress:
-      external: {stack: ingress}
-      hosts: [nivo.vn, www.nivo.vn, app.nivo.vn, admin.nivo.vn, api.nivo.vn, n8n.nivo.vn]
+      component: ingress
+      hosts: ["nivo-lite.example.invalid", "api.nivo-lite.example.invalid", "storage.nivo-lite.example.invalid"]
     dns:
-      - host: nivo.vn
+      - host: "nivo-lite.example.invalid"
         owner: Production operator
-        receipt: "README.md (owner action 1: A record at Tino; receipt nslookup nivo.vn 1.1.1.1)"
-      - host: www.nivo.vn
+        receipt: .starcistacks/production/infra/swarm/owner-actions.md#dns
+      - host: "api.nivo-lite.example.invalid"
         owner: Production operator
-        receipt: "README.md (owner action 1: A record at Tino; receipt nslookup www.nivo.vn 1.1.1.1)"
-      - host: app.nivo.vn
+        receipt: .starcistacks/production/infra/swarm/owner-actions.md#dns
+      - host: "storage.nivo-lite.example.invalid"
         owner: Production operator
-        receipt: "README.md (owner action 1: A record at Tino; receipt nslookup app.nivo.vn 1.1.1.1)"
-      - host: admin.nivo.vn
-        owner: Production operator
-        receipt: "README.md (owner action 1: A record at Tino; receipt nslookup admin.nivo.vn 1.1.1.1)"
-      - host: api.nivo.vn
-        owner: Production operator
-        receipt: "README.md (owner action 1: A record at Tino; receipt nslookup api.nivo.vn 1.1.1.1)"
-      - host: n8n.nivo.vn
-        owner: Production operator
-        receipt: "README.md (owner action 1: A record at Tino; receipt nslookup n8n.nivo.vn 1.1.1.1)"
+        receipt: .starcistacks/production/infra/swarm/owner-actions.md#dns
     tls:
       owner: Production operator
-      receipt: "README.md (the shared Traefik obtains one Let's Encrypt certificate per host and persists it in the external volume nivo-edge_acme)"
+      receipt: .starcistacks/production/infra/swarm/owner-actions.md#tls
     release:
-      imagesLock: .starcistacks/production/infra/swarm/release/images.lock.yaml
-      pointer: .starcistacks/production/infra/swarm/release/current.yaml
-      previous: .starcistacks/production/infra/swarm/release/previous.yaml
-      healthAssertions:
-        - https://api.nivo.vn/healthz answers 200 with status ok, /readyz answers 200 and a GraphQL {__typename} answers 200.
-        - https://nivo.vn/health/live and https://www.nivo.vn/health/live (landing) https://app.nivo.vn/health/live (console) and https://admin.nivo.vn/health/live (platform admin) answer 200.
-        - https://nivo.vn/healthz reaches the api (legacy webhook path).
-        - The jobs watchdog of the running api task prints two non-negative integers.
-        - The nivo-mcp task is healthy (container healthcheck on /healthz); it is internal only, so no public URL is probed.
-        - Desired and running replicas agree, no task failed, and every update completed (starci app stack converge).
-    # Stateful components. The volumes are the external nivo-engine_* ones; encrypted tarballs are written by
-    # `starci app stack backup` (deploy.backup below) and copied off the VPS by the operator. Restore proofs: infra/swarm/recovery/restore-proof.md.
+      imagesLock: .starcistacks/production/infra/swarm/releases/images.lock.yaml
+      pointer: .starcistacks/production/infra/swarm/releases/current.yaml
+      previous: .starcistacks/production/infra/swarm/releases/previous.yaml
+      healthAssertions: [API /health/live, API /health/ready, Web /health/live, Signed-in GraphQL request over TLS]
     backup:
+      - component: ingress
+        target: Owner-provisioned encrypted off-host storage for both ingress volumes
+        retention: Thirty daily snapshots
+        owner: Production operator
+        restoreProof: .starcistacks/production/infra/swarm/recovery/restore-proof.md
+      - component: storage
+        target: Owner-provisioned encrypted off-host storage for the storage-data volume (objects the app uploaded; the statics are rebuilt from the image)
+        retention: Thirty daily snapshots
+        owner: Production operator
+        restoreProof: .starcistacks/production/infra/swarm/recovery/restore-proof.md
       - component: db
-        target: Daily age-encrypted pg_dump (custom format) of db written by nivo-postgres-backup to the volume nivo-engine_postgres-backups (nivo-db-<UTC stamp>.dump.age plus a .sha256), encrypted to the project recipient of .sops.yaml. The operator copies the files off the VPS. The cloud data is not carried over (owner ruling 2026-10-29), production starts clean from db/bootstrap.sql and db/migrations; restore of a nightly file and the clean start are in infra/swarm/recovery/db-runbook.md.
-        retention: 14 days on the VPS (BACKUP_KEEP_DAYS in the stack); off-host retention is the operator's.
-        owner: Production operator
-        restoreProof: .starcistacks/production/infra/swarm/recovery/db-runbook.md
-      - component: nivo-postgres-backup
-        target: The age-encrypted pg_dump files it writes live on the volume nivo-engine_postgres-backups (the same copy set as the db record); the container itself holds no state.
-        retention: 14 days on the VPS (BACKUP_KEEP_DAYS in the stack); off-host retention is the operator's.
-        owner: Production operator
-        restoreProof: .starcistacks/production/infra/swarm/recovery/db-runbook.md
-      - component: nivo-api
-        target: The video-cache volume holds only re-renderable voiceover clips (no backup needed).
-        retention: Not applicable for the cache.
+        target: Owner-provisioned encrypted off-host storage for starci app db dump archives
+        retention: Thirty daily encrypted exports
         owner: Production operator
         restoreProof: .starcistacks/production/infra/swarm/recovery/restore-proof.md
-      - component: nivo-n8n
-        target: age-encrypted tarball of nivo-engine_n8n-data (the SQLite database and workflows; starci app stack backup) in /srv/nivo/backups, copied off the VPS by the operator.
-        retention: 14 days on the VPS (deploy.backup.keepDays); off-host retention is the operator's.
-        owner: Production operator
-        restoreProof: .starcistacks/production/infra/swarm/recovery/restore-proof.md
-      - component: nivo-redis
-        target: age-encrypted tarball of nivo-engine_redis-data (the AOF of the BullMQ broker; starci app stack backup) in /srv/nivo/backups. The PostgreSQL job_outbox is the durable record and republishes anything the broker loses, so this backup is convenience, not correctness.
-        retention: 14 days on the VPS (deploy.backup.keepDays); off-host retention is the operator's.
-        owner: Production operator
-        restoreProof: .starcistacks/production/infra/swarm/recovery/restore-proof.md
+    # Scaffolding seals generated placeholders to this app's own recipient; set real values before use.
     secrets:
-      - name: nivo
-        runtimeName: nivo-custody-nivo-v1
-        version: 1
-        where: secrets/nivo
-        recipientPolicy: SOPS/age, one member per provider (nivo.enc.yaml), sealed to the production server key and the owner key per .sops.yaml; keys CHANNEL_TOKEN_KEY, ENTITY_ENGINE_CURSOR_KEY, OTP_PEPPER, WEBHOOK_SIGNING_SECRET, NIVO_PLATFORM_ADMINS.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: mail
-        runtimeName: nivo-custody-mail-v1
-        version: 1
-        where: secrets/mail
-        keys: [MAIL_HOST, MAIL_USER, MAIL_PASSWORD, MAIL_FROM]
-        recipientPolicy: SOPS/age, one member per provider (mail.enc.yaml), sealed to the production server key and the owner key per .sops.yaml; keys MAIL_HOST, MAIL_USER, MAIL_PASSWORD, MAIL_FROM of the platform sender (sign-in, invitation and owner-notice mail over @starci/mail). The other mail settings (MAIL_PORT, MAIL_SECURITY, MAIL_FROM_NAME, MAIL_DEFAULT_LANGUAGE) are public configuration in infra/swarm/api-public.conf.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: telegram
-        runtimeName: nivo-custody-telegram-v1
-        version: 1
-        where: secrets/telegram
-        keys: [TELEGRAM_API_ID, TELEGRAM_API_HASH]
-        recipientPolicy: SOPS/age, one member per provider (telegram.enc.yaml), sealed to the production server key and the owner key per .sops.yaml; keys TELEGRAM_API_ID, TELEGRAM_API_HASH of the Telegram application (my.telegram.org) the api's personal-account connection logs in with (parseTelegramUserConfig, read through TELEGRAM_API_HASH_FILE). Bot tokens and Zalo app credentials are per connection and stored encrypted, never here.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: sepay
-        runtimeName: nivo-custody-sepay-v1
-        version: 1
-        where: secrets/sepay
-        recipientPolicy: SOPS/age, one member per provider (sepay.enc.yaml), sealed to the production server key and the owner key per .sops.yaml; keys SEPAY_* keys.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: n8n
-        runtimeName: nivo-custody-n8n-v1
-        version: 1
-        where: secrets/n8n
-        recipientPolicy: SOPS/age, one member per provider (n8n.enc.yaml), sealed to the production server key and the owner key per .sops.yaml; keys N8N_* keys (signing secret to the api, encryption key to nivo-n8n, settings).
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: postgres
-        runtimeName: nivo-custody-postgres-v1
-        version: 1
-        where: secrets/postgres
-        recipientPolicy: SOPS/age, one member per provider (postgres.enc.yaml), sealed to the production server key and the owner key per .sops.yaml; keys POSTGRES_PASSWORD, APP_BE_DB_PASSWORD, PRIMARY_DB_URL.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: redis
-        runtimeName: nivo-custody-redis-v1
-        version: 1
-        where: secrets/redis
-        recipientPolicy: SOPS/age, one member per provider (redis.enc.yaml), sealed to the production server key and the owner key per .sops.yaml; keys QUEUE_REDIS_PASSWORD.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: qdrant
-        runtimeName: nivo-custody-qdrant-v1
-        version: 1
-        where: secrets/qdrant
-        recipientPolicy: SOPS/age, one member per provider (qdrant.enc.yaml), sealed to the production server key and the owner key per .sops.yaml; keys QDRANT_API_KEY.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: auth
-        runtimeName: nivo-custody-auth-v1
-        version: 1
-        where: secrets/auth
-        recipientPolicy: SOPS/age, one member per provider (auth.enc.yaml), sealed to the production server key and the owner key per .sops.yaml; keys AUTH_JWT_PRIVATE_KEY, AUTH_JWT_PUBLIC_KEY of our own Passport.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: google
-        runtimeName: nivo-custody-google-v1
-        version: 1
-        where: secrets/google
-        recipientPolicy: SOPS/age, one member per provider (google.enc.yaml), sealed to the production server key and the owner key per .sops.yaml; keys GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: storage
-        runtimeName: nivo-custody-storage-v1
-        version: 1
-        where: secrets/storage
-        recipientPolicy: SOPS/age, one member per provider (storage.enc.yaml), sealed to the production server key and the owner key per .sops.yaml; keys STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY of MinIO.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: ai
-        runtimeName: nivo-custody-ai-v1
-        version: 1
-        where: secrets/ai
-        keys: [STARCI_AI_KEY, OPENROUTER_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY]
-        recipientPolicy: SOPS/age, one member per provider (ai.enc.yaml), sealed to the production server key and the owner key per .sops.yaml; keys STARCI_AI_KEY (the one gateway virtual key of the api), ANTHROPIC_API_KEY (chat), OPENAI_API_KEY (embeddings) and OPENROUTER_API_KEY (sealed, no longer read by the pool since 2026-11-11) (the whole AI domain in one member).
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: vps
-        runtimeName: nivo-custody-vps-v1
-        version: 1
-        where: secrets/vps
-        keys: [VPS_HOST, VPS_USER, privateKey, knownHosts, ciPrivateKey]
-        recipientPolicy: SOPS/age, one member per provider (vps.enc.yaml), sealed to the production server key and the owner key per .sops.yaml; keys VPS_HOST, VPS_USER, privateKey (operator SSH key), knownHosts (pinned host keys) and ciPrivateKey (the operator copy of the CI deploy key; CI itself reads the sealed member vps-ci), every operator VPS credential in one member, operator only, never granted.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: test-accounts
-        runtimeName: nivo-custody-test-accounts-v1
-        version: 1
-        where: secrets/test-accounts
-        recipientPolicy: SOPS/age, one member per provider (test-accounts.enc.yaml), sealed to the production server key and the owner key per .sops.yaml; keys DEMO_EMAIL, DEMO_PASSWORD, DEMO_STAFF_PASSWORD, READY_OWNER_EMAIL, READY_OWNER_PASSWORD, READY_STAFF_EMAIL, READY_STAFF_PASSWORD.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: seeds-nivo-workspace
-        runtimeName: nivo-custody-seeds-nivo-workspace-v1
-        version: 1
-        where: secrets/seeds-nivo-workspace
-        keys: [WORKSPACE_SMTP_HOST, WORKSPACE_SMTP_PORT, WORKSPACE_SMTP_USER, WORKSPACE_SMTP_PASSWORD, WORKSPACE_SMTP_FROM, WORKSPACE_OWNER_EMAIL, WORKSPACE_OWNER_PASSWORD, WORKSPACE_TELEGRAM_BOT_TOKEN, WORKSPACE_ZALO_OA_APP_ID, WORKSPACE_ZALO_OA_APP_SECRET, WORKSPACE_ZALO_OA_SECRET_KEY, WORKSPACE_SEPAY_BANK_ACCOUNT, WORKSPACE_SEPAY_BANK_CODE, WORKSPACE_SEPAY_ACCOUNT_HOLDER, WORKSPACE_PAYOS_CLIENT_ID, WORKSPACE_PAYOS_API_KEY, WORKSPACE_PAYOS_CHECKSUM_KEY, WORKSPACE_SEPAY_API_KEY, WORKSPACE_SEPAY_API_TOKEN, WORKSPACE_GOOGLE_OAUTH_CLIENT_ID, WORKSPACE_GOOGLE_OAUTH_CLIENT_SECRET]
-        recipientPolicy: "SOPS/age, one member (seeds-nivo-workspace.enc.yaml) for the seeded NIVO management workspace (its own per-workspace SMTP connection, its owner address and the owner's password (WORKSPACE_OWNER_PASSWORD: typed by the owner himself into the masked prompt of `starci app secret set`, never seen by an agent, applied by `node scripts/owner-password-oneshot.mjs --env production --execute` through the app's create-owner door), its Telegram bot token, and the Zalo OA app id, app secret and OA secret key the connect-channel tool seals into the workspace connection; the Zalo access and refresh tokens are not here (the OA owner authorises in the console and the rotating tokens live in the encrypted connection store)), and the bank account of its SePay feed and the payOS client id, api key and checksum key (the SePay webhook API key is generated by NIVO and never seeded), and the Google OAuth client id and secret of its Google connection (the connection waits for the owner's consent: the Google tokens are never seeded, the owner clicks Connect Google once); sealed to the production server key and the owner key per .sops.yaml. Granted to no service, the operator CLI reads it at seed time."
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the operator CLI receives the values at seed time, never an argument or a log.
-      - name: channel-token-key
-        member: nivo
-        key: CHANNEL_TOKEN_KEY
-        where: secrets/nivo
-        runtimeName: nivo-custody-channel-token-key-v1
-        version: 1
-        recipientPolicy: SOPS/age, key CHANNEL_TOKEN_KEY of the sealed member nivo (nivo.enc.yaml), sealed to the production server key and the owner key per .sops.yaml.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: entity-engine-cursor-key
-        member: nivo
-        key: ENTITY_ENGINE_CURSOR_KEY
-        where: secrets/nivo
-        runtimeName: nivo-custody-entity-engine-cursor-key-v1
-        version: 1
-        recipientPolicy: SOPS/age, key ENTITY_ENGINE_CURSOR_KEY of the sealed member nivo (nivo.enc.yaml), sealed to the production server key and the owner key per .sops.yaml.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: otp-pepper
-        member: nivo
-        key: OTP_PEPPER
-        where: secrets/nivo
-        runtimeName: nivo-custody-otp-pepper-v1
-        version: 1
-        recipientPolicy: SOPS/age, key OTP_PEPPER of the sealed member nivo (nivo.enc.yaml), sealed to the production server key and the owner key per .sops.yaml.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: webhook-signing-secret
-        member: nivo
-        key: WEBHOOK_SIGNING_SECRET
-        where: secrets/nivo
-        runtimeName: nivo-custody-webhook-signing-secret-v1
-        version: 1
-        recipientPolicy: SOPS/age, key WEBHOOK_SIGNING_SECRET of the sealed member nivo (nivo.enc.yaml), sealed to the production server key and the owner key per .sops.yaml.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: nivo-platform-admins
-        member: nivo
-        key: NIVO_PLATFORM_ADMINS
-        where: secrets/nivo
-        runtimeName: nivo-custody-nivo-platform-admins-v1
-        version: 1
-        recipientPolicy: SOPS/age, key NIVO_PLATFORM_ADMINS of the sealed member nivo (nivo.enc.yaml), sealed to the production server key and the owner key per .sops.yaml.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: postgres-password
-        member: postgres
-        key: POSTGRES_PASSWORD
-        where: secrets/postgres
-        runtimeName: nivo-custody-postgres-password-v1
-        version: 1
-        recipientPolicy: SOPS/age, key POSTGRES_PASSWORD of the sealed member postgres (postgres.enc.yaml), sealed to the production server key and the owner key per .sops.yaml.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: app-be-db-password
-        member: postgres
-        key: APP_BE_DB_PASSWORD
-        where: secrets/postgres
-        runtimeName: nivo-custody-app-be-db-password-v1
-        version: 1
-        recipientPolicy: SOPS/age, key APP_BE_DB_PASSWORD of the sealed member postgres (postgres.enc.yaml), sealed to the production server key and the owner key per .sops.yaml.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
       - name: primary-db-url
-        member: postgres
-        key: PRIMARY_DB_URL
-        where: secrets/postgres
-        runtimeName: nivo-custody-primary-db-url-v1
+        runtimeName: "nivo-lite-production-primary-db-url-v1"
         version: 1
-        recipientPolicy: SOPS/age, key PRIMARY_DB_URL of the sealed member postgres (postgres.enc.yaml), sealed to the production server key and the owner key per .sops.yaml.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: demo-email
-        member: test-accounts
-        key: DEMO_EMAIL
-        where: secrets/test-accounts
-        runtimeName: nivo-custody-demo-email-v1
+        where: secrets/primary-db-url
+        recipientPolicy: This app's own age recipient configured in .sops.yaml
+        keyCustody: SOPS_AGE_KEY in the host's untracked .claude/secret.env
+      - name: db-password
+        runtimeName: "nivo-lite-production-db-password-v1"
         version: 1
-        recipientPolicy: SOPS/age, key DEMO_EMAIL of the sealed member test-accounts (test-accounts.enc.yaml), sealed to the production server key and the owner key per .sops.yaml.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: demo-password
-        member: test-accounts
-        key: DEMO_PASSWORD
-        where: secrets/test-accounts
-        runtimeName: nivo-custody-demo-password-v1
+        where: secrets/db-password
+        recipientPolicy: This app's own age recipient configured in .sops.yaml
+        keyCustody: SOPS_AGE_KEY in the host's untracked .claude/secret.env
+      - name: google-client-secret
+        runtimeName: "nivo-lite-production-google-client-secret-v1"
         version: 1
-        recipientPolicy: SOPS/age, key DEMO_PASSWORD of the sealed member test-accounts (test-accounts.enc.yaml), sealed to the production server key and the owner key per .sops.yaml.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: demo-staff-password
-        member: test-accounts
-        key: DEMO_STAFF_PASSWORD
-        where: secrets/test-accounts
-        runtimeName: nivo-custody-demo-staff-password-v1
+        where: secrets/google-client-secret
+        recipientPolicy: This app's own age recipient configured in .sops.yaml
+        keyCustody: SOPS_AGE_KEY in the host's untracked .claude/secret.env
+      - name: auth-jwt-private-key
+        runtimeName: "nivo-lite-production-auth-jwt-private-key-v1"
         version: 1
-        recipientPolicy: SOPS/age, key DEMO_STAFF_PASSWORD of the sealed member test-accounts (test-accounts.enc.yaml), sealed to the production server key and the owner key per .sops.yaml.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: ready-owner-email
-        member: test-accounts
-        key: READY_OWNER_EMAIL
-        where: secrets/test-accounts
-        runtimeName: nivo-custody-ready-owner-email-v1
+        where: secrets/auth-jwt-private-key
+        recipientPolicy: This app's own age recipient configured in .sops.yaml
+        keyCustody: SOPS_AGE_KEY in the host's untracked .claude/secret.env
+      - name: storage-access-key-id
+        runtimeName: "nivo-lite-production-storage-access-key-id-v1"
         version: 1
-        recipientPolicy: SOPS/age, key READY_OWNER_EMAIL of the sealed member test-accounts (test-accounts.enc.yaml), sealed to the production server key and the owner key per .sops.yaml.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: ready-owner-password
-        member: test-accounts
-        key: READY_OWNER_PASSWORD
-        where: secrets/test-accounts
-        runtimeName: nivo-custody-ready-owner-password-v1
+        where: secrets/storage-access-key-id
+        recipientPolicy: This app's own age recipient configured in .sops.yaml
+        keyCustody: SOPS_AGE_KEY in the host's untracked .claude/secret.env
+      - name: storage-secret-access-key
+        runtimeName: "nivo-lite-production-storage-secret-access-key-v1"
         version: 1
-        recipientPolicy: SOPS/age, key READY_OWNER_PASSWORD of the sealed member test-accounts (test-accounts.enc.yaml), sealed to the production server key and the owner key per .sops.yaml.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: ready-staff-email
-        member: test-accounts
-        key: READY_STAFF_EMAIL
-        where: secrets/test-accounts
-        runtimeName: nivo-custody-ready-staff-email-v1
-        version: 1
-        recipientPolicy: SOPS/age, key READY_STAFF_EMAIL of the sealed member test-accounts (test-accounts.enc.yaml), sealed to the production server key and the owner key per .sops.yaml.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: ready-staff-password
-        member: test-accounts
-        key: READY_STAFF_PASSWORD
-        where: secrets/test-accounts
-        runtimeName: nivo-custody-ready-staff-password-v1
-        version: 1
-        recipientPolicy: SOPS/age, key READY_STAFF_PASSWORD of the sealed member test-accounts (test-accounts.enc.yaml), sealed to the production server key and the owner key per .sops.yaml.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the server decrypts at deploy with its own key. Never printed.
-      - name: workspace-seed-input
-        member: test-accounts
-        key: WORKSPACE_SEED_INPUT
-        where: secrets/test-accounts
-        runtimeName: nivo-custody-workspace-seed-input-v1
-        version: 1
-        recipientPolicy: SOPS/age, explicit workspace access input of the test-accounts member, sealed to the production server key and the owner key per .sops.yaml.
-        keyCustody: The owner identity is SOPS_AGE_KEY in the harness secret.env; the operator CLI receives the input through WORKSPACE_SEED_INPUT_FILE, never an argument or a log.
-    # Shared VPS ingress and the verbs of the canon (starci app stack ...): the data below is the only app-specific deploy configuration.
+        where: secrets/storage-secret-access-key
+        recipientPolicy: This app's own age recipient configured in .sops.yaml
+        keyCustody: SOPS_AGE_KEY in the host's untracked .claude/secret.env
+    # What `starci app stack` deploys (verbs: prepare, deploy, verify, rollback); names and shapes only, never a value.
+    # Add a backup block (digest-pinned tar helper image) once the stateful volumes are provisioned.
     deploy:
-      stack: nivo
-      # Every green release tag (v*) deploys through ci.yml (owner approval 2026-10-31); the GitHub variable STARCI_DEPLOY_PAUSED=true is the brake.
-      auto: true
-      remote:
-        host: vps
-        releasesBase: /srv/nivo
-        sealed: vps
-        serverRecipient: age148vdeuc9jmk6rr8vwltalqwq373nxsrra4hyfzejgc3388gnhpgqwzwusz
+      stack: nivo-lite-production
+      # The image registry. The canon scaffold writes `public` (the owner's default: images cost nothing there); the value belongs to the app from now on
+      # and `starci app sync` never rewrites it. While it is public, `starci app stack build --push` scans every image for secret material first.
+      registry:
+        host: ghcr.io
+        visibility: public
       images:
-        nivo-api: {app: api}
-        nivo-mcp: {app: mcp}
-        db: {app: db}
-        nivo-web-app:
+        api:
+          app: api
+        db:
+          app: db
+        storage:
+          app: storage
+        web:
           app: web
+          # Public browser configuration; replace these placeholders before deployment.
           buildArgs:
-            values: {NEXT_PUBLIC_SITE_URL: "https://app.nivo.vn", NEXT_PUBLIC_LANDING_URL: "https://nivo.vn", NEXT_PUBLIC_API_URL: "https://api.nivo.vn", NEXT_PUBLIC_DEVELOPER_API_URL: "https://api.nivo.vn"}
-        nivo-landing:
-          app: landing
-          buildArgs:
-            values: {NEXT_PUBLIC_SITE_URL: "https://nivo.vn", NEXT_PUBLIC_APP_URL: "https://app.nivo.vn"}
-      volumes: [nivo-engine_video-cache, nivo-engine_n8n-data, nivo-engine_redis-data, nivo-engine_qdrant-data, nivo-engine_ai-router-data, nivo-engine_postgres-data-20261115, nivo-engine_postgres-backups, nivo-edge_acme]
+            values:
+              NEXT_PUBLIC_SITE_URL: "https://nivo-lite.example.invalid"
+              NEXT_PUBLIC_API_URL: "https://api.nivo-lite.example.invalid"
+              NEXT_PUBLIC_STATICS_URL: "https://storage.nivo-lite.example.invalid/nivo-lite-production/statics"
+      volumes:
+        - nivo-lite-production-db-data
+        - nivo-lite-production-storage-data
+        - nivo-lite-production-ingress-data
+        - nivo-lite-production-ingress-config-data
       secrets:
         grants:
-          - service: nivo-api
+          - service: api
             filePointers: true
             from:
-              - {member: nivo}
-              - {member: mail}
-              - {member: telegram}
-              - {member: sepay}
-              - {member: postgres}
-              - {member: redis}
-              - {member: qdrant}
-              - {member: auth}
-              - {member: google}
-              - {member: storage}
-              - {member: ai}
-              - {member: test-accounts, keys: [WORKSPACE_SEED_INPUT]}
-              - {member: n8n, keys: [N8N_SIGNING_SECRET]}
-          # Redis starts with --requirepass from /run/secrets/QUEUE_REDIS_PASSWORD, so a boot without it fails instead of serving an open broker.
-          - service: nivo-redis
-            from:
-              - {member: redis, keys: [QUEUE_REDIS_PASSWORD], required: true}
-          # Qdrant starts with its API key read from /run/secrets/QDRANT_API_KEY, so a boot without it fails instead of serving an open index.
-          - service: nivo-qdrant
-            from:
-              - {member: qdrant, keys: [QDRANT_API_KEY], required: true}
-          # The gateway gets exactly the keys it needs (be/apps/mcp/src/mcp.env.ts): the database connection, CHANNEL_TOKEN_KEY and ENTITY_ENGINE_CURSOR_KEY.
-          - service: nivo-mcp
-            filePointers: true
-            from:
-              - {member: postgres, keys: [PRIMARY_DB_URL], required: true}
-              - {member: nivo, keys: [CHANNEL_TOKEN_KEY, ENTITY_ENGINE_CURSOR_KEY], required: true}
-              - {member: qdrant, keys: [QDRANT_API_KEY], required: true}
-              # mcp.env.ts also reads the object store and the queue (parseObjectStorageConfig, parseQueueConfig): without them it cannot boot.
-              - {member: storage, keys: [STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY], required: true}
-              - {member: redis, keys: [QUEUE_REDIS_PASSWORD], required: true}
-          # APP_BE_DB_PASSWORD reaches db too: its init script gives the app_be login role that password when the cluster is first created.
+              - member: primary-db-url
+              - member: google-client-secret
+              - member: auth-jwt-private-key
+              - member: storage-access-key-id
+              - member: storage-secret-access-key
           - service: db
             filePointers: true
             from:
-              - {member: postgres, keys: [POSTGRES_PASSWORD, APP_BE_DB_PASSWORD], required: true}
-          - service: nivo-postgres-backup
-            from:
-              - {member: postgres, keys: [POSTGRES_PASSWORD], required: true}
-          - service: nivo-n8n
+              - member: db-password
+          - service: storage
             filePointers: true
             from:
-              - {member: n8n, keys: [N8N_ENCRYPTION_KEY], required: true}
-        settings: [{member: n8n, keys: [N8N_ALLOWED_HOSTS]}] # UNVERIFIED shape: the old form took one member; JOBS_* were never sealed (defaults apply)
-      environment:
-        nivo-api:
-          files: [infra/swarm/api-public.conf]
-          values:
-            PORT: "8787"
-            QUEUE_ENABLED: "true"
-            QUEUE_REDIS_HOST: nivo-redis
-            QUEUE_REDIS_PORT: "6379"
-            QUEUE_REDIS_PREFIX: nivo
-            REALTIME_HUB: redis
-            REALTIME_REDIS_PREFIX: nivo-realtime
-            # The production seed-backup (PROJECT-STACKS-13): the repository is nivo-lite-seed-backup-prod (the environment's `short`). The checkout, the
-            # public age recipients of the production rule and the owner connection DATABASE_OWNER_URL_FILE are provisioned by the owner; the backup stays off
-            # (and the tick says which key is missing) until they are declared.
-            DATA_BACKUP_ENV: prod
-            # The provider sandbox (coordinator decision 2026-11-15, PROD-WIRE): ON in production too, so the steps of the providers the owner keeps on
-            # sandbox (CRM, iNET, Tino, MISA, mailbox, Meta, ...) run on NIVO Sandbox accounts, each labelled "Sandbox" in the console; a run keeps ONE
-            # world (a live run never reaches a sandbox account). The seed reads the same switch to attach the standards' sandbox accounts here.
-            PROVIDER_SANDBOX_ENABLED: "true"
-            # The vector index (Qdrant) on the private agents network; QDRANT_API_KEY comes from the sealed qdrant member. This address is
-            # REQUIRED: the only home of vectors (the api refuses to start without it; /readyz is unready while it does not answer).
-            QDRANT_URL: "http://nivo-qdrant:6333"
-            # the in-process AI gateway (declared port above); ANTHROPIC_API_KEY (chat), OPENAI_API_KEY (embeddings) and STARCI_AI_KEY come
-            # from the sealed ai member; OPENROUTER_API_KEY stays sealed there but the pool no longer reads it (owner 2026-11-11)
-            AI_ROUTER_PORT: "8788"
-            AI_ROUTER_KEYS_PATH: /var/lib/ai-router/keys.sqlite
-            AI_BASE_URL: "http://127.0.0.1:8788/v1"
-            AI_CHAT_MODEL: work
-            AI_EMBEDDING_MODEL: embed-oa
-          settings:
-            N8N_ALLOWED_HOSTS: {key: N8N_ALLOWED_HOSTS, default: nivo-n8n}
-            JOBS_ALERT_FAILED_MAX: {key: JOBS_FAILED_ALERT, default: "20"}
-            JOBS_ALERT_STALE_SECONDS: {key: JOBS_STALE_SECONDS, default: "300"}
-        nivo-mcp:
-          values:
-            PORT: "8790"
-            PRIMARY_DB_SCHEMA: public
-            # The OriginGuard and CORS allowlist of the gateway; it has no browser caller, so only the console origin is listed.
-            HTTP_SECURITY_ALLOWED_ORIGINS: "https://app.nivo.vn"
-            QDRANT_URL: "http://nivo-qdrant:6333"
-            # Required by mcp.env.ts (parseConnectionsConfig, parseObjectStorageConfig, parseQueueConfig); the same public values as api-public.conf.
-            SITE_URL: "https://app.nivo.vn"
-            PUBLIC_SITE_URL: "https://app.nivo.vn"
-            PUBLIC_API_URL: "https://api.nivo.vn"
-            STORAGE_ENDPOINT: "http://academy-minio:9000"
-            STORAGE_PUBLIC_URL: "https://minio.starci.org"
-            STORAGE_BUCKET_PREFIX: nivo
-            QUEUE_ENABLED: "true"
-            QUEUE_REDIS_HOST: nivo-redis
-            QUEUE_REDIS_PORT: "6379"
-            QUEUE_REDIS_PREFIX: nivo
-      configs:
-        - {name: postgres-backup, file: infra/swarm/postgres/backup.sh, env: NIVO_CFG_POSTGRES_BACKUP}
+              - member: storage-access-key-id
+              - member: storage-secret-access-key
+      # Release tasks: an idempotent write the release owes the data (a catalogue sync, a seed upsert) is declared under tasks and listed in postDeploy.
+      # A deploy runs postDeploy after the stack converged and before verify, which stays read-only. Uncomment and name the real command:
+      # tasks:
+      #   sync-catalogue: {service: api, command: [node, dist/cli.js, catalogue, sync]}
+      # postDeploy: [sync-catalogue]
       verify:
         http:
-          - {name: api liveness, url: "https://api.nivo.vn/healthz", status: 200, json: {status: ok}, retry: true}
-          - {name: api readiness, url: "https://api.nivo.vn/readyz", status: 200, retry: true}
-          - {name: api graphql, url: "https://api.nivo.vn/graphql", method: POST, body: '{"query":"{__typename}"}', status: 200, contains: __typename, retry: true}
-          - {name: landing health on the apex, url: "https://nivo.vn/health/live", status: 200, retry: true}
-          - {name: landing health on www, url: "https://www.nivo.vn/health/live", status: 200, retry: true}
-          - {name: console health on app, url: "https://app.nivo.vn/health/live", status: 200, retry: true}
-          - {name: legacy webhook path reaches the api, url: "https://nivo.vn/healthz", status: 200, retry: true}
-        exec:
-          - name: jobs watchdog prints two non-negative integers
-            service: nivo-api
-            command: [node, be/dist/apps/cli/src/main.js, jobs, watchdog]
-            stdout: '^\d+ \d+\r?\n?$'
-          # The stack has no post-deploy task hook, so the deploy syncs the module catalogue here: `ensure` upserts it and prints the count.
-          - name: catalogue synced
-            service: nivo-api
-            command: [node, be/dist/apps/cli/src/main.js, seed-modules, ensure]
-            stdout: '^catalogue ok \d+\r?\n?$'
-      jobs: {service: nivo-api, command: [node, be/dist/apps/cli/src/main.js, jobs]}
-      tasks:
-        seed-modules: {service: nivo-api, command: [node, be/dist/apps/cli/src/main.js, seed-modules, run]}
-        ensure-workspace: {service: nivo-api, command: [node, be/dist/apps/cli/src/main.js, seed-workspace, ensure]}
-        verify-workspace: {service: nivo-api, command: [node, be/dist/apps/cli/src/main.js, seed-workspace, verify]}
-      backup:
-        image: alpine:3.21@sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507
-        keepDays: 14
-        dir: /srv/nivo/backups
-        volumes:
-          - {name: n8n-data, volume: nivo-engine_n8n-data}
-          - {name: redis-data, volume: nivo-engine_redis-data}
-          # 2026-11-15 archive before removal: OpenClaw (retired) and the old database cluster (replaced by nivo-engine_postgres-data-20261115).
-          - {name: openclaw-data, volume: nivo-engine_openclaw-data}
-          - {name: postgres-data-old, volume: nivo-engine_postgres-data}
-          - {name: ai-router-data, volume: nivo-engine_ai-router-data}
-      # The swarm Traefik is the SHARED ingress of the VPS (INGRESS-INVENTORY.md): nivo plus the compose tenants, which are
-      # reached over the attachable overlay. Tenant route files (academy.yml, tayson.yml) stay in the legacy dynamic directory.
-      ingress:
-        name: ingress
-        service: ingress
-        # the same pinned Traefik binary the live edge runs; its static arguments are read from the live edge container by `ingress create`
-        image: traefik:v3.6@sha256:31267173a15b4944e797a76ffd9c419707c8d8b32fe5b610f80cd0cfa05f372d
-        network: nivo-edge-swarm
-        acmeVolume: nivo-edge_acme
-        legacy:
-          dir: /home/nivo/nivo-edge
-          dynamicDir: /home/nivo/nivo-edge/dynamic
-          container: nivo-edge-traefik-1
-        routes: infra/swarm/edge/routes.yml
-        # `ingress publish`: nivo's routes go into the shared directory as nivo.yml; the generic routes.yml of the old edge (nivo, namnivo, n8n and engine routes) is backed up (age) and retired. Tenant files (academy.yml, tayson.yml) are never touched.
-        publish: {file: nivo.yml, supersedes: [routes.yml]}
-        upstreams:
-          - {name: nivo-web, hosts: [nivo.vn, www.nivo.vn], container: nivo-web-web-1, aliases: [nivo-web], port: 3000}
-          - {name: namnivo, hosts: [nguyentuannam.org, www.nguyentuannam.org, app.nguyentuannam.org], container: namnivo-web-web-1, aliases: [namnivo-web], port: 3000}
-          - {name: tayson-web, hosts: [doanhnghieptayson.vn, www.doanhnghieptayson.vn], container: tayson-web, aliases: [tayson-web], port: 3073}
-          - {name: tayson-api, container: tayson-api, aliases: [tayson-api], port: 3074}
-          - {name: tayson-crm, hosts: [crm.doanhnghieptayson.vn], container: tayson-crm, aliases: [tayson-crm], port: 3173}
-          - {name: academy-core, hosts: [api.academy.starci.org], container: academy-core, aliases: [academy-core], port: 20860}
-          - {name: academy-judge0, hosts: [judge0.academy.starci.org], container: academy-judge0-server, aliases: [academy-judge0-server], port: 2358}
-          - {name: academy-keycloak, hosts: [keycloak.starci.org], container: academy-keycloak, aliases: [academy-keycloak], port: 8080}
-          - {name: academy-minio, hosts: [minio.starci.org, console.minio.starci.org], container: academy-minio, aliases: [academy-minio], port: 9000}
-        # engine.nivo.vn (old engine health) and app-vps.nivo.vn (a temporary hostname while nivo.vn was on Netlify, no public DNS any more) are dropped
-        drop: [engine.nivo.vn, app-vps.nivo.vn]
-        backup: {dir: /srv/nivo/backups}
-        verify:
-          - {host: nivo.vn, path: /, status: 200}
-          - {host: www.nivo.vn, path: /, status: 200}
-          - {host: app.nivo.vn, path: /health/live, status: 200}
-          - {host: n8n.nivo.vn, path: /, status: 200}
-          - {host: nguyentuannam.org, path: /, status: 200}
-          - {host: www.nguyentuannam.org, path: /, status: 200}
-          - {host: app.nguyentuannam.org, path: /, status: 307}
-          - {host: doanhnghieptayson.vn, path: /, status: 200}
-          - {host: www.doanhnghieptayson.vn, path: /, status: 301}
-          - {host: crm.doanhnghieptayson.vn, path: /, status: 200}
-          - {host: api.academy.starci.org, path: /, status: 404}
-          - {host: judge0.academy.starci.org, path: /, status: 200}
-          - {host: keycloak.starci.org, path: /, status: 302}
-# Release gates for `starci app release gate`. The landing reads its public origins at build time (next.config redirects), so
-# build-fe gets the production public URLs; they are the same values as the image build arguments, none of them is a secret.
-release:
-  gates:
-    - {name: app-check, command: [npx, starci, app, check]}
-    # Owner 2026-11-15 ("dừng tests"): the release typecheck judges the shipped code (be build config); the specs are not a release gate for now.
-    - {name: typecheck, command: [node, --max-old-space-size=8192, node_modules/typescript/bin/tsc, -p, be/tsconfig.build.json, --noEmit]}
-    - {name: build-be, command: [npm, run, build:be]}
-    - {name: lint, command: [npm, run, lint]}
-    - name: build-fe
-      # admin left out of release 0.7.0 (its Next build fails; no production service): the release build-fe skips it.
-      command: [npx, turbo, run, build, --filter=@nivo-lite/web, --filter=@nivo-lite/landing]
-      env: {NEXT_PUBLIC_SITE_URL: "https://nivo.vn", NEXT_PUBLIC_APP_URL: "https://app.nivo.vn"}
-    - {name: test, command: [npm, run, test], summary: jest}
-# Database history for `starci app db migrate` / `post-cutover` (the 24 restamped versions come from be/docs/runbooks/migration-restamp.md).
-database:
-  target: stack
-  service: db
-  migrationsDir: db/migrations
-  archiveDir: db/migrations/archive
-  baseline: baseline
-  appPassword: {member: postgres, key: APP_BE_DB_PASSWORD}
-  # v0.2.1 cutover (owner decision 2026-10-17): production was reset and the whole chain 000000..000600 applied on an empty schema, so nothing is held
-  # back. The pre-reset database lives only in the encrypted dump named in infra/swarm/recovery/db-backup-receipt-v0.2.1.md.
-  restamp:
-    - {from: "20261013100000", to: "20261012100100"}
-    - {from: "20261014100000", to: "20261012100200"}
-    - {from: "20261015100000", to: "20261012100300"}
-    - {from: "20261016100000", to: "20261012100400"}
-    - {from: "20261017100000", to: "20261012100500"}
-    - {from: "20261018100000", to: "20261012100600"}
-    - {from: "20261019100000", to: "20261012100700"}
-    - {from: "20261020100000", to: "20261012100800"}
-    - {from: "20261021100000", to: "20261012100900"}
-    - {from: "20261021110000", to: "20261012101000"}
-    - {from: "20261021120000", to: "20261012101100"}
-    - {from: "20261021130000", to: "20261012101200"}
-    - {from: "20261022100000", to: "20261012101300"}
-    - {from: "20261022110000", to: "20261012101400"}
-    - {from: "20261022120000", to: "20261012101500"}
-    - {from: "20261022130000", to: "20261012101600"}
-    - {from: "20261022140000", to: "20261012101700"}
-    - {from: "20261022150000", to: "20261012101800"}
-    - {from: "20261023100000", to: "20261012101900"}
-    - {from: "20261023110000", to: "20261012102000"}
-    - {from: "20261024100000", to: "20261012102100"}
-    - {from: "20261025100000", to: "20261012102200"}
-    - {from: "20261025110000", to: "20261012102300"}
-    - {from: "20261025120000", to: "20261012102400"}
-  postCutover:
-    schema: public
-    functionNames: [job_schedule]
-    minAgeHours: 48
+          - name: api liveness
+            url: "https://api.nivo-lite.example.invalid/health/live"
+            status: 200
+            retry: true
+          - name: api readiness
+            url: "https://api.nivo-lite.example.invalid/health/ready"
+            status: 200
+            retry: true
+          - name: web liveness
+            url: "https://nivo-lite.example.invalid/health/live"
+            status: 200
+            retry: true
+data:
+  stores:
+    - {id: database, kind: database, level: logical, component: db, adapter: {module: be/src/modules/integrations/seed/database.adapter.ts}}
+  derived:
+    - {component: storage, rebuild: the storage entrypoint reloads statics/ into the bucket through the S3 API on every start (PROJECT-STATICS-2); this repo holds no uploaded files}
+    - {component: ingress, rebuild: the ingress re-issues its certificates (ACME)}
 k8s:
   status: deferred
-  reason: Whole-package Kubernetes deployment is deferred; production is a single-manager Docker Swarm on one VPS, and dev uses a local Docker Swarm over local backing containers.
-# Ownership is declared here; this does not provision Sonar or change the conditional CI scan.
+  reason: Lite production uses Docker Swarm with its own PostgreSQL service; Kubernetes belongs to a future full-edition deployment.
+ci:
+  secrets:
+    - {name: SONAR_TOKEN, scope: repository, purpose: Sonar analysis token provisioned for this app}
+    - {name: SOPS_AGE_KEY, scope: environment, environment: production, purpose: Decrypt app members during deployment, optional: true}
+  vars:
+    - {name: SONAR_HOST_URL, scope: repository, value: "https://sonar.nivo-lite.example.invalid", purpose: Documentation endpoint to replace with this app's public Sonar host}
 services:
-  #   container-registry:
-  #     provider: ghcr
-  #     mode: hosted
-  #     purpose: The api, web and landing images of every release, pushed by the stack-deploy workflow; the Swarm deploy pulls them by digest with --with-registry-auth.
-  #     host:
-  #       public: https://ghcr.io
-  #     auth: github-token
-  #     projects:
-  #       - {repository: nivo-lite, key: ghcr.io/starci183/nivo-lite-api}
-  #       - {repository: nivo-lite, key: ghcr.io/starci183/nivo-lite-web}
-  #       - {repository: nivo-lite, key: ghcr.io/starci183/nivo-lite-landing}
-  #     ci:
-  #       workflow: .github/workflows/stack-deploy.yml
-  #       wiring: required
-  #       permissions: ['packages: write']
-  #       secrets: []
-  #       vars: []
-  #       provisioning: >-
-  #         docker/login-action with the automatic GITHUB_TOKEN of the workflow; nothing is stored. The packages are private. The deploy job passes the same short-lived
-  #         token to the Swarm manager with docker stack deploy --with-registry-auth (packages: write on the build, packages: read on a rollback).
-  #     ownerAction: none
   sonar:
     provider: sonarqube
     mode: local
-    purpose: Static analysis and the quality gate; CI scans on release tags when the project token exists.
-    host:
-      local: http://localhost:9010
-      public: https://sonar.starci.org
+    qualityGate: starci-quality-lite
+    host: {local: http://127.0.0.1:9000, public: "https://sonar.nivo-lite.example.invalid"}
     stack:
       owner: host
       root: .claude/ext/sonar
       environment: dev
       compose: compose.yaml
-      container: starci-sonarqube
-      publishedBy: cloudflared.yaml
     auth: token
-    qualityGate: starci-quality-lite
     credentials:
       - id: analysis
-        project: nivo-lite
+        project: "nivo-lite"
         key: SONAR_TOKEN
-        custody: {repository: nivo-lite, path: .starcistacks/dev/secrets/sonar.enc.yaml}
-    projects:
-      - {repository: nivo-lite, key: nivo-lite}
-    ci:
-      workflow: .github/workflows/ci.yml
-      wiring: required
-      token: SONAR_TOKEN
-      hostVar: SONAR_HOST_URL
-      secrets: [{name: SONAR_TOKEN, credential: analysis}]
-      provisioning: >-
-        ci.yml scans release tags on sonar.starci.org with the repository secret SONAR_TOKEN and the repository variable SONAR_HOST_URL (both declared in the top-level ci block). The host owns the Sonar server; the owner creates the nivo-lite project token.
+        custody: {repository: "nivo-lite", path: .starcistacks/dev/secrets/sonar.enc.yaml}
+    projects: [{repository: "nivo-lite", key: "nivo-lite"}]
+    ci: {wiring: required, workflow: .github/workflows/ci.yml, token: SONAR_TOKEN, hostVar: SONAR_HOST_URL, secrets: [{name: SONAR_TOKEN, credential: analysis}]}
     ownerAction:
-      needed: the nivo-lite project token from sonar.starci.org as the repository secret SONAR_TOKEN (starci app ci secret set SONAR_TOKEN).
-      reason: the token is a credential only the owner can mint on the host Sonar server.
+      needed: Declare this app's connection profile and project credential with its actual sealed member/key and project reference, seal it through starci app secret, bind ci.secrets to that credential, then set the CI execution copy with starci app ci secret set SONAR_TOKEN --from-custody --execute and sync SONAR_HOST_URL.
+      reason: A fresh app declares its quality service without fabricating credentials or a successful analysis.
   codecov:
     provider: codecov
     mode: hosted
-    purpose: Coverage uploads of be/coverage/lcov.info on release tags, authenticated with GitHub OIDC.
-    host: {public: https://codecov.io}
+    purpose: Report application coverage through GitHub OIDC.
     auth: oidc
     target: 100
     components: auto
     required: true
-    ci:
-      workflow: .github/workflows/ci.yml
-      wiring: required
-      provisioning: The test job holds id-token write; codecov-action uses OIDC, so no repository token is needed (CODECOV_TOKEN stays an optional fallback).
+    ci: {wiring: required, workflow: .github/workflows/ci.yml}
     ownerAction: none
   dependabot:
     provider: github
     mode: hosted
-    purpose: Weekly dependency updates with grouped minor and patch releases, separate majors and immediate security updates; @starci packages move only through starci npm install.
-    ecosystems: [npm, github-actions, docker]
+    purpose: Keep application dependencies and workflow actions current.
+    ecosystems: [npm, docker, github-actions]
     schedule: {interval: weekly}
     groups: {minorPatch: grouped, major: per-package}
     ignore: ['@starci/*']
@@ -1360,8 +363,17 @@ services:
   audit:
     provider: npm
     mode: local
-    purpose: Production dependency vulnerability checks in the release gate and CI.
+    purpose: Refuse high severity production dependency vulnerabilities.
     level: high
     omitDev: true
     in: [release-gate, ci]
+    ownerAction: none
+  container-registry:
+    provider: ghcr
+    mode: hosted
+    purpose: Publish this app's deployment images with the workflow GitHub token.
+    host: {public: https://ghcr.io}
+    auth: github-token
+    projects: [{repository: "nivo-lite", key: "nivo-lite"}]
+    ci: {wiring: required}
     ownerAction: none

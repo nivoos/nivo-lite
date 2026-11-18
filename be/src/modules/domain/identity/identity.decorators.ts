@@ -1,11 +1,17 @@
 import { SetMetadata, applyDecorators, createParamDecorator, type ExecutionContext } from "@nestjs/common"
-import type { AuthDoors, AuthPasswords, AuthSessions, SignInBudget } from "@modules/integrations/passport"
 import { injector, type DoorDecorator, type TypedParameterDecorator } from "@modules/platform/composition"
+import type {
+    AuthDoors,
+    AuthPasswords,
+    AuthSessions,
+    SignInBudget,
+    VerifyAccessToken,
+} from "@modules/integrations/passport"
 import { ServerToServer, requestOf } from "@modules/platform/http-security"
 import type { Principal } from "@modules/platform/cqrs"
+import type { CredentialAuthenticator, CredentialMetadata } from "./credential.contracts"
 import { IdentityError, IdentityErrorCode } from "./errors/identity.error"
-import type { CredentialAuthenticator, CredentialMetadata, CredentialPrincipal } from "./credential.contracts"
-import { PublicReason, type PublicMetadata, type VerifyAccessToken } from "./identity.contracts"
+import { PublicReason, type PublicMetadata } from "./identity.contracts"
 
 /** Token of the sign-in doors of the package, provided by the identity module from the passport integration. */
 export const IDENTITY_AUTH_DOORS: unique symbol = Symbol("domain.identity.auth-doors")
@@ -27,7 +33,7 @@ export const InjectAuthSessions = (): TypedParameterDecorator<AuthSessions> =>
 export const InjectAuthPasswords = (): TypedParameterDecorator<AuthPasswords> =>
     injector<AuthPasswords>(IDENTITY_AUTH_PASSWORDS)
 
-/** Injects the failures-only sign-in budget. Parameter type: SignInBudget. */
+/** Injects the sign-in budget. Parameter type: SignInBudget. */
 export const InjectSignInBudget = (): TypedParameterDecorator<SignInBudget> =>
     injector<SignInBudget>(IDENTITY_SIGN_IN_BUDGET)
 
@@ -42,7 +48,7 @@ export const InjectAccessTokenVerifier = (): TypedParameterDecorator<VerifyAcces
 export const PUBLIC_KEY = "domain.identity.public"
 
 /**
- * Opens a door to anonymous callers, stating why; other doors require their selected credential or a verified session.
+ * Opens a door to anonymous callers, stating why; every other door needs a credential or a verified session.
  * A signed webhook proves its caller by its signature, so it owes no browser origin.
  */
 export const Public = (metadata: PublicMetadata): DoorDecorator =>
@@ -50,36 +56,27 @@ export const Public = (metadata: PublicMetadata): DoorDecorator =>
         ? applyDecorators(SetMetadata(PUBLIC_KEY, metadata), ServerToServer())
         : applyDecorators(SetMetadata(PUBLIC_KEY, metadata))
 
-/** The authenticated caller established by the default-deny guard. */
-export const CurrentPrincipal: (...dataOrPipes: Array<unknown>) => ParameterDecorator = createParamDecorator(
-    (_data: unknown, context: ExecutionContext): Principal => {
-        const principal = requestOf(context).principal
-        if (!principal) throw new IdentityError({ code: IdentityErrorCode.Unauthenticated })
-        return principal
-    },
-)
-
-/** Metadata for a door authenticated by its own credential rather than a user session. */
+/** Metadata key of `@Credential`. */
 export const CREDENTIAL_KEY: unique symbol = Symbol("domain.identity.credential")
 
-/** The composition-owned verifier of alternate credentials. */
+/** Token of the identity-owned port that authenticates an API key, run token, tool token or link token. */
 export const CREDENTIAL_AUTHENTICATOR: unique symbol = Symbol("domain.identity.credential-authenticator")
 
-/** Injects the alternate-credential verifier. Parameter type: CredentialAuthenticator. */
+/** Injects the credential authenticator identity was registered with. Parameter type: CredentialAuthenticator. */
 export const InjectCredentialAuthenticator = (): TypedParameterDecorator<CredentialAuthenticator> =>
     injector<CredentialAuthenticator>(CREDENTIAL_AUTHENTICATOR)
 
 /**
- * Requires successful credential authentication before the global default-deny gate. The credential travels in a header
- * no browser attaches by itself, so the door owes no browser origin.
+ * Marks a door authenticated by its own credential; `CredentialGuard` authenticates it and `AuthGuard` admits it. The
+ * credential travels in a header no browser attaches by itself, so the door owes no browser origin.
  */
 export const Credential = (metadata: CredentialMetadata): DoorDecorator =>
     applyDecorators(SetMetadata(CREDENTIAL_KEY, metadata), ServerToServer())
 
-/** The stored link record established by the credential guard. */
-export const CurrentCredentialPrincipal: (...dataOrPipes: Array<unknown>) => ParameterDecorator = createParamDecorator(
-    (_data: unknown, context: ExecutionContext): CredentialPrincipal => {
-        const principal = requestOf(context).credentialPrincipal
+/** The authenticated caller established by the default-deny guard. */
+export const CurrentPrincipal: ReturnType<typeof createParamDecorator> = createParamDecorator(
+    (_data: unknown, context: ExecutionContext): Principal => {
+        const principal = requestOf(context).principal
         if (!principal) throw new IdentityError({ code: IdentityErrorCode.Unauthenticated })
         return principal
     },

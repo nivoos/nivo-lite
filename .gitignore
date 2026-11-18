@@ -81,22 +81,3 @@ fe/apps/*/AGENTS.md
 # Host-local agent credentials and app age identity never enter Git.
 .claude/
 # <<< starci app sync <<<
-# Lite stack sources outside the managed block (SWARM-CANON, integ/a14-int): the production and dev Swarm stacks live in infra/swarm/.
-# Value-free file types only; an env file or a key in these folders stays ignored by the rules above.
-!.starcistacks/*/infra/swarm/**/*.yaml
-!.starcistacks/*/infra/swarm/**/*.yml
-!.starcistacks/*/infra/swarm/**/*.mjs
-!.starcistacks/*/infra/swarm/**/*.sh
-!.starcistacks/*/infra/swarm/**/*.conf
-!.starcistacks/*/infra/swarm/**/*.example
-
-# Jest coverage output written next to the root by per-suite runs; generated, never tracked.
-coverage-*/
-
-# Local plaintext credentials never enter Git.
-secrets.env
-
-# Written by the Next dev server (nextjs-agent-rules); generated, never tracked.
-fe/apps/web/AGENTS.md
-# The NIVO OpenClaw image (.starcistacks/images/openclaw): its Dockerfile, the wrapper and the nivo-bridge plugin (value-free sources).
-!.starcistacks/images/openclaw/**

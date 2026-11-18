@@ -4,7 +4,7 @@ import { DomainError, type ErrorKind } from "@modules/platform/errors"
 export enum PassportErrorCode {
     /** The access token failed signature, issuer, audience or expiry verification. */
     AccessTokenInvalid = "PASSPORT_ACCESS_TOKEN_INVALID",
-    /** The signing key pair is unusable. */
+    /** The signing key set is unusable. */
     KeyInvalid = "PASSPORT_KEY_INVALID",
     /** The request carried no email or password. */
     MissingCredentials = "PASSPORT_MISSING_CREDENTIALS",

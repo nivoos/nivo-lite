@@ -1,13 +1,14 @@
 import { createRequestConfig, type I18nRequestConfig } from "@starci/next-i18n/request"
 import { i18n } from "./routing"
-import { catalogWithWorkbench } from "./workbench-messages"
 
 /**
- * The console's own catalogue of the requested locale with the words of the generic workbench laid over it (the blocks and the
- * modules), over the shared stack, which resolves the locale and the time zone.
+ * The request config next-intl's plugin loads: the app's own catalogs over the shared stack. The locale is the one the proxy
+ * negotiated (a route the proxy does not negotiate reads the cookie, then the default); `next/root-params` can only be imported
+ * inside the app directory, so no route reader is passed.
  */
 const requestConfig: I18nRequestConfig = createRequestConfig(i18n, {
     app: "web",
-    loadMessages: (locale) => catalogWithWorkbench(import(`./messages/${locale}.json`), locale),
+    loadMessages: (locale) => import(`./messages/${locale}.json`),
 })
+
 export default requestConfig

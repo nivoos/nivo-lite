@@ -14,13 +14,6 @@ updates:
         update-types: [minor, patch]
     ignore:
       - dependency-name: "@starci/*"
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-    groups:
-      actions:
-        patterns: ["*"]
   - package-ecosystem: docker
     directories:
       - /be/apps/*
@@ -34,3 +27,10 @@ updates:
         applies-to: security-updates
         patterns: ["*"]
         update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

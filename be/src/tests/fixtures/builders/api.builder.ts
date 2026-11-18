@@ -1,273 +1,67 @@
-import type * as Shapes from "./api-shapes.builder"
-import { fakeIds } from "@starci/jest-preset"
-import type { InjectionToken } from "@nestjs/common"
-import { EnvSource, Secret } from "@modules/platform/config"
-import { parseInetConfig } from "@modules/integrations/inet"
-import { parsePayosConfig } from "@modules/integrations/payos"
-import { parseTinoConfig } from "@modules/integrations/tino"
-import { parseElevenLabsConfig } from "@modules/integrations/elevenlabs"
-import { parseVeoConfig } from "@modules/integrations/veo"
-import { parseShotstackConfig } from "@modules/integrations/shotstack"
-import { parseCreatomateConfig } from "@modules/integrations/creatomate"
-import { parseJson2VideoConfig } from "@modules/integrations/json2video"
-import { parseGoogleCalendarConfig } from "@modules/integrations/google-calendar"
-import { parseMetaPublishingConfig } from "@modules/integrations/meta-publishing"
-import { parseYoutubeConfig } from "@modules/integrations/youtube"
-import { parseTiktokConfig } from "@modules/integrations/tiktok"
-import { parseMisaAmisConfig } from "@modules/integrations/misa-amis"
-import { parseMisaMeinvoiceConfig } from "@modules/integrations/misa-meinvoice"
-import { HTTP_CLIENT, HttpError, HttpErrorCode } from "@modules/platform/http"
-import { PRIMARY_ENTITY_MANAGER } from "@modules/platform/database"
-import { QueueModule } from "@modules/platform/queue"
-import { IdentityModule } from "@modules/domain/identity"
+import { Secret } from "@modules/platform/config"
+import { PRIMARY_DATA_SOURCE } from "@modules/platform/database"
+import { ACCESS_TOKEN_VERIFIER } from "@modules/domain/identity"
+import { OWN_TOKEN_VERIFIER } from "@modules/integrations/passport"
+import { OBJECT_STORAGE } from "@modules/integrations/object-storage"
 
-/** One day, in milliseconds. */
-const DAY_MS = 86_400_000
-
-/** The poll scheduler's tunables for the wiring proof: plain values, since the proof never polls. */
-const WIRING_POLL_SCHEDULE = {
-    healthyIntervalMs: 1_800_000,
-    silentIntervalMs: 300_000,
-    hotIntervalMs: 90_000,
-    webhookSilentAfterMs: 21_600_000,
-    hotTtlMs: 1_800_000,
-    jitterRatio: 0.2,
-    backoffBaseMs: 30_000,
-    backoffCapMs: 1_800_000,
-    breakerThreshold: 5,
-    breakerCooldownMs: 600_000,
-    breakerCooldownCapMs: 21_600_000,
-    unavailableRecheckMs: DAY_MS,
-    batchSize: 50,
-    leaseMs: 600_000,
-    backfillChunkPages: 2,
+/** What a wiring proof hands the compiled root: public options and the infrastructure doubles. */
+export interface WiringProof {
+    readonly options: Readonly<Record<string, unknown>>
+    readonly overrides: ReadonlyArray<{ readonly token: unknown; readonly value: unknown }>
 }
 
-const PRIMARY_DATA_SOURCE = "primaryDataSource"
-const wiringIds = fakeIds()
-
-/** Refuses infrastructure operations during construction of the module graph. */
-const refuseWiringOperation = (): never => {
-    throw new HttpError({ code: HttpErrorCode.Network })
-}
-
-/** Synthetic connection settings; no environment source is read. */
-const wiringSettings = {
-    database: {
-        name: "primary",
-        provider: "postgres" as const,
-        url: new Secret(`postgresql://wiring:${wiringIds.next()}@database.invalid:5432/wiring`),
-        schema: "public",
+/** Compiles the real API root with public configuration and explicit infrastructure doubles. */
+export const buildWiringProof = (): WiringProof => ({
+    options: {
+        server: { port: 3000 },
+        httpSecurity: {
+            allowedOrigins: ["https://fixture.example"],
+            rateLimit: { windowMs: 60000, defaultLimit: 100, strictLimit: 10 },
+            webhooks: {},
+        },
+        http: {},
+        database: {
+            name: "primary",
+            provider: "postgres",
+            url: new Secret("postgresql://app_be@127.0.0.1:5432/postgres"),
+            schema: "public",
+        },
+        passport: {
+            issuer: "https://api.fixture.example",
+            audience: "fixture",
+            keys: [{ privateKey: new Secret("fixture-only"), keyId: "k1" }],
+            accessTtlSeconds: 900,
+            refreshTtlSeconds: 2592000,
+            bcryptCost: 4,
+            returnOrigin: "https://app.fixture.example",
+            google: null,
+            cookie: { name: "refresh_token" },
+            budget: { loginAttempts: 10, resetAttempts: 5, windowMs: 900000 },
+        },
+        objectStorage: {
+            endpoint: "https://storage.fixture.example",
+            region: "us-east-1",
+            bucket: "fixture",
+            accessKeyId: new Secret("fixture-only"),
+            secretAccessKey: new Secret("fixture-only"),
+            defaultExpiresIn: 300,
+        },
+        mail: {
+            host: "127.0.0.1",
+            port: 2525,
+            security: "none",
+            from: { name: "Fixture", address: "no-reply@fixture.example" },
+            webOrigin: "https://app.fixture.example",
+            brandName: "Fixture",
+            defaultLanguage: "en",
+            confirmTtlSeconds: 86400,
+            resetTtlSeconds: 3600,
+        },
     },
-    storage: {
-        endpoint: "https://storage.invalid:9000",
-        region: "us-east-1",
-        accessKey: new Secret("wiring-fixture"),
-        secretKey: new Secret("wiring-fixture"),
-        bucketPrefix: "wiring",
-        publicUrl: "https://storage.invalid:9000",
-        timeoutMs: 1000,
-    },
-    channelConnections: {
-        channelTokenKey: new Secret("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
-        siteUrl: "https://site.invalid",
-        publicSiteUrl: undefined,
-        publicApiUrl: "https://api.invalid",
-    },
-    channelSetup: { zaloOauthBase: undefined, siteUrl: "https://site.invalid", timeoutMs: 1000 },
-}
-
-const options = {
-    server: { port: 3000 },
-    httpSecurity: {
-        trustedProxyHops: 0,
-        allowedOrigins: ["https://site.invalid"],
-        rateLimit: { windowMs: 60000, defaultLimit: 100, strictLimit: 10 },
-        webhooks: {},
-    },
-    database: wiringSettings.database,
-    storage: wiringSettings.storage,
-    aiGateway: { providers: [], models: { work: "wiring-chat", strong: "wiring-strong" }, gateway: null },
-    passport: {
-        issuer: "wiring",
-        audience: "authenticated",
-        keys: [{ privateKey: new Secret("wiring-fixture"), publicKey: "wiring-fixture", keyId: undefined }],
-        accessTtlSeconds: 900,
-        refreshTtlSeconds: 60,
-        bcryptCost: 4,
-        returnOrigin: "https://site.invalid",
-        google: null,
-        cookie: { name: "nivo_refresh", domain: undefined },
-        budget: { loginAttempts: 5, resetAttempts: 5, windowMs: 60000 },
-    },
-    identityAuth: { inviteTtlSeconds: 60 },
-    documents: {
-        driveBase: "https://drive.invalid",
-        oauthBase: null,
-        google: null,
-        readers: { docx: refuseWiringOperation, pdf: refuseWiringOperation, pdfPages: refuseWiringOperation },
-    },
-    workspaces: { allowFreeWorkspace: true },
-    apiKeys: {},
-    workspaceInvites: { siteUrl: "https://site.invalid", inviteDays: 7 },
-    billing: {
-        sepayApiKey: undefined,
-        bankAccount: { account: "fixture", bank: "fixture", holder: "Wiring Fixture" },
-    },
-    agentTurns: { bridgeSecret: null },
-    aiTasks: {
-        jsonRetries: 1,
-        timeoutMs: 1000,
-        endpoint: { gatewayUrl: null, virtualKey: null, chatModel: "work", embeddingModel: "embed" },
-    },
-    connectionSecrets: { tokenKey: wiringSettings.channelConnections.channelTokenKey },
-    channels: { siteUrl: "https://site.invalid" },
-    telegram: { apiBase: "https://telegram.invalid", timeoutMs: 1000 },
-    sepay: { apiBase: "https://sepay.invalid", timeoutMs: 1000 },
-    connectionPoll: { schedule: WIRING_POLL_SCHEDULE, redis: undefined },
-    redis: { connectTimeoutMs: 1000 },
-    entityEngine: { cursorKey: new Secret(Buffer.alloc(32, 9).toString("base64")), buildId: undefined },
-    remoteFiles: { maxBytes: 10 * 1024 * 1024, timeoutMs: 1000, maxRedirects: 3 },
-    zaloProvider: { replyWindowMs: 7 * DAY_MS, staleAfterMs: DAY_MS },
-    zalo: {
-        oauthBase: "https://zalo.invalid",
-        apiBase: "https://zalo.invalid",
-        businessBase: "https://zalo.invalid",
-        timeoutMs: 1000,
-    },
-    mail: {
-        host: "127.0.0.1",
-        port: 2525,
-        security: "none" as const,
-        from: { name: "Wiring", address: "no-reply@wiring.invalid" },
-        helloName: "wiring.invalid",
-        webOrigin: "https://site.invalid",
-        brandName: "Wiring",
-        defaultLanguage: "en" as const,
-        confirmTtlSeconds: 60,
-        resetTtlSeconds: 60,
-        allowPrivateHosts: false,
-        suppress: ["*.invalid"],
-        outboxDir: null,
-    },
-    dataSources: { allowPrivateHosts: false },
-    telegramUser: { app: null },
-    platformAdmin: { admins: [] },
-    realtime: { hub: "memory" as const },
-    queue: {
-        enabled: false,
-        redisHost: "redis.invalid",
-        redisPort: 6379,
-        redisDb: 0,
-        prefix: "wiring",
-        concurrency: 1,
-        workspaceConcurrency: 1,
-        relayIntervalMs: 500,
-        relayBatch: 50,
-        reconcileAfterMs: 15000,
-        visibilityTimeoutMs: 60000,
-        shutdownGraceMs: 1000,
-    },
-    jobs: { workerId: "wiring-fixture", leaseMs: 60000, scheduler: { enabled: false } },
-    jobsAlert: { enabled: false, intervalMs: 60000, failedMax: 1, staleSeconds: 60 },
-    connections: wiringSettings.channelConnections,
-    webhookConnections: { signingSecret: undefined },
-    google: {
-        client: null,
-        oauthBase: undefined,
-        sheetsBase: undefined,
-        siteUrl: "https://site.invalid",
-        channelTokenKey: wiringSettings.channelConnections.channelTokenKey,
-        timeoutMs: 1000,
-    },
-    meta: {
-        app: null,
-        webhookVerifyToken: undefined,
-        loginConfigId: undefined,
-        graphVersion: "v21.0",
-        siteUrl: "https://site.invalid",
-        channelTokenKey: wiringSettings.channelConnections.channelTokenKey,
-        sendPerMinute: 10,
-        timeoutMs: 1000,
-    },
-    channelSetup: wiringSettings.channelSetup,
-    webhookDelivery: { timeoutMs: 1000 },
-    inet: parseInetConfig(new EnvSource({})),
-    tino: parseTinoConfig(new EnvSource({})),
-    payos: parsePayosConfig(new EnvSource({})),
-    elevenlabs: parseElevenLabsConfig(new EnvSource({})),
-    veo: parseVeoConfig(new EnvSource({})),
-    shotstack: parseShotstackConfig(new EnvSource({})),
-    creatomate: parseCreatomateConfig(new EnvSource({})),
-    json2video: parseJson2VideoConfig(new EnvSource({})),
-    googleCalendar: parseGoogleCalendarConfig(new EnvSource({})),
-    metaPublishing: parseMetaPublishingConfig(new EnvSource({})),
-    youtube: parseYoutubeConfig(new EnvSource({})),
-    tiktok: parseTiktokConfig(new EnvSource({})),
-    misaAmis: parseMisaAmisConfig(new EnvSource({})),
-    misaMeinvoice: parseMisaMeinvoiceConfig(new EnvSource({})),
-    toolsConfig: { defaultTimeoutMs: 4000 },
-    // No vector index in a proof: vectors stay in Postgres (the one switch is QDRANT_URL).
-    qdrant: { url: null, apiKey: null, timeoutMs: 5000 },
-}
-
-/** Explicit doubles for the private resource tokens of the real registered modules. */
-const resourceDoubles = (): ReadonlyMap<string, unknown> => {
-    const manager = { query: refuseWiringOperation, transaction: refuseWiringOperation }
-    const transport = {
-        add: refuseWiringOperation,
-        stateOf: refuseWiringOperation,
-        republish: refuseWiringOperation,
-        work: refuseWiringOperation,
-        wait: refuseWiringOperation,
-        close: refuseWiringOperation,
-    }
-    return new Map<string, unknown>([
-        [
-            "primaryDataSource",
-            {
-                manager,
-                isInitialized: true,
-                subscribers: [],
-                query: refuseWiringOperation,
-                createQueryRunner: refuseWiringOperation,
-            },
-        ],
-        ["platform.database.primary-entity-manager", manager],
-        ["platform.http.client", { request: refuseWiringOperation }],
-        ["domain.identity.access-token-verifier", refuseWiringOperation],
-        ["platform.queue.transport", transport],
-        ["BullmqQueueTransportClient", transport],
-    ])
-}
-
-/** Reads the existing private tokens through public resource registrations; no database is registered twice. */
-const resourceOverrides = (): Array<{ token: InjectionToken; value: unknown }> => {
-    const resources = resourceDoubles()
-    const overrides: Array<{ token: InjectionToken; value: unknown }> = [
-        { token: PRIMARY_DATA_SOURCE, value: resources.get(PRIMARY_DATA_SOURCE) },
-        { token: PRIMARY_ENTITY_MANAGER, value: resources.get("platform.database.primary-entity-manager") },
-        { token: HTTP_CLIENT, value: resources.get("platform.http.client") },
-    ]
-    const definitions = [
-        IdentityModule.register({ verifyAccessToken: refuseWiringOperation }),
-        QueueModule.register({ ...options.queue, schedulers: [] }),
-    ]
-    const privateOverrides = definitions.flatMap((definition) =>
-        (definition.providers ?? []).flatMap((provider) => {
-            const token = typeof provider === "function" ? provider : provider.provide
-            let name: string | undefined
-            if (typeof token === "symbol") name = token.description
-            if (typeof token === "function") name = token.name
-            if (name === undefined || !resources.has(name)) return []
-            return [{ token, value: resources.get(name) }]
-        }),
-    )
-    return [...overrides, ...privateOverrides]
-}
-
-/** Compiles the real API root with explicit options and existing infrastructure-token doubles. */
-export const buildWiringProof = (_AppModule: unknown): Shapes.BuildWiringProofResultShape => ({
-    options,
-    overrides: resourceOverrides(),
+    overrides: [
+        { token: PRIMARY_DATA_SOURCE, value: { manager: {} } },
+        { token: OBJECT_STORAGE, value: {} },
+        { token: OWN_TOKEN_VERIFIER, value: () => ({ ok: false }) },
+        { token: ACCESS_TOKEN_VERIFIER, value: () => ({ ok: false }) },
+    ],
 })

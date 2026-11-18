@@ -20,10 +20,10 @@ export interface WebhookProviderOptions {
 
 /** Options of the http-security capability. */
 export interface HttpSecurityOptions {
-    /** Trusted proxy hops, from zero to two; exceeding the real proxy count lets clients spoof forwarded addresses. */
-    readonly trustedProxyHops: number
     /** The origins allowed to send state-changing requests from a browser. */
     readonly allowedOrigins: ReadonlyArray<string>
+    /** Plain HTTP origins are admitted only by a development or test environment reader. */
+    readonly allowHttpOrigins?: boolean
     /** The rate limit tiers. */
     readonly rateLimit: RateLimitOptions
     /** Signed-webhook providers keyed by their generated route name. */

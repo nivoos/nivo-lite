@@ -1,63 +1,35 @@
-import { Injectable, NotFoundException, Optional } from "@nestjs/common"
-import type { GraphQLFormattedError } from "graphql"
+import { Injectable } from "@nestjs/common"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { InjectMessageCatalog, type Locale, type MessageCatalog } from "@modules/platform/i18n"
 import { isDomainError } from "./domain.error"
-import { InjectErrorReporter, InjectErrorsOptions } from "./errors.decorators"
-import type { ErrorDescription, ErrorKind, ErrorParams, FailureSite } from "./errors.contracts"
-import type { ErrorReporter } from "./errors.port"
+import { InjectErrorsOptions } from "./errors.decorators"
+import type { ErrorDescription, ErrorKind, ErrorParams } from "./errors.contracts"
 import { ERRORS_ERROR_KINDS, ErrorsErrorCode } from "./errors/errors.error"
 import { ErrorsLogEvent } from "./errors.log-events"
 import type { ErrorsOptions } from "./errors.options"
-import { formatGraphqlError } from "./graphql-error.mapper"
 import { HTTP_STATUS_BY_KIND } from "./http-status.policy"
 
 @Injectable()
-/** Turns any failure into the one description every transport answers with: declared codes keep their code and kind, everything else is masked. */
+/** Turns any failure into the one description the transport answers with: declared codes keep their code and kind, everything else is masked. */
 export class ErrorsService {
     private readonly kinds: ReadonlyMap<string, ErrorKind>
-    private readonly typers: NonNullable<ErrorsOptions["typers"]>
 
     constructor(
         @InjectErrorsOptions() options: ErrorsOptions,
         @InjectMessageCatalog() private readonly catalog: MessageCatalog,
         @InjectLogger() private readonly logger: Logger,
-        @Optional() @InjectErrorReporter() private readonly reporter?: ErrorReporter,
     ) {
         this.kinds = new Map([...options.kinds, ERRORS_ERROR_KINDS].flatMap((table) => Object.entries(table)))
-        this.typers = options.typers ?? []
     }
 
-    /** The one GraphQL error formatter of the app: the server registration hands it over as its `formatError`. */
-    readonly formatError = (formatted: GraphQLFormattedError, error: unknown): GraphQLFormattedError =>
-        formatGraphqlError(this, formatted, error)
-
-    /**
-     * Describes `error`: a DomainError of a composed capability keeps its code; the framework's not-found (no route matches
-     * the request) is a plain not-found; anything else is logged, recorded in `app_errors` under the transport's `site` and masked
-     * as internal.
-     */
-    describe(error: unknown, site?: FailureSite): ErrorDescription {
-        const failureSite: FailureSite = site ?? { scope: "api" }
-        if (error instanceof NotFoundException) return this.build(ErrorsErrorCode.RouteNotFound, "not-found", {})
+    /** Describes `error`: a DomainError of a composed capability keeps its code; anything else is logged and masked as internal. */
+    describe(error: unknown): ErrorDescription {
         if (isDomainError(error)) {
             const kind = this.kinds.get(error.code)
             if (kind !== undefined) return this.build(error.code, kind, error.params)
         }
-        const typed = this.typers.map((typer) => typer(error)).find((found) => found !== null && this.kinds.has(found.code))
-        if (typed !== undefined && typed !== null) {
-            // A failure a capability typed (a transient database failure): answered by its code, logged, never reported as a bug.
-            this.logger.error(ErrorsLogEvent.Unhandled, error, { scope: failureSite.scope })
-            return this.build(typed.code, this.kinds.get(typed.code) ?? "internal", typed.params)
-        }
-        this.logger.error(ErrorsLogEvent.Unhandled, error, { scope: failureSite.scope })
-        void this.reporter?.report(failureSite.scope, error, failureSite.context)
+        this.logger.error(ErrorsLogEvent.Unhandled, error)
         return this.build(ErrorsErrorCode.Internal, "internal", {})
-    }
-
-    /** Describes a malformed operation that failed before any capability ran (syntax or schema validation). */
-    describeInvalidOperation(): ErrorDescription {
-        return this.build(ErrorsErrorCode.OperationInvalid, "invalid", {})
     }
 
     /** The display text of a failure code in `locale`; a code without a catalog entry answers the text of the internal error. */

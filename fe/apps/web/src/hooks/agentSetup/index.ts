@@ -1,8 +1,0 @@
-export { LOADING_SESSION, startOf } from "./agentSetup.shared"
-export { useSetupChat } from "./useSetupChat"
-export { useSetupGates } from "./useSetupGates"
-export { useSetupState } from "./useSetupState"
-export { useStaffSetupRedirect } from "./useStaffSetupRedirect"
-export { useSetupVersions } from "./useSetupVersions"
-export { useThreadScroll } from "./useThreadScroll"
-export { useSetupChatView } from "./useSetupChatView"

@@ -1,1 +1,0 @@
-export { installed } from "./installed"

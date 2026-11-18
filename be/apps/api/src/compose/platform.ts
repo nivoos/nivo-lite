@@ -1,118 +1,54 @@
-import { AppErrorsModule } from "@modules/domain/app-errors"
 import type { DynamicModule } from "@nestjs/common"
-import { appPgTypes } from "@modules/integrations/data-sources"
+import { IDENTITY_ERROR_KINDS, IDENTITY_MESSAGES } from "@modules/domain/identity"
+import { PASSPORT_ERROR_KINDS } from "@modules/integrations/passport"
 import { ClockModule } from "@modules/platform/clock"
-import { IdsModule } from "@modules/platform/ids"
-import { LoggingModule } from "@modules/platform/logging"
-import { I18nModule } from "@modules/platform/i18n"
-import { ErrorsModule } from "@modules/platform/errors"
+import { CONFIG_ERROR_KINDS } from "@modules/platform/config"
 import { CqrsModule } from "@modules/platform/cqrs"
-import { HttpSecurityModule } from "@modules/platform/http-security"
-import { DatabaseModule, PRIMARY_ENTITY_MANAGER, typedDatabaseFailure } from "@modules/platform/database"
+import { DATABASE_ERROR_KINDS, DatabaseModule } from "@modules/platform/database"
 import { PRIMARY_ENTITIES } from "@modules/platform/database/entities"
-import { EventBusModule } from "@modules/platform/event-bus"
-import { QueueModule } from "@modules/platform/queue"
+import { ERRORS_MESSAGES, ErrorsModule } from "@modules/platform/errors"
+import { HTTP_SECURITY_ERROR_KINDS, HTTP_SECURITY_MESSAGES, HttpSecurityModule } from "@modules/platform/http-security"
+import { I18nModule } from "@modules/platform/i18n"
+import { IdsModule } from "@modules/platform/ids"
+import { HTTP_ERROR_KINDS, HTTP_MESSAGES, HttpModule } from "@modules/platform/http"
+import { LoggingModule } from "@modules/platform/logging"
 import { RetryModule } from "@modules/platform/retry"
-import { REALTIME_ERROR_KINDS, RealtimeModule, withConnection } from "@modules/platform/realtime"
-import { API_SCHEDULERS } from "./schedulers"
-import { platformErrorKinds, platformMessages } from "./platform-catalog"
-import { JobsModule } from "@modules/platform/jobs"
-import { DataCopiesModule } from "@modules/domain/data-copies"
-import { DataStoresModule } from "@modules/domain/data-stores"
-import { DataSeedModule } from "@modules/integrations/seed"
-import { EffectsModule } from "@modules/platform/effects"
-import { JobOpsModule } from "@modules/domain/job-ops"
-import { OBJECT_STORAGE_ERROR_KINDS, ObjectStorageModule } from "@modules/integrations/object-storage"
 import type { ApiOptions } from "../api.options"
-import { adminErrorKinds, adminMessages } from "./admin"
-import { agentApiErrorKinds, agentApiMessages } from "./agent-api"
-import { agentsErrorKinds, agentsMessages } from "./agents"
-import { agentWorkErrorKinds, agentWorkMessages } from "./agent-work"
-import { authenticationErrorKinds, authenticationMessages } from "./authentication"
-import { automationsErrorKinds, automationsMessages } from "./automations"
-import { billingErrorKinds, billingMessages } from "./billing"
-import { bindingsErrorKinds, bindingsMessages } from "./bindings"
-import { connectionsErrorKinds, connectionsMessages } from "./connections"
-import { identityErrorKinds, identityMessages } from "./identity"
-import { knowledgeErrorKinds, knowledgeMessages } from "./knowledge"
-import { messagingErrorKinds, messagingMessages } from "./messaging"
-import { agentGraphsErrorKinds, agentGraphsMessages } from "./agent-graphs"
-import { modulesErrorKinds, modulesMessages } from "./modules"
 
-/** Registers the shared platform services before the API's domain capabilities. */
+/**
+ * The platform area of the API: every platform capability, registered once and app-wide. A composition group holds
+ * one area's module list and nothing else (no logic, no environment read); `app.module.ts` spreads it into its
+ * imports.
+ */
 export const platformModules = (options: ApiOptions): Array<DynamicModule> => [
     ClockModule.register({ isGlobal: true }),
+    RetryModule.register({ isGlobal: true }),
     IdsModule.register({ isGlobal: true }),
     LoggingModule.register({ isGlobal: true }),
+    HttpModule.register({ isGlobal: true, ...options.http }),
     I18nModule.register({
         isGlobal: true,
-        bundles: [
-            ...platformMessages,
-            ...adminMessages,
-            ...agentApiMessages,
-            ...agentsMessages,
-            ...agentWorkMessages,
-            ...authenticationMessages,
-            ...automationsMessages,
-            ...billingMessages,
-            ...bindingsMessages,
-            ...connectionsMessages,
-            ...identityMessages,
-            ...knowledgeMessages,
-            ...messagingMessages,
-            ...modulesMessages,
-            ...agentGraphsMessages,
-        ],
+        bundles: [HTTP_MESSAGES, ERRORS_MESSAGES, HTTP_SECURITY_MESSAGES, IDENTITY_MESSAGES],
     }),
     ErrorsModule.register({
         isGlobal: true,
         kinds: [
-            ...platformErrorKinds,
-            ...adminErrorKinds,
-            ...agentApiErrorKinds,
-            ...agentsErrorKinds,
-            ...agentWorkErrorKinds,
-            ...authenticationErrorKinds,
-            ...automationsErrorKinds,
-            ...billingErrorKinds,
-            ...bindingsErrorKinds,
-            ...connectionsErrorKinds,
-            ...identityErrorKinds,
-            ...knowledgeErrorKinds,
-            ...messagingErrorKinds,
-            ...modulesErrorKinds,
-            ...agentGraphsErrorKinds,
-            REALTIME_ERROR_KINDS,
-            OBJECT_STORAGE_ERROR_KINDS,
+            HTTP_ERROR_KINDS,
+            CONFIG_ERROR_KINDS,
+            DATABASE_ERROR_KINDS,
+            HTTP_SECURITY_ERROR_KINDS,
+            IDENTITY_ERROR_KINDS,
+            PASSPORT_ERROR_KINDS,
         ],
-        typers: [typedDatabaseFailure],
     }),
     CqrsModule.register({ isGlobal: true }),
-    HttpSecurityModule.register({ isGlobal: true, ...options.httpSecurity }),
+    HttpSecurityModule.register({
+        isGlobal: true,
+        ...options.httpSecurity,
+    }),
     DatabaseModule.register({
         isGlobal: true,
         connections: [options.database],
         entities: PRIMARY_ENTITIES,
-        typeParsers: appPgTypes,
     }),
-    RetryModule.register({ isGlobal: true }),
-    RealtimeModule.register({
-        isGlobal: true,
-        ...withConnection(options.realtime, PRIMARY_ENTITY_MANAGER, options.database.url),
-    }),
-    AppErrorsModule.register({ isGlobal: true }),
-    ObjectStorageModule.register({ isGlobal: true, ...options.storage }),
-    QueueModule.register({ isGlobal: true, schedulers: API_SCHEDULERS, ...options.queue }),
-    EventBusModule.register({ isGlobal: true, consumersEnabled: true, buildId: options.jobs.buildId }),
-    JobsModule.register({ isGlobal: true, connection: PRIMARY_ENTITY_MANAGER, ...options.jobs }),
-    EffectsModule.register({
-        isGlobal: true,
-        connection: PRIMARY_ENTITY_MANAGER,
-        sealingKey: options.connectionSecrets.tokenKey,
-    }),
-    JobOpsModule.register({ isGlobal: true, alerts: options.jobsAlert, parkedCards: true }),
-    // The data standard: the git layer, the stores of the workspace's rows and files, and the scheduled backup of this environment (disabled with its reason when undeclared).
-    DataSeedModule.register({ isGlobal: true, ...options.seed }),
-    DataStoresModule.register({ isGlobal: true }),
-    DataCopiesModule.register({ isGlobal: true, backup: options.dataBackup }),
 ]

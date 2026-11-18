@@ -1,25 +1,11 @@
-import { createTranslator } from "next-intl"
 import { DEFAULT_LOCALE } from "@/modules/i18n"
+import { GlobalErrorNotice } from "@/components/composites/GlobalErrorNotice"
 import messages from "@/modules/i18n/messages/vi.json"
-import { AppGlobalErrorPageBase } from "@nivo-lite/fe-shared/app-global-error-page-base"
 
-/** The provider-free translator of the last-resort boundary: the default catalog, read directly. */
-const t = createTranslator({ locale: DEFAULT_LOCALE, messages })
+/** The public props of the last-resort error page: the boundary hands it the retry. */
+type AppGlobalErrorPageProps = { readonly onRetry: () => void }
 
-/** What the root layout's global error boundary hands the page: the way to try again. */
-interface AppGlobalErrorPageProps {
-    readonly onRetry: () => void
-}
-
-/** The provider-free last-resort boundary reads the default catalog directly. */
+/** The last-resort boundary above the locale layout: it has no provider, so it reads the default catalog directly. */
 export const AppGlobalErrorPage = (props: AppGlobalErrorPageProps) => (
-    <AppGlobalErrorPageBase
-        props={{
-            lang: DEFAULT_LOCALE,
-            title: t("app.globalErrorTitle"),
-            text: t("app.globalErrorText"),
-            retryLabel: t("app.retry"),
-        }}
-        on={{ retry: props.onRetry }}
-    />
+    <GlobalErrorNotice lang={DEFAULT_LOCALE} words={messages.app.errors.global} onRetry={props.onRetry} />
 )

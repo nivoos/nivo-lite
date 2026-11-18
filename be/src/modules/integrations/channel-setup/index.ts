@@ -1,7 +1,0 @@
-export { parseChannelSetupConfig } from "./channel-setup.config"
-export type { ZaloSetupPkce, ZaloSetupSecret } from "./channel-setup.contracts"
-export { CHANNEL_SETUP_CLIENT, InjectChannelSetupClient } from "./channel-setup.decorators"
-export type { ChannelSetupClient } from "./channel-setup.client"
-export { ChannelSetupModule } from "./channel-setup.module"
-export { CHANNEL_SETUP_ERROR_KINDS, ChannelSetupError, ChannelSetupErrorCode } from "./errors/channel-setup.error"
-export { CHANNEL_SETUP_MESSAGES } from "./messages/channel-setup.messages"

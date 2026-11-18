@@ -1,26 +1,31 @@
-import type { Metadata, Viewport } from "next"
+import type { Metadata } from "next"
 import { getTranslations } from "next-intl/server"
-import { Inter } from "next/font/google"
-import type { ReactNode } from "react"
-import { AppLayoutBase } from "@nivo-lite/fe-shared/app-layout-base"
-
-const inter = Inter({ subsets: ["latin", "vietnamese"], variable: "--font-sans" })
+import type { ReactElement, ReactNode } from "react"
+import { SiteShell } from "@/components/frames/SiteShell"
+import { siteUrl } from "@/modules/config"
+import { APP_ROUTES } from "@/modules/routes"
 
 type AppLayoutProps = {
     readonly locale: string
     readonly content: ReactNode
 }
 
-/** The viewport of every page. */
-export const appLayoutViewport: Viewport = { width: "device-width", initialScale: 1 }
-
-/** The localized document title and description. */
+/** The document title and absolute metadata base for the requested locale. */
 export const appLayoutMetadata = async (locale: string): Promise<Metadata> => {
     const t = await getTranslations({ locale, namespace: "app" })
-    return { title: t("title"), description: t("description"), robots: { index: false, follow: false } }
+    return { title: t("title"), metadataBase: new URL(siteUrl()) }
 }
 
-/** The server-resolved document around the routed body. */
-export const AppLayout = (props: AppLayoutProps) => (
-    <AppLayoutBase props={{ lang: props.locale, fontClass: inter.variable }}>{props.content}</AppLayoutBase>
-)
+/** The server-resolved app chrome around the routed body. */
+export const AppLayout = async (props: AppLayoutProps): Promise<ReactElement> => {
+    const t = await getTranslations("app.shell")
+    return (
+        <html lang={props.locale}>
+            <body>
+                <SiteShell brand={t("brand")} homeHref={APP_ROUTES.home}>
+                    {props.content}
+                </SiteShell>
+            </body>
+        </html>
+    )
+}

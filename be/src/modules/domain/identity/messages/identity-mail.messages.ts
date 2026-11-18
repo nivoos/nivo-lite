@@ -1,27 +1,23 @@
 import { renderTransactional, type MailLanguage, type RenderedMail } from "@modules/integrations/mail"
 
-/** What an invitation mail to a person who already has an account is drawn from. */
-export interface InviteMailInput {
+/** What a confirmation or reset mail is drawn from. */
+export interface LinkMailInput {
     /** The product name in the header. */
     readonly brand: string
     /** The absolute link the button opens. */
     readonly url: string
-}
-
-/** What a confirmation, reset or first-password mail is drawn from. */
-export interface LinkMailInput extends InviteMailInput {
     /** How many hours the link lives. */
     readonly hours: number
 }
 
-interface LinkCopy<Input extends InviteMailInput> {
+interface LinkCopy {
     readonly subject: string
-    readonly paragraphs: (input: Input) => ReadonlyArray<string>
+    readonly paragraphs: (input: LinkMailInput) => ReadonlyArray<string>
     readonly button: string
     readonly footer: string
 }
 
-const CONFIRM: Record<MailLanguage, LinkCopy<LinkMailInput>> = {
+const CONFIRM: Record<MailLanguage, LinkCopy> = {
     vi: {
         subject: "Xác nhận email của bạn",
         paragraphs: ({ brand, hours }) => [
@@ -42,7 +38,7 @@ const CONFIRM: Record<MailLanguage, LinkCopy<LinkMailInput>> = {
     },
 }
 
-const RESET: Record<MailLanguage, LinkCopy<LinkMailInput>> = {
+const RESET: Record<MailLanguage, LinkCopy> = {
     vi: {
         subject: "Đặt lại mật khẩu",
         paragraphs: ({ hours }) => [
@@ -63,49 +59,7 @@ const RESET: Record<MailLanguage, LinkCopy<LinkMailInput>> = {
     },
 }
 
-const INVITE_ACCOUNT: Record<MailLanguage, LinkCopy<LinkMailInput>> = {
-    vi: {
-        subject: "Đặt mật khẩu cho tài khoản của bạn",
-        paragraphs: ({ brand, hours }) => [
-            `Bạn được mời vào ${brand}. Hãy đặt mật khẩu để hoàn tất tài khoản.`,
-            `Liên kết có hiệu lực trong ${String(hours)} giờ và chỉ dùng được một lần.`,
-        ],
-        button: "Đặt mật khẩu",
-        footer: "Nếu bạn không mong đợi thư này, hãy bỏ qua nó.",
-    },
-    en: {
-        subject: "Set your password",
-        paragraphs: ({ brand, hours }) => [
-            `You were invited to ${brand}. Set a password to finish creating your account.`,
-            `The link works once and lasts ${String(hours)} hours.`,
-        ],
-        button: "Set password",
-        footer: "If you did not expect this email, you can ignore it.",
-    },
-}
-
-const INVITE_EXISTING: Record<MailLanguage, LinkCopy<InviteMailInput>> = {
-    vi: {
-        subject: "Bạn được mời vào một không gian làm việc",
-        paragraphs: ({ brand }) => [
-            `Bạn được mời vào một không gian làm việc trên ${brand}.`,
-            "Đăng nhập và chấp nhận lời mời tại đây.",
-        ],
-        button: "Xem lời mời",
-        footer: "Nếu bạn không mong đợi thư này, hãy bỏ qua nó.",
-    },
-    en: {
-        subject: "You were invited to a workspace",
-        paragraphs: ({ brand }) => [
-            `You were invited to a workspace on ${brand}.`,
-            "Sign in and accept the invitation here.",
-        ],
-        button: "View invitation",
-        footer: "If you did not expect this email, you can ignore it.",
-    },
-}
-
-const draw = <Input extends InviteMailInput>(copy: LinkCopy<Input>, lang: MailLanguage, input: Input): RenderedMail =>
+const draw = (copy: LinkCopy, lang: MailLanguage, input: LinkMailInput): RenderedMail =>
     renderTransactional({
         lang,
         subject: copy.subject,
@@ -122,11 +76,3 @@ export const confirmEmailMail = (lang: MailLanguage, input: LinkMailInput): Rend
 /** The mail that carries the link choosing a new password. */
 export const resetPasswordMail = (lang: MailLanguage, input: LinkMailInput): RenderedMail =>
     draw(RESET[lang], lang, input)
-
-/** The mail that carries the link choosing the first password of an invited person. */
-export const inviteAccountMail = (lang: MailLanguage, input: LinkMailInput): RenderedMail =>
-    draw(INVITE_ACCOUNT[lang], lang, input)
-
-/** The mail that carries an invitation link to a person who already has an account. */
-export const inviteExistingMail = (lang: MailLanguage, input: InviteMailInput): RenderedMail =>
-    draw(INVITE_EXISTING[lang], lang, input)

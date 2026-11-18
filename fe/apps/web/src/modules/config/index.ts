@@ -1,88 +1,10 @@
-/** The only process-environment reader of the web app's modules. */
+/** The only process-environment reader in the web app. */
 const required = (name: string, value: string | undefined): string => {
-    if (value === undefined || value === "")
-        throw new Error(`${name} is not set (provide it as a build argument / GitHub environment variable)`)
+    if (value === undefined || value === "") throw new Error(`${name} is not set`)
     return value
 }
 
-/** The origin of the public API the Developers page documents; the web app itself never calls it. */
-export const developerApiUrl = (): string =>
-    required("NEXT_PUBLIC_DEVELOPER_API_URL", process.env.NEXT_PUBLIC_DEVELOPER_API_URL)
-
-type SessionCookieOptionsShape = {
-    readonly httpOnly: false
-    readonly secure: boolean
-    readonly sameSite: "lax"
-}
-
-/** Security attributes applied to the cookies the web app itself writes (the locale cookie). The session cookie belongs to the back end. */
-export const sessionCookieOptions: SessionCookieOptionsShape = {
-    httpOnly: false,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-} as const
-
-/** True when the console is opened on a host of the local machine: the browser then reaches the local api, whose cookie is same-site there. */
-const onLocalHost = (): boolean =>
-    typeof window !== "undefined" && ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname)
-
-/**
- * The origin of the back end api the browser calls directly (GraphQL at `/graphql`, REST beside it) and whose auth doors modules/auth calls.
- * A dev stack served through a tunnel sets NEXT_PUBLIC_LOCAL_API_URL too: the console opened on localhost keeps its local api (the refresh cookie
- * stays same-site), the console opened on the tunnel origin calls the tunnel api.
- */
-export const apiUrl = (): string => {
-    const local = process.env.NEXT_PUBLIC_LOCAL_API_URL
-    if (local !== undefined && local !== "" && onLocalHost()) return local
-    return required("NEXT_PUBLIC_API_URL", process.env.NEXT_PUBLIC_API_URL)
-}
-/** The GraphQL endpoint of the back end api. */
-export const graphqlUrl = (): string => `${apiUrl()}/graphql`
-/** The back end's event-stream endpoint at `path`, on the origin of its GraphQL endpoint (the streams of modules/api/sse). */
-export const eventStreamUrl = (path: string): string => new URL(path, graphqlUrl()).href
-
-/** Transport tuning of the GraphQL client: request timeout and the retry backoff (milliseconds, attempts). */
-export const graphqlTuning = {
-    timeoutMs: 30_000,
-    retryInitialDelayMs: 300,
-    retryMaxDelayMs: 3_000,
-    retryMaxAttempts: 3,
-} as const
-
-/** The landing origin of the local stack (the dev compose names it), used when a development run leaves the variable unset. */
-const LOCAL_LANDING_ORIGIN = "http://landing.localhost"
-
-/** The public origin of the landing site (privacy and terms live there, not in the console). A production build must set it; a development run falls back to the local landing. */
-export const landingUrl = (): string => {
-    const configured = process.env.NEXT_PUBLIC_LANDING_URL
-    const value =
-        process.env.NODE_ENV !== "production" && (configured === undefined || configured === "")
-            ? LOCAL_LANDING_ORIGIN
-            : required("NEXT_PUBLIC_LANDING_URL", configured)
-    let end = value.length
-    while (value[end - 1] === "/") end -= 1
-    return value.slice(0, end)
-}
-
-/**
- * Whether this build is a prototype: the workbench renderer then answers from fixtures instead of the back end (dev and preview
- * builds). The mode is read once, at the app root, by the provider that picks the data port; nothing else branches on it.
- */
-export const isPrototypeMode = (): boolean => process.env.NEXT_PUBLIC_NIVO_PROTOTYPE === "1"
-
-/** The workspace a prototype build opens without a session: `/workspaces/fixture-ws/...` answers from fixtures, on the same address shape as a live workspace. */
-export const PROTOTYPE_WORKSPACE_ID = "fixture-ws"
-
-/** The public origin of the site (providers call back to it); `undefined` when it is not set. */
-export const webSiteOrigin = (): string | undefined => process.env.NEXT_PUBLIC_SITE_URL
-
-/** The public settings of Google Picker: a browser API key and the OAuth client id of the console; `null` when either is unset, which hides the Picker. */
-export const googlePickerSettings = (): { readonly apiKey: string; readonly clientId: string } | null => {
-    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_PICKER_API_KEY
-    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
-    return apiKey === undefined || apiKey === "" || clientId === undefined || clientId === ""
-        ? null
-        : { apiKey, clientId }
-}
-
-export { creditsContactHref } from "./credits"
+/** The public origin used for metadata. */
+export const siteUrl = (): string => required("NEXT_PUBLIC_SITE_URL", process.env.NEXT_PUBLIC_SITE_URL)
+/** The public origin of the API whose auth doors modules/auth calls; the browser holds no credential of its own. */
+export const apiUrl = (): string => required("NEXT_PUBLIC_API_URL", process.env.NEXT_PUBLIC_API_URL)

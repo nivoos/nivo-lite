@@ -1,1 +1,0 @@
-{"findings":[{"column":0,"line":0,"message":"packages/ is tracked, but hfs.json does not declare the packages side: declare it under sides (\"packages\": {}), or remove the folder (PROJECT-1)","path":"packages/","rule":"HFS_SIDE_UNDECLARED"}],"hash":"absent","path":"packages/","step":"hfs"}

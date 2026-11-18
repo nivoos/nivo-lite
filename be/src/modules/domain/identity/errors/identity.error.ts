@@ -1,47 +1,38 @@
 import { DomainError, type ErrorKind } from "@modules/platform/errors"
 
-/** Codes of the identity capability. */
+/** Codes of the identity capability: the sign-in refusals travel under these wire codes, the same on both sides of the doors. */
 export enum IdentityErrorCode {
     /** The door needs a signed-in caller and the request establishes none. */
     Unauthenticated = "IDENTITY_UNAUTHENTICATED",
-    /** The access token failed signature, issuer, audience or expiry verification. */
-    AccessTokenInvalid = "IDENTITY_ACCESS_TOKEN_INVALID",
-    /** The email and password pair is wrong (the same answer for an unknown email). */
-    PairRefused = "IDENTITY_INVALID_CREDENTIALS",
-    /** The account is deleted or banned. */
-    AccountDisabled = "IDENTITY_ACCOUNT_DISABLED",
-    /** The refresh token is unknown, expired or already rotated. */
+    /** The refresh token is unknown, expired or already spent. */
     RefreshInvalid = "IDENTITY_REFRESH_INVALID",
     /** A rotated refresh token was presented again: the session was ended. */
     RefreshReused = "IDENTITY_REFRESH_REUSED",
-    /** The password link is unknown, used or expired. */
-    ResetTokenInvalid = "IDENTITY_RESET_TOKEN_INVALID",
-    /** The new password breaks the password policy. */
-    PasswordInvalid = "IDENTITY_PASSWORD_INVALID",
-    /** Too many attempts for this address; try again later. */
+    /** The account is deleted or banned. */
+    AccountDisabled = "IDENTITY_ACCOUNT_DISABLED",
+    /** Too many failed attempts for this address; try again later. */
     TooManyAttempts = "IDENTITY_TOO_MANY_ATTEMPTS",
-    /** The mailbox was never confirmed through the signup link. */
+    /** The pair of address and password is wrong (the same answer for an unknown address). */
+    PairRefused = "IDENTITY_INVALID_CREDENTIALS",
+    /** The mailbox was never confirmed. */
     EmailNotConfirmed = "IDENTITY_EMAIL_NOT_CONFIRMED",
-    /** No account has that id. */
-    AccountNotFound = "IDENTITY_ACCOUNT_NOT_FOUND",
-    /** This app composes no effects ledger, so an invitation mail that must be sent once cannot be made here. */
-    EffectsMissing = "IDENTITY_CONFIG_EFFECTS_MISSING",
+    /** The new password does not fit the policy (at least 8 characters, at most 72 bytes). */
+    PasswordInvalid = "IDENTITY_PASSWORD_INVALID",
+    /** The confirmation or reset link is unknown, expired or already spent. */
+    ResetTokenInvalid = "IDENTITY_RESET_TOKEN_INVALID",
 }
 
 /** How each identity code travels. */
 export const IDENTITY_ERROR_KINDS: Record<IdentityErrorCode, ErrorKind> = {
     [IdentityErrorCode.Unauthenticated]: "unauthenticated",
-    [IdentityErrorCode.AccessTokenInvalid]: "unauthenticated",
-    [IdentityErrorCode.PairRefused]: "unauthenticated",
-    [IdentityErrorCode.AccountDisabled]: "forbidden",
     [IdentityErrorCode.RefreshInvalid]: "unauthenticated",
     [IdentityErrorCode.RefreshReused]: "unauthenticated",
-    [IdentityErrorCode.ResetTokenInvalid]: "invalid",
-    [IdentityErrorCode.PasswordInvalid]: "invalid",
+    [IdentityErrorCode.AccountDisabled]: "forbidden",
     [IdentityErrorCode.TooManyAttempts]: "rate-limited",
+    [IdentityErrorCode.PairRefused]: "unauthenticated",
     [IdentityErrorCode.EmailNotConfirmed]: "forbidden",
-    [IdentityErrorCode.AccountNotFound]: "not-found",
-    [IdentityErrorCode.EffectsMissing]: "unavailable",
+    [IdentityErrorCode.PasswordInvalid]: "invalid",
+    [IdentityErrorCode.ResetTokenInvalid]: "invalid",
 }
 
 /** The one error class of the identity capability. */

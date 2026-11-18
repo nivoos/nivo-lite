@@ -1,8 +1,9 @@
-import { HomeRedirectPage } from "@/features/pages/HomeRedirectPage"
+import { AppHomePage } from "@/features/pages/AppHomePage"
 
-export { homeRedirectMetadata as generateMetadata } from "@/features/pages/HomeRedirectPage"
+/** The document title of this page. */
+export { appHomeMetadata as generateMetadata } from "@/features/pages/AppHomePage"
 
-/** The console has no front page: the dashboard is where a signed-in reader starts (the proxy sends everyone else to sign in). */
-const Page = () => <HomeRedirectPage />
+/** The locale root's page slot. */
+const Page = () => <AppHomePage />
 
 export default Page

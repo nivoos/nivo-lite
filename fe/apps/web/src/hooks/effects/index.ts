@@ -1,1 +1,1 @@
-export { AuthSideEffect } from "./AuthSideEffect"
+export { useAuthSessionEffect } from "./useAuthSessionEffect"

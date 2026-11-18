@@ -1,40 +1,17 @@
-import {
-    configureStore,
-    type UnknownAction,
-    type Tuple,
-    type ThunkDispatch,
-    type StoreEnhancer,
-    type EnhancedStore,
-} from "@reduxjs/toolkit"
-import { viewerReducer, type ViewerSliceState } from "./slices/viewer"
+import { configureStore, type EnhancedStore } from "@reduxjs/toolkit"
+import { sessionReducer, type SessionState } from "./slices/session"
 
-type MakeStoreResult = EnhancedStore<
-    {
-        viewer: ViewerSliceState
+/** The state of the store, for useAppSelector: one slice per key of the root reducer. */
+export interface RootState {
+    readonly session: SessionState
+}
+
+/** The one store of the app: app-wide shared state only (feature-local state lives in hooks/zustand). */
+export const store: EnhancedStore<RootState> = configureStore({
+    reducer: {
+        session: sessionReducer,
     },
-    UnknownAction,
-    Tuple<
-        [
-            StoreEnhancer<{
-                dispatch: ThunkDispatch<
-                    {
-                        viewer: ViewerSliceState
-                    },
-                    undefined,
-                    UnknownAction
-                >
-            }>,
-            StoreEnhancer,
-        ]
-    >
->
+})
 
-/** Builds the app store: app-wide state only (selected ids, server-pushed entities); feature-local UI state is zustand. */
-export const makeStore = (): MakeStoreResult => configureStore({ reducer: { viewer: viewerReducer } })
-
-/** The app store. */
-export type AppStore = ReturnType<typeof makeStore>
-/** The state tree of the app store. */
-export type RootState = ReturnType<AppStore["getState"]>
-/** The dispatch function of the app store. */
-export type AppDispatch = AppStore["dispatch"]
+/** The dispatch of the store, for useAppDispatch. */
+export type AppDispatch = typeof store.dispatch

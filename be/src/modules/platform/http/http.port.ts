@@ -1,21 +1,15 @@
-/** An address the connection is pinned to: the caller already validated it, so the client opens the socket there and never resolves the host name again. */
-export interface HttpPin {
-    /** The IP address to connect to. */
-    readonly address: string
-    /** The IP family of the address. */
-    readonly family: 4 | 6
-}
-
 /** The HTTP methods the client sends. */
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
 
-/** One outbound request. The timeout is required: a call without a deadline does not type-check. */
+/** One outbound request. Callers supply the deadline and correlation id explicitly. */
 export interface HttpRequest {
+    /** The correlation id carried explicitly from the inbound request or delivery; sent as `x-request-id`. */
+    readonly correlationId: string
     /** The HTTP method. */
     readonly method: HttpMethod
     /** The absolute URL. */
     readonly url: string
-    /** Extra request headers. */
+    /** Extra request headers; correlation headers come from `correlationId` instead. */
     readonly headers?: Readonly<Record<string, string>>
     /** A JSON-serializable body, sent as `application/json`. */
     readonly body?: unknown
@@ -23,35 +17,20 @@ export interface HttpRequest {
     readonly form?: Readonly<Record<string, string>>
     /** Raw bytes sent as they are (the caller names their `content-type`); use instead of `body` and `form`. */
     readonly bytes?: Buffer
-    /** How the answer body is read: parsed as JSON (default), kept as text (a string, empty when the answer had none) or kept as raw bytes (a Buffer). */
-    readonly read?: "json" | "text" | "bytes" | undefined
-    /** Connects to this address instead of resolving the host name (the Host header and the TLS server name stay the URL's); a pinned call never follows redirects. */
-    readonly pin?: HttpPin
-    /** `manual` answers a redirect as it is (status and `location` header) instead of following it; the default follows. */
-    readonly redirect?: "follow" | "manual"
+    /** How the answer body is read: parsed as JSON (default) or kept as raw bytes (a Buffer, empty when the answer had none). */
+    readonly read?: "json" | "bytes"
     /** How long to wait for the answer before the call fails as a timeout. */
     readonly timeoutMs: number
     /** Cancels the call when aborted. */
     readonly signal?: AbortSignal
-    /**
-     * Pinned reads of raw bytes only: the most body bytes to hold. A body that declares or reaches more stops the read there and the
-     * answer carries `tooLarge` with no body, so a big file is never buffered past the caller's limit. Absent: the client's own cap, and a body over it fails the call.
-     */
-    readonly maxBytes?: number
 }
 
-/** The answer to one request: the status, the headers, the address it finally came from and the body read as the request asked. */
+/** The answer to one request: the status and the body parsed as JSON (undefined when the body is empty), or its raw bytes. */
 export interface HttpResponse {
     /** The HTTP status code. */
     readonly status: number
-    /** The response headers, names in lower case (absent from a double that answers only a status and a body). */
-    readonly headers?: Readonly<Record<string, string>> | undefined
-    /** The address the answer came from after redirects (absent from a double that answers only a status and a body). */
-    readonly url?: string
-    /** The parsed JSON body (undefined when the answer had none), a string for `read: "text"`, or a Buffer for `read: "bytes"`. */
+    /** The parsed JSON body (undefined when the answer had none), or a Buffer when the request asked for `read: "bytes"`. */
     readonly body: unknown
-    /** Set only when the request named `maxBytes` and the body passed it: the read stopped there and `body` is empty. */
-    readonly tooLarge?: true
 }
 
 /** The outbound HTTP port: the only way product code calls another service. */

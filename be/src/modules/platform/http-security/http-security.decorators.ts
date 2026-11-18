@@ -1,7 +1,6 @@
 import { SetMetadata } from "@nestjs/common"
 import { injector, type DoorDecorator, type TypedParameterDecorator } from "@modules/platform/composition"
 import type { HttpSecurityOptions } from "./http-security.options"
-import type { WebhookProofRegistry } from "./webhook-proof.port"
 import type { WebhookSignatureService } from "./webhook-signature.service"
 
 /** Metadata for doors that require an actual Origin, including the start of a cookie-authenticated flow. */
@@ -23,10 +22,3 @@ export const InjectWebhookSignature = (): TypedParameterDecorator<WebhookSignatu
 /** Injects the options of the http-security capability. Parameter type: HttpSecurityOptions. */
 export const InjectHttpSecurityOptions = (): TypedParameterDecorator<HttpSecurityOptions> =>
     injector<HttpSecurityOptions>(HTTP_SECURITY_OPTIONS)
-
-/** Token of the registry that holds the per-scope webhook proofs. */
-export const WEBHOOK_PROOF_REGISTRY: unique symbol = Symbol("platform.http-security.webhook-proof-registry")
-
-/** Injects the registry a module adds its per-scope webhook proof to. Parameter type: WebhookProofRegistry. */
-export const InjectWebhookProofRegistry = (): TypedParameterDecorator<WebhookProofRegistry> =>
-    injector<WebhookProofRegistry>(WEBHOOK_PROOF_REGISTRY)

@@ -1,13 +1,10 @@
-import { defineConfig } from 'vite'
+import { defineGallery } from "@starci/gallery/vite"
 
-// Images are many and copied in bulk; watching them crashed the dev server with EBUSY on Windows.
-// Only source/markdown is watched; reload the page after adding PNGs.
-export default defineConfig({
-  server: {
-    host: '127.0.0.1',
-    watch: {
-      ignored: ['**/*.png', '**/shots/**', '**/node_modules/**'],
-      awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
-    },
-  },
+// The whole gallery of nivo-lite is this config over @starci/gallery: it reads gallery/pages, flows.json and the design canvas (../.starcistacks/canvas by default).
+// The server binds the IPv4 loopback: the dev tunnel routes to http://127.0.0.1:<port>, which an IPv6-only bind (::1) refuses with a 502. `allowedHosts` is
+// the tunnel hosts the stack declares for the gallery (`local.tunnel.routes[]` named `gallery`); Vite answers 403 to any other Host.
+export default defineGallery({
+    app: "nivo-lite",
+    locale: "vi",
+    allowedHosts: [],
 })

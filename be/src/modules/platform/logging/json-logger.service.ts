@@ -1,27 +1,26 @@
 import type { Writable } from "node:stream"
 import { InjectClock, type Clock } from "@modules/platform/clock"
+import { InjectIds, type Ids } from "@modules/platform/ids"
+import { stampLogFields } from "./correlation.policy"
 import { InjectLogErr, InjectLogOut } from "./logging.decorators"
+import type { LoggingOptions } from "./logging.options"
 import type { LogFields, Logger } from "./logging.port"
-import { redactFields } from "./redact.policy"
-
-/** The code and text parameters a capability error carries (the shape of `DomainError`, read without importing it); nothing for any other error. */
-const capabilityFacts = (cause: Error): LogFields => {
-    const code: unknown = "code" in cause ? cause.code : undefined
-    const params: unknown = "params" in cause ? cause.params : undefined
-    return typeof code === "string" && typeof params === "object" && params !== null
-        ? { errorCode: code, errorParams: params }
-        : {}
-}
 
 type Level = "info" | "warn" | "error"
 
 /** The default adapter: one JSON object per line, stamped by the Clock; info goes to `out`, warn and error to `err`. */
 export class JsonLoggerService implements Logger {
+    /** The identity of lines written outside any correlation scope: drawn once, so such lines of one process share it. */
+    private readonly rootId: string
+
     constructor(
         @InjectClock() private readonly clock: Clock,
         @InjectLogOut() private readonly out: Writable,
         @InjectLogErr() private readonly err: Writable,
-    ) {}
+        @InjectIds() ids: Ids,
+    ) {
+        this.rootId = ids.next()
+    }
 
     /** Writes an info line. */
     info(event: string, fields?: LogFields): void {
@@ -33,29 +32,23 @@ export class JsonLoggerService implements Logger {
         this.write("warn", this.err, event, fields)
     }
 
-    /**
-     * Writes an error line with the cause serialized by name and message. A capability error also tells its code and its text parameters
-     * (a refused query names its problem, location and entity; a refused statement its SQLSTATE), which never carry a value.
-     */
+    /** Writes the cause's name, message, optional error code and stack without allowing caller fields to replace them. */
     error(event: string, cause: unknown, fields?: LogFields): void {
+        const code = typeof cause === "object" && cause !== null && "code" in cause ? { errorCode: cause.code } : {}
         const detail =
             cause instanceof Error
-                ? {
-                      errorName: cause.name,
-                      errorMessage: cause.message,
-                      ...capabilityFacts(cause),
-                  }
+                ? { errorName: cause.name, errorMessage: cause.message, stack: cause.stack }
                 : { errorMessage: String(cause) }
-        this.write("error", this.err, event, { ...detail, ...fields })
+        this.write("error", this.err, event, { ...fields, ...detail, ...code })
     }
 
-    /** Every line is scrubbed of credentials (tokens, keys, passwords) before it is written: logs never carry a secret. */
     private write(level: Level, sink: Writable, event: string, fields?: LogFields): void {
-        const safe = fields === undefined ? {} : redactFields(fields)
-        sink.write(`${JSON.stringify({ level, event, time: this.clock.now().toISOString(), ...safe })}\n`)
+        sink.write(
+            `${JSON.stringify({ ...stampLogFields(fields, this.rootId), level, event, time: this.clock.now().toISOString() })}\n`,
+        )
     }
 }
 
-/** Builds the JSON logger stamping lines with `clock`, info on `out` (stdout by default) and the rest on stderr; main.ts uses it before the DI container exists. */
-export const createJsonLogger = (clock: Clock, out: Writable = process.stdout): Logger =>
-    new JsonLoggerService(clock, out, process.stderr)
+/** Builds the JSON logger stamping lines with `clock`: info on stdout (or stderr when `options.info` says so), warn and error on stderr; main.ts uses it before the DI container exists. */
+export const createJsonLogger = (clock: Clock, ids: Ids, options: LoggingOptions = {}): Logger =>
+    new JsonLoggerService(clock, options.info === "stderr" ? process.stderr : process.stdout, process.stderr, ids)

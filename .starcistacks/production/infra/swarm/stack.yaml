@@ -1,393 +1,235 @@
-# NIVO production stack for ONE Ubuntu VPS: a single-manager Docker Swarm (canon docs/application-stacks.md, "Docker Swarm on a VPS").
-# This file is the SOURCE of the review model. A release renders it (`starci app stack render`, the first step of `starci app stack deploy`) with
-# `docker stack config` together with the generated override that adds the images, the versioned secret grants and the `<KEY>_FILE` pointers,
-# and deploys the rendered bytes with `docker stack deploy --with-registry-auth nivo`. Nothing here is built on the VPS and no secret value
-# appears in it.
-#
-# Topology: this stack publishes NO port. The VPS has ONE shared ingress (its own stack, `starci app stack ingress create`) that owns 80/443 and the
-# certificates, serves every tenant and routes nivo's hosts to the aliases below over the external overlay nivo-edge-swarm; nivo's routes are published
-# into the shared dynamic directory by `starci app stack ingress publish` (infra/swarm/edge/routes.yml). TLS covers nivo.vn, www.nivo.vn, app.nivo.vn, admin.nivo.vn, api.nivo.vn.
-#   nivo-landing   the Next.js landing on nivo.vn / www.nivo.vn, reached as nivo-landing:3000 on the edge network
-#   nivo-admin     the Next.js platform-admin app on admin.nivo.vn (the NIVO team only), reached as nivo-admin:3000 on the edge network
-#   nivo-web-app   the Next.js console on app.nivo.vn, reached as nivo-web-swarm:3000 on the edge network (its own alias: nivo-web still names the old compose container until it is retired)
-#   nivo-api       the Nest api: GraphQL, webhooks, the BullMQ workers and outbox relay, the job alert monitor; reached as nivo-api:8787 on the edge network
-#                  The api process also serves the AI gateway (AiRouterGatewayModule) on 8788 (api port + offset 1), reachable as nivo-api:8788 on `agents` only
-#   nivo-mcp       the NIVO MCP gateway (be/apps/mcp), internal only: reached as nivo-mcp:8790 on the private `agents` network, no public route
-#   nivo-n8n       private automation editor on the `automation` network (no published port); SQLite database on the persisted volume n8n-data
-#   nivo-redis     the BullMQ broker of the queue outbox relay and workers, on the private `agents` network (nivo-redis:6379, no published port);
-#                  AOF with appendfsync everysec on the persisted volume redis-data. PostgreSQL stays the durable record: the relay republishes any
-#                  committed outbox row Redis loses, so a broker restart can cost at most the last second of broker state, never an admitted job.
-#
-#   db  the PostgreSQL database (owner ruling 2026-10-29), on the private `agents` network
-#                  (db:5432, no published port) on the persisted volume postgres-data; the api and the mcp gateway connect as app_be
-#   nivo-postgres-backup  the daily age-encrypted pg_dump of db onto the persisted volume postgres-backups (14 days)
-#
-# Health signals: the container healthcheck is LIVENESS only (process-local /healthz; a database outage never restarts the api). READINESS
-# (/readyz: the database answers) gates traffic at the shared ingress (Traefik health check in routes.yml) and the deploy acceptance, never a restart.
-# Stateful services update stop-first (one writer per volume); stateless ones start-first with rollback on failure.
-
-x-logging:
-  driver: json-file
-  options: { max-size: "10m", max-file: "5" }
-
+# Illustrative production model. Replace all-zero application digests with verified published release digests before use.
 services:
-  nivo-web-app:
-    image: ghcr.io/starci183/nivo-lite-web@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  api:
+    image: "nivo-lite/api:v0.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000"
     environment:
+      NODE_ENV: production
+      PORT: "3001"
+      HTTP_SECURITY_ALLOWED_ORIGINS: https://nivo-lite.example.invalid
+      PRIMARY_DB_URL_FILE: /run/secrets/primary-db-url
+      PRIMARY_DB_SCHEMA: public
+      GOOGLE_CLIENT_ID: REPLACE_WITH_GOOGLE_OAUTH_CLIENT_ID
+      GOOGLE_CLIENT_SECRET_FILE: /run/secrets/google-client-secret
+      GOOGLE_CALLBACK_URL: https://api.nivo-lite.example.invalid/auth/google/callback
+      AUTH_JWT_ISSUER: https://api.nivo-lite.example.invalid
+      AUTH_WEB_ORIGIN: https://nivo-lite.example.invalid
+      AUTH_JWT_AUDIENCE: nivo-lite
+      AUTH_JWT_KEY_ID: production-1
+      AUTH_COOKIE_DOMAIN: nivo-lite.example.invalid
+      AUTH_JWT_PRIVATE_KEY_FILE: /run/secrets/auth-jwt-private-key
+      MAIL_HOST: smtp.nivo-lite.example.invalid
+      MAIL_PORT: "587"
+      MAIL_SECURITY: starttls
+      MAIL_FROM: no-reply@nivo-lite.example.invalid
+      MAIL_FROM_NAME: nivo-lite
+      STORAGE_ENDPOINT: https://storage.nivo-lite.example.invalid
+      STORAGE_REGION: us-east-1
+      STORAGE_BUCKET: nivo-lite-production
+      STORAGE_ACCESS_KEY_ID_FILE: /run/secrets/storage-access-key-id
+      STORAGE_SECRET_ACCESS_KEY_FILE: /run/secrets/storage-secret-access-key
+    secrets:
+      - source: primary-db-url
+        target: primary-db-url
+      - source: google-client-secret
+        target: google-client-secret
+      - source: auth-jwt-private-key
+        target: auth-jwt-private-key
+      - source: storage-access-key-id
+        target: storage-access-key-id
+      - source: storage-secret-access-key
+        target: storage-secret-access-key
+    networks: [app]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    deploy:
+      replicas: 1
+      placement:
+        constraints: ["node.labels.nivo-lite == production"]
+      update_config:
+        parallelism: 1
+        order: start-first
+        failure_action: rollback
+        monitor: 30s
+      # Stateless and served behind the ingress: roll back start-first so the serving task stays up until the old release is healthy.
+      rollback_config:
+        parallelism: 1
+        order: start-first
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+  web:
+    image: "nivo-lite/web:v0.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    environment:
+      NODE_ENV: production
       PORT: "3000"
       HOSTNAME: 0.0.0.0
-      NODE_OPTIONS: --max-old-space-size=512
-    networks:
-      edge:
-        aliases: [nivo-web-swarm]
+      NEXT_PUBLIC_SITE_URL: https://nivo-lite.example.invalid
+    networks: [app]
     healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:3000/health/live',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))",
-        ]
-      interval: 15s
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
       timeout: 5s
+      start_period: 20s
       retries: 3
-      start_period: 40s
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "5" }
     deploy:
       replicas: 1
-      resources: { limits: { memory: 600M } }
+      placement:
+        constraints: ["node.labels.nivo-lite == production"]
       update_config:
-        { parallelism: 1, order: start-first, failure_action: rollback, monitor: 30s, max_failure_ratio: 0, delay: 5s }
-      rollback_config: { parallelism: 1, order: start-first, monitor: 30s }
-      restart_policy: { condition: any, delay: 5s }
-
-  nivo-landing:
-    image: ghcr.io/starci183/nivo-lite-landing@sha256:0000000000000000000000000000000000000000000000000000000000000000
-    environment:
-      PORT: "3000"
-      HOSTNAME: 0.0.0.0
-      NODE_OPTIONS: --max-old-space-size=256
-    networks:
-      edge:
-        aliases: [nivo-landing]
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:3000/health/live',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 40s
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "5" }
-    deploy:
-      replicas: 1
-      resources: { limits: { memory: 300M } }
-      update_config:
-        { parallelism: 1, order: start-first, failure_action: rollback, monitor: 30s, max_failure_ratio: 0, delay: 5s }
-      rollback_config: { parallelism: 1, order: start-first, monitor: 30s }
-      restart_policy: { condition: any, delay: 5s }
-
-  # nivo-admin (admin.nivo.vn) is left out of release 0.7.0 (coordinator 2026-11-15): its Next build fails (server/client boundary); it ran no
-  # service in production before either. Its source is unchanged; put the service back with its image once the admin app builds.
-
-  nivo-api:
-    image: ghcr.io/starci183/nivo-lite-api@sha256:0000000000000000000000000000000000000000000000000000000000000000
-    # environment, `<KEY>_FILE` pointers and the versioned secret grants are added by the generated override (starci app stack render).
-    networks:
-      edge:
-        aliases: [nivo-api]
-      agents:
-      automation:
-    volumes:
-      - ai-router-data:/var/lib/ai-router # the AI gateway's SQLite key store (virtual keys survive a restart); the gateway listens on 8788 of the private agents network only
-      - video-cache:/var/cache/nivo-video # voiceover clips by text hash: re-rendering the same script costs no TTS call
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:'+process.env.PORT+'/healthz',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
-    stop_grace_period: 45s # running jobs finish or are handed back to the queue before the task stops
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "5" }
-    deploy:
-      replicas: 1
-      # video-cache is a single-host volume: the placement is explicit, a replica is not high availability.
-      placement: { constraints: [node.role == manager] }
-      update_config:
-        { parallelism: 1, order: stop-first, failure_action: rollback, monitor: 45s, max_failure_ratio: 0, delay: 5s }
-      rollback_config: { parallelism: 1, order: stop-first, monitor: 45s }
-      restart_policy: { condition: any, delay: 5s }
-
-  nivo-mcp:
-    image: ghcr.io/starci183/nivo-lite-mcp@sha256:0000000000000000000000000000000000000000000000000000000000000000
-    # The NIVO MCP gateway (be/apps/mcp): POST /mcp/<workspaceId> (Streamable HTTP) in front of every connector, with the grants, approvals,
-    # limits, breakers and audit of the gateway modules the api shares. INTERNAL ONLY: it is on the private `agents` network under the alias
-    # nivo-mcp (the api reaches it as http://nivo-mcp:8790), never on `edge`, and no route of infra/swarm/edge/routes.yml
-    # names it. Environment, `<KEY>_FILE` pointers and the versioned secret grants are added by the generated override, exactly like nivo-api.
-    networks:
-      agents:
-        aliases: [nivo-mcp]
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:'+process.env.PORT+'/healthz',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 40s
-    stop_grace_period: 15s # an in-flight tool call is bounded by the 4 s connector timeout
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "5" }
-    deploy:
-      replicas: 1 # the circuit breakers are process-local: one replica keeps one breaker per (workspace, connector)
-      resources: { limits: { memory: 300M } }
-      update_config:
-        { parallelism: 1, order: start-first, failure_action: rollback, monitor: 30s, max_failure_ratio: 0, delay: 5s }
-      rollback_config: { parallelism: 1, order: start-first, monitor: 30s }
-      restart_policy: { condition: any, delay: 5s }
-
-  nivo-n8n:
-    # Upgrade deliberately: n8n migrates its SQLite database on start and a migrated database cannot go back (back up the n8n-data volume first: starci app stack backup).
-    image: docker.n8n.io/n8nio/n8n:1.64.3@sha256:4d9116228d426ce24c442a744e9c11ee7c1187713f93f21dd5a34a12584708c1
-    environment:
-      DB_TYPE: sqlite # owner ruling 2026-10-14: no self-hosted Postgres; database.sqlite lives on the persisted volume n8n-data (/home/node/.n8n)
-      # N8N_ENCRYPTION_KEY_FILE=/run/secrets/N8N_ENCRYPTION_KEY and the secret grant are added by the generated override (deploy.secrets.grants, filePointers).
-      N8N_HOST: n8n.nivo.vn
-      N8N_PROTOCOL: https
-      N8N_PORT: "5678"
-      WEBHOOK_URL: https://n8n.nivo.vn/
-      N8N_PROXY_HOPS: "1"
-      N8N_SECURE_COOKIE: "true"
-      N8N_DIAGNOSTICS_ENABLED: "false"
-      N8N_PERSONALIZATION_ENABLED: "false"
-      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
-      GENERIC_TIMEZONE: Asia/Ho_Chi_Minh
-      TZ: Asia/Ho_Chi_Minh
-      EXECUTIONS_DATA_PRUNE: "true"
-      EXECUTIONS_DATA_MAX_AGE: "336"
-    volumes:
-      - n8n-data:/home/node/.n8n
-    # automation is the private network the api reaches it on (nivo-n8n:5678); edge carries the public editor route (n8n.nivo.vn) under a unique alias.
-    networks:
-      automation: {}
-      edge: { aliases: [nivo-n8n] }
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz >/dev/null 2>&1 || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 60s
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "5" }
-    deploy:
-      replicas: 1
-      placement: { constraints: [node.role == manager] }
-      update_config: { parallelism: 1, order: stop-first, failure_action: rollback, monitor: 45s, max_failure_ratio: 0 }
-      rollback_config: { parallelism: 1, order: stop-first, monitor: 45s }
-      restart_policy: { condition: any, delay: 5s }
-
-  # The queue broker: BullMQ on Redis, reached by the api only, on the private `agents` network (no published port, no edge alias). AOF
-  # `appendfsync everysec` on the single-host volume redis-data bounds broker-state loss at a restart to ~1 s, and the outbox relay republishes
-  # whatever it loses anyway. Stateful: stop-first, one replica pinned to the manager like the other volumes.
-  nivo-redis:
-    image: redis:7.4-alpine@sha256:57e4255cc971b1c8d6f8a6ca283ac01bc3ecdd914273ef6bfaede87aaecd6541
-    # The password is the sealed QUEUE_REDIS_PASSWORD, granted to this service as a Swarm secret file (deploy.secrets.grants); a backtick substitution (no dollar sign: the render merge and the stack deploy would interpolate it twice) keeps the
-    # shell substitution out of the compose interpolation. maxmemory bounds the dataset and noeviction refuses writes instead of dropping jobs.
-    command: ["sh", "-c", "exec redis-server --appendonly yes --appendfsync everysec --maxmemory 256mb --maxmemory-policy noeviction --requirepass \"`cat /run/secrets/QUEUE_REDIS_PASSWORD`\""]
-    volumes:
-      - redis-data:/data
-    networks: [agents]
-    healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=\"`cat /run/secrets/QUEUE_REDIS_PASSWORD`\" redis-cli ping | grep -q PONG"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "5" }
-    deploy:
-      replicas: 1
-      placement: { constraints: [node.role == manager] }
-      update_config: { parallelism: 1, order: stop-first, failure_action: rollback, monitor: 30s, max_failure_ratio: 0 }
-      rollback_config: { parallelism: 1, order: stop-first, monitor: 30s }
-      restart_policy: { condition: any, delay: 5s }
-
-  # The vector index (owner ruling 2026-11-11): one point per Postgres row, the point id is the row id; Postgres stays the system of record and
-  # the reconcile job rebuilds the index from it, so this volume has no backup. Private `agents` network only (nivo-qdrant:6333), no published
-  # port. The API key is the sealed QDRANT_API_KEY, granted to this service as a Swarm secret file (deploy.secrets.grants). Stateful: stop-first,
-  # one replica pinned to the manager with its single-host volume.
-  nivo-qdrant:
-    image: qdrant/qdrant:v1.19.2@sha256:b7b0444c4c351c970b98e90a6f89c2ee4287c65b44e52b4cb503fa5b2aa927ad
-    command: ["sh", "-c", "QDRANT__SERVICE__API_KEY=\"`cat /run/secrets/QDRANT_API_KEY`\" exec ./entrypoint.sh"]
-    volumes:
-      - qdrant-data:/qdrant/storage
-    networks: [agents]
-    healthcheck:
-      # The image ships no HTTP client: liveness is that the REST port accepts a connection; readiness is the api's /readyz `vectors` member.
-      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333'"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 15s
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "5" }
-    deploy:
-      replicas: 1
-      placement: { constraints: [node.role == manager] }
-      resources: { limits: { memory: 1G } }
-      update_config: { parallelism: 1, order: stop-first, failure_action: rollback, monitor: 30s, max_failure_ratio: 0 }
-      rollback_config: { parallelism: 1, order: stop-first, monitor: 30s }
-      restart_policy: { condition: any, delay: 5s }
-
-  # The database: the app's managed db image (rulings lite-official-postgres-image, lite-db-image-in-stacks), built by `starci app stack build`
-  # from .starcistacks/images/db/Dockerfile: the Docker Official postgres image plus pgvector and pgmq (the event bus). Private `agents` network
-  # only (db:5432), no published port. The superuser is `postgres` with the sealed POSTGRES_PASSWORD of the `postgres` member
-  # (POSTGRES_PASSWORD_FILE pointer added by the override); the app_be password is set by the runbook (infra/swarm/recovery/db-runbook.md).
-  # Stateful: stop-first, one replica pinned to the manager with its single-host volume. stop_grace_period lets a fast shutdown checkpoint.
+        parallelism: 1
+        order: start-first
+        failure_action: rollback
+        monitor: 30s
+      # Stateless and served behind the ingress: roll back start-first so the serving task stays up until the old release is healthy.
+      rollback_config:
+        parallelism: 1
+        order: start-first
+      restart_policy:
+        condition: on-failure
+        delay: 5s
   db:
-    image: ghcr.io/starci183/nivo-lite-db@sha256:0000000000000000000000000000000000000000000000000000000000000000
-    command: ["postgres", "-c", "shared_buffers=512MB", "-c", "max_connections=120"]
+    image: "nivo-lite/db:v0.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/db-password
+    secrets:
+      - source: db-password
+        target: db-password
     volumes:
-      - postgres-data:/var/lib/postgresql/data
-    # The service was nivo-postgres before the lite skeleton naming; the sealed connection URLs still name that host, so it stays an alias.
-    networks:
-      agents:
-        aliases: [nivo-postgres]
+      - db-data:/var/lib/postgresql/data
+    networks: [app]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -h 127.0.0.1"]
+      test: ["CMD", "pg_isready", "-U", "postgres", "-h", "127.0.0.1"]
       interval: 10s
       timeout: 5s
-      retries: 6
-      start_period: 60s
-    stop_grace_period: 60s
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "5" }
+      start_period: 30s
+      retries: 5
     deploy:
       replicas: 1
-      placement: { constraints: [node.role == manager] }
-      resources: { limits: { memory: 2G } }
-      update_config: { parallelism: 1, order: stop-first, failure_action: rollback, monitor: 60s, max_failure_ratio: 0 }
-      rollback_config: { parallelism: 1, order: stop-first, monitor: 60s }
-      restart_policy: { condition: any, delay: 5s }
-
-  # The daily backup, run as a scheduled job of the stack itself (a sleeping loop in an ops container): pg_dump -Fc of the database through the
-  # network, piped into age (project recipient of .sops.yaml), written to postgres-backups, files older than 14 days pruned. The script is the
-  # Swarm config postgres-backup (infra/swarm/postgres/backup.sh). Restore: infra/swarm/recovery/db-runbook.md.
-  nivo-postgres-backup:
-    image: alpine:3.21@sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507
-    command: ["sh", "/opt/nivo/backup.sh"]
+      placement:
+        constraints: ["node.labels.nivo-lite == production"]
+      update_config:
+        parallelism: 1
+        order: stop-first
+        failure_action: rollback
+        monitor: 30s
+      # The database owns a data volume and is single-writer: never run two at once, so rollback stays stop-first.
+      rollback_config:
+        parallelism: 1
+        order: stop-first
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+  storage:
+    image: "nivo-lite/storage:v0.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000"
     environment:
-      PGHOST: db
-      PGUSER: postgres
-      PGDATABASE: postgres
-      BACKUP_DIR: /backups
-      BACKUP_KEEP_DAYS: "14"
-      BACKUP_AT_UTC: "19:00" # 02:00 Asia/Ho_Chi_Minh
-      AGE_RECIPIENT: age173qfq7f776syam9tpkyfej0h2jjt6rc4ha7r38ez40n5mn0lwyaqp9ejt7
-    configs:
-      - { source: postgres-backup, target: /opt/nivo/backup.sh, mode: 0555 }
+      MINIO_ROOT_USER_FILE: /run/secrets/storage-access-key-id
+      MINIO_ROOT_PASSWORD_FILE: /run/secrets/storage-secret-access-key
+      STATICS_BUCKET: nivo-lite-production
+      STATICS_PREFIX: statics
+      STATICS_PUBLIC: download
+    secrets:
+      - source: storage-access-key-id
+        target: storage-access-key-id
+      - source: storage-secret-access-key
+        target: storage-secret-access-key
     volumes:
-      - postgres-backups:/backups
-    networks: [agents]
+      - storage-data:/data
+    networks: [app]
     healthcheck:
-      test: ["CMD-SHELL", "find /tmp/backup-alive -mmin -2 | grep -q ."]
+      test: ["CMD-SHELL", "test -f /tmp/statics-ready && wget -q -O /dev/null http://127.0.0.1:9000/minio/health/live"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+    deploy:
+      replicas: 1
+      placement:
+        constraints: ["node.labels.nivo-lite == production"]
+      update_config:
+        parallelism: 1
+        order: stop-first
+        failure_action: rollback
+        monitor: 30s
+      # The store owns a data volume and is single-writer: never run two at once, so rollback stays stop-first.
+      rollback_config:
+        parallelism: 1
+        order: stop-first
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+  ingress:
+    image: caddy:2.10.2@sha256:c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb
+    configs:
+      - source: ingress-config
+        target: /etc/caddy/Caddyfile
+    ports:
+      - { target: 80, published: 80, protocol: tcp, mode: ingress }
+      - { target: 443, published: 443, protocol: tcp, mode: ingress }
+    volumes:
+      - ingress-data:/data
+      - ingress-config-data:/config
+    networks: [app]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 180s
-    logging:
-      driver: json-file
-      options: { max-size: "10m", max-file: "5" }
     deploy:
       replicas: 1
-      placement: { constraints: [node.role == manager] }
-      resources: { limits: { memory: 256M } }
-      update_config: { parallelism: 1, order: stop-first, failure_action: rollback, monitor: 30s, max_failure_ratio: 0 }
-      rollback_config: { parallelism: 1, order: stop-first, monitor: 30s }
-      restart_policy: { condition: any, delay: 30s }
-
+      placement:
+        constraints: ["node.labels.nivo-lite == production"]
+      update_config:
+        parallelism: 1
+        order: stop-first
+        failure_action: rollback
+        monitor: 30s
+      # The ingress owns published ports and a certificate volume: never run two at once, so rollback stays stop-first.
+      rollback_config:
+        parallelism: 1
+        order: stop-first
+      restart_policy:
+        condition: on-failure
+        delay: 5s
 networks:
-  # nivo-edge-swarm is the shared ingress overlay: created by `starci app stack ingress attach` (attachable), owned by the VPS and not by this stack,
-  # so standalone containers of other products (namnivo-web, the Tayson and Academy services) and nivo's public services meet the ingress on it.
-  edge: { external: true, name: nivo-edge-swarm }
-  # agents and automation are attachable for the operator tunnels only (a loopback-only socat container, see the production README); no port is ever published.
-  agents: { driver: overlay, attachable: true }
-  automation: { driver: overlay, attachable: true }
-
-# The volumes keep the names the compose projects gave them (nivo-engine_*, nivo-edge_acme): the data and the certificates survive the move to
-# Swarm. `starci app stack prepare` creates any that is missing on a fresh host.
-volumes:
-  video-cache: { external: true, name: nivo-engine_video-cache }
-  n8n-data: { external: true, name: nivo-engine_n8n-data }
-  redis-data: { external: true, name: nivo-engine_redis-data }
-  qdrant-data: { external: true, name: nivo-engine_qdrant-data }
-  ai-router-data: { external: true, name: nivo-engine_ai-router-data }
-  # 2026-11-15 owner ruling "xoa sach db prod": the new baseline chain starts on a NEW empty volume; the old cluster stays untouched and
-  # unreferenced in nivo-engine_postgres-data (plus an age tarball in /srv/nivo/backups) until the owner orders its deletion.
-  postgres-data: { external: true, name: nivo-engine_postgres-data-20261115 }
-  postgres-backups: { external: true, name: nivo-engine_postgres-backups }
-
-# Config objects are immutable and versioned by content: the provision step of `starci app stack deploy` creates `nivo-<name>-c<digest>` and the render passes the names in.
-configs:
-  postgres-backup: { external: true, name: "${NIVO_CFG_POSTGRES_BACKUP:?}" }
-
-# Custody records, declaration only: one external stub per sealed member of .starcistacks/production/secrets, named by the runtimeName and version
-# of environments.production.secrets. No service is granted a stub and no such Swarm secret is ever created: the real Swarm secrets are one per
-# KEY, named nivo-<key>-v<keyed hash of the value> by `starci app stack deploy` and added to the rendered stack by the generated override.
+  app:
+    driver: overlay
 secrets:
-  nivo: { external: true, name: nivo-custody-nivo-v1 }
-  mail: { external: true, name: nivo-custody-mail-v1 }
-  telegram: { external: true, name: nivo-custody-telegram-v1 }
-  seeds-nivo-workspace: { external: true, name: nivo-custody-seeds-nivo-workspace-v1 }
-  sepay: { external: true, name: nivo-custody-sepay-v1 }
-  n8n: { external: true, name: nivo-custody-n8n-v1 }
-  postgres: { external: true, name: nivo-custody-postgres-v1 }
-  redis: { external: true, name: nivo-custody-redis-v1 }
-  qdrant: { external: true, name: nivo-custody-qdrant-v1 }
-  auth: { external: true, name: nivo-custody-auth-v1 }
-  google: { external: true, name: nivo-custody-google-v1 }
-  storage: { external: true, name: nivo-custody-storage-v1 }
-  ai: { external: true, name: nivo-custody-ai-v1 }
-  vps: { external: true, name: nivo-custody-vps-v1 }
-  test-accounts: { external: true, name: nivo-custody-test-accounts-v1 }
-  channel-token-key: { external: true, name: nivo-custody-channel-token-key-v1 }
-  entity-engine-cursor-key: { external: true, name: nivo-custody-entity-engine-cursor-key-v1 }
-  otp-pepper: { external: true, name: nivo-custody-otp-pepper-v1 }
-  webhook-signing-secret: { external: true, name: nivo-custody-webhook-signing-secret-v1 }
-  nivo-platform-admins: { external: true, name: nivo-custody-nivo-platform-admins-v1 }
-  postgres-password: { external: true, name: nivo-custody-postgres-password-v1 }
-  app-be-db-password: { external: true, name: nivo-custody-app-be-db-password-v1 }
-  primary-db-url: { external: true, name: nivo-custody-primary-db-url-v1 }
-  demo-email: { external: true, name: nivo-custody-demo-email-v1 }
-  demo-password: { external: true, name: nivo-custody-demo-password-v1 }
-  demo-staff-password: { external: true, name: nivo-custody-demo-staff-password-v1 }
-  ready-owner-email: { external: true, name: nivo-custody-ready-owner-email-v1 }
-  ready-owner-password: { external: true, name: nivo-custody-ready-owner-password-v1 }
-  ready-staff-email: { external: true, name: nivo-custody-ready-staff-email-v1 }
-  ready-staff-password: { external: true, name: nivo-custody-ready-staff-password-v1 }
-  workspace-seed-input: { external: true, name: nivo-custody-workspace-seed-input-v1 }
+  primary-db-url:
+    external: true
+    name: "nivo-lite-production-primary-db-url-v1"
+  db-password:
+    external: true
+    name: "nivo-lite-production-db-password-v1"
+  google-client-secret:
+    external: true
+    name: "nivo-lite-production-google-client-secret-v1"
+  auth-jwt-private-key:
+    external: true
+    name: "nivo-lite-production-auth-jwt-private-key-v1"
+  storage-access-key-id:
+    external: true
+    name: "nivo-lite-production-storage-access-key-id-v1"
+  storage-secret-access-key:
+    external: true
+    name: "nivo-lite-production-storage-secret-access-key-v1"
+configs:
+  ingress-config:
+    file: ./Caddyfile
+volumes:
+  db-data:
+    external: true
+    name: "nivo-lite-production-db-data"
+  storage-data:
+    external: true
+    name: "nivo-lite-production-storage-data"
+  ingress-data:
+    external: true
+    name: "nivo-lite-production-ingress-data"
+  ingress-config-data:
+    external: true
+    name: "nivo-lite-production-ingress-config-data"

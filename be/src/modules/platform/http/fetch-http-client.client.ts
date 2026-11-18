@@ -1,58 +1,45 @@
-import { Injectable } from "@nestjs/common"
+import { rootCertificates } from "node:tls"
+import { Injectable, type OnModuleDestroy } from "@nestjs/common"
+import { Agent } from "undici"
+import { isRecord } from "@modules/platform/primitives"
 import { HttpError, HttpErrorCode } from "./errors/http.error"
+import { InjectHttpOptions } from "./http.decorators"
+import type { HttpOptions } from "./http.options"
 import type { HttpClient, HttpRequest, HttpResponse } from "./http.port"
-import { sendPinned } from "./pinned-request.client"
-
-/** The request body as a spreadable part: absent when the request carries none. */
-type BodyPart = Partial<Record<"body", string | Buffer>>
 
 @Injectable()
 /** The HttpClient adapter over the global `fetch`; the only place outside a spec that calls it. */
-export class FetchHttpClient implements HttpClient {
-    /** Sends `request` with its deadline and reads the body as the request asks: parsed JSON, text or raw bytes. */
+export class FetchHttpClient implements HttpClient, OnModuleDestroy {
+    /**
+     * The connection pool that adds `trustedCa` to Node's bundled roots (the CA joins the trusted list, verification stays
+     * on); absent without one, so every request goes through fetch's own default pool as before.
+     */
+    private readonly dispatcher: Agent | undefined
+
+    constructor(@InjectHttpOptions() options: HttpOptions) {
+        this.dispatcher =
+            options.trustedCa === undefined
+                ? undefined
+                : new Agent({ connect: { ca: [...rootCertificates, options.trustedCa] } })
+    }
+
+    /** Closes the pool of the trusted CA, if the app configured one, when the app stops. */
+    async onModuleDestroy(): Promise<void> {
+        await this.dispatcher?.close()
+    }
+
+    /** Sends `request` with its deadline and reads the body: parsed JSON, or the raw bytes when the request asks for them. */
     async request(request: HttpRequest): Promise<HttpResponse> {
         const deadline = AbortSignal.timeout(request.timeoutMs)
         const signal = request.signal ? AbortSignal.any([deadline, request.signal]) : deadline
-        if (request.pin !== undefined) return this.pinned(request, request.pin, signal)
         const response = await this.send(request, signal)
-        const answer = { status: response.status, headers: this.headersOf(response), url: response.url }
-        if (request.read === "bytes") {
+        if (request.read === "bytes")
             return {
-                ...answer,
+                status: response.status,
                 body: await this.received(response.arrayBuffer().then((bytes) => Buffer.from(bytes))),
             }
-        }
         const text = await this.received(response.text())
-        if (request.read === "text") return { ...answer, body: text }
-        return { ...answer, body: text === "" ? undefined : this.parse(text) }
-    }
-
-    /** A request whose socket is opened to the pinned address; the body is read as the request asks. */
-    private async pinned(
-        request: HttpRequest,
-        pin: NonNullable<HttpRequest["pin"]>,
-        signal: AbortSignal,
-    ): Promise<HttpResponse> {
-        const answer = await sendPinned(new URL(request.url), pin, {
-            method: request.method,
-            headers: { ...this.contentTypeOf(request), ...request.headers },
-            body: this.bodyOf(request).body,
-            timeoutMs: request.timeoutMs,
-            signal,
-            ...(request.maxBytes === undefined ? {} : { maxBytes: request.maxBytes }),
-        })
-        const base = { status: answer.status, headers: answer.headers, url: request.url }
-        if (request.read === "bytes") {
-            return { ...base, body: answer.body, ...(answer.tooLarge === true ? { tooLarge: true as const } : {}) }
-        }
-        const text = answer.body.toString("utf8")
-        if (request.read === "text") return { ...base, body: text }
-        return { ...base, body: text === "" ? undefined : this.parse(text) }
-    }
-
-    /** The headers as a plain map with lower-case names. */
-    private headersOf(response: Response): Record<string, string> {
-        return Object.fromEntries(response.headers.entries())
+        return { status: response.status, body: text === "" ? undefined : this.parse(text) }
     }
 
     /** The body as it arrives; a deadline or a cut while it streams is the same HttpError as one before the headers. */
@@ -66,22 +53,41 @@ export class FetchHttpClient implements HttpClient {
 
     private failure(cause: unknown): HttpError {
         // The deadline rejects with a DOMException from the runtime's own realm: compare its name, never its prototype chain.
-        const timedOut = typeof cause === "object" && cause !== null && "name" in cause && cause.name === "TimeoutError"
+        const timedOut = isRecord(cause) && cause.name === "TimeoutError"
         return new HttpError({ code: timedOut ? HttpErrorCode.Timeout : HttpErrorCode.Network, cause })
     }
 
     private async send(request: HttpRequest, signal: AbortSignal): Promise<Response> {
         try {
-            return await fetch(request.url, {
+            const body = this.bodyOf(request)
+            const init: RequestInit = {
                 method: request.method,
-                headers: { ...this.contentTypeOf(request), ...request.headers },
-                ...this.bodyOf(request),
-                redirect: request.redirect ?? "follow",
-                signal,
-            })
+                headers: this.headersOf(request),
+                ...(body === undefined ? {} : { body }),
+            }
+            return await fetch(request.url, { ...this.routed(init), signal })
         } catch (cause) {
             throw this.failure(cause)
         }
+    }
+
+    /**
+     * `init` sent through the trusted-CA pool when there is one. @types/node declares fetch over its own copy of undici's
+     * types, which the Agent of the undici package does not match nominally; `Object.assign` keeps the declared type of
+     * `init` and hands fetch the Agent itself.
+     */
+    private routed(init: RequestInit): RequestInit {
+        return this.dispatcher === undefined ? init : Object.assign(init, { dispatcher: this.dispatcher })
+    }
+
+    /** The explicit id owns correlation; a copied traceparent would take precedence at the receiving logger. */
+    private headersOf(request: HttpRequest): Record<string, string> {
+        const extra = Object.fromEntries(
+            Object.entries(request.headers ?? {}).filter(
+                ([name]) => !["x-request-id", "traceparent"].includes(name.toLowerCase()),
+            ),
+        )
+        return { ...this.contentTypeOf(request), ...extra, "x-request-id": request.correlationId }
     }
 
     private contentTypeOf(request: HttpRequest): Record<string, string> {
@@ -90,10 +96,14 @@ export class FetchHttpClient implements HttpClient {
         return request.body === undefined ? {} : { "content-type": "application/json" }
     }
 
-    private bodyOf(request: HttpRequest): BodyPart {
-        if (request.form !== undefined) return { body: new URLSearchParams(request.form).toString() }
-        if (request.bytes !== undefined) return { body: request.bytes }
-        return request.body === undefined ? {} : { body: JSON.stringify(request.body) }
+    private bodyOf(request: HttpRequest): string | Buffer | undefined {
+        return request.bytes ?? this.textOf(request)
+    }
+
+    /** The text body of a request that carries no bytes: the form encoded, else the JSON body, else none. */
+    private textOf(request: HttpRequest): string | undefined {
+        if (request.form !== undefined) return new URLSearchParams(request.form).toString()
+        return request.body === undefined ? undefined : JSON.stringify(request.body)
     }
 
     private parse(text: string): unknown {

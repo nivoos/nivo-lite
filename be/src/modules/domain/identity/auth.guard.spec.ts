@@ -1,109 +1,153 @@
 import type { ExecutionContext } from "@nestjs/common"
-import { Test } from "@nestjs/testing"
 import { Reflector } from "@nestjs/core"
-import { mock } from "@starci/jest-preset"
+import { Test } from "@nestjs/testing"
 import type { Request } from "express"
-import { ok } from "@modules/platform/primitives"
+import { mock } from "@starci/jest-preset"
+import type { Principal } from "@modules/platform/cqrs"
+import { ok, refused } from "@modules/platform/primitives"
+import { PassportErrorCode } from "@modules/integrations/passport"
+import type { VerifyAccessToken } from "@modules/integrations/passport"
 import { AuthGuard } from "./auth.guard"
-import type { VerifyAccessToken } from "./identity.contracts"
+import type { CredentialMetadata, CredentialPrincipal } from "./credential.contracts"
 import { IdentityErrorCode } from "./errors/identity.error"
+import type { PublicMetadata } from "./identity.contracts"
 import { PublicReason } from "./identity.contracts"
 import { ACCESS_TOKEN_VERIFIER, CREDENTIAL_KEY, PUBLIC_KEY } from "./identity.decorators"
 
-class Door {}
+const principal: Principal = { id: "user-1", role: "authenticated" }
+const API_KEY: CredentialPrincipal = { kind: "api-key", subject: "key-1", workspaceId: "ws-1" }
+const TOOL_TOKEN: CredentialPrincipal = { kind: "tool-token", subject: "tool-1", workspaceId: "ws-1" }
 
-const handler = (): void => undefined
+/** The slice of the request the guard reads; an absent principal is an explicit undefined, never a mock function. */
+interface GuardRequest {
+    headers: Request["headers"]
+    principal: Principal | undefined
+    credentialPrincipal: CredentialPrincipal | undefined
+}
 
-const principal = { id: "person-1", role: "authenticated" } as const
-
-const build = async (authorization?: string) => {
-    const reflector = mock<Reflector>()
+const build = async (metadata: PublicMetadata | undefined, credential?: CredentialMetadata) => {
     const verifier = mock<{ verify: VerifyAccessToken }>()
-    const verify = verifier.verify
-    const request = mock<Request>({
-        headers: authorization === undefined ? {} : { authorization },
-        principal: undefined,
-        credentialPrincipal: undefined,
-    })
-    const http = mock<ReturnType<ExecutionContext["switchToHttp"]>>()
-    http.getRequest.mockReturnValue(request)
-    const context = mock<ExecutionContext>()
-    context.getHandler.mockReturnValue(handler)
-    context.getClass.mockReturnValue(Door)
-    context.switchToHttp.mockReturnValue(http)
+    const reflector = mock<Reflector>()
+    reflector.getAllAndOverride.mockImplementation((key: unknown) =>
+        key === CREDENTIAL_KEY ? credential : key === PUBLIC_KEY ? metadata : undefined,
+    )
     const moduleRef = await Test.createTestingModule({
         providers: [
             AuthGuard,
             { provide: Reflector, useValue: reflector },
-            { provide: ACCESS_TOKEN_VERIFIER, useValue: verify },
+            { provide: ACCESS_TOKEN_VERIFIER, useFactory: () => verifier.verify },
         ],
     }).compile()
-    return { guard: moduleRef.get(AuthGuard), context, reflector, verify, request }
+    return { guard: moduleRef.get(AuthGuard), verify: verifier.verify }
+}
+
+const contextOf = (
+    authorization: string | undefined,
+    credentialPrincipal?: CredentialPrincipal,
+    sessionPrincipal?: Principal,
+) => {
+    const request = mock<GuardRequest>({
+        headers: authorization === undefined ? {} : { authorization },
+        principal: sessionPrincipal,
+        credentialPrincipal,
+    })
+    const http = mock<ReturnType<ExecutionContext["switchToHttp"]>>()
+    http.getRequest.mockReturnValue(request)
+    const context = mock<ExecutionContext>()
+    context.getHandler.mockReturnValue(() => undefined)
+    context.getClass.mockReturnValue(class Door {})
+    context.getType.mockReturnValue("http")
+    context.switchToHttp.mockReturnValue(http)
+    return { context, request }
 }
 
 describe("AuthGuard", () => {
-    it("opens a door carrying public metadata without authenticating", async () => {
-        const { guard, context, reflector, verify } = await build("Bearer access-token")
-        reflector.getAllAndOverride.mockImplementation((key) =>
-            key === PUBLIC_KEY ? { reason: PublicReason.Health } : undefined,
-        )
+    it("lets a public door through without reading a token", async () => {
+        const { guard, verify } = await build({ reason: PublicReason.Health })
+        const { context } = contextOf("Bearer token")
 
         await expect(guard.canActivate(context)).resolves.toBe(true)
 
-        expect(reflector.getAllAndOverride).toHaveBeenCalledWith(PUBLIC_KEY, [handler, Door])
         expect(verify).not.toHaveBeenCalled()
     })
 
-    it.each([undefined, "Basic credentials", "Bearer", "Bearer  access-token", "Bearer access-token extra"])(
-        "refuses an absent or malformed bearer credential (%s)",
-        async (authorization) => {
-            const { guard, context, reflector, verify } = await build(authorization)
-            reflector.getAllAndOverride.mockReturnValue(undefined)
+    it("admits a door that is not public for a verified bearer token and records the principal on the request", async () => {
+        const { guard, verify } = await build(undefined)
+        verify.mockResolvedValue(ok(principal))
+        const { context, request } = contextOf("Bearer signed-token")
 
-            await expect(guard.canActivate(context)).rejects.toMatchObject({
-                code: IdentityErrorCode.Unauthenticated,
-            })
+        await expect(guard.canActivate(context)).resolves.toBe(true)
+
+        expect(verify).toHaveBeenCalledWith("signed-token")
+        expect(request.principal).toEqual(principal)
+    })
+})
+
+describe("AuthGuard credential doors", () => {
+    it("admits a credential door with the required principal without verifying a session token", async () => {
+        const { guard, verify } = await build(undefined, { kind: "api-key" })
+        verify.mockResolvedValue(ok(principal))
+        const { context, request } = contextOf("Bearer signed-token", API_KEY)
+
+        await expect(guard.canActivate(context)).resolves.toBe(true)
+
+        expect(verify).not.toHaveBeenCalled()
+        expect(request.credentialPrincipal).toEqual(API_KEY)
+        expect(request.principal).toBeUndefined()
+    })
+
+    it.each([
+        { label: "missing", credentialPrincipal: undefined },
+        { label: "of another kind", credentialPrincipal: TOOL_TOKEN },
+    ])(
+        "refuses a credential door when its credential principal is $label, even with a valid session",
+        async ({ credentialPrincipal }) => {
+            const { guard, verify } = await build(undefined, { kind: "api-key" })
+            verify.mockResolvedValue(ok(principal))
+            const { context } = contextOf("Bearer signed-token", credentialPrincipal, principal)
+
+            await expect(guard.canActivate(context)).rejects.toThrow(IdentityErrorCode.Unauthenticated)
 
             expect(verify).not.toHaveBeenCalled()
         },
     )
 
-    it("refuses a bearer token the verifier rejects", async () => {
-        const { guard, context, reflector, verify, request } = await build("Bearer access-token")
-        reflector.getAllAndOverride.mockReturnValue(undefined)
-        verify.mockResolvedValue(mock<Awaited<ReturnType<VerifyAccessToken>>>({ kind: "refused" }))
+    it.each([
+        { label: "missing", credentialPrincipal: undefined },
+        { label: "of another kind", credentialPrincipal: TOOL_TOKEN },
+    ])(
+        "refuses a credential door with public metadata when its credential principal is $label",
+        async ({ credentialPrincipal }) => {
+            const { guard, verify } = await build({ reason: PublicReason.Health }, { kind: "api-key" })
+            const { context } = contextOf("Bearer signed-token", credentialPrincipal, principal)
 
-        await expect(guard.canActivate(context)).rejects.toMatchObject({
-            code: IdentityErrorCode.Unauthenticated,
-        })
+            await expect(guard.canActivate(context)).rejects.toThrow(IdentityErrorCode.Unauthenticated)
 
-        expect(verify).toHaveBeenCalledWith("access-token")
+            expect(verify).not.toHaveBeenCalled()
+        },
+    )
+
+    it("refuses a door that is not public when the token fails verification", async () => {
+        const { guard, verify } = await build(undefined)
+        verify.mockResolvedValue(refused(PassportErrorCode.AccessTokenInvalid))
+        const { context, request } = contextOf("bearer forged-token")
+
+        await expect(guard.canActivate(context)).rejects.toThrow(IdentityErrorCode.Unauthenticated)
+
         expect(request.principal).toBeUndefined()
     })
 
-    it("stamps the verified principal on the request, whatever the letter case of the scheme", async () => {
-        const { guard, context, reflector, verify, request } = await build("bearer access-token")
-        reflector.getAllAndOverride.mockReturnValue(undefined)
-        verify.mockResolvedValue(ok(principal))
+    it.each([
+        ["no authorization header", undefined],
+        ["another scheme", "Basic dXNlcjpwYXNz"],
+        ["a scheme without a token", "Bearer"],
+        ["a token followed by more text", "Bearer one two"],
+    ])("refuses a door that is not public with %s, without calling the verifier", async (_label, authorization) => {
+        const { guard, verify } = await build(undefined)
+        const { context } = contextOf(authorization)
 
-        await expect(guard.canActivate(context)).resolves.toBe(true)
+        await expect(guard.canActivate(context)).rejects.toThrow(IdentityErrorCode.Unauthenticated)
 
-        expect(verify).toHaveBeenCalledWith("access-token")
-        expect(request.principal).toEqual(principal)
-    })
-})
-
-describe("AuthGuard credential admission", () => {
-    it.each([true, false])("requires the preceding credential guard's principal (%p)", async (authenticated) => {
-        const { guard, context, reflector, verify, request } = await build("Bearer session")
-        reflector.getAllAndOverride.mockImplementation((key) =>
-            key === CREDENTIAL_KEY ? { kind: "api-key" } : { reason: PublicReason.Health },
-        )
-        if (authenticated) request.credentialPrincipal = { kind: "api-key", subject: "key-1", workspaceId: "ws-1" }
-
-        if (authenticated) await expect(guard.canActivate(context)).resolves.toBe(true)
-        else await expect(guard.canActivate(context)).rejects.toMatchObject({ code: IdentityErrorCode.Unauthenticated })
         expect(verify).not.toHaveBeenCalled()
-        expect(reflector.getAllAndOverride).not.toHaveBeenCalledWith(PUBLIC_KEY, [handler, Door])
     })
 })

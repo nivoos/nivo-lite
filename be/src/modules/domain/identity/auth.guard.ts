@@ -1,13 +1,14 @@
 import { Injectable, type CanActivate, type ExecutionContext } from "@nestjs/common"
 import type { Reflector } from "@nestjs/core"
+import type { VerifyAccessToken } from "@modules/integrations/passport"
 import { InjectReflector } from "@modules/platform/composition"
 import type { Principal } from "@modules/platform/cqrs"
 import { requestOf } from "@modules/platform/http-security"
 import { unwrapOutcome } from "@modules/platform/primitives"
-import type { CredentialMetadata } from "./credential.contracts"
 import { admit } from "./admission.policy"
-import { IdentityError, IdentityErrorCode } from "./errors/identity.error"
-import type { PublicMetadata, VerifyAccessToken } from "./identity.contracts"
+import type { CredentialMetadata } from "./credential.contracts"
+import { IdentityError } from "./errors/identity.error"
+import type { PublicMetadata } from "./identity.contracts"
 import { CREDENTIAL_KEY, InjectAccessTokenVerifier, PUBLIC_KEY } from "./identity.decorators"
 
 const bearerToken = (authorization: string | undefined): string | undefined => {
@@ -17,7 +18,8 @@ const bearerToken = (authorization: string | undefined): string | undefined => {
 
 @Injectable()
 /**
- * The fourth app guard: doors require an established credential, a public reason or a verified session.
+ * The fourth app guard and default-deny gate: a credential door requires the matching principal from `CredentialGuard`,
+ * a public door states its reason, and every other door requires a principal verified from the app's own access token. It never calls another guard.
  */
 export class AuthGuard implements CanActivate {
     constructor(
@@ -25,24 +27,15 @@ export class AuthGuard implements CanActivate {
         @InjectAccessTokenVerifier() private readonly verifyAccessToken: VerifyAccessToken,
     ) {}
 
-    /** Enforces the selected admission proof before considering a public reason or verified user session. */
+    /** Verifies session tokens only for doors without public or credential metadata, then applies the admission policy. */
     async canActivate(context: ExecutionContext): Promise<boolean> {
-        const credential = this.reflector.getAllAndOverride<CredentialMetadata | undefined>(CREDENTIAL_KEY, [
-            context.getHandler(),
-            context.getClass(),
-        ])
-        if (credential !== undefined) {
-            if (requestOf(context).credentialPrincipal === undefined) {
-                throw new IdentityError({ code: IdentityErrorCode.Unauthenticated })
-            }
-            return true
-        }
-        const metadata = this.reflector.getAllAndOverride<PublicMetadata | undefined>(PUBLIC_KEY, [
-            context.getHandler(),
-            context.getClass(),
-        ])
+        const targets = [context.getHandler(), context.getClass()]
+        const required = this.reflector.getAllAndOverride<CredentialMetadata | undefined>(CREDENTIAL_KEY, targets)
+        const metadata = this.reflector.getAllAndOverride<PublicMetadata | undefined>(PUBLIC_KEY, targets)
+        const credential =
+            required === undefined ? undefined : { required, principal: requestOf(context).credentialPrincipal }
         let principal: Principal | undefined
-        if (metadata === undefined) {
+        if (metadata === undefined && required === undefined) {
             const request = requestOf(context)
             const token = bearerToken(request.headers.authorization)
             if (token !== undefined) {
@@ -53,7 +46,7 @@ export class AuthGuard implements CanActivate {
                 }
             }
         }
-        unwrapOutcome(admit(metadata, principal), IdentityError)
+        unwrapOutcome(admit(metadata, principal, credential), IdentityError)
         return true
     }
 }

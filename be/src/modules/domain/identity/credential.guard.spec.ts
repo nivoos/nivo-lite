@@ -1,35 +1,34 @@
 import type { ExecutionContext } from "@nestjs/common"
+import type { HttpArgumentsHost } from "@nestjs/common/interfaces"
 import { Reflector } from "@nestjs/core"
 import { Test } from "@nestjs/testing"
 import { mock } from "@starci/jest-preset"
-import type { OperationRequest } from "@modules/platform/http-security"
-import type { CredentialAuthenticator, CredentialMetadata, CredentialPrincipal } from "./credential.contracts"
 import { CredentialGuard } from "./credential.guard"
-import { DomainError } from "@modules/platform/errors"
-import { IdentityErrorCode } from "./errors/identity.error"
-import { CREDENTIAL_AUTHENTICATOR, CREDENTIAL_KEY } from "./identity.decorators"
+import type { CredentialAuthenticator, CredentialMetadata, CredentialPrincipal } from "./credential.contracts"
+import { IdentityError, IdentityErrorCode } from "./errors/identity.error"
+import { CREDENTIAL_AUTHENTICATOR } from "./identity.decorators"
 
-class Door {}
-class CredentialRefusal extends DomainError<string> {}
-const handler = (): void => undefined
-const principal: CredentialPrincipal = { kind: "api-key", subject: "key-1", workspaceId: "ws-1" }
+const PRINCIPAL: CredentialPrincipal = { kind: "tool-token", subject: "tool-1", workspaceId: "ws-1" }
 
-const build = async (metadata: CredentialMetadata | undefined, authorization?: string, id?: string) => {
+interface FakeHeaders {
+    readonly authorization?: string
+}
+
+interface FakeParams {
+    readonly id?: unknown
+}
+
+interface FakeRequest {
+    credentialPrincipal?: CredentialPrincipal
+    readonly headers: FakeHeaders
+    readonly params?: FakeParams
+}
+
+const build = async (metadata: CredentialMetadata | undefined, principal: CredentialPrincipal = PRINCIPAL) => {
     const reflector = mock<Reflector>()
     reflector.getAllAndOverride.mockReturnValue(metadata)
     const authenticator = mock<CredentialAuthenticator>()
     authenticator.authenticate.mockResolvedValue(principal)
-    const request = mock<OperationRequest>({
-        principal: undefined,
-        headers: authorization === undefined ? {} : { authorization },
-        params: id === undefined ? {} : { id },
-    })
-    const http = mock<ReturnType<ExecutionContext["switchToHttp"]>>()
-    http.getRequest.mockReturnValue(request)
-    const context = mock<ExecutionContext>()
-    context.getHandler.mockReturnValue(handler)
-    context.getClass.mockReturnValue(Door)
-    context.switchToHttp.mockReturnValue(http)
     const moduleRef = await Test.createTestingModule({
         providers: [
             CredentialGuard,
@@ -37,121 +36,84 @@ const build = async (metadata: CredentialMetadata | undefined, authorization?: s
             { provide: CREDENTIAL_AUTHENTICATOR, useValue: authenticator },
         ],
     }).compile()
-    return { guard: moduleRef.get(CredentialGuard), context, reflector, authenticator, request }
+    return { guard: moduleRef.get(CredentialGuard), authenticator }
 }
 
-describe("CredentialGuard", () => {
-    it("passes an unmarked door without touching the request", async () => {
-        const { guard, context, authenticator, request } = await build(undefined)
-        request.credentialPrincipal = principal
+const contextOf = (request: FakeRequest) => {
+    const context = mock<ExecutionContext>()
+    context.getHandler.mockReturnValue(() => undefined)
+    context.getClass.mockReturnValue(class DoorClass {})
+    context.getType.mockReturnValue("http")
+    const host = mock<HttpArgumentsHost>()
+    host.getRequest.mockReturnValue(request)
+    context.switchToHttp.mockReturnValue(host)
+    return context
+}
 
-        await expect(guard.canActivate(context)).resolves.toBe(true)
-        expect(request.credentialPrincipal).toBe(principal)
-        expect(context.switchToHttp).not.toHaveBeenCalled()
+const requestOf = (): FakeRequest => ({ headers: { authorization: "Bearer secret" }, params: { id: "run-1" } })
+
+describe("CredentialGuard", () => {
+    it("passes a door without credential metadata and authenticates nothing", async () => {
+        const { guard, authenticator } = await build(undefined)
+        const request = { ...requestOf(), credentialPrincipal: PRINCIPAL }
+
+        await expect(guard.canActivate(contextOf(request))).resolves.toBe(true)
+        expect(request.credentialPrincipal).toEqual(PRINCIPAL)
         expect(authenticator.authenticate).not.toHaveBeenCalled()
     })
 
-    it("establishes a credential identity separately from a session principal", async () => {
-        const { guard, context, reflector, authenticator, request } = await build(
-            { kind: "api-key" },
-            "Bearer key",
-            "resource-1",
-        )
+    it("authenticates a credential door and sets the credential principal", async () => {
+        const { guard, authenticator } = await build({ kind: "tool-token" }, PRINCIPAL)
+        const request = requestOf()
 
-        await expect(guard.canActivate(context)).resolves.toBe(true)
-
-        expect(reflector.getAllAndOverride).toHaveBeenCalledWith(CREDENTIAL_KEY, [handler, Door])
-        expect(authenticator.authenticate).toHaveBeenCalledWith({ kind: "api-key" }, "Bearer key", "resource-1")
-        expect(request.credentialPrincipal).toEqual(principal)
-        expect(request.principal).toBeUndefined()
+        await expect(guard.canActivate(contextOf(request))).resolves.toBe(true)
+        expect(request.credentialPrincipal).toEqual(PRINCIPAL)
+        expect(authenticator.authenticate).toHaveBeenCalledWith({ kind: "tool-token" }, "Bearer secret", "run-1")
     })
 
-    it("refuses a missing credential through the owning verifier", async () => {
-        const { guard, context, authenticator, request } = await build({ kind: "api-key" })
-        request.params = undefined
-        const refusal = new Error("missing credential")
+    it("refuses a principal of another credential kind", async () => {
+        const { guard } = await build({ kind: "api-key" }, PRINCIPAL)
+        const request = requestOf()
+
+        await expect(guard.canActivate(contextOf(request))).rejects.toMatchObject({
+            code: IdentityErrorCode.Unauthenticated,
+        })
+        expect(request.credentialPrincipal).toBeUndefined()
+    })
+
+    it.each([
+        { ...PRINCIPAL, subject: "" },
+        { ...PRINCIPAL, workspaceId: "" },
+    ])("refuses an incomplete credential principal (%o)", async (principal) => {
+        const { guard } = await build({ kind: "tool-token" }, principal)
+        const request = requestOf()
+
+        await expect(guard.canActivate(contextOf(request))).rejects.toMatchObject({
+            code: IdentityErrorCode.Unauthenticated,
+        })
+        expect(request.credentialPrincipal).toBeUndefined()
+    })
+
+    it("clears an earlier credential principal when authentication refuses", async () => {
+        const { guard, authenticator } = await build({ kind: "tool-token" }, PRINCIPAL)
+        const refusal = new IdentityError({ code: IdentityErrorCode.Unauthenticated })
         authenticator.authenticate.mockRejectedValue(refusal)
+        const request = { ...requestOf(), credentialPrincipal: PRINCIPAL }
 
-        await expect(guard.canActivate(context)).rejects.toBe(refusal)
-        expect(authenticator.authenticate).toHaveBeenCalledWith({ kind: "api-key" }, "", undefined)
+        await expect(guard.canActivate(contextOf(request))).rejects.toBe(refusal)
+        expect(request.credentialPrincipal).toBeUndefined()
     })
 
-    it.each([{ input: { token: "secret-link" } }, { input: {} }, {}])(
-        "hands the GraphQL link token to its authenticator (%p)",
-        async (args) => {
-            const { guard, context, authenticator, request } = await build({ kind: "link-token" }, "Bearer session")
-            context.getType.mockReturnValue("graphql")
-            context.getArgs.mockReturnValue([undefined, args, { req: request }, undefined])
-            authenticator.authenticate.mockResolvedValue({ ...principal, kind: "link-token" })
+    it.each([undefined, { id: 1 }])(
+        "passes absent authorization and no string resource id to the authenticator (%o)",
+        async (params) => {
+            const metadata = { kind: "tool-token", workflow: "checkout" } as const
+            const { guard, authenticator } = await build(metadata, PRINCIPAL)
+            const request: FakeRequest = { headers: {}, ...(params === undefined ? {} : { params }) }
 
-            await expect(guard.canActivate(context)).resolves.toBe(true)
-            expect(authenticator.authenticate).toHaveBeenCalledWith(
-                { kind: "link-token" },
-                args.input?.token ?? "",
-                undefined,
-            )
-            expect(request.credentialPrincipal).toEqual({ ...principal, kind: "link-token" })
+            await expect(guard.canActivate(contextOf(request))).resolves.toBe(true)
+            expect(authenticator.authenticate).toHaveBeenCalledWith(metadata, "", undefined)
+            expect(request.credentialPrincipal).toEqual(PRINCIPAL)
         },
     )
-
-    it.each<CredentialPrincipal>([
-        { ...principal, kind: "tool-token" },
-        { ...principal, subject: "" },
-        { ...principal, workspaceId: "" },
-    ])("refuses an incomplete or foreign credential identity (%p)", async (answer) => {
-        const { guard, context, authenticator, request } = await build({ kind: "api-key" })
-        authenticator.authenticate.mockResolvedValue(answer)
-
-        await expect(guard.canActivate(context)).rejects.toMatchObject({ code: IdentityErrorCode.Unauthenticated })
-        expect(request.credentialPrincipal).toBeUndefined()
-    })
-
-    it("propagates a verifier refusal and clears any earlier credential identity", async () => {
-        const { guard, context, authenticator, request } = await build({ kind: "api-key" })
-        request.credentialPrincipal = principal
-        const refusal = new Error("revoked credential")
-        authenticator.authenticate.mockRejectedValue(refusal)
-
-        await expect(guard.canActivate(context)).rejects.toBe(refusal)
-        expect(request.credentialPrincipal).toBeUndefined()
-    })
-})
-
-describe("CredentialGuard credential owners", () => {
-    const kinds: Array<CredentialMetadata["kind"]> = ["api-key", "tool-token", "link-token"]
-
-    it.each(kinds)("stamps a valid %s identity", async (kind) => {
-        const { guard, context, request, authenticator } = await build({ kind }, "Bearer raw")
-        context.getType.mockReturnValue("http")
-        context.getArgs.mockReturnValue([undefined, { input: { token: "raw" } }])
-        const answer: CredentialPrincipal = { kind, subject: "stored-id", workspaceId: "stored-ws" }
-        authenticator.authenticate.mockResolvedValue(answer)
-        await expect(guard.canActivate(context)).resolves.toBe(true)
-        expect(request.credentialPrincipal).toBe(answer)
-    })
-
-    it.each(kinds)("preserves the exact invalid and missing %s refusals", async (kind) => {
-        for (const authorization of ["invalid", undefined]) {
-            const { guard, context, request, authenticator } = await build({ kind }, authorization)
-            context.getArgs.mockReturnValue([undefined, { input: { token: authorization } }])
-            const refusal = new CredentialRefusal({ code: "WORKSPACE_INVITES_INVALID" })
-            request.credentialPrincipal = principal
-            authenticator.authenticate.mockRejectedValue(refusal)
-            await expect(guard.canActivate(context)).rejects.toBe(refusal)
-            expect(request.credentialPrincipal).toBeUndefined()
-            expect(authenticator.authenticate).toHaveBeenCalledWith({ kind }, authorization ?? "", undefined)
-        }
-    })
-})
-
-describe("CredentialGuard domain refusals", () => {
-    it.each(["WORKSPACE_INVITES_INVALID"])("preserves %s with its parameters and original cause", async (code) => {
-        const { guard, context, authenticator } = await build({ kind: "api-key" })
-        const cause = new Error("original")
-        const refusal = new CredentialRefusal({ code, params: { detail: "retained" }, cause })
-        authenticator.authenticate.mockRejectedValue(refusal)
-        await expect(guard.canActivate(context)).rejects.toBe(refusal)
-        expect(refusal.cause).toBe(cause)
-        expect(refusal.params).toEqual({ detail: "retained" })
-    })
 })

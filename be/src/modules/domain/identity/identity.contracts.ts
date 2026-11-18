@@ -1,15 +1,13 @@
-import type { CredentialPrincipal } from "./credential.contracts"
 import type { Principal } from "@modules/platform/cqrs"
-import type { Outcome } from "@modules/platform/primitives"
-import type { IdentityErrorCode } from "./errors/identity.error"
+import type { CredentialPrincipal } from "./credential.contracts"
 
 declare module "express-serve-static-core" {
-    /** The request carries the principal established by the default-deny auth guard. */
+    /** The request carries the separate principals established by the identity guards. */
     interface Request {
+        /** The identity `CredentialGuard` authenticated on a door marked `@Credential`; never a session principal. */
+        credentialPrincipal?: CredentialPrincipal
         /** The authenticated caller, when the door is not public. */
-        principal?: Principal | undefined
-        /** The alternate credential, never a session principal. */
-        credentialPrincipal?: CredentialPrincipal | undefined
+        principal?: Principal
     }
 }
 
@@ -17,11 +15,11 @@ declare module "express-serve-static-core" {
 export enum PublicReason {
     /** Liveness and readiness probes. */
     Health = "health",
-    /** OAuth and other authentication handshakes. */
+    /** The authentication protocol's anonymous handshake. */
     AuthHandshake = "auth-handshake",
     /** A webhook whose signature is verified before its domain intake runs. */
     SignedWebhook = "signed-webhook",
-    /** A published page read or filled without a session (the website intake form); always rate limited. */
+    /** A declared public catalog read. */
     CatalogRead = "catalog-read",
 }
 
@@ -32,7 +30,4 @@ export interface PublicMetadata {
 }
 
 /** What identity admission returns to the guard. */
-export type IdentityAdmission = Principal | PublicReason
-
-/** Verifies one bearer token and returns the principal only when every cryptographic and semantic check passed. */
-export type VerifyAccessToken = (token: string) => Promise<Outcome<Principal, IdentityErrorCode>>
+export type IdentityAdmission = Principal | CredentialPrincipal | PublicReason

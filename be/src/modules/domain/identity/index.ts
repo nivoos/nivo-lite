@@ -1,20 +1,10 @@
 export { AuthGuard } from "./auth.guard"
-export { refuseSessions } from "./access-token.policy"
-export { IDENTITY_ERROR_KINDS, IdentityError, IdentityErrorCode } from "./errors/identity.error"
+export { CredentialGuard } from "./credential.guard"
+export { IDENTITY_ERROR_KINDS } from "./errors/identity.error"
 export { IDENTITY_MESSAGES } from "./messages/identity.messages"
 export { PublicReason } from "./identity.contracts"
-export type { VerifyAccessToken } from "./identity.contracts"
-export { CurrentCredentialPrincipal, Credential, CurrentPrincipal, Public } from "./identity.decorators"
+export { ACCESS_TOKEN_VERIFIER, Public } from "./identity.decorators"
 export { IdentityModule } from "./identity.module"
-export { parseIdentityAuthConfig } from "./identity-auth.config"
-export { IDENTITY_ACCOUNTS, IDENTITY_AUTHENTICATOR } from "./identity-auth.decorators"
-export { IdentityEmailService } from "./identity-email.service"
-export { IdentityPasswordChangeService } from "./password-change.service"
-export { IdentitySignInService } from "./sign-in.service"
-export type {
-    CredentialAuthenticator,
-    CredentialMetadata,
-    CredentialPrincipal,
-} from "./credential.contracts"
-export { CredentialGuard } from "./credential.guard"
 export { identityEntities } from "./persistence/entities"
+export { IdentityEmailService } from "./identity-email.service"
+export { IdentitySignInService } from "./sign-in.service"

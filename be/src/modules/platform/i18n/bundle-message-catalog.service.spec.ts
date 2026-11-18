@@ -1,45 +1,66 @@
-import { builder } from "@starci/jest-preset"
 import { Test } from "@nestjs/testing"
+import { builder } from "@starci/jest-preset"
 import { BundleMessageCatalog } from "./bundle-message-catalog.service"
-import { I18N_OPTIONS } from "./i18n.decorators"
 import type { I18nOptions } from "./i18n.options"
+import { I18N_OPTIONS } from "./i18n.decorators"
 
-const BUNDLES: I18nOptions["bundles"] = [
-    { vi: { "greet.hello": "Xin chao {{name}}" }, en: { "greet.hello": "Hello {{name}}" } },
-    { vi: { "cart.count": "{{count}} san pham" }, en: { "cart.count": "{{count}} items" } },
-]
+const defaults: I18nOptions = {
+    bundles: [
+        {
+            vi: { "task.title": "Cong viec {{title}}", "task.count": "{{n}} viec" },
+            en: { "task.title": "Task {{title}}", "task.count": "{{n}} tasks" },
+        },
+        { vi: { "share.ok": "Da chia se" }, en: { "share.ok": "Shared" } },
+    ],
+}
+
+const build = async (overrides?: Partial<I18nOptions>) => {
+    const moduleRef = await Test.createTestingModule({
+        providers: [
+            BundleMessageCatalog,
+            { provide: I18N_OPTIONS, useValue: builder<I18nOptions>(defaults)(overrides) },
+        ],
+    }).compile()
+    return moduleRef.get(BundleMessageCatalog)
+}
 
 describe("BundleMessageCatalog", () => {
-    const build = async (overrides?: Partial<I18nOptions>): Promise<BundleMessageCatalog> => {
-        const moduleRef = await Test.createTestingModule({
-            providers: [
-                BundleMessageCatalog,
-                { provide: I18N_OPTIONS, useValue: builder<I18nOptions>({ bundles: BUNDLES })(overrides) },
-            ],
-        }).compile()
-        return moduleRef.get(BundleMessageCatalog)
-    }
+    describe("get", () => {
+        it("fills the placeholders of the text in the locale", async () => {
+            const catalog = await build()
 
-    it("returns the text of a key in each language with placeholders filled", async () => {
-        const catalog = await build()
+            expect(catalog.get("task.title", { title: "Write" }, "en")).toBe("Task Write")
+            expect(catalog.get("task.title", { title: "Write" }, "vi")).toBe("Cong viec Write")
+        })
 
-        expect(catalog.get("greet.hello", { name: "An" }, "vi")).toBe("Xin chao An")
-        expect(catalog.get("greet.hello", { name: "An" }, "en")).toBe("Hello An")
-    })
+        it("fills a numeric parameter", async () => {
+            const catalog = await build()
 
-    it("reads keys owned by any of the merged bundles", async () => {
-        expect((await build()).get("cart.count", { count: 3 }, "en")).toBe("3 items")
-    })
+            expect(catalog.get("task.count", { n: 3 }, "en")).toBe("3 tasks")
+        })
 
-    it("keeps a placeholder as written when no value is given for it", async () => {
-        expect((await build()).get("greet.hello", {}, "en")).toBe("Hello {{name}}")
-    })
+        it("reads a key from any composed bundle", async () => {
+            const catalog = await build()
 
-    it("returns the key itself when no bundle owns it", async () => {
-        expect((await build()).get("missing.key", {}, "vi")).toBe("missing.key")
-    })
+            expect(catalog.get("share.ok", {}, "en")).toBe("Shared")
+        })
 
-    it("returns the key when the app composed no bundle", async () => {
-        expect((await build({ bundles: [] })).get("greet.hello", {}, "en")).toBe("greet.hello")
+        it("leaves a placeholder without a value as written", async () => {
+            const catalog = await build()
+
+            expect(catalog.get("task.title", {}, "en")).toBe("Task {{title}}")
+        })
+
+        it("answers the key itself for an unknown key", async () => {
+            const catalog = await build()
+
+            expect(catalog.get("no.such.key", {}, "en")).toBe("no.such.key")
+        })
+
+        it("answers the key itself when no bundle is composed", async () => {
+            const catalog = await build({ bundles: [] })
+
+            expect(catalog.get("task.title", {}, "vi")).toBe("task.title")
+        })
     })
 })

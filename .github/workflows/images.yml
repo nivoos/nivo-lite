@@ -44,33 +44,13 @@ jobs:
             file: be/apps/api/Dockerfile
             deployed: true
             args: false
-          - name: cli
-            file: be/apps/cli/Dockerfile
-            deployed: false
-            args: false
-          - name: mcp
-            file: be/apps/mcp/Dockerfile
-            deployed: true
-            args: false
-          - name: web
-            file: fe/apps/web/Dockerfile
-            deployed: true
-            args: true
-          - name: landing
-            file: fe/apps/landing/Dockerfile
-            deployed: true
-            args: true
-          - name: admin
-            file: fe/apps/admin/Dockerfile
-            deployed: false
-            args: false
           - name: db
             file: .starcistacks/images/db/Dockerfile
             deployed: true
             args: false
           - name: storage
             file: .starcistacks/images/storage/Dockerfile
-            deployed: false
+            deployed: true
             args: false
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -158,10 +138,8 @@ jobs:
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no pushed digest for the image of ${service}"; exit 1; }
             refs=$(jq -c --arg service "$service" --arg ref "$repo@$digest" '. + {($service): $ref}' <<<"$refs")
           done <<'LIST'
-          nivo-api api false
-          nivo-mcp mcp false
-          nivo-web-app web false
-          nivo-landing landing false
+          api api false
           db db false
+          storage storage false
           LIST
           echo "refs=$refs" >> "$GITHUB_OUTPUT"

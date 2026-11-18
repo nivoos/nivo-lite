@@ -1,21 +1,24 @@
-import { GqlExecutionContext } from "@nestjs/graphql"
 import { Injectable, type CanActivate, type ExecutionContext } from "@nestjs/common"
 import type { Reflector } from "@nestjs/core"
 import { InjectReflector } from "@modules/platform/composition"
 import { requestOf } from "@modules/platform/http-security"
-import type { CredentialArgumentsInput, CredentialAuthenticator, CredentialMetadata } from "./credential.contracts"
+import type { CredentialAuthenticator, CredentialMetadata } from "./credential.contracts"
 import { IdentityError, IdentityErrorCode } from "./errors/identity.error"
 import { CREDENTIAL_KEY, InjectCredentialAuthenticator } from "./identity.decorators"
 
 @Injectable()
-/** Authenticates marked doors as the third global guard; unmarked doors pass untouched. */
+/**
+ * The third app guard: it acts only on a door marked `@Credential({ kind })`, authenticates the credential through the
+ * identity-owned port and sets the request's credential principal. Every other door passes through untouched and
+ * `AuthGuard` decides it.
+ */
 export class CredentialGuard implements CanActivate {
     constructor(
         @InjectReflector() private readonly reflector: Reflector,
         @InjectCredentialAuthenticator() private readonly authenticator: CredentialAuthenticator,
     ) {}
 
-    /** A credential door must authenticate its own credential, even when a session is also present. */
+    /** Authenticates a credential door and leaves every other door to `AuthGuard`. */
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const metadata = this.reflector.getAllAndOverride<CredentialMetadata | undefined>(CREDENTIAL_KEY, [
             context.getHandler(),
@@ -23,13 +26,13 @@ export class CredentialGuard implements CanActivate {
         ])
         if (metadata === undefined) return true
         const request = requestOf(context)
-        request.credentialPrincipal = undefined
-        let authorization = request.headers.authorization ?? ""
-        const resourceId = typeof request.params?.id === "string" ? request.params.id : undefined
-        if (metadata.kind === "link-token") {
-            authorization = GqlExecutionContext.create(context).getArgs<CredentialArgumentsInput>().input?.token ?? ""
-        }
-        const principal = await this.authenticator.authenticate(metadata, authorization, resourceId)
+        delete request.credentialPrincipal
+        const id: unknown = request.params?.id
+        const principal = await this.authenticator.authenticate(
+            metadata,
+            request.headers.authorization ?? "",
+            typeof id === "string" ? id : undefined,
+        )
         if (principal.kind !== metadata.kind || !principal.subject || !principal.workspaceId) {
             throw new IdentityError({ code: IdentityErrorCode.Unauthenticated })
         }

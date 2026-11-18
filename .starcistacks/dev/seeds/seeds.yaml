@@ -1,22 +1,2 @@
 schema: starci/seeds@1
-entries:
-  - id: test-accounts
-    kind: test-account
-    path: data/test-accounts.json
-    target: [node, be/dist/apps/cli/src/main.js, seed-test-accounts]
-    mode: upsert
-    schema: be/src/modules/domain/channel-provisioning/test-accounts-seed.schema.json
-    reason: The sign-ins the dev stack is tested with (owner and staff of the NIVO workspace and of the demo workspace, @example.test addresses); their addresses and passwords are sealed in seeds-test-accounts, never typed.
-  # The SEED STANDARDS (owner R98, R101-R106): one `<name>-seed-standard` repository = ONE complete workspace, pinned by commit, loaded ONCE
-  # by this bring-up through the app's own doors (they replace the dev management seed and the dev enterprise seed, R109) (`seed-standard apply`: its receipt in public.workspace_seed_receipts skips it whole on
-  # every later up and answers `unchanged`; a new pin is only reported; `force: true` on a declaration re-seeds once per pinned commit,
-  # keeping relations). One declaration per standard under data/seed-standards/ (`nivo/seed-standard@1`); completeness is judged by the
-  # project's own ext check `seed-standards` (the marker `completeness: ext:seed-standards`). The repository is read through the data
-  # driver (HARNESS-DATA); until the app binds it, this step stops with WORKSPACE_SEED_DRIVER_MISSING.
-  - id: seed-standards
-    kind: data
-    path: data/seed-standards
-    target: [node, be/dist/apps/cli/src/main.js, seed-standard, apply, --env, dev]
-    mode: always
-    after: [test-accounts]
-    schema: be/src/modules/domain/workspace-seed/seed-standard.schema.json
+entries: []

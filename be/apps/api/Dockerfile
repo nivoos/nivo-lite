@@ -3,35 +3,26 @@
 #
 #   docker build -f be/apps/api/Dockerfile -t nivo-lite/api:<tag> .
 #
-# It follows the image canon with no divergence: the runtime holds no media tool (NIVO processes no video, audio or image with a native
-# program; the providers do it). Credentials are mounted at run time and never enter the image.
+# It follows the image canon and diverges from it nowhere. Credentials are mounted at run time and never enter the image.
 
-FROM node:22.14.0-alpine3.21 AS manifests
+FROM node:22.20.0-alpine3.21 AS manifests
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY fe fe
-COPY packages packages
-# The install stages hold manifests only, so a workspace `prepare` (it builds dist from sources) has nothing to compile; npm runs it for workspace
-# links even under --ignore-scripts. Drop it from these throwaway manifest copies; the build stages copy the sources and manifests back.
-RUN find fe packages -type f ! -name package.json -delete \
- && find fe packages -name package.json -exec node -e "const fs=require('fs');const f=process.argv[1];const p=JSON.parse(fs.readFileSync(f,'utf8'));if(p.scripts&&p.scripts.prepare){delete p.scripts.prepare;fs.writeFileSync(f,JSON.stringify(p,null,2))}" {} \;
+RUN find fe -type f ! -name package.json -delete
 
-FROM node:22.14.0-alpine3.21 AS build
+FROM node:22.20.0-alpine3.21 AS build
 WORKDIR /app
 COPY --from=manifests /app ./
 RUN npm ci --ignore-scripts
 
-# The back end imports the root packages (@nivo-lite/agent-sdk, @nivo-lite/blocks-core): `build:be` builds them first, through turbo.
 COPY turbo.json ./
-COPY packages packages
 COPY be/tsconfig.json be/tsconfig.build.json be/
 COPY be/src be/src
 COPY be/apps/api be/apps/api
-# The cli app ships in the same image: the stack runs jobs, the watchdog and the seeds as `node be/dist/apps/cli/src/main.js` inside the api service.
-COPY be/apps/cli be/apps/cli
 RUN npm run build:be
 
-FROM node:22.14.0-alpine3.21 AS runtime
+FROM node:22.20.0-alpine3.21 AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
@@ -39,13 +30,7 @@ ENV PORT=3000
 COPY --from=manifests /app ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
-# The workspace links of the root packages point here: their package.json files and the dist the build produced.
-COPY --from=build /app/packages packages
-
 COPY --from=build /app/be/dist be/dist
-
-# The AI gateway's SQLite key store volume (AI_ROUTER_KEYS_PATH) mounts here: an empty volume takes this owner, so the node user can write it.
-RUN mkdir -p /var/lib/ai-router && chown node:node /var/lib/ai-router
 
 USER node
 EXPOSE 3000

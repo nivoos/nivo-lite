@@ -1,36 +1,54 @@
 import { Test } from "@nestjs/testing"
-import { mock } from "@starci/jest-preset"
+import { builder, mock } from "@starci/jest-preset"
+import { Agent } from "undici"
 import { HttpErrorCode } from "./errors/http.error"
 import { FetchHttpClient } from "./fetch-http-client.client"
-import type { HttpRequest } from "./http.port"
-import * as pinnedRequest from "./pinned-request.client"
+import { HTTP_OPTIONS } from "./http.decorators"
+import type { HttpOptions } from "./http.options"
 
-/** A partial-object matcher, typed `unknown` so it flows into any slot. */
+/** Asymmetric matchers read as `unknown`: jest types them `any`, which may not flow into a property or a typed argument. */
+const anyOf = (type: unknown): unknown => expect.any(type)
 const objectLike = (shape: Record<string, unknown>): unknown => expect.objectContaining(shape)
 
-/** A by-constructor matcher, typed `unknown` so it flows into any slot. */
-const anyOf = (type: unknown): unknown => expect.any(type)
-
-const build = async (): Promise<FetchHttpClient> => {
-    const moduleRef = await Test.createTestingModule({ providers: [FetchHttpClient] }).compile()
+const build = async (overrides?: Partial<HttpOptions>): Promise<FetchHttpClient> => {
+    const moduleRef = await Test.createTestingModule({
+        providers: [FetchHttpClient, { provide: HTTP_OPTIONS, useValue: builder<HttpOptions>({})(overrides) }],
+    }).compile()
     return moduleRef.get(FetchHttpClient)
 }
 
-const responseOf = (status = 200) =>
-    mock<Response>({
-        status,
-        url: "https://service.test/final",
-        headers: new Headers({ "Content-Type": "text/plain" }),
-    })
-
-const HEADERS = { "content-type": "text/plain" }
-const FINAL = "https://service.test/final"
+const responseOf = (status = 200) => mock<Response>({ status })
 
 afterEach(() => {
     jest.restoreAllMocks()
 })
 
-describe("FetchHttpClient", () => {
+describe("FetchHttpClient JSON requests", () => {
+    it("propagates the explicit id once while preserving unrelated headers", async () => {
+        const client = await build()
+        const response = responseOf()
+        response.text.mockResolvedValue("{}")
+        const send = jest.spyOn(global, "fetch").mockResolvedValue(response)
+
+        await client.request({
+            correlationId: "request-explicit",
+            method: "GET",
+            url: "https://service.test/orders",
+            headers: {
+                "X-Request-ID": "spoofed",
+                "x-request-id": "also-spoofed",
+                TraceParent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+                accept: "application/json",
+            },
+            timeoutMs: 2500,
+        })
+
+        expect(send).toHaveBeenCalledWith(
+            "https://service.test/orders",
+            objectLike({ headers: { accept: "application/json", "x-request-id": "request-explicit" } }),
+        )
+    })
+
     it("sends a JSON request and parses its JSON response", async () => {
         const client = await build()
         const response = responseOf(201)
@@ -39,19 +57,19 @@ describe("FetchHttpClient", () => {
 
         await expect(
             client.request({
+                correlationId: "request-1",
                 method: "POST",
                 url: "https://service.test/orders",
                 headers: { authorization: "Bearer token" },
                 body: { orderId: "order-1" },
                 timeoutMs: 2500,
             }),
-        ).resolves.toEqual({ status: 201, headers: HEADERS, url: FINAL, body: { created: true } })
+        ).resolves.toEqual({ status: 201, body: { created: true } })
 
         expect(send).toHaveBeenCalledWith("https://service.test/orders", {
             method: "POST",
-            headers: { "content-type": "application/json", authorization: "Bearer token" },
+            headers: { "content-type": "application/json", authorization: "Bearer token", "x-request-id": "request-1" },
             body: JSON.stringify({ orderId: "order-1" }),
-            redirect: "follow",
             signal: anyOf(AbortSignal),
         })
     })
@@ -63,49 +81,23 @@ describe("FetchHttpClient", () => {
         jest.spyOn(global, "fetch").mockResolvedValue(response)
 
         await expect(
-            client.request({ method: "GET", url: "https://service.test/health", timeoutMs: 2500 }),
-        ).resolves.toEqual({ status: 204, headers: HEADERS, url: FINAL, body: undefined })
+            client.request({
+                correlationId: "request-1",
+                method: "GET",
+                url: "https://service.test/health",
+                timeoutMs: 2500,
+            }),
+        ).resolves.toEqual({ status: 204, body: undefined })
 
-        expect(fetch).toHaveBeenCalledWith("https://service.test/health", objectLike({ headers: {} }))
-    })
-
-    it("preserves a redirect response when the caller requests manual redirects", async () => {
-        const client = await build()
-        const response = responseOf(302)
-        response.headers.set("location", "/login")
-        response.text.mockResolvedValue("")
-        const send = jest.spyOn(global, "fetch").mockResolvedValue(response)
-
-        await expect(
-            client.request({ method: "GET", url: "https://service.test/orders", redirect: "manual", timeoutMs: 2500 }),
-        ).resolves.toEqual({
-            status: 302,
-            headers: { ...HEADERS, location: "/login" },
-            url: FINAL,
-            body: undefined,
-        })
-        expect(send).toHaveBeenCalledWith("https://service.test/orders", {
-            method: "GET",
-            headers: {},
-            body: undefined,
-            redirect: "manual",
-            signal: anyOf(AbortSignal),
-        })
+        expect(fetch).toHaveBeenCalledWith(
+            "https://service.test/health",
+            objectLike({ headers: { "x-request-id": "request-1" } }),
+        )
+        expect(jest.mocked(fetch).mock.calls[0]?.[1]).not.toHaveProperty("body")
     })
 })
 
-describe("FetchHttpClient", () => {
-    it("reads the body as text when the request asks for it, even when it is not JSON", async () => {
-        const client = await build()
-        const response = responseOf(502)
-        response.text.mockResolvedValue("<html>bad gateway</html>")
-        jest.spyOn(global, "fetch").mockResolvedValue(response)
-
-        await expect(
-            client.request({ method: "GET", url: "https://service.test/page", read: "text", timeoutMs: 2500 }),
-        ).resolves.toEqual({ status: 502, headers: HEADERS, url: FINAL, body: "<html>bad gateway</html>" })
-    })
-
+describe("FetchHttpClient form and byte requests", () => {
     it("encodes form fields and combines a caller cancellation signal with the deadline", async () => {
         const client = await build()
         const response = responseOf()
@@ -114,6 +106,7 @@ describe("FetchHttpClient", () => {
         const caller = new AbortController()
 
         await client.request({
+            correlationId: "request-1",
             method: "POST",
             url: "https://service.test/token",
             form: { grant_type: "client_credentials", scope: "orders read" },
@@ -124,7 +117,7 @@ describe("FetchHttpClient", () => {
         expect(send).toHaveBeenCalledWith(
             "https://service.test/token",
             objectLike({
-                headers: { "content-type": "application/x-www-form-urlencoded" },
+                headers: { "content-type": "application/x-www-form-urlencoded", "x-request-id": "request-1" },
                 body: "grant_type=client_credentials&scope=orders+read",
                 signal: anyOf(AbortSignal),
             }),
@@ -141,20 +134,26 @@ describe("FetchHttpClient", () => {
 
         await expect(
             client.request({
+                correlationId: "request-1",
                 method: "PUT",
                 url: "https://service.test/object",
                 bytes,
                 read: "bytes",
                 timeoutMs: 2500,
             }),
-        ).resolves.toEqual({ status: 206, headers: HEADERS, url: FINAL, body: Buffer.from([4, 5, 6]) })
+        ).resolves.toEqual({ status: 206, body: Buffer.from([4, 5, 6]) })
 
         expect(send).toHaveBeenCalledWith(
             "https://service.test/object",
-            objectLike({ headers: { "content-type": "application/octet-stream" }, body: bytes }),
+            objectLike({
+                headers: { "content-type": "application/octet-stream", "x-request-id": "request-1" },
+                body: bytes,
+            }),
         )
     })
+})
 
+describe("FetchHttpClient response decoding", () => {
     it("reports a response that is not JSON", async () => {
         const client = await build()
         const response = responseOf()
@@ -162,28 +161,29 @@ describe("FetchHttpClient", () => {
         jest.spyOn(global, "fetch").mockResolvedValue(response)
 
         await expect(
-            client.request({ method: "GET", url: "https://service.test/orders", timeoutMs: 2500 }),
+            client.request({
+                correlationId: "request-1",
+                method: "GET",
+                url: "https://service.test/orders",
+                timeoutMs: 2500,
+            }),
         ).rejects.toMatchObject({ code: HttpErrorCode.BodyUnreadable, cause: anyOf(SyntaxError) })
     })
 })
 
-describe("FetchHttpClient", () => {
+describe("FetchHttpClient request failures", () => {
     it("maps a failure before headers to a network error", async () => {
         const client = await build()
         jest.spyOn(global, "fetch").mockRejectedValue("connection refused")
 
         await expect(
-            client.request({ method: "GET", url: "https://service.test/orders", timeoutMs: 2500 }),
+            client.request({
+                correlationId: "request-1",
+                method: "GET",
+                url: "https://service.test/orders",
+                timeoutMs: 2500,
+            }),
         ).rejects.toMatchObject({ code: HttpErrorCode.Network, cause: "connection refused" })
-    })
-
-    it.each([null, {}])("maps a non-error rejection (%p) to a network error", async (cause) => {
-        const client = await build()
-        jest.spyOn(global, "fetch").mockRejectedValue(cause)
-
-        await expect(
-            client.request({ method: "GET", url: "https://service.test/orders", timeoutMs: 2500 }),
-        ).rejects.toMatchObject({ code: HttpErrorCode.Network, cause })
     })
 
     it("maps a deadline failure before headers to a timeout", async () => {
@@ -192,10 +192,17 @@ describe("FetchHttpClient", () => {
         jest.spyOn(global, "fetch").mockRejectedValue(failure)
 
         await expect(
-            client.request({ method: "GET", url: "https://service.test/orders", timeoutMs: 2500 }),
+            client.request({
+                correlationId: "request-1",
+                method: "GET",
+                url: "https://service.test/orders",
+                timeoutMs: 2500,
+            }),
         ).rejects.toMatchObject({ code: HttpErrorCode.Timeout, cause: failure })
     })
+})
 
+describe("FetchHttpClient response stream failures", () => {
     it("maps a failure while reading a response to a network error", async () => {
         const client = await build()
         const failure = new Error("stream cut")
@@ -204,7 +211,12 @@ describe("FetchHttpClient", () => {
         jest.spyOn(global, "fetch").mockResolvedValue(response)
 
         await expect(
-            client.request({ method: "GET", url: "https://service.test/orders", timeoutMs: 2500 }),
+            client.request({
+                correlationId: "request-1",
+                method: "GET",
+                url: "https://service.test/orders",
+                timeoutMs: 2500,
+            }),
         ).rejects.toMatchObject({ code: HttpErrorCode.Network, cause: failure })
     })
 
@@ -217,6 +229,7 @@ describe("FetchHttpClient", () => {
 
         await expect(
             client.request({
+                correlationId: "request-1",
                 method: "GET",
                 url: "https://service.test/object",
                 read: "bytes",
@@ -226,46 +239,47 @@ describe("FetchHttpClient", () => {
     })
 })
 
-describe("FetchHttpClient", () => {
-    it.each<{
-        name: string
-        read: HttpRequest["read"]
-        raw: Buffer
-        body: unknown
-    }>([
-        { name: "JSON", read: "json", raw: Buffer.from('{"created":true}'), body: { created: true } },
-        { name: "empty JSON", read: "json", raw: Buffer.alloc(0), body: undefined },
-        { name: "text", read: "text", raw: Buffer.from("<html>created</html>"), body: "<html>created</html>" },
-        { name: "bytes", read: "bytes", raw: Buffer.from([4, 5, 6]), body: Buffer.from([4, 5, 6]) },
-    ])("reads a pinned $name response without using fetch", async ({ read, raw, body }) => {
+describe("FetchHttpClient trusted certificate authority", () => {
+    it("sends through fetch's own pool and has nothing to close when no CA is trusted", async () => {
         const client = await build()
-        const pin = { address: "203.0.113.5", family: 4 } as const
-        const send = jest.spyOn(pinnedRequest, "sendPinned").mockResolvedValue({
-            status: 201,
-            headers: HEADERS,
-            body: raw,
-        })
-        const fetch = jest.spyOn(global, "fetch").mockRejectedValue(new Error("unexpected fetch"))
+        const response = responseOf()
+        response.text.mockResolvedValue("{}")
+        const send = jest.spyOn(global, "fetch").mockResolvedValue(response)
 
-        await expect(
-            client.request({
-                method: "POST",
-                url: "https://service.test/orders",
-                headers: { "content-type": "application/vnd.orders+json" },
-                body: { orderId: "order-1" },
-                timeoutMs: 2500,
-                redirect: "follow",
-                pin,
-                read,
-            }),
-        ).resolves.toEqual({ status: 201, headers: HEADERS, url: "https://service.test/orders", body })
-        expect(send).toHaveBeenCalledWith(new URL("https://service.test/orders"), pin, {
-            method: "POST",
-            headers: { "content-type": "application/vnd.orders+json" },
-            body: JSON.stringify({ orderId: "order-1" }),
+        await client.request({
+            correlationId: "request-1",
+            method: "GET",
+            url: "https://service.test/orders",
             timeoutMs: 2500,
-            signal: anyOf(AbortSignal),
         })
-        expect(fetch).not.toHaveBeenCalled()
+
+        expect(send.mock.calls[0]?.[1]).not.toHaveProperty("dispatcher")
+        await expect(client.onModuleDestroy()).resolves.toBeUndefined()
+    })
+
+    it("sends every request through one pool that trusts the CA, and closes it when the app stops", async () => {
+        const client = await build({ trustedCa: "the run's fake CA" })
+        const response = responseOf()
+        response.text.mockResolvedValue("{}")
+        const send = jest.spyOn(global, "fetch").mockResolvedValue(response)
+
+        await client.request({
+            correlationId: "request-1",
+            method: "GET",
+            url: "https://idp.test/jwks",
+            timeoutMs: 2500,
+        })
+        await client.request({
+            correlationId: "request-2",
+            method: "GET",
+            url: "https://service.test/orders",
+            timeoutMs: 2500,
+        })
+
+        const pool = send.mock.calls[0]?.[1]?.dispatcher
+        expect(pool).toBeInstanceOf(Agent)
+        expect(send.mock.calls[1]?.[1]?.dispatcher).toBe(pool)
+        await client.onModuleDestroy()
+        expect(pool).toHaveProperty("closed", true)
     })
 })

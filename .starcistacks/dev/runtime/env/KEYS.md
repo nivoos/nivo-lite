@@ -1,35 +1,27 @@
-# Environment keys (development)
+# Environment key roster (dev)
 
-Names only. Dev values are sealed in `.starcistacks/dev/secrets/<member>.enc.yaml`, generated once by the owner-armed
-`starci app secret init --env dev --execute` (except the owner's `ai` and `auth` members) and opened by `starci app stack up --env dev --execute`
-into private files outside the repository (`<KEY>_FILE`, which the back end reads first). Non-secret values are the manifest's
-`local.processes.<name>.env`. The api reads the same keys as in production (see the production KEYS.md).
+Names only. Dev values are generated once by the owner-armed `starci app secret init --env dev --execute`, sealed in
+`.starcistacks/dev/secrets/<member>.enc.yaml` and opened by `starci app stack up --env dev --execute` into private files outside the repository
+(`<KEY>_FILE`, which the back end reads first). The public front-end configuration is supplied by the manifest's `local.processes` environment.
 
-| Key | Member / source | Consumer |
-| --- | --- | --- |
-| `POSTGRES_PASSWORD` | `db` | the db container's superuser (compose value) |
-| `DB_OWNER_PASSWORD` | `db` | the environment's own owner role `nivo_lite_dev`, which runs the migrations |
-| `DB_APP_PASSWORD` | `db` | the `app_be` role of this environment; composed into `PRIMARY_DB_URL` (read through `PRIMARY_DB_URL_FILE`) |
-| `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` | `storage` | MinIO's root user and password (compose values) and the api's S3 credentials |
-| `CHANNEL_TOKEN_KEY` | `platform` | base64 of 32 bytes: seals the connection credentials; preserve it for existing encrypted data |
-| `ENTITY_ENGINE_CURSOR_KEY` | `platform` | base64 of 32 bytes: signs the list cursors of the entity engine (api, mcp and cli read it); changing it only invalidates open cursors |
-| `OTP_PEPPER` | `platform` | the pepper of the loyalty code hashes |
-| `N8N_SIGNING_SECRET` | `platform` | signs the n8n webhook calls |
-| `OPENROUTER_API_KEY`, `STARCI_AI_KEY` | `ai` (the owner's) | the AI gateway's upstream key and the virtual key the api uses |
-| `AUTH_JWT_PRIVATE_KEY`, `AUTH_JWT_PUBLIC_KEY` | `auth` (the owner's) | the api's access-token signing pair |
-
-| Non-secret key | Value in dev |
+| Key | Consumer |
 | --- | --- |
-| `PUBLIC_API_URL`, `AUTH_GOOGLE_CALLBACK_URL` | the api origin `http://localhost:18787` |
-| `SITE_URL`, `AUTH_WEB_ORIGIN` | the console origin `http://localhost:3000` |
-| `MAIL_HOST`, `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_FROM` | the sealed dev member `mail`: the owner's own SMTP server, the same as production; `MAIL_PORT` (587), `MAIL_SECURITY` (starttls), `MAIL_FROM_NAME` (NIVO) and `MAIL_DEFAULT_LANGUAGE` (vi) are plain values of the api process. `MAIL_SUPPRESS` (plain, comma-separated patterns, default `*.example.test,*.example.com,*.invalid`) lists the recipients the platform sender never mails: the message is logged as `mail.suppressed` (recipient masked), kept in the dev outbox folder `MAIL_OUTBOX_DIR` (`${data}/mail-outbox`, set in the dev local block only) and the send answers success. Read it with `node dist/apps/cli/src/main.js mail outbox --to <address> --latest`. A pattern is an exact address, `*.domain` (the domain and its subdomains) or a bare domain. |
-| `APP_BUILD_ID` | `dev`: the name of the running build (the jobs and the entity engine read it; api process value) |
-| `AUTH_COOKIE_DOMAINS` | `starci.org`: the refresh cookie takes that `Domain` on the dev tunnel host and stays host-only on `localhost` (comma-separated bare domains). |
-| `STORAGE_ENDPOINT`, `STORAGE_BUCKET_PREFIX` | `http://127.0.0.1:59900` (the internal address of the api's own writes to MinIO), `nivo-dev` |
-| `STORAGE_PUBLIC_URL` | `https://nivo-local-files.starci.org`: the origin every file and image link is built on (presigned requests are signed for it, `publicUrl` is read from it; the `publicEndpoint` option of `@starci/object-storage`). It is the public route of the MinIO S3 port on the `nivo-dev` tunnel (`local.tunnel` of the manifest, PROJECT-STACKS-15); MinIO's console is not published. A link with `127.0.0.1`, `localhost` or a container name is a defect. |
-| `QUEUE_REDIS_HOST`, `QUEUE_REDIS_PORT`, `REALTIME_REDIS_URL` | the Redis container on `127.0.0.1:56379` |
-| `AI_BASE_URL` | the api's in-process AI gateway, `http://127.0.0.1:18788/v1` |
-| `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_DEVELOPER_API_URL` | `http://localhost:18787` |
-| `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_LANDING_URL`, `NEXT_PUBLIC_APP_URL` | the console `http://localhost:3000` and the landing `http://localhost:3002` |
-| `NEXT_PUBLIC_ADMIN_URL`, `NEXT_PUBLIC_LOCAL_ADMIN_URL` | the console (`/admin` redirects there): the tunnel admin `https://nivo-local-admin.starci.org`, and `http://localhost:3105` when the console is opened on localhost. The admin app itself takes `NEXT_PUBLIC_SITE_URL` (its own origin), `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_LOCAL_API_URL` and `NEXT_PUBLIC_APP_URL` (the console, where a person signs in). |
-
+| `PORT`, `HTTP_SECURITY_ALLOWED_ORIGINS`, `PRIMARY_DB_SCHEMA` | API listener, origin allowlist, primary schema (manifest `local.processes.api.env`) |
+| `PRIMARY_DB_URL` | API least-privilege connection as `app_be` with this environment's own password; composed by the stack verb, read through `PRIMARY_DB_URL_FILE` |
+| `POSTGRES_PASSWORD` | The db service's superuser password (member `db`) |
+| `DB_OWNER_PASSWORD` | The environment's own owner role, which runs the migrations (member `db`) |
+| `DB_APP_PASSWORD` | The password of the `app_be` role in this environment's database (member `db`) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CALLBACK_URL` | API Google OAuth client and callback (local placeholders in the manifest) |
+| `GOOGLE_CLIENT_SECRET` | API Google OAuth client secret (member `google`) |
+| `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE`, `AUTH_JWT_KEY_ID` | API access-token claims and key id (the key id is published in the JWKS) |
+| `AUTH_WEB_ORIGIN` | API origin of the web app: where the Google callback lands and the only origin a return address may name |
+| `AUTH_JWT_PRIVATE_KEY` | API Ed25519 (EdDSA) signing key (member `auth`) |
+| `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET` | API storage address: the dev `storage` service (MinIO) on its S3 port, and the bucket the api creates there |
+| `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY` | API storage credentials and the `storage` service's root credentials (member `storage`, granted to the service through `STACK_GRANT_STORAGE`) |
+| `MAIL_HOST`, `MAIL_PORT`, `MAIL_SECURITY`, `MAIL_FROM`, `MAIL_FROM_NAME` | API outgoing mail server (the dev `mail` service, Mailpit, on its SMTP port: a plain channel on loopback only) and the sender of the confirmation and reset mails |
+| `MAIL_DEFAULT_LANGUAGE`, `MAIL_CONFIRM_TTL_SECONDS`, `MAIL_RESET_TTL_SECONDS` | API mail language (`vi` or `en`) and link lifetimes; optional |
+| `MAIL_USER`, `MAIL_PASSWORD` | API mail server login; optional, the password reads `MAIL_PASSWORD_FILE` |
+| `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_GRAPHQL_URL` | Front-end site, auth doors and GraphQL transport |
+| `NEXT_PUBLIC_STATICS_URL` | Front-end public base of the repo-owned statics: `http://localhost:<storage port>/<bucket>/statics` (PROJECT-STATICS-4) |
+| `STATICS_BUCKET`, `STATICS_PREFIX`, `STATICS_PUBLIC` | The dev `storage` service (built from `.starcistacks/images/storage/Dockerfile`): the bucket, the prefix its entrypoint loads `statics/` into, and whether that prefix alone is publicly readable (`download` or `none`) |
+| `DATABASE_URL` | `starci app db` verbs; the stack verb composes it in memory for the migration |

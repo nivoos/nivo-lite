@@ -1,37 +1,30 @@
 # nivo-lite
 
-<!-- >>> starci app sync (managed block; do not edit) >>> -->
-
-[![CI](https://github.com/starci183/nivo-lite/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/starci183/nivo-lite/actions/workflows/ci.yml)
-[![Codecov](https://codecov.io/gh/starci183/nivo-lite/branch/main/graph/badge.svg)](https://codecov.io/gh/starci183/nivo-lite)
-[![Quality Gate](https://sonar.starci.org/api/project_badges/measure?project=nivo-lite&metric=alert_status)](https://sonar.starci.org/dashboard?id=nivo-lite)
-[![Dependabot](https://github.com/starci183/nivo-lite/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/starci183/nivo-lite/actions/workflows/dependabot/dependabot-updates)
-
-<!-- <<< starci app sync <<< -->
-
-NIVO OS lite: the responsibility operating system for founder-led service businesses, one app with a Nest API, a Next web app and PostgreSQL as the backing service.
+One StarCi lite app: a Nest API in `be/`, one Next web app in `fe/`, and its own PostgreSQL with SQL migrations in `db/` as the schema authority.
 
 ## Overview
 
-NIVO gives every piece of work one accountable owner (a person or an AI agent), one explicit next action and the evidence of its outcome; a person approves anything that leaves the company. Owners run it through the Office team chat, the authority rules, the inbox, leads, decisions, the second brain and the agent modules, over Telegram, Zalo, Meta, Google and bank-transfer channels.
-
-The conversion to the StarCi lite shape is the full architecture on one PostgreSQL database: data through the `primary` connection, our own sign-in (the `@starci/auth` package, composed by `integrations/passport` and `domain/identity`), files in the S3 object store, and background jobs queued in the same database. There is no test world and no end-to-end run for the front end; the back end has unit specs. The browser talks to the API over GraphQL with the user's access token (Apollo, SWR and axios for uploads); the web app's sign-in goes through the API's `/auth` doors (`fe/apps/web/src/modules/auth/client.ts`, one `@starci/auth/client` instance: the access token in memory, refreshed through the httpOnly cookie), with no data reads. Privileged account and storage operations and every provider webhook stay behind the API.
+The starter keeps one deployable API and one web app, with the same code structure as a full app: the web app calls the API over GraphQL (`fe/apps/web/src/modules/api`, SWR hooks under `fe/apps/web/src/hooks/swr`) and signs in only through the API's own auth doors (`fe/apps/web/src/modules/auth`, which holds the access token in memory while the refresh token stays in an httpOnly cookie); every data read and write goes through the API, which verifies the access token against its own keys.
 
 ## Stack
 
-TypeScript everywhere, NestJS in `be/`, Next.js with next-intl in `fe/`, PostgreSQL for data and queues, our own sign-in (`@starci/auth`), npm workspaces, and Turbo for front-end tasks. OpenClaw (the agent gateway) and n8n run next to the API on one VPS behind a Traefik edge; images are built from the repository root.
+TypeScript everywhere, NestJS in `be/`, Next.js with next-intl in `fe/`, PostgreSQL (the `db` service: the official postgres image plus pgvector, built from `.starcistacks/images/db/Dockerfile`), Passport for Google and password sign-in, S3-compatible storage (MinIO), npm workspaces, and Turbo for front-end tasks.
 
 ## Repository layout
 
-- `be/`: the API and the command line, the shared platform capabilities, verified identity admission, the privileged provider integrations, the queues and the back-end documentation (`be/docs`).
-- `fe/`: the web app; it reads and writes only through the API (`modules/api`: GraphQL queries and mutations behind `hooks/swr` wrappers, REST for uploads); sign-in goes through the API's `/auth` doors.
-- `db/`: forward-only SQL migrations (`db/migrations`), the pre-baseline `db/bootstrap.sql`.
-- `.starcistacks/`: value-free environment metadata and encrypted-secret custody only.
-- `.starciwork/`: the lite workspace record (`.starciwork/workspace.yaml`) and the brand references.
-- `scripts/`: the contract and type codegen (`scripts/codegen.mjs`).
-- The production Docker Swarm release is driven by the canon `starci app stack` verbs (render, versioned secrets, convergence, verification, operator commands); the stack itself is `.starcistacks/production/infra/swarm/stack.yaml` (see `be/docs/runbooks/vps-stack.md` and `.starcistacks/production/README.md`).
+- `db/`: forward-only SQL migrations and generated database types.
+- `be/`: the API, shared platform capabilities, verified identity admission, and the passport and storage integrations.
+- `fe/`: the web app; it holds no credential, signs in through `fe/apps/web/src/modules/auth` and reaches data through `fe/apps/web/src/modules/api`.
+- `.starcistacks/`: value-free environment metadata, encrypted-secret custody and the seed levels (`.starcistacks/seeds/` for every environment, `.starcistacks/<env>/seeds/` for one, each a seeds.yaml manifest of its sql, data and files folders).
+- `.starciwork/`: `.gitignore`, `.starciwork/workspace.yaml` project metadata and repo roles, and optional brand drawing records, references, and assets.
+
+## Status badges
+
+Declare `ci.github.repository` and `ci.github.defaultBranch` in `.starcistacks/application-stacks.yaml` (or set the GitHub `repository` URL in `package.json`), then run `npx starci app sync --execute`. Sync inserts a managed badge block after the title; `npx starci app sync` (the dry run) verifies it.
 
 ## Development
+
+Every development dependency runs in Docker Linux containers. Create the local database once with `npm run db:create`, start it with `npm run db:start` (one container of the image `.starcistacks/images/db/Dockerfile` builds, on 127.0.0.1:54322), export `DATABASE_URL=postgresql://postgres@127.0.0.1:54322/postgres` and apply `db/bootstrap.sql` and the migrations with `npm run db:push`; start any other declared dependency through its managed `<dep>:create`, `<dep>:start` and `<dep>:stop` scripts or the declared container model. Compose is an implementation detail. Configure the local environment and start the API and web app using the package scripts for the declared development profile. In production, the app and its dependencies, the database included, run on Docker Swarm; pgvector owns vector search.
 
 ```sh
 npm install
@@ -43,20 +36,20 @@ npm run build:be
 npm run build:fe
 ```
 
-Local development uses a Docker container of the managed `db` image for PostgreSQL (`npm run db:create`, `db:start`, `db:push`), a local MinIO for object storage and a local Redis; auth is the API's own. The API, web console and landing run separately and need their own runtime or build configuration. The [development runbook](.starcistacks/dev/README.md) owns the required local API settings, custody boundaries and startup procedure; the API's typed readers and the front-end configuration modules validate their respective inputs.
+The API reads `PORT`, `HTTP_SECURITY_ALLOWED_ORIGINS`, `PRIMARY_DB_URL`, `PRIMARY_DB_SCHEMA`, the Google OAuth keys `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `GOOGLE_CALLBACK_URL`, its own token keys `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE`, `AUTH_JWT_KEY_ID` and `AUTH_JWT_PRIVATE_KEY`, the optional `AUTH_COOKIE_DOMAIN` (a bare domain such as `example.com`; required when the web and the API are served on different hosts, so the refresh cookie reaches the web server), and the storage keys `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY_ID` and `STORAGE_SECRET_ACCESS_KEY`. The database tooling reads `DATABASE_URL`. The web app reads `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_STATICS_URL` (the public base of the `statics/` folder in the app's own MinIO), and, once the first GraphQL operation exists, `NEXT_PUBLIC_GRAPHQL_URL`. Missing configuration stops the relevant process with a named error; no template supplies credential defaults.
 
-Application secret custody uses sealed files `.starcistacks/<env>/secrets/<slug>.enc` (SOPS dotenv, age recipient in `.sops.yaml`; the matching identity stays with the StarCi runtime owner). The API accepts `<NAME>_FILE=<path>` through `EnvSource`; Swarm deployments mount versioned Docker secrets at `/run/secrets/<NAME>`. Manage sealed custody through `starci app secret`. The development runbook explains the current recipe's legacy configuration input; it does not use production custody as a local fallback.
+Production browser build values live in `.starcistacks/application-stacks.yaml` under `environments.production.deploy.images.web.buildArgs.values`. Before building deployment images, replace the placeholders with your site's and your API's public origins. These values reach every browser; every credential stays in sealed runtime custody.
 
-Follow that runbook before starting the local application processes. A running database container establishes dependency startup; application configuration, database readiness and browser behavior still need their own verification.
+`npm test` runs the back end's unit specs with per-file coverage. Optional integration specs run with `npm run test:integration`, and e2e flows with `npm run test:e2e`, against the local database (`npm run db:start`, then `npm run db:push`); both run on request only, on the slots `.starcistacks/application-stacks.yaml` declares under `tests:` (one file at a time when absent), and a spec whose inputs are unchanged since its last green run is skipped and reported cached (`starci test integration` and `starci test e2e`, `--full` ignores the cache, `--spec <path>` runs one regardless).
 
-Images: `npm run docker:build` builds the API and command line images; the web image is `docker build -f fe/apps/web/Dockerfile .` from the root. Deploys are manual workflows, described with the cutover in `be/docs/runbooks/cutover.md`.
+The public runtime template tracks only sealed member names. Scaffolding creates this app's own age recipient and encrypts generated placeholder values into the declared `.starcistacks/<environment>/secrets/*.enc` members. Keep the matching host age identity in untracked local custody, then use `starci app secret set` to replace each placeholder with an actual value before deployment. Product apps retain sealed member custody. Runtime specs use disposable copies with ephemeral identities and remove them afterwards.
 
-Guides and runbooks live in `be/docs`: `guides` for how the system works (jobs, second brain, connecting channels, adding an agent module) and `runbooks` for operating it (cutover, VPS stack, job operations, DNS at Tino, lite baseline, migration re-stamp map).
+## Database changes
+
+Create a forward-only migration with `npm run db:new -- <kebab-name>` (it lands in `db/migrations`), keep each table's RLS policies and grants beside the table, apply it with `npm run db:push`, and run `npm run contract:emit` to refresh the generated database types. `starci app add table <name> --fe` adds the table with its GraphQL feature on the API and its operations and SWR hooks in the web app; `npm run codegen:graphql` regenerates the web app's wire types from `be/contracts/<app>/schema.graphql`.
 
 ## Work
 
-The workspace record and brand references live in `.starciwork/` (`.starciwork/workspace.yaml` and `.starciwork/brand`).
-
-## Accounts and sessions
-
-Every person has their own sign-in (email and password, or Google) and a role in the workspace: `owner`, `manager` or `staff`. People join through an invite from the Team page; the invite link creates the account (or signs in) and accepts the membership. The account page shows the profile, password change and active sessions with per-session and "all other devices" sign-out. Invite emails go over SMTP (the mail keys in `.starcistacks/dev/runtime/env/KEYS.md`); "Copy invite link" works without email.
+Brand records live in `.starciwork/brand/`. `.starciwork/workspace.yaml` supplies the project id and repo roles so Work tools
+can locate the app root and map brand records to the front end. The product's concepts live in `.starciwork/concepts/`. Lite permits this metadata without brand records; the tree
+is required only when brand records or concepts exist, and workspace metadata remains optional.

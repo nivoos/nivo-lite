@@ -1,3 +1,4 @@
 export { useAppDispatch, useAppSelector } from "./hooks"
 export { ReduxProvider } from "./ReduxProvider"
-export { setViewerId } from "./slices/viewer"
+export { sessionChanged } from "./slices/session"
+export type { SessionState } from "./slices/session"

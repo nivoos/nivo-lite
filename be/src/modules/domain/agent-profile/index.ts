@@ -1,5 +1,0 @@
-export { AGENT_PROFILE_ERROR_KINDS } from "./errors/agent-profile.error"
-export { AGENT_PROFILE_MESSAGES } from "./messages/agent-profile.messages"
-export { AgentProfileModule } from "./agent-profile.module"
-export { AgentProfileService } from "./agent-profile.service"
-export type { AgentPage } from "./agent-profile.contracts"

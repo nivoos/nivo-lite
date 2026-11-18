@@ -1,21 +1,14 @@
 "use client"
 
-// React hooks that wrap the pure toast helpers (./api) and inject localized copy through next-intl. Components and hooks use
-// these instead of importing `run*WithToast` directly, so every toast message is localized.
 import { useTranslations } from "next-intl"
 import { useCallback, useMemo } from "react"
-import {
-    runGraphQLWithToast,
-    runRestWithToast,
-    type RunGraphQLWithToastOptions,
-    type RunRestWithToastOptions,
-    type ToastMessages,
-} from "./api"
+import type { GraphQLResponse } from "@/modules/api"
+import { runGraphQLWithToast, type RunWithToastOptions, type ToastMessages } from "./api"
 
-/** Resolves the localized {@link ToastMessages} from the `toast` namespace. */
+/** The toast labels of the reader's locale (catalog namespace `app.toast`). */
 const useToastMessages = (): ToastMessages => {
-    const t = useTranslations("toast")
-    return useMemo<ToastMessages>(
+    const t = useTranslations("app.toast")
+    return useMemo(
         () => ({
             successTitle: t("successTitle"),
             errorTitle: t("errorTitle"),
@@ -28,28 +21,15 @@ const useToastMessages = (): ToastMessages => {
     )
 }
 
-/** A localized `runGraphQLWithToast`: use it for every GraphQL mutation. Answers the data, or `undefined` on failure. */
+/** A localized runGraphQLWithToast: every GraphQL write reports its outcome through it. */
 export const useGraphQLWithToast = (): (<T>(
-    action: () => Promise<T>,
-    options?: Omit<RunGraphQLWithToastOptions, "messages">,
-) => Promise<T | undefined>) => {
+    action: () => Promise<GraphQLResponse<T>>,
+    options?: RunWithToastOptions,
+) => Promise<GraphQLResponse<T>>) => {
     const messages = useToastMessages()
     return useCallback(
-        <T>(action: () => Promise<T>, options?: Omit<RunGraphQLWithToastOptions, "messages">) =>
-            runGraphQLWithToast(action, { ...options, messages }),
-        [messages],
-    )
-}
-
-/** A localized `runRestWithToast`: use it for every REST write (axios, presigned uploads). Answers the payload, or `null` on failure. */
-export const useRestWithToast = (): (<T>(
-    action: () => Promise<T>,
-    options?: Omit<RunRestWithToastOptions, "messages">,
-) => Promise<T | null>) => {
-    const messages = useToastMessages()
-    return useCallback(
-        <T>(action: () => Promise<T>, options?: Omit<RunRestWithToastOptions, "messages">) =>
-            runRestWithToast(action, { ...options, messages }),
+        <T>(action: () => Promise<GraphQLResponse<T>>, options?: RunWithToastOptions) =>
+            runGraphQLWithToast(action, messages, options),
         [messages],
     )
 }

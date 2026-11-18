@@ -1,26 +1,17 @@
 import type { ReactElement } from "react"
-import type { Metadata } from "next"
 import { getTranslations } from "next-intl/server"
+import { NotFoundNotice } from "@/components/composites/NotFoundNotice"
 import { APP_ROUTES } from "@/modules/routes"
-import { AppNotFoundPageBase } from "./component"
 
-/** Shown when a route does not exist. */
+/** Shown when a route calls `notFound()`: the page-level empty state, its words in the app's locale. */
 export const AppNotFoundPage = async (): Promise<ReactElement> => {
-    const t = await getTranslations("app")
+    const t = await getTranslations("app.notFound")
     return (
-        <AppNotFoundPageBase
-            props={{
-                title: t("notFoundTitle"),
-                text: t("notFoundText"),
-                homeLabel: t("notFoundHome"),
-                homeHref: APP_ROUTES.home,
-            }}
+        <NotFoundNotice
+            title={t("title")}
+            description={t("description")}
+            homeLabel={t("home")}
+            homeHref={APP_ROUTES.home}
         />
     )
-}
-
-/** The document title of the not-found page. */
-export const appNotFoundMetadata = async (): Promise<Metadata> => {
-    const t = await getTranslations("app")
-    return { title: t("notFoundTitle") }
 }

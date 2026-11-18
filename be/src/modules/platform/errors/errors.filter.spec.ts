@@ -22,7 +22,7 @@ const build = async () => {
 }
 
 describe("ErrorsFilter", () => {
-    it("hands a GraphQL failure back untouched for the GraphQL formatter", async () => {
+    it("hands a failure in a GraphQL context back untouched for the GraphQL error formatter", async () => {
         const { filter, errors } = await build()
         const failure = new Error("resolver failed")
         const host = mock<ArgumentsHost>()
@@ -32,80 +32,52 @@ describe("ErrorsFilter", () => {
         expect(errors.describe).not.toHaveBeenCalled()
         expect(host.switchToHttp).not.toHaveBeenCalled()
     })
+
     it("writes a localized description and its status to an HTTP response", async () => {
         const { filter, errors, requestLocale } = await build()
-        const failure = new Error("order missing")
+        const failure = new Error("note missing")
         const request = mock<Request>({ headers: { "accept-language": "en-US,en;q=0.9" } })
-        const response = mock<Response>()
+        const response = mock<Response>({ headersSent: false })
         response.status.mockReturnValue(response)
         const http = mock<ReturnType<ArgumentsHost["switchToHttp"]>>()
         http.getRequest.mockReturnValue(request)
         http.getResponse.mockReturnValue(response)
         const host = mock<ArgumentsHost>()
-        host.getType.mockReturnValue("http")
         host.switchToHttp.mockReturnValue(http)
         errors.describe.mockReturnValue({
-            code: "ORDER_NOT_FOUND",
+            code: "NOTE_NOT_FOUND",
             kind: "not-found",
             status: 404,
-            params: { orderId: "order-1" },
+            params: { noteId: "note-1" },
         })
         requestLocale.of.mockReturnValue("en")
-        errors.text.mockReturnValue("The order was not found")
+        errors.text.mockReturnValue("The note was not found")
 
         expect(filter.catch(failure, host)).toBeUndefined()
 
-        expect(errors.describe).toHaveBeenCalledWith(failure, expect.objectContaining({ scope: "http" }))
+        expect(errors.describe).toHaveBeenCalledWith(failure)
         expect(requestLocale.of).toHaveBeenCalledWith("en-US,en;q=0.9")
-        expect(errors.text).toHaveBeenCalledWith("ORDER_NOT_FOUND", { orderId: "order-1" }, "en")
+        expect(errors.text).toHaveBeenCalledWith("NOTE_NOT_FOUND", { noteId: "note-1" }, "en")
         expect(response.status).toHaveBeenCalledWith(404)
         expect(response.json).toHaveBeenCalledWith({
-            code: "ORDER_NOT_FOUND",
+            code: "NOTE_NOT_FOUND",
             kind: "not-found",
-            message: "The order was not found",
-            params: { orderId: "order-1" },
+            message: "The note was not found",
+            params: { noteId: "note-1" },
         })
     })
-})
 
-describe("ErrorsFilter", () => {
-    it.each([
-        ["a named connection", { connectionId: "connection-1" }, "connection-1"],
-        ["an absent name", {}, null],
-        ["a non-string name", { connectionId: 17 }, null],
-        ["null parameters", null, null],
-        ["a non-object parameter", "connection-1", null],
-    ])("describes the request context with %s", async (_name, params, connectionId) => {
-        const { filter, errors, requestLocale } = await build()
-        const failure = new TypeError("invalid delivery")
-        const request = mock<Request>({ path: "/connections/delivery", method: "POST", headers: {} })
-        Object.defineProperty(request, "params", { value: params })
-        const response = mock<Response>()
-        response.status.mockReturnValue(response)
+    it("leaves a response a guard already sent as it is", async () => {
+        const { filter, errors } = await build()
+        const response = mock<Response>({ headersSent: true })
         const http = mock<ReturnType<ArgumentsHost["switchToHttp"]>>()
-        http.getRequest.mockReturnValue(request)
         http.getResponse.mockReturnValue(response)
         const host = mock<ArgumentsHost>()
-        host.getType.mockReturnValue("http")
         host.switchToHttp.mockReturnValue(http)
-        errors.describe.mockReturnValue({ code: "DELIVERY_INVALID", kind: "invalid", status: 400, params: {} })
-        requestLocale.of.mockReturnValue("en")
-        errors.text.mockReturnValue("The delivery is invalid")
 
-        expect(filter.catch(failure, host)).toBeUndefined()
+        expect(filter.catch(new Error("rate limited"), host)).toBeUndefined()
 
-        expect(errors.describe).toHaveBeenCalledWith(failure, {
-            scope: "http",
-            context: { route: "/connections/delivery", method: "POST", connectionId },
-        })
-        expect(requestLocale.of).toHaveBeenCalledWith(undefined)
-        expect(errors.text).toHaveBeenCalledWith("DELIVERY_INVALID", {}, "en")
-        expect(response.status).toHaveBeenCalledWith(400)
-        expect(response.json).toHaveBeenCalledWith({
-            code: "DELIVERY_INVALID",
-            kind: "invalid",
-            message: "The delivery is invalid",
-            params: {},
-        })
+        expect(errors.describe).not.toHaveBeenCalled()
+        expect(response.status).not.toHaveBeenCalled()
     })
 })

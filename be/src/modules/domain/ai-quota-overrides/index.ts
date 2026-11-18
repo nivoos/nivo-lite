@@ -1,5 +1,0 @@
-export type { CreditsLimit } from "./ai-quota-overrides.contracts"
-export { AiQuotaOverridesModule } from "./ai-quota-overrides.module"
-export { AiQuotaOverridesService } from "./ai-quota-overrides.service"
-export { aiQuotaOverridesEntities } from "./persistence/entities"
-export { AiQuotaOverridesAdminReadService } from "./ai-quota-overrides-admin-read.service"

@@ -1,6 +1,0 @@
-{"findings":[{"column":0,"line":0,"message":"ext/lint/graphs-are-data.mjs is not formatted by prettier; run `npm run format`","path":"ext/lint/graphs-are-data.mjs","rule":"HFS_FORMAT"}],"hash":"bf47c3d7287dd98667dfc06f4078fad191810500d99d92a703a7c23ae1802858","path":"ext/lint/graphs-are-data.mjs","step":"prettier"}
-{"findings":[],"hash":"3877a45483f4d70cbe36d10e79aaebeb8f20419e4f3eedceac9cf25fca43de39","path":"ext/lint/no-provider-logic-in-nodes.mjs","step":"prettier"}
-{"findings":[],"hash":"c3cda39eb7b45ad9bd0363885f2a5d631f4e1b046189df33766a5fab1b4b4dc1","path":"ext/lint/node-level-names.mjs","step":"prettier"}
-{"findings":[],"hash":"c9f6e68e31c1826e3a7d05cec522c86eb2e5796b43d32346cf9310a597b734d8","path":"ext/lint/template-tier-homes.mjs","step":"prettier"}
-{"findings":[],"hash":"71cd36b07b73dd588be5df955030f7252bf6126385787f80100be6c73d38713e","path":"ext/lint/tool-ids-from-names.mjs","step":"prettier"}
-{"findings":[],"hash":"8d2b0d7836ee918d8bd65c2e6456d826af122bbf9b45a4b03cbddf2c94a426b4","path":"ext/lint/tools-defined-in-engine.mjs","step":"prettier"}

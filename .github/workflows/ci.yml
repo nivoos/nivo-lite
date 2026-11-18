@@ -15,8 +15,6 @@ on:
     branches:
       - "main"
       - "release/candidate-*"
-      - "dev"
-      - "ui/*"
     tags: ["v*"]
   pull_request:
     branches: ["main"]
@@ -87,12 +85,6 @@ jobs:
           if [[ "$EVENT" == push && "$REF_TYPE" == branch && "$GITHUB_REF_NAME" == main ]]; then
             git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/dev || { echo "::error::main moves only to a commit on dev (contexts/project/branches.md PROJECT-BRANCH-1)"; exit 1; }
           fi
-          if [[ "$EVENT" == push && "$REF_TYPE" == branch ]]; then
-            case "$GITHUB_REF_NAME" in
-              "dev") sonar=report codecov=report note="branch profile dev: checks only; lint report, sonar report, codecov report (.starcistacks/application-stacks.yaml branches)" ;;
-              "ui/"*) sonar=report codecov=report note="branch profile ui/*: checks only; lint report, sonar report, codecov report (.starcistacks/application-stacks.yaml branches)" ;;
-            esac
-          fi
           { echo "checks=$checks"; echo "images=$images"; echo "push=$push"; echo "full=$full"; echo "release=$release"; echo "ci_run=$ci_run"; echo "sonar=$sonar"; echo "codecov=$codecov"; } >> "$GITHUB_OUTPUT"
           echo "plan: $note" >> "$GITHUB_STEP_SUMMARY"
 
@@ -130,8 +122,6 @@ jobs:
         run: npx --no-install starci app audit --omit-dev --level=high
       - name: format
         run: npx --no-install starci app check --gate format --env prod
-      - name: build the workspace packages
-        run: npm run build:modules --silent
       - name: boot proof
         run: npx --no-install starci app check --gate wiring --env prod
         env:
@@ -149,7 +139,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        side: [be, fe, packages]
+        side: [be, fe]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -192,7 +182,7 @@ jobs:
           fi
           echo "STARCI_BASE_REF=$base" >> "$GITHUB_ENV"
       - name: build the lint inputs
-        run: npm run build:modules --silent && npm run codegen --silent && npx --no-install turbo run build --filter=./fe/packages/*
+        run: npm run codegen --silent
       - name: lint with Sonar import
         run: npx --no-install starci app check --gate lint --side ${{ matrix.side }} --out reports/lint.${{ matrix.side }}.sonar.json
         env:
@@ -211,7 +201,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -248,7 +238,7 @@ jobs:
       # A shard (STARCI_COVERAGE_SHARD=1, the jest preset) measures only the files its specs load, without the per-file threshold, and writes istanbul
       # JSON; the coverage job merges the shards by source location and proves 100 per file on the merged report. The shard count never exceeds what the unit specs fill.
       - name: unit
-        run: npm test -- --ci --forceExit --cacheDirectory .jest-cache --shard=${{ matrix.shard }}/13
+        run: npm test -- --ci --forceExit --cacheDirectory .jest-cache --shard=${{ matrix.shard }}/6
         env:
           STARCI_COVERAGE_SHARD: "1"
       - name: Jest cache save
@@ -352,19 +342,12 @@ jobs:
         if: steps.deps.outputs.cache-hit != 'true'
       - name: build be
         run: npm run build:be
-      - name: build fe web
-        run: npm run build:modules --silent && npm run codegen --silent && npx --no-install turbo run build --filter=./fe/apps/web
+      - name: build fe
+        run: npm run build:fe
         env:
-          NEXT_PUBLIC_API_URL: "https://api.nivo.vn"
-          NEXT_PUBLIC_APP_URL: "https://app.nivo.vn"
-          NEXT_PUBLIC_DEVELOPER_API_URL: "https://api.nivo.vn"
-          NEXT_PUBLIC_LANDING_URL: "https://nivo.vn"
-          NEXT_PUBLIC_SITE_URL: "https://app.nivo.vn"
-      - name: build fe landing
-        run: npm run build:modules --silent && npm run codegen --silent && npx --no-install turbo run build --filter=./fe/apps/landing
-        env:
-          NEXT_PUBLIC_APP_URL: "https://app.nivo.vn"
-          NEXT_PUBLIC_SITE_URL: "https://nivo.vn"
+          NEXT_PUBLIC_API_URL: "https://api.nivo-lite.example.invalid"
+          NEXT_PUBLIC_SITE_URL: "https://nivo-lite.example.invalid"
+          NEXT_PUBLIC_STATICS_URL: "https://storage.nivo-lite.example.invalid/nivo-lite-production/statics"
       - name: build cache save
         if: always()
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -432,16 +415,13 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
-          const files = ['reports/lint.be.sonar.json', 'reports/lint.fe.sonar.json', 'reports/lint.packages.sonar.json'];
+          const files = ['reports/lint.be.sonar.json', 'reports/lint.fe.sonar.json'];
           const reports = files.filter(file => fs.existsSync(file)).map(file => JSON.parse(fs.readFileSync(file, 'utf8')));
           const rules = [...new Map(reports.flatMap(report => report.rules).map(rule => [rule.id, rule])).values()];
           const issues = reports.flatMap(report => report.issues);
           fs.mkdirSync('reports', { recursive: true });
           fs.writeFileSync('reports/lint.sonar.json', JSON.stringify({ rules, issues }, null, 2) + '\n');
           NODE
-      - name: build the workspace packages
-        if: ${{ !cancelled() && (needs.plan.outputs.full == 'true' || needs.plan.outputs.sonar == 'report') }}
-        run: npm run build:modules --silent
       - uses: SonarSource/sonarqube-scan-action@c7ee0f9df90b7aa20e8dcf9695dcfe2e7da5b4f2 # v7.2.1
         if: ${{ !cancelled() && (needs.plan.outputs.full == 'true' || needs.plan.outputs.sonar == 'report') }}
       - uses: SonarSource/sonarqube-quality-gate-action@7a5fffe8e523c40e0c740b6bc2712ab503e52efa # v1.2.1
@@ -490,21 +470,3 @@ jobs:
           if [[ "$IMAGES" == true ]]; then expect images success; else expect images idle; fi
           if [[ "$CHECKS" == true && ( "$FULL" == true || "$SONAR" == report ) ]]; then expect sonar success; else expect sonar idle; fi
           exit "$fail"
-
-  deploy-production:
-    needs: [plan, verdict, images]
-    if: ${{ needs.plan.outputs.release == 'true' }}
-    permissions:
-      contents: read
-      packages: read
-      actions: read
-    concurrency:
-      group: deploy-production
-      cancel-in-progress: false
-    uses: ./.github/workflows/stack-deploy.yml
-    with:
-      environment: production
-      operation: deploy
-      auto: true
-      images: ${{ needs.images.outputs.refs }}
-      ci_run: ${{ needs.plan.outputs.ci_run }}

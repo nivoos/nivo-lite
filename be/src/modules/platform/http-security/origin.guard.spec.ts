@@ -10,7 +10,6 @@ import type { HttpSecurityOptions } from "./http-security.options"
 import { OriginGuard, ServerToServer } from "./origin.guard"
 
 const options: HttpSecurityOptions = {
-    trustedProxyHops: 1,
     allowedOrigins: ["https://app.test"],
     rateLimit: { windowMs: 60_000, defaultLimit: 100, strictLimit: 10 },
     webhooks: {},

@@ -20,7 +20,12 @@ const argValue = (name, fallback) => {
     return at >= 0 ? process.argv[at + 1] : fallback
 }
 const URL_DEV = argValue("--url", "https://nivo-app-dev.starci.org")
-const SECRET_NAMES = ["TELEGRAM_TEAM_BOT_TOKEN", "TELEGRAM_TEAM_WEBHOOK_SECRET", "SEPAY_NIVO_API_TOKEN", "SEPAY_NIVO_WEBHOOK_SECRET"]
+const SECRET_NAMES = [
+    "TELEGRAM_TEAM_BOT_TOKEN",
+    "TELEGRAM_TEAM_WEBHOOK_SECRET",
+    "SEPAY_NIVO_API_TOKEN",
+    "SEPAY_NIVO_WEBHOOK_SECRET",
+]
 /** Public facts of the accounts (dev test values until the owner connects the real ones). */
 const PUBLIC_FIELDS = { TELEGRAM_TEAM_BOT_USERNAME: "nivo_gtm_dev_bot", SEPAY_NIVO_ACCOUNT_NUMBER: "0000000000" }
 
@@ -32,8 +37,12 @@ const fail = (line) => {
 
 /** A dev custody value when the harness has one; null otherwise. */
 const custody = (name) => {
-    const ran = spawnSync("node", [STARCI, "app", "secret", "get", "--env", "dev", "nivo-gtm", name, "--to-file"], { encoding: "utf8" })
-    const line = `${ran.stdout ?? ""}\n${ran.stderr ?? ""}`.split(/\r?\n/u).find((each) => each.startsWith(`${name}_FILE=`))
+    const ran = spawnSync("node", [STARCI, "app", "secret", "get", "--env", "dev", "nivo-gtm", name, "--to-file"], {
+        encoding: "utf8",
+    })
+    const line = `${ran.stdout ?? ""}\n${ran.stderr ?? ""}`
+        .split(/\r?\n/u)
+        .find((each) => each.startsWith(`${name}_FILE=`))
     if (ran.status !== 0 || line === undefined) return null
     const value = readFileSync(line.slice(name.length + 6), "utf8").trim()
     return value === "" ? null : value
@@ -46,7 +55,20 @@ writeFileSync(secretsFile, `${lines.join("\n")}\n`)
 try {
     const ran = spawnSync(
         "node",
-        [resolve(PACKAGE_DIR, "node_modules/@starci/nivoos-cli/dist/main.js"), "package", "deploy", "src/nivo-gtm.package.ts", "--env", "dev", "--secrets", secretsFile, "--url", URL_DEV, "--public-json", JSON.stringify(PUBLIC_FIELDS)],
+        [
+            resolve(PACKAGE_DIR, "node_modules/@starci/nivoos-cli/dist/main.js"),
+            "package",
+            "deploy",
+            "src/nivo-gtm.package.ts",
+            "--env",
+            "dev",
+            "--secrets",
+            secretsFile,
+            "--url",
+            URL_DEV,
+            "--public-json",
+            JSON.stringify(PUBLIC_FIELDS),
+        ],
         { cwd: PACKAGE_DIR, encoding: "utf8", env: process.env },
     )
     say(`${ran.stdout ?? ""}${ran.stderr ?? ""}`.trim())

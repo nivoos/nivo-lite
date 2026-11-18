@@ -1,1 +1,0 @@
-export { useProviderTriggerCard } from "./useProviderTriggerCard"

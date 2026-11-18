@@ -1,18 +1,15 @@
 import { Module, type DynamicModule, type Provider } from "@nestjs/common"
 import {
     PASSPORT_ACCOUNTS,
+    PASSPORT_AUTHENTICATOR,
     PASSPORT_DOORS,
     PASSPORT_PASSWORDS,
-    PASSPORT_PRINCIPAL_VERIFIER,
     PASSPORT_RATE_COUNTER,
     PASSPORT_SESSIONS,
     PASSPORT_SESSION_STORE,
     PASSPORT_SIGN_IN_BUDGET,
 } from "@modules/integrations/passport"
-import { CLOCK } from "@modules/platform/clock"
-import { IdentityAccountsService } from "./accounts.service"
 import { IdentityAccountDirectoryService } from "./account-directory.service"
-import { createAccessTokenVerifier, refuseSessions } from "./access-token.policy"
 import { AuthGuard } from "./auth.guard"
 import { IdentityAuthenticatorService } from "./authenticator.service"
 import { CredentialGuard } from "./credential.guard"
@@ -26,89 +23,65 @@ import {
     IDENTITY_SIGN_IN_BUDGET,
 } from "./identity.decorators"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./identity.module-definition"
-import { IDENTITY_ACCOUNTS, IDENTITY_AUTHENTICATOR, IDENTITY_AUTH_OPTIONS } from "./identity-auth.decorators"
-import type { IdentityAuthOptions } from "./identity-auth.options"
-import { IdentityEmailService } from "./identity-email.service"
-import { IdentityInviteService } from "./identity-invite.service"
-import { IdentityPasswordChangeService } from "./password-change.service"
 import { IdentityRateCounterService } from "./rate-counter.service"
 import { IdentitySessionStoreService } from "./session-store.service"
+import { IdentityEmailService } from "./identity-email.service"
 import { IdentitySignInService } from "./sign-in.service"
 
-const SIGN_IN_EXPORTS = [
-    IdentityAccountsService,
-    IDENTITY_AUTHENTICATOR,
-    IDENTITY_ACCOUNTS,
-    IdentityEmailService,
-    IdentityPasswordChangeService,
-    IdentitySignInService,
-    PASSPORT_SESSION_STORE,
-    PASSPORT_ACCOUNTS,
-    PASSPORT_RATE_COUNTER,
-]
-
-const signInProviders = (auth: IdentityAuthOptions): Array<Provider> => [
-    { provide: IDENTITY_AUTH_OPTIONS, useValue: auth },
-    IdentitySessionStoreService,
-    IdentityAccountDirectoryService,
-    { provide: PASSPORT_SESSION_STORE, useExisting: IdentitySessionStoreService },
-    { provide: PASSPORT_ACCOUNTS, useExisting: IdentityAccountDirectoryService },
-    IdentityRateCounterService,
-    { provide: PASSPORT_RATE_COUNTER, useExisting: IdentityRateCounterService },
-    { provide: IDENTITY_AUTH_DOORS, useExisting: PASSPORT_DOORS },
-    { provide: IDENTITY_AUTH_SESSIONS, useExisting: PASSPORT_SESSIONS },
-    { provide: IDENTITY_AUTH_PASSWORDS, useExisting: PASSPORT_PASSWORDS },
-    { provide: IDENTITY_SIGN_IN_BUDGET, useExisting: PASSPORT_SIGN_IN_BUDGET },
-    IdentityAuthenticatorService,
-    { provide: IDENTITY_AUTHENTICATOR, useExisting: IdentityAuthenticatorService },
-    IdentityInviteService,
-    IdentityAccountsService,
-    { provide: IDENTITY_ACCOUNTS, useExisting: IdentityAccountsService },
-    IdentitySignInService,
-    IdentityEmailService,
-    IdentityPasswordChangeService,
-]
+const refusingAuthenticator: Provider = {
+    provide: CREDENTIAL_AUTHENTICATOR,
+    useValue: {
+        authenticate: () => Promise.reject(new IdentityError({ code: IdentityErrorCode.Unauthenticated })),
+    },
+}
 
 @Module({})
-/**
- * The identity capability: its default-deny guard admits public doors, verified sessions and explicitly selected
- * credentials; with sign-in options it also holds the sessions, passwords and accounts behind them.
- */
+/** The identity capability: the app registers its credential and default-deny guards after the throttler and origin guard. */
 export class IdentityModule extends ConfigurableModuleClass {
     /** Registers identity once per app with the verifier parsed at the composition root. */
     static register(options: typeof OPTIONS_TYPE): DynamicModule {
         const base = super.register(options)
+        const authenticator: Provider =
+            options.credentialAuthenticator === undefined
+                ? refusingAuthenticator
+                : { provide: CREDENTIAL_AUTHENTICATOR, useClass: options.credentialAuthenticator }
         return {
             ...base,
             providers: [
                 ...(base.providers ?? []),
-                options.ownTokens !== true
-                    ? { provide: ACCESS_TOKEN_VERIFIER, useValue: options.verifyAccessToken ?? refuseSessions }
-                    : {
-                          provide: ACCESS_TOKEN_VERIFIER,
-                          useFactory: createAccessTokenVerifier,
-                          inject: [PASSPORT_PRINCIPAL_VERIFIER, CLOCK],
-                      },
-                options.credentialAuthenticator === undefined
-                    ? {
-                          provide: CREDENTIAL_AUTHENTICATOR,
-                          useValue: {
-                              authenticate: () => {
-                                  throw new IdentityError({ code: IdentityErrorCode.Unauthenticated })
-                              },
-                          },
-                      }
-                    : { provide: CREDENTIAL_AUTHENTICATOR, useClass: options.credentialAuthenticator },
+                {
+                    provide: ACCESS_TOKEN_VERIFIER,
+                    useValue: options.verifyAccessToken,
+                },
+                authenticator,
                 CredentialGuard,
                 AuthGuard,
-                ...(options.auth === undefined ? [] : signInProviders(options.auth)),
+                IdentitySessionStoreService,
+                IdentityAccountDirectoryService,
+                IdentityRateCounterService,
+                IdentityAuthenticatorService,
+                IdentitySignInService,
+                IdentityEmailService,
+                { provide: IDENTITY_AUTH_DOORS, useExisting: PASSPORT_DOORS },
+                { provide: IDENTITY_AUTH_SESSIONS, useExisting: PASSPORT_SESSIONS },
+                { provide: IDENTITY_AUTH_PASSWORDS, useExisting: PASSPORT_PASSWORDS },
+                { provide: IDENTITY_SIGN_IN_BUDGET, useExisting: PASSPORT_SIGN_IN_BUDGET },
+                { provide: PASSPORT_SESSION_STORE, useExisting: IdentitySessionStoreService },
+                { provide: PASSPORT_ACCOUNTS, useExisting: IdentityAccountDirectoryService },
+                { provide: PASSPORT_RATE_COUNTER, useExisting: IdentityRateCounterService },
+                { provide: PASSPORT_AUTHENTICATOR, useExisting: IdentityAuthenticatorService },
             ],
             exports: [
-                AuthGuard,
-                ACCESS_TOKEN_VERIFIER,
                 CredentialGuard,
                 CREDENTIAL_AUTHENTICATOR,
-                ...(options.auth === undefined ? [] : SIGN_IN_EXPORTS),
+                AuthGuard,
+                ACCESS_TOKEN_VERIFIER,
+                IdentitySignInService,
+                IdentityEmailService,
+                PASSPORT_SESSION_STORE,
+                PASSPORT_ACCOUNTS,
+                PASSPORT_RATE_COUNTER,
+                PASSPORT_AUTHENTICATOR,
             ],
         }
     }

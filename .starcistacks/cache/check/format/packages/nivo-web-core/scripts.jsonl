@@ -1,1 +1,0 @@
-{"findings":[{"column":0,"line":0,"message":"packages/nivo-web-core/scripts/crm-codegen.mjs is not formatted by prettier; run `npm run format`","path":"packages/nivo-web-core/scripts/crm-codegen.mjs","rule":"HFS_FORMAT"}],"hash":"c3902055ca104fa2b7d87b1090775de83e7c4a59838b4e5e81b80aa19cf54558","path":"packages/nivo-web-core/scripts/crm-codegen.mjs","step":"prettier"}

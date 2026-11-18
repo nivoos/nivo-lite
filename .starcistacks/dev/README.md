@@ -1,56 +1,45 @@
-# dev
+# Development stack
 
-The dev environment of NIVO is one command: `starci app stack up --env dev --execute`. It checks the machine, opens the dev custody, runs the
-setup (`npm ci` when `node_modules` is absent, then codegen), starts PostgreSQL (the managed `db` image, pgvector), Redis and MinIO
-in Docker Linux containers, gives the environment its own database role, migrates, starts the api, the mcp gateway, the console and the
-landing natively, waits for readiness and prints the origins. What it runs is the `local` block of `environments.dev` in
-`.starcistacks/application-stacks.yaml` and `infra/compose/compose.yaml` (rule PROJECT-STACKS-6 of the harness); this
-runbook carries no docker command and nobody runs docker by hand.
+The dev environment is one command: `starci app stack up --env dev --execute`. It checks the machine, opens the dev custody, runs the setup
+commands, starts the dependencies in Docker Linux containers (the `db` service: the official postgres image plus pgvector, built from
+`.starcistacks/images/db/Dockerfile`; the `mail` service: Mailpit, the dev mail sink; the `storage` service: MinIO, the dev object store), gives the environment its own database role, migrates, applies the seed levels `.starcistacks/seeds/` then `.starcistacks/dev/seeds/`, starts the api and web
+processes natively and waits for readiness. What it runs is the `local` block of `environments.dev` in `.starcistacks/application-stacks.yaml`
+(PROJECT-STACKS-6 in contexts/project/stacks.md); this runbook never carries a docker command, an agent never runs docker by hand.
 
-| Component | Where | Host port (loopback) |
-| --- | --- | --- |
-| db (PostgreSQL 17, pgvector) | container, volume `db-data` | 54332 |
-| redis (BullMQ broker, realtime) | container, volume `redis-data` | 56379 |
-| minio (S3) | container, volume `minio-data`; public as `nivo-local-files.starci.org` on the `nivo-dev` tunnel (S3 port only) | 59900 |
-| api (+ the AI gateway on port + 1) | native | 18787 (gateway 18788) |
-| mcp | native | 18790 |
-| web (console) | native | 3100 |
-| landing | native | 3103 |
-| admin (platform admin, `nivo-local-admin.starci.org` on the `nivo-dev` tunnel) | native | 3105 |
+**A new machine.** Install what `starci app stack doctor --env dev` reports missing (it prints the exact winget, brew or apt step per tool; Node
+from `.nvmrc`, npm, git, Docker with Compose v2 running Linux containers, WSL2 on Windows, sops and age), then run `up`. A fresh clone needs
+nothing else: `up` runs `npm ci` and the codegen itself.
 
-The ports differ from production and from the earlier local containers (`nivo-lite-dev-db` on 54322, port 8787) on purpose: `doctor` reports a port
-that something else holds and names the holder. Change a port in `local.ports` of the manifest, not in the commands.
+**Custody.** Dev values are sealed like any secret and generated once, dev-only: the owner arms `starci app secret init --env dev --execute`, which
+creates every value `local.custody` declares, declares its key in the manifest and never replaces a value that is already sealed. A machine that
+lacks the age identity of an existing dev member is refused with the owner step to obtain it. The `db` service takes `POSTGRES_PASSWORD`, the
+migrations run as the environment's own owner role and the api connects as the `app_be` role with its own password, so no role is shared with
+another environment. The `storage` service takes the `storage` member's `STORAGE_ACCESS_KEY_ID` and `STORAGE_SECRET_ACCESS_KEY` as its root
+credentials, the keys the api signs with.
 
-**Custody.** Dev values are sealed like any secret. `starci app secret init --env dev --execute` creates the dev-only ones once (members `db`,
-`storage`, `platform`) and never replaces a sealed value; the owner's members `ai` (`OPENROUTER_API_KEY`, `STARCI_AI_KEY`) and `auth`
-(the JWT pair) are read as they are. A machine without the age identity the members are sealed to is refused with the owner step to obtain it. The
-database is a container of its own compose project: the migrations run as the role `nivo_lite_dev` and the api connects as `app_be` with a password
-of this environment alone, so no role is shared with another environment or server.
-
-**A new machine.** Run `starci app stack doctor --env dev`: it prints one row per prerequisite (Node 22, npm, git, Docker with Compose v2, WSL2 on
-Windows, sops and age, disk, memory, the ports) and, for each missing one, the exact winget, brew or apt step for the owner to run. Then
-`starci app stack up --env dev --execute`. On Windows the SWC native binding refuses a cache folder whose ACL lets other principals replace files
-(`%LOCALAPPDATA%\swc` and a folder on a shared data drive both can): point the SWC native binding cache at a folder of your own profile (for
-example `%USERPROFILE%\.swc-native-cache`) in the shell that runs `up`, which hands its environment to the console and the landing
-(PROJECT-STACKS-10).
+**Ports.** Every host port derives from `local.basePort` (R389, PROJECT-STACKS-10): web on the base, the api on base + 1, the compose services
+from base + 80 (`db` base + 90, the `mail` SMTP and web UI base + 91 and base + 92, the `storage` S3 API and console base + 93 and base + 94), so
+two apps run side by side on one machine.
 
 | Command | Operation |
 | --- | --- |
-| prepare | `starci app stack prepare --env dev --execute`: checks the machine, opens the custody, runs the setup and builds or pulls the images. |
-| doctor | `starci app stack doctor --env dev`: read-only table of the host prerequisites with the owner-run install step per OS, the custody, the compose render and the ports. |
-| up | `starci app stack up --env dev --execute`: prepare, then the services and their health, the database role, the migrations with a receipt, the processes and readiness; prints the origins. |
+| prepare | `starci app stack prepare --env dev --execute`: checks the machine, opens the custody, runs the setup commands and builds the images. |
+| doctor | `starci app stack doctor --env dev`: read-only table of host prerequisites with the owner-run install step per OS, custody, compose render and ports. |
+| up | `starci app stack up --env dev --execute`: prepare, then the services, the database role, migrations with a receipt, the seed levels `.starcistacks/seeds/` then `.starcistacks/dev/seeds/`, each entry once per content hash, the processes and readiness; prints the origins. |
 | status | `starci app stack status --env dev`: desired against running, the migration receipt and every readiness probe. |
-| logs | `starci app stack logs --env dev --service api` (api, mcp, web, landing, admin, or db, nivo-redis, nivo-minio; bounded and redacted). |
+| logs | `starci app stack logs --env dev --service api` (a process or a compose service, bounded and redacted). |
 | down | `starci app stack down --env dev --execute`: ends the processes and stops the compose project; volumes and sealed values stay. |
-| verification | `starci app stack verify --env dev`: the api `/healthz` and `/readyz` (the database answers), the console, the landing and the admin `/health/live`; then `npm run test` and the acceptance flows against the printed origins. |
+| verification | `starci app stack verify --env dev`: the declared liveness and readiness probes after a real start, then `npm run lint` from the app root. |
 
-The volumes are rebuildable development data: `starci app db migrate` recreates the schema from `db/bootstrap.sql` and `db/migrations`.
-Key names are in `runtime/env/KEYS.md`.
+**Mail.** The confirmation and reset mails of the sign-in go to the `mail` service on its SMTP port (`MAIL_HOST`, `MAIL_PORT`, `MAIL_SECURITY: none`: a plain channel that only the loopback sink accepts) and nothing leaves the machine. Open the web UI at the `mail` origin `up` prints (base + 92), sign up in the web app and follow the link from the message there. A deployed environment names a real SMTP server and `MAIL_SECURITY: starttls` or `tls`.
 
-**Files and images (PROJECT-STACKS-15).** MinIO's S3 port has a public host, `https://nivo-local-files.starci.org`, on the `nivo-dev` tunnel, declared
-under `local.tunnel` of the manifest; the api writes through `STORAGE_ENDPOINT` (loopback) and builds every link on `STORAGE_PUBLIC_URL` (that host), so
-an image renders in the browser, on another machine and in a provider that fetches it (Zalo). `stack up --execute` adds the ingress rule to
-`~/.cloudflared/nivo-dev.yml` and the DNS record (`cloudflared tunnel route dns --overwrite-dns`, `cert.pem`), then reads
-`https://nivo-local-files.starci.org/minio/health/live`; `stack verify` fails when that read is not 200. The connector of `nivo-dev` is restarted by
-whoever runs `up` when `up` says the ingress file changed. Stored rows keep a bucket and a key, never this host (the avatar and workspace logo columns are
-the open exception, `.starciwork/concepts/files.md` rule 10).
+**Storage.** The api reaches the `storage` service on its S3 port (`STORAGE_ENDPOINT`) and creates its bucket (`STORAGE_BUCKET`) on its first
+readiness probe, so `/health/ready` answers only once the database and the bucket answer; the console is the `storage` origin `up` prints.
+The service is built from the managed `.starcistacks/images/storage/Dockerfile` (the pinned MinIO, an `mc` client and the repo-owned `statics/` folder): on a fresh volume its entrypoint
+loads `statics/` into the bucket through the S3 API, and `up` rebuilds the image (cached when nothing changed), so a changed static is mirrored again, adding and overwriting only: an
+object the app uploaded stays. The `statics/` prefix of the bucket, and nothing else, is publicly readable; the front end builds its URLs from
+`NEXT_PUBLIC_STATICS_URL` and a staticsKey (PROJECT-STATICS-4). The volume `storage-data` is rebuildable development data.
+
+The database volume `db-data` is rebuildable development data: `starci app db migrate` recreates its schema from `db/bootstrap.sql` and
+`db/migrations` (an absent `db/migrations` is an empty chain). A seed command that runs a migration runner with its own ledger (TypeORM)
+is declared `mode: always`, so it runs on every `up`; any other seed command runs once per set of volumes. Key names of the environment are in `.starcistacks/dev/runtime/env/KEYS.md`.

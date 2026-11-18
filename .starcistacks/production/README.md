@@ -1,151 +1,38 @@
-# production
+# Production stack
 
-The production environment of NIVO: **Docker Swarm on one Ubuntu VPS** (a single-manager swarm: orchestration without manager failover; a lost manager needs recovery or a replacement), with the database self-hosted in the stack as `db` (owner ruling 2026-10-29). Components: `ingress` (the shared Traefik of the VPS), `landing` (`nivo.vn` / `www.nivo.vn`), `web` (console on `app.nivo.vn`), `api` (`api.nivo.vn`), `mcp` (the internal MCP gateway, no public host) and `n8n` (SQLite on the persisted volume `nivo-engine_n8n-data`). The application stack publishes no port: the shared ingress owns 80 and 443 and the certificates. The zone `nivo.vn` is at Tino. The Swarm services carry the tenant-unique names `nivo-api`, `nivo-mcp`, `nivo-web-app`, `nivo-landing` and `nivo-n8n` (full names `nivo_nivo-api` and so on), so no short alias such as `api` exists on the shared edge network; the edge aliases `nivo-api`, `nivo-web-swarm`, `nivo-landing` and `nivo-n8n` are unchanged. The stack source is `.starcistacks/production/infra/swarm/stack.yaml`; every deploy step is a verb of `starci app stack`, configured by `environments.production.deploy` of `.starcistacks/application-stacks.yaml`, and the release itself is the **deploy stack** workflow (`.github/workflows/stack-deploy.yml`). There is no compose project, no host crontab and no application script on the VPS.
+The tracked model declares Docker Swarm application services and one digest-pinned Caddy ingress.
+The `db` service (the official postgres image plus pgvector, built from `.starcistacks/images/db/Dockerfile` and pushed with the release images) supplies PostgreSQL on a named volume; sign-in is the API's own (Passport) and storage is the app's own MinIO: the `storage` service, built from `.starcistacks/images/storage/Dockerfile` (the pinned MinIO, an `mc` client and the repo-owned `statics/` folder) and pushed with the release images, on the named volume `storage-data` (a backup entry covers it). Its entrypoint loads `statics/` into the bucket through the S3 API on every new image, adds and overwrites only and never deletes an object the app uploaded, and makes the `statics` prefix, and nothing else, publicly readable. The ingress routes `storage.<host>` to the S3 port only, never the console. The app and its dependencies run on Docker Swarm. A Redis service runs only when `hfs.json` `sides.be.backing` declares it for a capability that needs it: one stateful replica with a digest-pinned image, a named volume with a backup entry and its password as a sealed member granted as a Swarm secret (Redis runs `--appendonly yes` with the volume at `/data`). The scaffold declares none; `starci app add queue|job` declares Redis and renders it here.
+The model is a deployment declaration. It contains no owner credentials, real DNS receipt, completed release or restore proof. Public records under `.starcistacks/production/infra/swarm/` explicitly mark those owner-run operations as pending.
+Its application image references contain illustrative all-zero digests; they identify no published image and must be replaced before deployment.
 
-## The seven commands
+The runtime template tracks no encrypted members. Scaffolding generates the six declared members with placeholder values encrypted to this app's own recipient in `.sops.yaml`. Replace those values with `starci app secret set --env production` using the matching host age identity in untracked local custody. Existing generated envelopes are decryptable with that app identity and can be updated in place. Each Docker secret contains the corresponding key's real value, and the API receives it through its declared mounted file.
 
-All commands run at the app root of an owner machine that holds the age identity (the one `vps` member gives the verbs their SSH session), or on the VPS manager. Effectful verbs are a dry run without `--execute`.
-
-| Command | What it does |
+| Command | Operation |
 | --- | --- |
-| prepare | `starci app stack prepare --env production --execute`: host checks without effect (Ubuntu and Docker versions, linux/amd64, disk, ports, Swarm state, the external volumes), then creates the external volumes a fresh host lacks (`nivo-engine_video-cache`, `nivo-engine_n8n-data`, `nivo-engine_ai-router-data`, `nivo-edge_acme`). `--init-swarm --owner-approved --execute` runs `docker swarm init` once, only after the owner approved it; an active swarm is never re-initialized. One-time host setup: `sudo install -d -o <deploy user> -m 750 /srv/nivo /srv/nivo/releases`. |
-| doctor | `starci app stack doctor --env production`: the same checks plus services, replicas, images, the managed secret and config counts and the release pointers; changes nothing. |
-| up | Actions > **deploy stack** > Run workflow from the release tag (`operation: deploy`, environment `production`, reviewers approve). It builds and pushes the api, web, admin and landing images to GHCR, then runs `starci app stack deploy`: render with digests, create the versioned secrets and configs, store the release record, pre-pull, `docker stack deploy --prune --with-registry-auth`, observe convergence, verify, accept and prune. A dry run is `starci app stack render --env production --image <service>=<repository>@sha256:<digest> --source-sha <sha>`. |
-| status | `starci app stack converge --env production --since <ISO time>` (desired versus running replicas, update state, no failed or rejected task) and `starci app stack doctor --env production`; on the manager `docker stack ps nivo --no-trunc` lists tasks with their errors. |
-| logs | On the manager: `docker service logs --tail 200 nivo_<nivo-api\|nivo-mcp\|nivo-web-app\|nivo-landing\|nivo-n8n>`. Job tooling: `starci app stack jobs stats\|failed\|open\|retry\|retry-failed --env production` (it runs the `jobs` CLI group inside the running api task). The n8n editor is private: on the manager run a loopback-only relay, for example `docker run --rm --name nivo-tunnel-n8n --network nivo_automation -p 127.0.0.1:5678:5678 alpine/socat TCP-LISTEN:5678,fork,reuseaddr TCP:nivo-n8n:5678`, then `ssh -L` from your machine. |
-| down | On the manager `docker stack rm nivo`: the services go; the volumes, secrets and configs stay. To go back to the previous accepted release use the **deploy stack** workflow with `operation: rollback` (or `starci app stack rollback --env production --execute`). |
-| verification | `starci app stack verify --env production`: `api.nivo.vn` `/healthz`, `/readyz` and a GraphQL `{__typename}`, `nivo.vn` and `www.nivo.vn` `/health/live` (landing), `app.nivo.vn/health/live` (console), `admin.nivo.vn/health/live` (platform admin), the legacy `nivo.vn/healthz` path, and `jobs watchdog` printing exactly two integers inside the api task. `deploy` runs it before acceptance; the manual smoke list is `be/docs/runbooks/cutover.md`, "Verify the system". |
+| prepare | Owner provisions the Swarm, node label, database, DNS and real sealed secret members, then runs `starci app stack prepare --env production --execute` to create the missing external volumes (the one-time swarm initialization stays an owner-approved step: `--init-swarm` with `--execute`, after the owner's explicit approval). Release images are built and pushed by the managed the managed stack-deploy workflow. |
+| doctor | Run `starci app stack prepare --env production` (a dry run, read-only): docker, swarm, volumes, services, secrets, configs and the release pointers on the intended manager. |
+| up | After preparation and review, run the manual stack-deploy workflow (Actions, deploy stack) on a release tag; it builds the images and runs `starci app stack deploy --env production --image <service>=<repository>@sha256:<digest> --sha <sha> --execute`. A dry run is `starci app stack render --env production` or `deploy --env production` without `--execute`. |
+| status | Run `starci app stack prepare --env production`, or `starci app stack converge --env production --since <ISO time>` to inspect desired and running replicas plus update state. |
+| logs | Run `docker service logs nivo-lite-production_api` on the manager; never include secret values in a receipt. |
+| down | After the owner's removal decision, run `docker stack rm nivo-lite-production`; persistent external volumes remain in owner custody. |
+| verification | Run `starci app stack verify --env production` (the journeys declared in `deploy.verify`); also confirm public TLS and a signed-in GraphQL request before moving the release pointer. |
 
-## Owner actions (the only ones)
+## Owner actions before the first release
 
-1. **DNS at Tino**: A records `nivo.vn`, `www.nivo.vn`, `app.nivo.vn`, `admin.nivo.vn` and `api.nivo.vn` pointing at the VPS (`103.142.27.9`). Nothing scripts DNS; receipt: `nslookup api.nivo.vn 1.1.1.1`. The ingress cannot obtain a certificate before this.
-2. **Approve `docker swarm init` on the VPS, once** (already done on the live host). Creating a swarm is an effect with its own recovery: afterwards back up the Swarm state (`starci app stack backup --env production --swarm-state --execute`) and decide on autolock before adding nodes.
-3. **GitHub environment `production`**: secret `SOPS_AGE_KEY` only (the CI transport is the sealed member `vps-ci`, opened with it); required reviewers. The age identity stays backed up in the owner's untracked runtime secret file: losing it loses every sealed secret.
-4. **Packages**: the GHCR packages `nivo-lite-api`, `nivo-lite-mcp`, `nivo-lite-web`, `nivo-lite-admin` and `nivo-lite-landing` are created private by the first run; keep them linked to the repository.
-5. **Database deploy**: no workflow deploys the schema; the migrations run through `starci app db migrate` (below).
+Every item is pending. Swarm initialization, provider URIs, DNS changes and key rotation are owner-run steps.
 
-## Custody
+| Area | Required owner action and evidence |
+| --- | --- |
+| Swarm and placement | Initialize the intended manager; label the intended stateful node `nivo-lite=production`. Only that node owns the external ingress volumes. |
+| DNS | Replace the reserved `example.invalid` hosts consistently in the manifest, Caddyfile and public configuration; publish address records for the web and API hosts and retain a provider receipt in `.starcistacks/production/infra/swarm/owner-actions.md`. |
+| TLS | Caddy issues certificates after real DNS resolves. Provision `nivo-lite-production-ingress-data` and `nivo-lite-production-ingress-config-data` on the selected node; retain an issuance and renewal receipt in `.starcistacks/production/infra/swarm/owner-actions.md`. |
+| Database | Provision `nivo-lite-production-db-data` on the stateful node; after the first deploy create the app_be login through the baseline migration (`starci app db migrate --db-url-env DATABASE_URL --execute`). Record the recovery owner without copying credentials here. |
+| Secret custody | Replace generated placeholder values with real values at the manifest's declared `.starcistacks/production/secrets/*.enc` paths; record their keys in `.starcistacks/production/runtime/env/KEYS.md`. The app's age identity stays only in the host's untracked `.claude/secret.env`. |
+| External secrets | Materialize the sealed members in owner custody and create the `nivo-lite-production-<member>-v1` external secret of each declared member. The API reads mounted files; rotation creates new versioned names before updating the model. |
+| Public build configuration | Build the front end with its declared public site, API and GraphQL URLs. Public browser values stay outside sealed secret custody. |
+| Immutable release | Replace the illustrative all-zero application digests in the manifest, model and `.starcistacks/production/infra/swarm/releases/images.lock.yaml` with digests produced by the verified release. Store each rendered release under `/srv/nivo-lite/releases/<digest>`. Retain the last accepted record in `.starcistacks/production/infra/swarm/releases/previous.yaml`, then move the current pointer and update `.starcistacks/production/infra/swarm/releases/current.yaml` after verification. |
+| Rollback | Retain the previous model and images, redeploy that model if convergence or health fails, and record the resulting convergence receipt. Database changes follow an expand/contract sequence. |
+| Backup | Provision the manifest's thirty daily encrypted off-host database exports (`starci app db dump`) and ingress-volume snapshots. Record the actual destination and encryption custody in `.starcistacks/production/infra/swarm/recovery/restore-proof.md`; the production operator owns both components. |
+| Restore proof | Perform a restore into isolated infrastructure, verify the restored database and ingress state, and attach a dated receipt with artifact digests to `.starcistacks/production/infra/swarm/recovery/restore-proof.md`. Its initial record is pending; no restore has been run by scaffolding. |
 
-Secrets are kept ONLY as sops-encrypted YAML members, one per provider, `.starcistacks/production/secrets/<provider>.enc.yaml`. The age recipient is in `.sops.yaml`; the age identity is `SOPS_AGE_KEY` in the owner's untracked runtime secret file and in the GitHub environment secret of the same name. No root dotenv file, no plaintext secrets file and no secrets directory exists, and none may be created.
-
-- Read or change a value: `starci app secret list|get|set production <slug>` (values travel through stdin and memory only; `list` prints names).
-- A release decrypts the members **in memory on the runner** and pipes each granted key into `docker secret create nivo-<key>-v<keyed hash> -` on the manager over the pinned ssh session (`starci app stack deploy`). The version is the first 10 hex of an HMAC of the key name and value under the age identity: a changed value is a new name; an unchanged one keeps its name, so a deploy restarts only what changed. The rendered stack keeps `{external: true, name: <runtimeName>}` and no value. The logical-name to runtime-name map is the `secrets` list of each release record (names only).
-- Services read `/run/secrets/<KEY>` through `<KEY>_FILE`.
-- Rotation: `starci app secret set production <slug> <KEY>`, commit, run the **deploy stack** workflow. The new name is created and granted, convergence is observed, and only then does the prune step remove names that neither the accepted nor the previous release uses. A name is never reused.
-- The connection key `CHANNEL_TOKEN_KEY` is the exception: one random 32-byte key, set once and never overwritten or rotated, because it seals every stored credential Its custody is guarded where it is used: the api and the mcp app open a credential already sealed in the database before they serve, and a key that was overwritten under stored credentials stops them with the connection-secrets key-mismatch error, so a replaced key never goes live. A per-request failure to open a credential is logged as an error and refused, never sent.
-- The stack file declares one external stub per sealed member (`nivo-custody-<slug>-v1`) as the custody record the stack checks read; no service is granted a stub and no such Swarm secret exists.
-- Local development uses the local db container and exported shell values, not these files.
-
-## Two secret zones
-
-- **App and platform secrets** stay sealed in this custody and are loaded at deploy: everything the api, the mcp app (the MCP
-  gateway itself) or the platform needs whatever the tenants, with zero workspaces: the database connection, service-to-service
-  keys, the gateway's own auth and the connection key `CHANNEL_TOKEN_KEY`. They are never moved to the database.
-- **Workspace (tenant) secrets** are sealed in the database per workspace with the connection key and entered in the console: a
-  channel connection's tokens and a remote MCP connector's credential (for example the HAKUEN connector's client secret). They are
-  never deployment keys and never listed here.
-
-## Sealed members (names only, values are never written down)
-
-The key roster with semantics is `.starcistacks/production/runtime/env/KEYS.md`.
-
-| Slug | Consumer | Keys |
-| --- | --- | --- |
-| `nivo` | api task (`<KEY>_FILE`); mcp task (`CHANNEL_TOKEN_KEY` only) | `CHANNEL_TOKEN_KEY`, `OTP_PEPPER`, `WEBHOOK_SIGNING_SECRET`, `NIVO_PLATFORM_ADMINS`. Remote MCP connector credentials are not custody keys: they are sealed per workspace in the database from the console |
-| `mail` | api task (`<KEY>_FILE`) | `MAIL_HOST`, `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_FROM` (the platform sender of sign-in, invitation and owner-notice mail; the port, security, sender name and default language are in `api-public.conf`) |
-| `telegram` | api task (`<KEY>_FILE`) | `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` (the Telegram application of the personal-account bridge; bot tokens and Zalo app credentials are per connection, sealed in the database) |
-| `sepay` | api task | `SEPAY_WEBHOOK_API_KEY`, `SEPAY_BANK_ACCOUNT`, `SEPAY_BANK_CODE`, `SEPAY_ACCOUNT_NAME` |
-| `auth` | api task | `AUTH_JWT_PRIVATE_KEY`, `AUTH_JWT_PUBLIC_KEY` (the own Passport signing pair) |
-| `google` | api task | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` (own Google sign-in) |
-| `storage` | api task | `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` (the MinIO service account; `STORAGE_ENDPOINT`, `STORAGE_PUBLIC_URL` and `STORAGE_BUCKET_PREFIX` are public configuration in `api-public.conf`) |
-| `ai` | api task | `OPENROUTER_API_KEY` (the upstream key), `STARCI_AI_KEY` (the one gateway virtual key) |
-| `n8n` | n8n, api | `N8N_ENCRYPTION_KEY` (n8n), `N8N_SIGNING_SECRET` (also granted to the api); configuration read at render time (not a Swarm secret): `N8N_ALLOWED_HOSTS`, `N8N_PROTOCOL`, `N8N_SECURE_COOKIE` |
-| `redis` | `nivo-redis`, api task | `QUEUE_REDIS_PASSWORD` |
-| `postgres` | `db` (`POSTGRES_PASSWORD_FILE`), `nivo-postgres-backup`; api task; operator | `POSTGRES_PASSWORD` (superuser), `APP_BE_DB_PASSWORD` (the `app_be` login role), `PRIMARY_DB_URL` |
-| `vps` | operator verbs | `VPS_HOST`, `VPS_USER`, `privateKey` (operator SSH key), `knownHosts` (pinned host keys), `ciPrivateKey` (the operator copy of the CI deploy key; CI reads the sealed member `vps-ci`); never granted |
-| `web` | web image build | the public build values of the console (`NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL` and their siblings, never sealed) read by `starci app stack build-args` |
-| `test-accounts` | smoke tests and the explicit workspace operator CLI in the api task | `READY_OWNER_*`, `READY_STAFF_*`, `DEMO_*`, `WORKSPACE_SEED_INPUT` |
-
-The non-secret production configuration (`PRIMARY_DB_SCHEMA`, `AUTH_WEB_ORIGIN`, `AUTH_GOOGLE_CALLBACK_URL`, `STORAGE_ENDPOINT`, `STORAGE_PUBLIC_URL`, `STORAGE_BUCKET_PREFIX`, `SITE_URL`, `PUBLIC_SITE_URL`, `PUBLIC_API_URL`, `HTTP_SECURITY_ALLOWED_ORIGINS`, `N8N_WEBHOOK_BASE`) is committed in `.starcistacks/production/infra/swarm/api-public.conf` and merged into the api environment by the render; the names the be reads, with required or optional marked, are in `.starcistacks/production/infra/swarm/api.env.example`. The public web values `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_DEVELOPER_API_URL` are build arguments declared in `environments.production.deploy.images.web.buildArgs`.
-
-## Workspace access
-
-The managed `ensure-workspace` and `verify-workspace` tasks run the existing workspace CLI inside the running `nivo-api`
-task, with its private database access and auth configuration. Their commands are fixed in `deploy.tasks`; they accept
-no account, password, token or command arguments. Nothing runs automatically during deploy.
-
-Prepare one private `starci/app-workspace-input@1` input with `action: ensure`, exactly one workspace selector, and distinct
-`owner`, `manager` and `staff` accounts. A fresh isolated run uses a unique `workspaceName`, new account emails, private
-initial passwords and `bootstrapOwner: true`. Reuse the same input for reconciliation; do not substitute the existing
-READY or demo accounts. The full input contract is owned by
-`be/src/modules/domain/workspace-seed/workspace-seed.policy.ts`.
-
-Seal that generated input through the approved loader, with masked input or private stdin, never as a command argument:
-
-```sh
-starci app secret set --env production test-accounts WORKSPACE_SEED_INPUT
-```
-
-After the normal approved release deploy grants this key, the renderer mounts only that key from `test-accounts` into
-the api task and sets `WORKSPACE_SEED_INPUT_FILE`. The input is optional outside workspace maintenance; if it is absent,
-the workspace CLI refuses the task rather than selecting an account or workspace itself. No READY or demo key is granted.
-
-```sh
-starci app stack task ensure-workspace --env production             # inspect the fixed command; no account write
-starci app stack task ensure-workspace --env production --execute   # create missing accounts/workspace and ensure seats
-starci app stack task verify-workspace --env production --execute   # authenticate and read back the exact seats
-```
-
-`ensure` writes as soon as the task is executed. It preserves existing credentials and seat state, refuses a conflicting
-role, and authenticates the owner. `verify` performs no domain write; password authentication creates and closes its own
-temporary session. Both emit a structured workspace receipt, including the workspace id and session-cleanup result.
-`consumerVerified: false` means that a separate login through the console remains necessary.
-
-## Releases, health and rollback
-
-- **Immutable release.** A release is the rendered stack bytes (its sha256 is the release digest), the source commit, the api, web and landing image digests (the other images are pinned by digest in the stack source), the non-secret configuration digest, the secret and config runtime names, the health assertions and the previous accepted release. It lands in `/srv/nivo/releases/<digest16>/` (read-only) before the deploy, and the `current` pointer moves only after verification; `previous` keeps the last accepted release for a bounded rollback. The tracked records under `.starcistacks/production/infra/swarm/release/` state that rule and hold no live value.
-- **Health signals.** The container healthcheck is liveness (`/healthz` of the api, `/health/live` of web and landing, process-local: a database outage never restarts a task). Readiness (`/readyz`: the database answers within 2 seconds) gates traffic at the shared ingress (the Traefik health check in `.starcistacks/production/infra/swarm/edge/routes.yml`) and the deploy acceptance, never a restart. Startup is the healthcheck `start_period`. Functional verification is `starci app stack verify`.
-- **Updates.** `nivo-api`, `nivo-mcp`, `nivo-web-app` and `nivo-landing` update start-first (`order: start-first`, `failure_action: rollback`, `monitor`, `max_failure_ratio: 0`, with `rollback_config`); the stateful service `n8n` updates stop-first because only one task may own a volume. A failed update rolls itself back; a failed deploy then deploys the previous accepted release again.
-- **Job alerts** are raised by the api itself (an in-process monitor reads `job_stats()` every `JOBS_ALERT_INTERVAL`; over the limits it logs a `job-ops.alert.*` error event and writes an `app_errors` row, at most once per kind per 30 minutes). Limits: `JOBS_ALERT_FAILED_MAX` (20) and `JOBS_ALERT_STALE_SECONDS` (300), taken from the `stack` member's `JOBS_FAILED_ALERT` / `JOBS_STALE_SECONDS` when sealed. There is no host cron and no watchdog script.
-- **Backups.** `starci app stack backup --env production [--swarm-state] --execute` writes age-encrypted tarballs of the n8n (SQLite) volume to `/srv/nivo/backups` (14 days); copy them off the VPS and prove a restore on an isolated host (`.starcistacks/production/infra/swarm/recovery/restore-proof.md`). The job queues are in the database, covered by the nightly `nivo-postgres-backup` dump (see "Self-hosted PostgreSQL").
-- **Rollback boundary.** Redeploying a stored release restores service specifications and images. It cannot revert a schema change (migrations are forward-only) or recreate a removed secret. A data restore is a separate action with an explicit loss window.
-
-## Self-hosted PostgreSQL
-
-`db` (the managed image of `.starcistacks/images/db/Dockerfile`: the Docker Official postgres 17 image pinned by digest, plus pgvector and pgmq) is a stack service on the private `agents` network (`db:5432`, no published port) on the volume `nivo-engine_postgres-data`. It carries `pgmq`, `vector`, `unaccent` and `pgcrypto`; scheduled work runs as app CLI jobs, so neither `pg_cron` nor `pg_net` is loaded. The api and the mcp gateway keep their single database variable `PRIMARY_DB_URL` (role `app_be`, RLS applies), now `postgresql://app_be@db:5432/postgres`.
-
-- **Backups.** `nivo-postgres-backup` writes `nivo-db-<UTC stamp>.dump.age` (+ `.sha256`) to the volume `nivo-engine_postgres-backups` daily at 02:00 Asia/Ho_Chi_Minh and at start when none is younger than 26 h: `pg_dump --format=custom`, age-encrypted to the recipient of `.sops.yaml`; files older than 14 days are deleted. Copy them off the VPS. The database starts CLEAN (no earlier data is carried over): `db/bootstrap.sql` first (the `auth`/`storage` objects and roles the applied migrations reference, empty), then the migrations; the exact steps, the local rehearsal and the restore of a nightly file are in `infra/swarm/recovery/db-runbook.md`.
-- **Migrations tooling.** Migrations live in `db/migrations/` (forward-only) and reach this database with the harness verb that takes the connection from a named environment variable: `starci app db migrate --env production --url-env DATABASE_URL --execute`. `DATABASE_URL` is set in the operator shell only: `postgresql://postgres@127.0.0.1:55432/postgres`, reached through a loopback-only relay on the manager (the same pattern as the n8n editor: `docker run --rm --name nivo-tunnel-pg --network nivo_agents -p 127.0.0.1:55432:5432 alpine/socat tcp-listen:5432,fork,reuseaddr tcp-connect:db:5432`, then an SSH port-forward to the owner machine; the database port is never published). Take a backup first (`BACKUP_RUN_ONCE=1` or wait for the nightly file). `starci app stack deploy --urgent --db-url-env DATABASE_URL` runs the pending migrations the same way before it rolls the services. `DATABASE_URL` is the operator-side name; the api's own name stays `PRIMARY_DB_URL` (a different role: superuser versus `app_be`).
-- **Role password.** The migrations create `app_be` without a password. After the first start (and after any restore) the operator sets it from the sealed `APP_BE_DB_PASSWORD` and seals `PRIMARY_DB_URL` (runbook step 3).
-
-## The MCP gateway is internal only
-
-`nivo-mcp` (`be/apps/mcp`, image `ghcr.io/starci183/nivo-lite-mcp`) has no host, no route in `infra/swarm/edge/routes.yml` and no DNS record, and it is
-not on the `edge` network: it joins only the private `agents` overlay under the alias `nivo-mcp`, where the api could reach it as
-`http://nivo-mcp:8790/mcp/<workspaceId>`. For the demo its agent endpoint stays closed (it reads no agent token and fails closed); the api's chat
-turns use the same gateway modules in-process. Reasons: (1) its callers are NIVO's own agents, all inside the stack, so a public route would only add attack
-surface; (2) every call it accepts can reach a workspace's connectors (bookings, folios, key codes) with sealed service credentials, so exposure is
-limited to the network that already holds the api and the agent gateway; (3) it keeps the shared ingress, its certificates and the tenant routes
-untouched. HAKUEN's own MCP server is the public one; NIVO calls out to it. An external MCP client (for example a StarCi kernel agent) talks to HAKUEN
-directly with its own scoped client, never through this gateway. For an operator check use a loopback relay like the n8n one (network `nivo_agents`,
-host `nivo-mcp`, port 8790). Its container healthcheck probes `/healthz` (liveness); `starci app stack converge` asserts the task is healthy.
-
-## The AI gateway and its virtual keys
-
-The api process hosts `@starci/ai-router` 0.3.0 through `AiRouterGatewayModule`: no extra container or image. It listens on **8788** (`AI_ROUTER_PORT`, api 8787 + offset 1, declared on the `nivo-api` component) on the private `agents` network only: no route, no published port. The api calls it at `http://127.0.0.1:8788/v1`. The pool holds one OpenRouter provider with the profiles `work` (`deepseek/deepseek-v4.1-flash`) and `embed` (`qwen/qwen3-embedding-8b`). The key store (usage and quota counters of the mounted key) is SQLite (`AI_ROUTER_KEYS_PATH`) on the volume `nivo-engine_ai-router-data`, which `starci app stack backup` includes; losing it resets the counters only, the key itself comes from the secret. Sealed `ai` member: `OPENROUTER_API_KEY`, `STARCI_AI_KEY` (granted to the api).
-
-**One virtual key, mounted from secrets, no bootstrap step.** `STARCI_AI_KEY` (label `nivo`, profiles `work,embed`) is a generated secret in the `ai` member, of the form `sk-starci-nivo-<48 hex>`. The api reads it (file pointer) and passes it to the in-process gateway as a mounted key (`@starci/ai-router` 0.4.0): held in memory, never written to the key store, under a fixed id for quota and usage. The api's AI client sends it; only the gateway holds `OPENROUTER_API_KEY`. A mounted key is revoked only by changing its secret and deploying; the admin API cannot revoke it. Make or rotate it without ever printing it:
-
-```sh
-node -e "process.stdout.write('sk-starci-nivo-'+require('crypto').randomBytes(24).toString('hex'))" | npx starci app secret set production ai STARCI_AI_KEY
-```
-
-then commit and deploy. There is no admin API (no admin token is sealed): usage is read from the app's `ai_usage_events`, and a key changes only by resealing it and deploying.
-
-## Shared ingress and the compose tenants
-
-The Swarm Traefik is the SHARED ingress of the VPS: nivo plus the compose tenants, reached over the attachable overlay `nivo-edge-swarm`. It is a separate stack managed by `starci app stack ingress create|publish` from `environments.production.deploy.ingress`; nivo's routes (`.starcistacks/production/infra/swarm/edge/routes.yml`) are published into the shared dynamic directory as the file nivo.yml, and tenant route files are never touched. The standalone container of `nguyentuannam.org` must join `nivo-edge-swarm` with the alias `namnivo-web`; until then that one host answers 502 and the nivo.vn hosts are not affected. The history of the move from compose to Swarm is `be/docs/runbooks/cutover.md`.
-
-## Cutover to self-hosted Postgres, auth and storage
-
-Production starts on an empty self-hosted PostgreSQL (no earlier data is moved). The `db:*` package scripts call `starci app db` with `--url-env DATABASE_URL`.
+No host scheduler is installed. Scheduled application work belongs to the back-end scheduler or an explicitly declared replicated job.

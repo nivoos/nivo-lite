@@ -1,7 +1,0 @@
-{"data":{},"findings":[],"hash":"45aec9fa567afb0362233014d0dc1a0a0e51903903fb313ed56483d6f4dec3ba","path":"gallery/src/explain.js","step":"file-rules"}
-{"data":{},"findings":[],"hash":"f0aeb655e9ff0194e00128dcf71c2cb9c7bee2221352acbd7e22b82cf7becad7","path":"gallery/src/flowmap.css","step":"file-rules"}
-{"findings":[{"column":0,"line":0,"message":"gallery/src/flowmap.css matches no slot; nearest slot app.gallery (gallery/src/style.css), matched gallery/src then expected style.css","path":"gallery/src/flowmap.css","rule":"HFS_SLOT_UNDECLARED"}],"hash":"91bdcaa17d3dec3bc16317c30ecdeccf65819348fa95a786b70bb51983c032d2","path":"gallery/src/flowmap.css","step":"hfs"}
-{"data":{},"findings":[],"hash":"bb349172f8c23176a5741f1be8fad3b27e26ccda9f3977b23abe1906defc69ea","path":"gallery/src/flowmap.jsx","step":"file-rules"}
-{"findings":[{"column":0,"line":0,"message":"gallery/src/flowmap.jsx matches no slot; nearest slot app.gallery (gallery/src/main.js), matched gallery/src then expected main.js","path":"gallery/src/flowmap.jsx","rule":"HFS_SLOT_UNDECLARED"}],"hash":"15ce1f8b3554af4ca988b95efa4da911880758340fb694c68ac246a187902f7f","path":"gallery/src/flowmap.jsx","step":"hfs"}
-{"data":{},"findings":[],"hash":"bab9ffccc4c478de3a73bec0f542a407d66a729eedea58d19a9ffeddd5f71279","path":"gallery/src/main.js","step":"file-rules"}
-{"data":{},"findings":[],"hash":"25fd96f56a02f99001fbb60ca6eb4e15831925d2b9c0011a0d1ef2a6db8524cb","path":"gallery/src/style.css","step":"file-rules"}

@@ -3,10 +3,10 @@ export interface Principal {
     /** The provider's stable user identifier. */
     readonly id: string
     /** The verified email claim when the provider issued one. */
-    readonly email?: string | undefined
+    readonly email?: string
     /** The authenticated provider role. */
     readonly role: "authenticated"
-    /** The Auth session the token belongs to (the `session_id` claim), when the provider issued one. */
+    /** The device session the access token belongs to, when the token names one. */
     readonly sessionId?: string
 }
 

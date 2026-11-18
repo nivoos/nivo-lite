@@ -1,7 +1,9 @@
 import { Module, type DynamicModule } from "@nestjs/common"
 import { CLOCK, type Clock } from "@modules/platform/clock"
+import { IDS, type Ids } from "@modules/platform/ids"
+import { CorrelationService } from "./correlation.service"
 import { createJsonLogger } from "./json-logger.service"
-import { LOGGER } from "./logging.decorators"
+import { CORRELATION_IDS, CORRELATION_RUNNER, LOGGER } from "./logging.decorators"
 import { ConfigurableModuleClass, OPTIONS_TYPE } from "./logging.module-definition"
 
 @Module({})
@@ -14,14 +16,16 @@ export class LoggingModule extends ConfigurableModuleClass {
             ...base,
             providers: [
                 ...(base.providers ?? []),
+                CorrelationService,
+                { provide: CORRELATION_IDS, useExisting: CorrelationService },
+                { provide: CORRELATION_RUNNER, useExisting: CorrelationService },
                 {
                     provide: LOGGER,
-                    inject: [CLOCK],
-                    useFactory: (clock: Clock) =>
-                        createJsonLogger(clock, options.info === "stderr" ? process.stderr : process.stdout),
+                    inject: [CLOCK, IDS],
+                    useFactory: (clock: Clock, ids: Ids) => createJsonLogger(clock, ids, options),
                 },
             ],
-            exports: [LOGGER],
+            exports: [LOGGER, CORRELATION_IDS, CORRELATION_RUNNER],
         }
     }
 }

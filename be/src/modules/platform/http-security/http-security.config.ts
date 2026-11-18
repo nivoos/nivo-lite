@@ -1,6 +1,6 @@
 import type { EnvSource } from "@modules/platform/config"
-import { isAllowedOrigin } from "./allowed-origin.policy"
 import type { HttpSecurityOptions, WebhookProviderOptions } from "./http-security.options"
+import { validateAllowedOrigins } from "./edge-security.service"
 
 /** Reads one webhook provider's required signing secret and bounded replay window. */
 export const parseWebhookProviderConfig = (env: EnvSource, prefix: string): WebhookProviderOptions => ({
@@ -8,16 +8,17 @@ export const parseWebhookProviderConfig = (env: EnvSource, prefix: string): Webh
     toleranceMs: env.duration(`${prefix}_WEBHOOK_TOLERANCE`, 300_000),
 })
 
-/** Reads canonical origin allowlist entries, zero to two trusted proxy hops (default one), and the rate-limit tunables. */
+/** Reads the http-security options: the origin allowlist is required, the rate limits are tunables with literal defaults. */
 export const parseHttpSecurityConfig = (env: EnvSource): HttpSecurityOptions => {
-    const rawOrigins = env.string("HTTP_SECURITY_ALLOWED_ORIGINS")
-    const allowedOrigins = rawOrigins.split(",").map((origin) => origin.trim())
-    env.enum("HTTP_SECURITY_ALLOWED_ORIGINS", allowedOrigins.every(isAllowedOrigin) ? [rawOrigins] : [])
+    const mode = env.optional("NODE_ENV") ?? "development"
+    const allowHttpOrigins = mode === "development" || mode === "test"
+    const origins = env
+        .string("HTTP_SECURITY_ALLOWED_ORIGINS")
+        .split(",")
+        .map((origin) => origin.trim())
     return {
-        trustedProxyHops: env.has("HTTP_SECURITY_TRUSTED_PROXY_HOPS")
-            ? Number(env.enum("HTTP_SECURITY_TRUSTED_PROXY_HOPS", ["0", "1", "2"]))
-            : 1,
-        allowedOrigins,
+        allowedOrigins: validateAllowedOrigins(origins, allowHttpOrigins),
+        allowHttpOrigins,
         rateLimit: {
             windowMs: env.duration("HTTP_SECURITY_RATE_WINDOW", 60_000),
             defaultLimit: env.int("HTTP_SECURITY_RATE_DEFAULT_LIMIT", 600),

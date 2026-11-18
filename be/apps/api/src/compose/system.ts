@@ -1,6 +1,5 @@
-import type { DynamicModule } from "@nestjs/common"
-import { systemCapabilities } from "./bindings"
-/** The system area of the API, in registration order. */
-export const systemModules = (): Array<DynamicModule> => [
-    ...systemCapabilities(),
-]
+import type { DynamicModule, Type } from "@nestjs/common"
+import { SystemHealthHttpModule } from "@features/api/system-health"
+
+/** The system probes of the app, registered independently of product API doors. */
+export const systemModules = (): Array<Type<unknown> | DynamicModule> => [SystemHealthHttpModule.register({})]

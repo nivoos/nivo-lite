@@ -1,18 +1,15 @@
 {
-  "name": "nivo-gallery",
+  "name": "nivo-lite-gallery",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Screenshot gallery of every NIVO page (before/after each UI fix round), rendered with Vite.",
+  "description": "Screenshot gallery of every page of nivo-lite, a thin config over @starci/gallery.",
   "scripts": {
-    "dev": "vite --port 3150 --strictPort",
+    "dev": "vite --port 4350 --strictPort",
     "build": "vite build"
   },
   "devDependencies": {
-    "@xyflow/react": "^12.12.1",
-    "playwright": "^1.63.0",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3",
+    "@starci/gallery": "0.1.0",
     "vite": "6.3.5"
   }
 }

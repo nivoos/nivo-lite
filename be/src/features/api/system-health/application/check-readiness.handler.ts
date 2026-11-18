@@ -1,20 +1,20 @@
 import { QueryHandler } from "@nestjs/cqrs"
-import { ReadinessService, type ReadinessReport } from "@modules/domain/liveness"
 import { ICQRSHandler } from "@modules/platform/cqrs"
+import { InjectReadiness, type ReadinessReport, type ReadinessService } from "@modules/platform/http-security"
 import { InjectLogger, type Logger } from "@modules/platform/logging"
 import { CheckReadinessQuery } from "./check-readiness.query"
 
 @QueryHandler(CheckReadinessQuery)
-/** Answers the readiness probe after the readiness service checks the required dependencies. */
+/** Answers readiness only after the bounded required-dependency probe succeeds. */
 export class CheckReadinessHandler extends ICQRSHandler<CheckReadinessQuery, ReadinessReport> {
     constructor(
         @InjectLogger() logger: Logger,
-        private readonly readiness: ReadinessService,
+        @InjectReadiness() private readonly readiness: ReadinessService,
     ) {
         super(logger)
     }
 
     protected override process(): Promise<ReadinessReport> {
-        return this.readiness.check()
+        return this.readiness.probeRequired()
     }
 }

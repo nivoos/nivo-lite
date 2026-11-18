@@ -1,6 +1,0 @@
-import { defineConfigurableModule } from "@starci/nest-kit"
-import type { ZaloConnectionPageApiOptions } from "./zalo-connection-page.options"
-
-/** The configurable-module base of the zalo-connection-page module. */
-export const { ConfigurableModuleClass, MODULE_OPTIONS_TOKEN, OPTIONS_TYPE } =
-    defineConfigurableModule<ZaloConnectionPageApiOptions>()

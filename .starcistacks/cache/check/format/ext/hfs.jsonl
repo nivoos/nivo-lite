@@ -1,1 +1,0 @@
-{"findings":[{"column":0,"line":0,"message":"ext/hfs/concept-keys.mjs is not formatted by prettier; run `npm run format`","path":"ext/hfs/concept-keys.mjs","rule":"HFS_FORMAT"}],"hash":"154e0924d3af93db94847d6c24e61f575f43e276059e3cafcc6af1c6f5538da6","path":"ext/hfs/concept-keys.mjs","step":"prettier"}

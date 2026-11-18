@@ -1,4 +1,0 @@
-export { KnowledgeGapsModule } from "./knowledge-gaps.module"
-export { KnowledgeGapsService } from "./knowledge-gaps.service"
-export type { GapRecord, MaybeGapRecorded } from "./knowledge-gaps.contracts"
-export { knowledgeGapsEntities } from "./persistence/entities"

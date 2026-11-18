@@ -1,7 +1,0 @@
-{"findings":[],"hash":"577e0b5b8fdb69b310c79f1c4538726d8a1d84511d4c8a6e7a8649daa123dadb","path":"gallery/.gitignore","step":"prettier"}
-{"findings":[{"column":0,"line":0,"message":"gallery/README.md is not formatted by prettier; run `npm run format`","path":"gallery/README.md","rule":"HFS_FORMAT"}],"hash":"a750d830b796151f6de49653ecd52bbc4d3d1f390a0efe9691fd6c88ad23171d","path":"gallery/README.md","step":"prettier"}
-{"findings":[{"column":0,"line":0,"message":"gallery/flow.html is not formatted by prettier; run `npm run format`","path":"gallery/flow.html","rule":"HFS_FORMAT"}],"hash":"5d4bdde73531ed623ccc381f7335fecf961b4f8996bdb5752f9e11cb07838776","path":"gallery/flow.html","step":"prettier"}
-{"findings":[],"hash":"0b6148c7fb5c825f63a0b96fbaf147a9638761ca0e56df1fdca12f14221656d2","path":"gallery/flows.json","step":"prettier"}
-{"findings":[{"column":0,"line":0,"message":"gallery/index.html is not formatted by prettier; run `npm run format`","path":"gallery/index.html","rule":"HFS_FORMAT"}],"hash":"3d5fdfc976d40741571e31c1230659ed3f9cff74959ed257daf70fc8a96868bc","path":"gallery/index.html","step":"prettier"}
-{"findings":[],"hash":"51e81cb39217afa6893d50c82b13bba54d853e040db51d33672d50036f3d4276","path":"gallery/package.json","step":"prettier"}
-{"findings":[{"column":0,"line":0,"message":"gallery/vite.config.js is not formatted by prettier; run `npm run format`","path":"gallery/vite.config.js","rule":"HFS_FORMAT"}],"hash":"3bc6257439ae9e2783f7b3f11a846d9ceb26a719945a24323220c2edecc875a7","path":"gallery/vite.config.js","step":"prettier"}

@@ -1,7 +1,0 @@
-{"findings":[],"hash":"28d3b9e880a77975493dc7e359144c0295a4f694cfe0af4f928c22307bc5c320","path":"be/base-prod.txt","step":"prettier"}
-{"findings":[],"hash":"75ea5555585f51b7cd57ef98fb2bd67694d57337f7ecb84b6b9b885c16d0c990","path":"be/eslint.config.mjs","step":"prettier"}
-{"findings":[],"hash":"3310b4dc2c33afdf88f5e29c452baa0ad011cf3054e4c1d522e408f8c4ca7db2","path":"be/i18n-dynamic-keys.yaml","step":"prettier"}
-{"findings":[],"hash":"5aa042d03a094391aaf263e0289bb5c81b125841c3c85baf9c568e62c309fa9f","path":"be/jest.config.js","step":"prettier"}
-{"findings":[],"hash":"a31d224c7daa32996877d1b55f41794a0172a7deacb2ff46ddf861f3a88b6131","path":"be/nest-cli.json","step":"prettier"}
-{"findings":[],"hash":"543063d065660243055aecc9ba660ec2194c2ffa8aefa9472579db2c1a0100ca","path":"be/tsconfig.build.json","step":"prettier"}
-{"findings":[],"hash":"8c5c1ef6864461d6669857fb111d121b8e75f9ff0525683132573c8352feb941","path":"be/tsconfig.json","step":"prettier"}
