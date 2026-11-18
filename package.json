@@ -109,8 +109,8 @@
   },
   "scripts": {
     "prepare": "husky",
-    "dev:be:api": "cd be && ts-node-dev --respawn --transpile-only --debounce 1000 --watch src,apps,../packages/agent-sdk/dist,../packages/blocks-core/dist,../packages/nivo-gtm/dist,../packages/nivo-web-core/dist,../packages/plugin-registry/dist -r tsconfig-paths/register apps/api/src/main.ts",
-    "dev:be:mcp": "cd be && ts-node-dev --respawn --transpile-only --debounce 1000 --watch src,apps,../packages/agent-sdk/dist,../packages/blocks-core/dist,../packages/nivo-gtm/dist,../packages/nivo-web-core/dist,../packages/plugin-registry/dist -r tsconfig-paths/register apps/mcp/src/main.ts",
+    "dev:be:api": "cd be && ts-node-dev --respawn --transpile-only --debounce 1000 --watch src,apps,../packages/agent-sdk/dist,../packages/blocks-core/dist,../packages/nivo-web-core/dist,../packages/plugin-registry/dist -r tsconfig-paths/register apps/api/src/main.ts",
+    "dev:be:mcp": "cd be && ts-node-dev --respawn --transpile-only --debounce 1000 --watch src,apps,../packages/agent-sdk/dist,../packages/blocks-core/dist,../packages/nivo-web-core/dist,../packages/plugin-registry/dist -r tsconfig-paths/register apps/mcp/src/main.ts",
     "dev:fe:web": "npm run codegen --silent && turbo run dev --filter=@nivo-lite/web",
     "dev:fe:landing": "npm run codegen --silent && turbo run dev --filter=@nivo-lite/landing",
     "dev:fe:admin": "npm run codegen --silent && turbo run dev --filter=@nivo-lite/admin",

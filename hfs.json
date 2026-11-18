@@ -497,7 +497,14 @@
         }
       ]
     },
-    "packages": {}
+    "packages": {},
+    "nivoos": {
+      "packages": [
+        {
+          "name": "nivo-gtm"
+        }
+      ]
+    }
   },
   "db": {
     "scopeSettings": ["nivo.workspace_id"],

@@ -38,17 +38,10 @@ module.exports = require("@starci/jest-preset").starciJestConfig({
         ],
     },
     packages: {
-        folders: [
-            "packages/agent-sdk",
-            "packages/blocks-core",
-            "packages/nivo-gtm",
-            "packages/nivo-web-core",
-            "packages/plugin-registry",
-        ],
+        folders: ["packages/agent-sdk", "packages/blocks-core", "packages/nivo-web-core", "packages/plugin-registry"],
         files: [
             "packages/agent-sdk/src/**/*.ts",
             "packages/blocks-core/src/**/*.ts",
-            "packages/nivo-gtm/src/**/*.ts",
             "packages/nivo-web-core/src/**/*.ts",
             "packages/plugin-registry/src/**/*.ts",
         ],
@@ -65,9 +58,6 @@ module.exports = require("@starci/jest-preset").starciJestConfig({
             "packages/blocks-core/src/**/*-types.ts",
             "packages/blocks-core/src/**/client/**",
             "packages/blocks-core/src/shared/grammar-tones.d.ts",
-            "packages/nivo-gtm/src/**/index.ts",
-            "packages/nivo-gtm/src/**/*.types.ts",
-            "packages/nivo-gtm/src/**/*-types.ts",
             "packages/nivo-web-core/src/**/index.ts",
             "packages/nivo-web-core/src/**/*.types.ts",
             "packages/nivo-web-core/src/**/*-types.ts",
