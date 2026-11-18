@@ -31,8 +31,16 @@ export class FindLead implements Node<typeof FindLeadInput, typeof LeadRef> {
         const code = leadCodeOf(input.ref)
         const { result, error } = reach.objects(Lead).query({ where: { code }, limit: 1 })
         if (error) throw error
-        const [lead] = result.items
-        if (lead === undefined) return { found: false, leadId: "", code, stage: "", doNotContact: false, nextAction: "" }
-        return { found: true, leadId: lead.id, code, stage: lead.values.stage, doNotContact: lead.values.doNotContact === true, nextAction: lead.values.nextAction ?? "" }
+        const lead = result.items.at(0)
+        if (lead === undefined)
+            return { found: false, leadId: "", code, stage: "", doNotContact: false, nextAction: "" }
+        return {
+            found: true,
+            leadId: lead.id,
+            code,
+            stage: lead.values.stage,
+            doNotContact: lead.values.doNotContact === true,
+            nextAction: lead.values.nextAction ?? "",
+        }
     }
 }

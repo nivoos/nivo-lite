@@ -16,9 +16,8 @@ const PARAMETERS = {
     // 2026-11-18 counts after the CLI bump (every landed engine capability is an error); the gtm-clean lanes lower them to 0.
     "nivo-gtm": {
         ratchet: {
-            "no-as-never": 10,
             "no-hard-wait": 15,
-            "no-query-to-count": 13,
+            "no-query-to-count": 10,
             "no-refusal-data": 2,
             "no-swallow-value-taken": 1,
             "no-throw-error": 1,

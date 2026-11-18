@@ -44,7 +44,7 @@ create index identity_sessions_user_idx on public.identity_sessions (user_id);
 
 create table public.identity_refresh_tokens (
     id uuid primary key default gen_random_uuid(),
-    session_id uuid not null references public.identity_sessions (id) on delete cascade,
+    identity_session_id uuid not null references public.identity_sessions (id) on delete cascade,
     user_id uuid not null,
     token_hash text not null,
     created_at timestamptz not null default now(),
@@ -54,7 +54,7 @@ create table public.identity_refresh_tokens (
     constraint identity_refresh_tokens_hash_key unique (token_hash)
 );
 
-create index identity_refresh_tokens_session_idx on public.identity_refresh_tokens (session_id);
+create index identity_refresh_tokens_session_idx on public.identity_refresh_tokens (identity_session_id);
 create index identity_refresh_tokens_expiry_idx on public.identity_refresh_tokens (user_id, expires_at);
 
 create table public.identity_attempts (

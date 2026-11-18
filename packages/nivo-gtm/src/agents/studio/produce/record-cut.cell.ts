@@ -1,13 +1,18 @@
+import { refOf } from "../../../common/helpers/refs.ts"
 import { z } from "zod"
 import type { Node, NodeReach } from "@starci/nivoos-sdk"
-import type { NivoRef } from "@starci/nivoos-sdk"
 import { Content } from "../../../objects/content.object.ts"
 import { VideoCut } from "../../../objects/video-cut.object.ts"
 import { keyOf } from "../../../package-key.ts"
 import { addHours, clip } from "../common/helpers.ts"
 
-export const RecordCutInput = z.strictObject({ objectId: z.string().min(1), link: z.string().max(2000) })
-export const RecordCutOutput = z.strictObject({ cutId: z.string(), contentId: z.string(), version: z.number().int().min(1), fileLink: z.string().max(500) })
+export const RecordCutInput = z.strictObject({ objectId: z.string().min(1).max(100), link: z.string().max(2000) })
+export const RecordCutOutput = z.strictObject({
+    cutId: z.string().max(100),
+    contentId: z.string().max(100),
+    version: z.number().int().min(1),
+    fileLink: z.string().max(500),
+})
 /** How long a person has to review a cut: it is the next action's due time on the cut. */
 export const RecordCutSettings = z.strictObject({ reviewHours: z.number().int().min(1).max(240).default(48) })
 
@@ -32,7 +37,7 @@ export class StudioRecordCut implements Node<typeof RecordCutInput, typeof Recor
     readonly mutation = "object.create"
 
     run(input: In, reach: NodeReach<Settings>): Out {
-        const got = reach.objects(Content).get(input.objectId as NivoRef<Content>)
+        const got = reach.objects(Content).get(refOf<Content>(input.objectId))
         if (got.error) throw got.error
         const cuts = reach.objects(VideoCut).query({ sort: { by: "createdAt", direction: "desc" }, limit: 200 })
         if (cuts.error) throw cuts.error

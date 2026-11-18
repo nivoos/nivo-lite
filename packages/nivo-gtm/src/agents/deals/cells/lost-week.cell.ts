@@ -33,16 +33,32 @@ export class LostWeek implements Node<typeof LostWeekInput, typeof LostWeekOutpu
 
     run(_input: In, reach: NodeReach<Settings>): Out {
         const limit = reach.settings.limit
-        const deals = reach.objects(Deal).query({ where: { status: "lost" }, sort: { by: "updatedAt", direction: "desc" }, limit })
+        const deals = reach
+            .objects(Deal)
+            .query({ where: { status: "lost" }, sort: { by: "updatedAt", direction: "desc" }, limit })
         if (deals.error) throw deals.error
-        const cold = reach.objects(Lead).query({ where: { stage: "cold" }, sort: { by: "updatedAt", direction: "desc" }, limit })
+        const cold = reach
+            .objects(Lead)
+            .query({ where: { stage: "cold" }, sort: { by: "updatedAt", direction: "desc" }, limit })
         if (cold.error) throw cold.error
-        const lost = reach.objects(Lead).query({ where: { stage: "lost" }, sort: { by: "updatedAt", direction: "desc" }, limit })
+        const lost = reach
+            .objects(Lead)
+            .query({ where: { stage: "lost" }, sort: { by: "updatedAt", direction: "desc" }, limit })
         if (lost.error) throw lost.error
-        const lines: string[] = []
-        for (const item of deals.result.items) lines.push(`Đơn mất ${item.values.code}: ${item.values.nextAction ?? item.values.evidence ?? "không ghi lý do"}`)
-        for (const item of lost.result.items) lines.push(`Khách mất ${item.values.code}: ${item.values.lostReason ?? "không ghi lý do"}`)
-        for (const item of cold.result.items) lines.push(`Khách nguội ${item.values.code}: ${item.values.nextAction ?? "chưa có việc tiếp theo"}`)
-        return { lostDeals: deals.result.items.length, coldLeads: cold.result.items.length, lostLeads: lost.result.items.length, lines: lines.slice(0, 60) }
+        const lines: Array<string> = []
+        for (const item of deals.result.items)
+            lines.push(
+                `Đơn mất ${item.values.code}: ${item.values.nextAction ?? item.values.evidence ?? "không ghi lý do"}`,
+            )
+        for (const item of lost.result.items)
+            lines.push(`Khách mất ${item.values.code}: ${item.values.lostReason ?? "không ghi lý do"}`)
+        for (const item of cold.result.items)
+            lines.push(`Khách nguội ${item.values.code}: ${item.values.nextAction ?? "chưa có việc tiếp theo"}`)
+        return {
+            lostDeals: deals.result.items.length,
+            coldLeads: cold.result.items.length,
+            lostLeads: lost.result.items.length,
+            lines: lines.slice(0, 60),
+        }
     }
 }

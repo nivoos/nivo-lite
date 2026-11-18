@@ -3,11 +3,27 @@ import type { Node, NodeReach } from "@starci/nivoos-sdk"
 import { Publication } from "../../../objects/publication.object.ts"
 import { keyOf } from "../../../package-key.ts"
 
-export const PullInput = z.strictObject({ instant: z.string().min(10) })
-const Item = z.strictObject({ id: z.string(), channel: z.string().max(20), at: z.string().max(40), views: z.number().int(), reach: z.number().int(), engagements: z.number().int(), clicks: z.number().int(), leads: z.number().int() })
-const Totals = z.strictObject({ publications: z.number().int(), views: z.number().int(), reach: z.number().int(), engagements: z.number().int(), clicks: z.number().int(), leads: z.number().int() })
+export const PullInput = z.strictObject({ instant: z.string().max(40).min(10) })
+const Item = z.strictObject({
+    id: z.string().max(80),
+    channel: z.string().max(20),
+    at: z.string().max(40),
+    views: z.number().int(),
+    reach: z.number().int(),
+    engagements: z.number().int(),
+    clicks: z.number().int(),
+    leads: z.number().int(),
+})
+const Totals = z.strictObject({
+    publications: z.number().int(),
+    views: z.number().int(),
+    reach: z.number().int(),
+    engagements: z.number().int(),
+    clicks: z.number().int(),
+    leads: z.number().int(),
+})
 export const PullOutput = z.strictObject({
-    instant: z.string(),
+    instant: z.string().max(40),
     source: z.literal("objects"),
     isMonday: z.boolean(),
     items: z.array(Item).max(60),
@@ -34,7 +50,9 @@ export class SocialPull implements Node<typeof PullInput, typeof PullOutput, typ
     readonly reads = ["object.query"]
 
     run(input: In, reach: NodeReach<Settings>): Out {
-        const found = reach.objects(Publication).query({ where: { status: "published" }, sort: { by: "at", direction: "desc" }, limit: 60 })
+        const found = reach
+            .objects(Publication)
+            .query({ where: { status: "published" }, sort: { by: "at", direction: "desc" }, limit: 60 })
         if (found.error) throw found.error
         const since = new Date(Date.parse(input.instant) - reach.settings.metricDays * 86_400_000).toISOString()
         const items = found.result.items
@@ -49,13 +67,21 @@ export class SocialPull implements Node<typeof PullInput, typeof PullOutput, typ
                 clicks: item.values.clicks ?? 0,
                 leads: item.values.leads ?? 0,
             }))
-        const sum = (pick: (item: (typeof items)[number]) => number): number => items.reduce((total, item) => total + pick(item), 0)
+        const sum = (pick: (item: (typeof items)[number]) => number): number =>
+            items.reduce((total, item) => total + pick(item), 0)
         return {
             instant: input.instant,
             source: "objects",
             isMonday: new Date(Date.parse(input.instant) + 7 * 3_600_000).getUTCDay() === 1,
             items,
-            totals: { publications: items.length, views: sum((item) => item.views), reach: sum((item) => item.reach), engagements: sum((item) => item.engagements), clicks: sum((item) => item.clicks), leads: sum((item) => item.leads) },
+            totals: {
+                publications: items.length,
+                views: sum((item) => item.views),
+                reach: sum((item) => item.reach),
+                engagements: sum((item) => item.engagements),
+                clicks: sum((item) => item.clicks),
+                leads: sum((item) => item.leads),
+            },
         }
     }
 }
