@@ -1,0 +1,6 @@
+{"data":{},"findings":[],"hash":"70e0268ff7eea43abaab5d032b75684b7639e7ef152559f72e87c3e38a52fdbe","path":"gallery/pages/auth/confirm/explain.md","step":"file-rules"}
+{"data":{},"findings":[],"hash":"5b78bcd165cd5323cd9542a7c9b215fdbf849b5721cc1abd6e4e1e52931a5785","path":"gallery/pages/auth/forgot/explain.md","step":"file-rules"}
+{"data":{},"findings":[],"hash":"08ee8eb2a15972dddcdee449a975004b5d89f7de59c14f3b06b913445241e417","path":"gallery/pages/auth/resend/explain.md","step":"file-rules"}
+{"data":{},"findings":[],"hash":"8c5310b9cff421eba712c802dcd1b0debd88d15a0bdb06968aa75216d6e3bd74","path":"gallery/pages/auth/reset/explain.md","step":"file-rules"}
+{"data":{},"findings":[],"hash":"987d5949f241c75a7c83f61640a9bc3f892e3e32558048b883c57e232903a333","path":"gallery/pages/auth/signup/explain.md","step":"file-rules"}
+{"data":{},"findings":[],"hash":"acca882143129a6c2f07eb78047901da8ec65a73cc97a860839a8d5b8748b401","path":"gallery/pages/home/front-door/explain.md","step":"file-rules"}

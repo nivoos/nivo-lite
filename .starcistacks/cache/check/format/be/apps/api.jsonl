@@ -1,0 +1,11 @@
+{"findings":[],"hash":"a9da0ce131b9b2a605f51e2ffd2d4a98779442ce5a109796ab80cd44978c7cbe","path":"be/apps/api/Dockerfile","step":"prettier"}
+{"findings":[],"hash":"b89224f31937c580c2227235377e93f741c634f160c9c5c1bb453af82605cfa0","path":"be/apps/api/src/api.env.ts","step":"prettier"}
+{"findings":[],"hash":"7e3a734a97811f36aa01db2e016ccb19aad31b3da0c6fbd00db06ddbf3103a7d","path":"be/apps/api/src/api.options.ts","step":"prettier"}
+{"findings":[],"hash":"c0e409d15dec23ec31e43ad39f76c3a243dd52ce902f9c8d6e648e88846cf8a8","path":"be/apps/api/src/app.module.ts","step":"prettier"}
+{"findings":[],"hash":"2b4c0cd38cc046c58a65a56e3fa0443a8aee3625d98fc4c476fa6df97f621d77","path":"be/apps/api/src/compose/api.ts","step":"prettier"}
+{"findings":[],"hash":"cac11a9d350f4a03b7819c00bdec97db134fe72f748c15410b5aedfca569b3f1","path":"be/apps/api/src/compose/domain.ts","step":"prettier"}
+{"findings":[],"hash":"6f89dffb099b41f5965b1569c319e05dc23d38d6b307ecc735087c1980890570","path":"be/apps/api/src/compose/integrations.ts","step":"prettier"}
+{"findings":[],"hash":"bf687b0554cac1ee8018f6bc0afda9a608a827e30c7a50bc2b21f13cb1ddba63","path":"be/apps/api/src/compose/platform.ts","step":"prettier"}
+{"findings":[],"hash":"9f44a9503d8304006ff579dddf6c12f232aa5905f347a30bd37b4e379cee962c","path":"be/apps/api/src/compose/system.ts","step":"prettier"}
+{"findings":[],"hash":"102d10f3fea308958a2a2d07f1acf426ba3006a44964ed4b509b1298653e4793","path":"be/apps/api/src/compose/webhooks.ts","step":"prettier"}
+{"findings":[],"hash":"cc5b113f9fa8007a8b2033fc5e177c21760d77947cffcbed3372ef98584b2e3e","path":"be/apps/api/src/main.ts","step":"prettier"}

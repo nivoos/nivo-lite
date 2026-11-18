@@ -1,0 +1,4 @@
+{"data":{},"findings":[],"hash":"4208e4a33dd652112e35240abafdcdd99b0de65b1de09eb2edb57b7b2b8d0bdc","path":"gallery/README.md","step":"file-rules"}
+{"data":{},"findings":[],"hash":"6e1cd71cb591a007d6b9c56ee1d845e7bdd0431777abbfd75136bd1091b3bc8c","path":"gallery/index.html","step":"file-rules"}
+{"data":{},"findings":[],"hash":"0cc6c4875ab73797b25f2b21cfa4447bb442a71f85916987f6d9045316389000","path":"gallery/package.json","step":"file-rules"}
+{"data":{},"findings":[],"hash":"eadf7764bedc011ee04656830a85239e4f777afa741d7d893cd2a7d8819f3722","path":"gallery/vite.config.js","step":"file-rules"}

@@ -1,0 +1,2 @@
+{"data":{},"findings":[],"hash":"60b319259a87282200a8070e99fab494bcdf6c2473fa88c3fc9f78ce5152da36","path":"db/migrations/20261118093000_initial.sql","step":"file-rules"}
+{"findings":[],"hash":"077b9847b01ade796f0fc0c96e9f2a559b1f179c143919b23605ab87a8260477","path":"db/migrations/20261118093000_initial.sql","step":"unit:recurring-observations"}
