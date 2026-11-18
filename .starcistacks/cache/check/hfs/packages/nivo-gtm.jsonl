@@ -1,7 +1,7 @@
 {"data":{},"findings":[],"hash":"b23ff327c7c6a939b645e0c17c461aebd91b06bb88b1d75c3ea2acf995163108","path":"packages/nivo-gtm/.gitignore","step":"file-rules"}
 {"data":{},"findings":[],"hash":"8bc1b342f88eec47eff97cfd9a22e76053faa6341014224e6709a2643f128773","path":"packages/nivo-gtm/.sops.yaml","step":"file-rules"}
 {"data":{},"findings":[],"hash":"a2b33fcb6375e2bfd840675bb60821d2789cab22de57c27b753f0e66bc66f498","path":"packages/nivo-gtm/dev/deploy.mjs","step":"file-rules"}
-{"data":{},"findings":[],"hash":"104fc61d8f329261687e087da9225897373bb95f88c0b46eb6db5e657bfe8e8a","path":"packages/nivo-gtm/package.json","step":"file-rules"}
+{"data":{},"findings":[],"hash":"ca17039ad60744c201ec55a929878aa08688631f18a05f15cf36af361b634194","path":"packages/nivo-gtm/package.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"76b01c9b975e2709aeb0b9be8f8e0bdc24b7527233c71a168a4691668ba0e801","path":"packages/nivo-gtm/secrets.env.template","step":"file-rules"}
 {"data":{},"findings":[],"hash":"bee12c75347541be880826dc2fcc77d5fd75d227b4fda9a3b1a2f20100632d5a","path":"packages/nivo-gtm/seed/nivo-gtm@0.1.0.json","step":"file-rules"}
 {"data":{},"findings":[],"hash":"381924a30d629f9cf9d10b76d34f5de4259cba2e59296f1ace14246650d99a22","path":"packages/nivo-gtm/src/accounts/drive-marketing.account.ts","step":"file-rules"}
@@ -482,6 +482,3 @@
 {"data":{},"findings":[],"hash":"2a0ce94f61ae51daef04323f8c6df57a9252cecc234828f53bb84626160a9dbf","path":"packages/nivo-gtm/src/objects/video-cut.object.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"65f3eb6429c0e6b6903c9eb355aa859625d05f46510e4660153efb38ddea9369","path":"packages/nivo-gtm/src/package-key.ts","step":"file-rules"}
 {"data":{},"findings":[],"hash":"780aebc5cd4706145f5ab3ba26cd109c59eff87704c8d5397de89a792476570f","path":"packages/nivo-gtm/tsconfig.json","step":"file-rules"}
-{"data":{},"findings":[],"hash":"0f4b8c2c3157dfee072c3c0a2985748fac84333243651924540325fd480931cd","path":"packages/nivo-gtm/vendor/starci-nivoos-cli-0.1.0.tgz","step":"file-rules"}
-{"data":{},"findings":[],"hash":"48a93ea1f8cc4a8fc3e3ca73b0ef4d207e9870fbcde31cf5fa79906975a623b3","path":"packages/nivo-gtm/vendor/starci-nivoos-provider-templates-0.1.0.tgz","step":"file-rules"}
-{"data":{},"findings":[],"hash":"eaf426c9c07767e791ae0b467888a44d9abec1bc8c0d5573389c9d4a2c6e0270","path":"packages/nivo-gtm/vendor/starci-nivoos-sdk-0.1.0.tgz","step":"file-rules"}

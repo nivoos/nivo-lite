@@ -1,5 +1,5 @@
 {"findings":[],"hash":"d3df2c98b2a5d4672663a7c30eba713790e2390e0027f44cb01f16b2e330fc5c","path":"packages/nivo-gtm/.gitignore","step":"prettier"}
 {"findings":[],"hash":"018034597d405f7226d79cc6b0766053e2cd222d57ed205e6a4bdc5ad9474fad","path":"packages/nivo-gtm/.sops.yaml","step":"prettier"}
-{"findings":[],"hash":"6fc5cdd8d2903ff02412b1218908940f8f8a841530bc66f830e2d223d9677744","path":"packages/nivo-gtm/package.json","step":"prettier"}
+{"findings":[],"hash":"51a434ff329953084a2c8be40944c21534127cf2721fe2c71b7c02cd6775ce29","path":"packages/nivo-gtm/package.json","step":"prettier"}
 {"findings":[],"hash":"c44d9ba885ae34c5af2dc9a771d2bb730862dc9786b5ff4581823735e85ee38b","path":"packages/nivo-gtm/secrets.env.template","step":"prettier"}
 {"findings":[],"hash":"94871dd560880adefcd66be1807a917c031de64b853f1ea065cec9cbcc82035b","path":"packages/nivo-gtm/tsconfig.json","step":"prettier"}
