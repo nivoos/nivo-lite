@@ -1,4 +1,3 @@
--- starci:baseline 20261115230000
 do $$
 begin
     if not exists (select 1 from pg_catalog.pg_roles where rolname = 'app_be') then

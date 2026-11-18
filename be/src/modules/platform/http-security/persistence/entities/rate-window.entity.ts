@@ -1,7 +1,7 @@
 import { Column, Entity, PrimaryColumn } from "typeorm"
 
 @Entity({ schema: "public", name: "http_security_rate_windows" })
-/** One rate limit window of one caller and tier, mapped from public.http_security_rate_windows of the baseline migration in db/migrations. */
+/** One rate limit window of one caller and tier, mapped from public.http_security_rate_windows of the initial migration in db/migrations. */
 export class RateWindowEntity {
     /** The row id; the database default writes it, the natural key below is unique. */
     @PrimaryColumn({ name: "id", type: "uuid", default: () => "gen_random_uuid()" })
